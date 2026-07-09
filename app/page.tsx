@@ -11,8 +11,8 @@ export default async function Home() {
         <p className="text-sm font-semibold uppercase tracking-[0.35em] text-sky-200">Artifact Library</p>
         <div className="mt-5 grid gap-6 md:grid-cols-[1fr_auto] md:items-end">
           <div>
-            <h1 className="text-4xl font-black tracking-tight sm:text-6xl">Find, copy, and fork workday assets fast.</h1>
-            <p className="mt-4 max-w-2xl text-lg leading-8 text-slate-200">Reusable prompts, agents, snippets, templates, and app ideas stored as Markdown/YAML files in your repo.</p>
+            <h1 className="text-3xl font-black tracking-tight sm:text-5xl">Find, copy, and fork workday assets fast.</h1>
+            <p className="mt-3 max-w-xl text-base leading-7 text-slate-200">Reusable prompts, agents, snippets, templates, and app ideas backed by swappable storage.</p>
           </div>
           <div className="grid grid-cols-2 gap-3 text-center sm:grid-cols-3 md:grid-cols-1">
             <div className="rounded-2xl bg-white/10 p-4"><strong className="block text-3xl">{artifacts.length}</strong><span className="text-sm text-slate-200">total</span></div>
