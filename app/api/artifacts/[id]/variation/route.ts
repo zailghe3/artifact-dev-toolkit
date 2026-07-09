@@ -19,6 +19,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: payload.error.flatten().fieldErrors }, { status: 400 });
   }
 
-  const variationId = await createVariation(source, payload.data.body, payload.data.title);
-  return NextResponse.json({ id: variationId }, { status: 201 });
+  try {
+    const variationId = await createVariation(source, payload.data.body, payload.data.title);
+    return NextResponse.json({ id: variationId }, { status: 201 });
+  } catch (error) {
+    return NextResponse.json({ error: (error as Error).message }, { status: 400 });
+  }
 }
