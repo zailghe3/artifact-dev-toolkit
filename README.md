@@ -83,13 +83,34 @@ The `Auto-merge pull requests` workflow calls `gh pr merge --auto --squash --del
 
 ### Cloudflare publication
 
-`Publish to Cloudflare` runs after commits land on `main` and can also be started manually from the Actions tab. It builds the OpenNext Cloudflare worker and publishes it with Wrangler.
+`Publish to Cloudflare` runs after commits land on `main` and can also be started manually from the Actions tab. It builds the OpenNext Cloudflare worker and publishes it with Wrangler. Wrangler reads Cloudflare credentials from environment variables, so do not hard-code API tokens, account IDs, or other credentials in workflow files, `wrangler.jsonc`, package scripts, or source code.
 
-Add these repository secrets before enabling production publication:
+#### GitHub Actions secrets
 
-- `CLOUDFLARE_API_TOKEN` — a Cloudflare API token with permission to deploy the configured worker.
-- `CLOUDFLARE_ACCOUNT_ID` — the target Cloudflare account ID.
+Before enabling the GitHub Actions production deployment, add these repository or environment secrets in GitHub:
 
-The deployed worker is configured in `wrangler.jsonc`.
+1. Open the repository on GitHub.
+2. Go to **Settings → Secrets and variables → Actions**.
+3. Add a secret named `CLOUDFLARE_API_TOKEN` with a Cloudflare API token that can deploy the configured worker.
+4. Add a secret named `CLOUDFLARE_ACCOUNT_ID` with the target Cloudflare account ID.
+
+The deployment workflow passes those secrets to Wrangler as environment variables only for the publish step:
+
+```yaml
+env:
+  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+```
+
+#### Cloudflare Pages variables
+
+If you deploy through Cloudflare Pages instead of GitHub Actions, configure the same values in Cloudflare rather than committing them to the repository:
+
+1. Open the project in the Cloudflare dashboard.
+2. Go to **Workers & Pages → your Pages project → Settings → Environment variables**.
+3. Add `CLOUDFLARE_API_TOKEN` as a secret environment variable for the environments that run Wrangler deployments.
+4. Add `CLOUDFLARE_ACCOUNT_ID` as an environment variable for the same environments.
+
+The deployed worker is configured in `wrangler.jsonc`, which intentionally contains no API token.
 
 Local file writes for variation creation work in local development. On hosted deployments, runtime filesystem writes are ephemeral/read-only depending on the execution environment, so persist variations by committing generated Markdown files or later adding durable storage.
