@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { getArtifacts, searchArtifacts } from "@/lib/artifacts";
+import { getArtifacts } from "@/lib/artifacts";
+import { searchArtifacts } from "@/lib/search";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);

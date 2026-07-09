@@ -2,7 +2,6 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import matter from "gray-matter";
 import { z } from "zod";
-import { searchArtifacts } from "./search";
 
 const artifactsDir = path.join(process.cwd(), "artifacts");
 
