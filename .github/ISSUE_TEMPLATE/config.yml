@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Discuss an idea before creating an issue
+    url: https://chatgpt.com/
+    about: Refine the objective, scope, user experience, and acceptance criteria before creating an implementation issue.
