@@ -1,0 +1,107 @@
+name: Feature request
+description: Propose a new capability or improvement for the application
+title: "[Feature]: "
+labels:
+  - "type:feature"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for implementation-ready features. Discuss the idea first if the scope or user experience is still unclear.
+
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objective
+      description: What outcome should this change achieve?
+      placeholder: Describe the user or product outcome, not only the technical change.
+    validations:
+      required: true
+
+  - type: textarea
+    id: user-context
+    attributes:
+      label: User context
+      description: Why is this useful, and how will it be used?
+    validations:
+      required: true
+
+  - type: textarea
+    id: current-behaviour
+    attributes:
+      label: Current behaviour
+      description: What does the application do today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: required-behaviour
+    attributes:
+      label: Required behaviour
+      description: Describe the expected behaviour after implementation.
+    validations:
+      required: true
+
+  - type: textarea
+    id: user-experience
+    attributes:
+      label: User experience
+      description: Describe screens, actions, messages, and interaction flow.
+
+  - type: textarea
+    id: functional-requirements
+    attributes:
+      label: Functional requirements
+      description: List the detailed requirements Codex must implement.
+      placeholder: |
+        1. Requirement one
+        2. Requirement two
+        3. Requirement three
+    validations:
+      required: true
+
+  - type: textarea
+    id: technical-considerations
+    attributes:
+      label: Technical considerations
+      description: Note relevant architecture, storage, security, deployment, migration, or compatibility constraints.
+
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      description: State what must deliberately not be included in this issue.
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance criteria
+      description: Provide observable, testable completion criteria.
+      placeholder: |
+        - [ ] Expected behaviour is implemented
+        - [ ] Relevant error and edge cases are handled
+        - [ ] Typecheck and build succeed
+        - [ ] Current application specification is updated to reflect the implemented behaviour
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: implementation-completion
+    attributes:
+      label: Definition of done
+      description: These requirements apply to the implementation pull request.
+      options:
+        - label: The implementation stays within the agreed issue scope.
+          required: true
+        - label: Relevant checks, tests, typechecking, and build validation pass.
+          required: true
+        - label: The current application specification is updated in the same pull request after development, so it describes the implemented behaviour.
+          required: true
+        - label: The pull request links to and closes this issue.
+          required: true
+
+  - type: textarea
+    id: codex-guidance
+    attributes:
+      label: Codex implementation guidance
+      description: Optional instructions for Codex, including files to review or constraints to preserve.
