@@ -1,0 +1,56 @@
+{
+  "requestId": "ops-001-repository-diagnostics",
+  "featureId": "OPS-001",
+  "title": "Add repository configuration diagnostics and operational error handling",
+  "priority": "medium",
+  "objective": "Provide an authenticated diagnostics experience that explains GitHub authentication, repository access, configuration, caching and artifact-loading failures.",
+  "userContext": "The application currently converted a missing production filesystem into a misleading zero-artifact state. As GitHub authentication, private repository access and caching are introduced, the user needs clear diagnostics instead of silent failures.",
+  "currentBehaviour": "Operational failures are inconsistently surfaced. Missing artifact storage can appear as an empty library, and there is no page showing repository configuration, permission state, latest revision or cache status.",
+  "requiredBehaviour": "Authorised users must have access to a diagnostics page that reports the effective GitHub identity, repository configuration, app installation, permissions, latest repository revision, cache state and artifact validation results. User-facing errors must distinguish empty content from authentication, authorisation, configuration and service failures.",
+  "userExperience": "When the library cannot load, the user sees a specific, actionable message. From a protected diagnostics page, the user can understand whether they are signed in, authorised, correctly configured, reading fresh or stale data and encountering invalid artifact files.",
+  "functionalRequirements": [
+    "Add an authenticated diagnostics page.",
+    "Show the signed-in GitHub login.",
+    "Show the configured repository owner, name, branch and artifact root path.",
+    "Show whether the GitHub App installation is detected.",
+    "Show effective read and write permission state.",
+    "Show the latest known repository commit or revision.",
+    "Show last successful artifact refresh.",
+    "Show whether cached content is fresh or stale.",
+    "Show the number of valid and invalid artifacts.",
+    "List invalid artifact files with safe diagnostics.",
+    "Distinguish unauthenticated, unauthorised, repository-not-found, app-not-installed, insufficient-permission, rate-limit and GitHub-unavailable states.",
+    "Replace silent zero-artifact fallback for operational failures.",
+    "Provide recovery guidance where practical.",
+    "Ensure diagnostics do not display access tokens, private keys or secret values."
+  ],
+  "technicalConsiderations": [
+    "Reuse authentication, authorisation, repository and cache services rather than duplicating checks.",
+    "Keep sensitive configuration values masked.",
+    "Use structured internal error types or codes.",
+    "Expose only diagnostics appropriate to an authorised user.",
+    "Ensure errors are observable in Cloudflare logs without leaking secrets."
+  ],
+  "outOfScope": [
+    "Full observability platform integration.",
+    "Automated remediation.",
+    "GitHub App installation management.",
+    "Changing repository permissions from the app.",
+    "Public status pages.",
+    "Detailed GitHub billing or quota analytics."
+  ],
+  "acceptanceCriteria": [
+    "An authorised user can open the diagnostics page.",
+    "The page shows GitHub identity and configured repository details.",
+    "The page reports app installation and effective permissions.",
+    "The page shows repository revision and cache freshness.",
+    "Malformed artifacts are reported without exposing private content unnecessarily.",
+    "Operational failures no longer appear as a misleading empty library.",
+    "Authentication, authorisation, configuration and GitHub service failures have distinct messages.",
+    "Secrets are never shown in diagnostics or logs.",
+    "Relevant tests, type checking and Cloudflare deployment validation pass.",
+    "The current application specification is updated for diagnostics and error behaviour.",
+    "The implementation pull request includes OPS-001 and closes the generated issue."
+  ],
+  "codexGuidance": "Implement after the core authentication and GitHub repository services exist. Prefer a shared typed error model that improves both the diagnostics page and normal library error states."
+}
