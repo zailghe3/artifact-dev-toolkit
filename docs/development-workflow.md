@@ -103,7 +103,21 @@ Do not use the `auto-merge` label on issues. It applies to pull requests only.
 
 ### Automated feature issue requests
 
-Feature issues can also be created from committed JSON request files. Add one JSON file per feature request under:
+Feature issues can also be created from JSON request files, but repository rules require those files to be contributed through pull requests. Direct commits to `main` are not supported and assistants must not try to bypass branch protections.
+
+Supported flow:
+
+```text
+Create branch
+→ add requests/features/pending/<request>.json
+→ open pull request
+→ CI validates
+→ auto-merge merges
+→ main-branch workflow creates issue
+→ request is moved to processed
+```
+
+Add one JSON file per feature request under:
 
 ```text
 requests/features/pending/
@@ -127,14 +141,22 @@ The JSON keys match `.github/ISSUE_TEMPLATE/feature-schema.json`. Use the camelC
 }
 ```
 
-When a pending request JSON file is added and pushed, the `Create feature issues from requests` GitHub Actions workflow validates the issue template, renders the request with the repository renderer, creates a GitHub issue, and moves the request to one of these locations with processing metadata:
+Pull requests that add or modify `requests/features/pending/*.json` run feature-request validation before merge. The validation detects all added or changed pending request files, validates required schema fields, dry-run renders the issue with the canonical renderer, confirms the Codex execution contract and definition of done are present, and does not create issues or move files. You can run the same validation locally for one or more files:
+
+```bash
+npm run issue:validate-request -- requests/features/pending/ui-001-theme-support.json
+```
+
+After the pull request is merged into `main`, the `Create feature issues from requests` workflow processes pending request JSON files that actually reached `main`. It validates the issue template, renders the request with the repository renderer, creates the GitHub issue with the expected labels, records the issue URL and source commit, and moves the request to one of these locations with processing metadata:
 
 ```text
 requests/features/processed/
 requests/features/failed/
 ```
 
-Processed records include the created issue URL. Failed records include the error message so the request can be corrected and recommitted as a new pending JSON file.
+Processed records include the created issue URL. Failed records include the error message so the request can be corrected and submitted through a new pull request as a new pending JSON file. Workflow-generated commits that record processed or failed requests do not create additional issues because issue creation only considers added pending JSON files on `main` and skips requests already recorded as processed.
+
+When an assistant contributes a request on behalf of a user, it should create a branch, commit the JSON file, open a pull request, wait for validation and normal auto-merge, and then use the generated issue URL to launch Codex.
 
 ## 5. Codex implementation launch
 

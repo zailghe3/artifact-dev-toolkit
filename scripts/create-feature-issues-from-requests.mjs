@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync 
 import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { renderFeatureIssue } from './render-feature-issue.mjs';
+import { validateFeatureRequestData } from './feature-request-validation.mjs';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const pendingDir = 'requests/features/pending';
@@ -75,6 +76,12 @@ function moveWithMetadata(sourcePath, targetDir, metadata) {
 function createIssue(requestPath) {
   const absolutePath = resolve(repoRoot, requestPath);
   const data = JSON.parse(readFileSync(absolutePath, 'utf8'));
+  const processedPath = `${processedDir}/${basename(requestPath)}`;
+  if (existsSync(resolve(repoRoot, processedPath))) {
+    console.log(`Skipping ${requestPath}; ${processedPath} already exists.`);
+    return;
+  }
+  validateFeatureRequestData(data);
   const body = renderFeatureIssue(data);
   const bodyPath = resolve(repoRoot, `.feature-issue-body-${timestamp()}.md`);
   writeFileSync(bodyPath, body);
