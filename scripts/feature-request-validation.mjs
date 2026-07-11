@@ -30,6 +30,11 @@ export function validateFeatureRequestData(data) {
     throw new Error('Feature request must be a JSON object.');
   }
 
+  const requestId = String(data.requestId ?? '').trim();
+  if (!requestId) {
+    throw new Error('Missing required orchestration field: requestId.');
+  }
+
   const missing = featureSchema.fields
     .filter((field) => field.required && normalizeBodyValue(valueFor(data, field)).length === 0)
     .map((field) => `${field.key} (${field.id})`);

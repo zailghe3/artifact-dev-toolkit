@@ -4,7 +4,7 @@ Repository: https://github.com/zailghe3/artifact-dev-toolkit
 
 Follow `docs/codex-create-feature-request.md` exactly.
 
-Create a branch, write the pending feature request JSON, validate it, dry-run render it, run relevant checks, open a non-draft pull request, and stop after the pull request is open.
+Create a branch, write the canonical feature request JSON, validate it, dry-run render it, run relevant checks, open a non-draft pull request, and stop after the pull request is open.
 
 Do not implement the feature. Do not create the GitHub issue directly.
 

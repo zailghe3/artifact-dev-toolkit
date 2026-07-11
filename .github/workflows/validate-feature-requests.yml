@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - 'requests/features/pending/*.json'
+      - 'requests/features/*.json'
 
 permissions:
   contents: read
@@ -30,19 +30,19 @@ jobs:
       - name: Validate feature issue tooling
         run: npm run issue:validate
 
-      - name: Identify changed pending feature requests
+      - name: Identify changed feature requests
         id: changed
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          mapfile -t files < <(node scripts/changed-pending-feature-requests.mjs)
+          mapfile -t files < <(node scripts/changed-feature-requests.mjs)
           if [ "${#files[@]}" -eq 0 ]; then
-            echo "No added or modified pending feature request JSON files found."
+            echo "No added or modified feature request JSON files found."
             echo "files=" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          printf 'Changed pending feature request files:\n'
+          printf 'Changed feature request files:\n'
           printf ' - %s\n' "${files[@]}"
           {
             echo 'files<<EOF'

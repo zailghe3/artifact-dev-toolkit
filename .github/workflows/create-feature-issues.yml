@@ -1,26 +1,32 @@
 name: Create feature issues from requests
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'requests/features/pending/*.json'
   workflow_dispatch:
     inputs:
       mode:
         description: 'Request selection mode'
         required: true
-        default: 'all-pending'
+        default: 'all'
         type: choice
         options:
-          - all-pending
-          - added
+          - all
+          - changed
+      files:
+        description: 'Optional newline-separated canonical request files for changed mode'
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      mode:
+        required: true
+        type: string
+      files:
+        required: false
+        type: string
 
 permissions:
-  contents: write
+  contents: read
   issues: write
-  pull-requests: write
 
 concurrency:
   group: feature-request-issues-${{ github.ref }}
@@ -47,16 +53,8 @@ jobs:
         run: npm run issue:validate
 
       - name: Create GitHub issues
-        id: create_issues
         env:
           GH_TOKEN: ${{ github.token }}
-          BEFORE_SHA: ${{ github.event.before }}
-          AFTER_SHA: ${{ github.sha }}
-          FEATURE_REQUEST_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'added' }}
+          FEATURE_REQUEST_MODE: ${{ inputs.mode || 'all' }}
+          FEATURE_REQUEST_FILES: ${{ inputs.files }}
         run: node scripts/create-feature-issues-from-requests.mjs
-
-      - name: Open processed request pull requests
-        if: success()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: node scripts/open-feature-request-processing-prs.mjs

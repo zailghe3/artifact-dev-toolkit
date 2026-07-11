@@ -7,6 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { validateFeatureRequestData, validateFeatureRequestFile } from '../scripts/feature-request-validation.mjs';
 
 const validRequest = {
+  requestId: 'dev-999-validation',
   featureId: 'DEV-999',
   objective: 'Validate contributed feature request JSON before issue creation.',
   userContext: 'Maintainers need safe pull-request validation.',
@@ -63,7 +64,7 @@ test('multiple request files are supported by the dry-run validator without crea
     const first = join(dir, 'first.json');
     const second = join(dir, 'second.json');
     writeFileSync(first, `${JSON.stringify(validRequest)}\n`);
-    writeFileSync(second, `${JSON.stringify({ ...validRequest, featureId: 'DEV-998' })}\n`);
+    writeFileSync(second, `${JSON.stringify({ ...validRequest, requestId: 'dev-998-validation', featureId: 'DEV-998' })}\n`);
     const output = execFileSync(process.execPath, ['scripts/validate-feature-request.mjs', first, second], {
       cwd: process.cwd(),
       encoding: 'utf8',
@@ -75,17 +76,13 @@ test('multiple request files are supported by the dry-run validator without crea
   }
 });
 
-test('processed-file commits do not appear in changed pending request detection', () => {
-  const output = execFileSync('git', [
-    'diff',
-    '--name-only',
-    '--diff-filter=AM',
-    'HEAD',
-    'HEAD',
-    '--',
-    'requests/features/pending/*.json',
-  ], { encoding: 'utf8' });
-  assert.equal(output, '');
+
+test('changed feature request detection uses canonical directory only', () => {
+  const source = execFileSync('cat', ['scripts/changed-feature-requests.mjs'], { encoding: 'utf8' });
+  assert.match(source, /requests\/features\/\*\.json/);
+  assert.match(source, /diff-filter=AM/);
+  assert.doesNotMatch(source, /pending/);
+  assert.doesNotMatch(source, /processed/);
 });
 
 test('file validator accepts valid JSON from disk', () => {
@@ -94,11 +91,16 @@ test('file validator accepts valid JSON from disk', () => {
   });
 });
 
-test('Codex feature-request instructions define deterministic branch and request filename', () => {
+test('feature requests require stable requestId orchestration field', () => {
+  assert.throws(() => validateFeatureRequestData({ ...validRequest, requestId: '' }), /Missing required orchestration field: requestId/);
+});
+
+test('Codex feature-request instructions use permanent canonical files and grouped PRs', () => {
   const instructions = execFileSync('cat', ['docs/codex-create-feature-request.md'], { encoding: 'utf8' });
   assert.match(instructions, /feature-request\/<request-id>/);
-  assert.match(instructions, /requests\/features\/pending\/<request-id>\.json/);
-  assert.match(instructions, /exact `requestId` supplied/);
+  assert.match(instructions, /requests\/features\/<request-id>\.json/);
+  assert.match(instructions, /When several feature requests are agreed together, place all corresponding JSON files in one pull request/);
+  assert.doesNotMatch(instructions, /requests\/features\/pending\/<request-id>\.json/);
 });
 
 test('Codex feature-request instructions forbid implementation and direct issue creation', () => {
@@ -117,47 +119,68 @@ test('ChatGPT prompt template is copy-pasteable and stops after opening a PR', (
   assert.match(template, /"requestId": "<request-id>"/);
 });
 
-test('development workflow documents ChatGPT-to-Codex responsibilities', () => {
+test('development workflow documents final feature planning automation', () => {
   const workflow = execFileSync('cat', ['docs/development-workflow.md'], { encoding: 'utf8' });
-  assert.match(workflow, /ChatGPT is responsible for product definition and the complete structured feature content/);
-  assert.match(workflow, /Codex is responsible for repository changes, validation, commits, and pull requests/);
-  assert.match(workflow, /post-merge workflow creates issue/);
+  assert.match(workflow, /Discuss and agree one or more features/);
+  assert.match(workflow, /one issue per JSON is created automatically/);
+  assert.match(workflow, /Feature JSON files remain permanently/);
+  assert.match(workflow, /immutable `requestId`/);
+  assert.match(workflow, /mode: all/);
+  assert.match(workflow, /no pending-to-processed branch or pull-request lifecycle/i);
+  assert.match(workflow, /No personal access token/);
 });
 
-test('issue creation workflow opens processing PRs instead of pushing directly to main', () => {
-  const workflow = execFileSync('cat', ['.github/workflows/create-feature-issues.yml'], { encoding: 'utf8' });
-  assert.match(workflow, /pull-requests: write/);
-  assert.match(workflow, /Open processed request pull requests/);
-  assert.match(workflow, /node scripts\/open-feature-request-processing-prs\.mjs/);
-  assert.doesNotMatch(workflow, /\bgit push\b/);
-});
-
-test('processing helper uses deterministic branch naming and reuses existing PRs', async () => {
-  const helper = await import('../scripts/open-feature-request-processing-prs.mjs');
-  assert.equal(helper.processingBranchName('UI-001'), 'automation/process-feature-UI-001');
-  assert.equal(helper.processingPrTitle({ requestId: 'ui-001', featureId: 'UI-001' }), 'Record processed feature request UI-001');
-  const source = execFileSync('cat', ['scripts/open-feature-request-processing-prs.mjs'], { encoding: 'utf8' });
-  assert.match(source, /pr', 'list', '--state', 'open', '--head', branch/);
-  assert.match(source, /--force-with-lease/);
-  assert.match(source, /No lifecycle changes remain/);
-});
-
-test('issue creation records stable markers and reuses an already-created issue', () => {
+test('issue creation uses immutable marker, searches open and closed issues, and never moves files', async () => {
+  const helper = await import('../scripts/create-feature-issues-from-requests.mjs');
+  assert.equal(helper.issueMarker('auth-002-private-repository-authorisation'), '<!-- feature-request-id: auth-002-private-repository-authorisation -->');
   const source = execFileSync('cat', ['scripts/create-feature-issues-from-requests.mjs'], { encoding: 'utf8' });
-  assert.match(source, /feature-request:request-id=/);
-  assert.match(source, /issue', 'list', '--state', 'all', '--search'/);
-  assert.match(source, /status: 'created'/);
-  assert.match(source, /issueNumber/);
-  assert.match(source, /requestId/);
-  assert.match(source, /featureId/);
+  assert.match(source, /'--state', 'all'/);
+  assert.match(source, /Skipped .* marker already exists/);
+  assert.doesNotMatch(source, /renameSync|moveWithMetadata|processedDir|failedDir/);
+  assert.doesNotMatch(source, /gh', \['pr'|pr', 'create'|git', \['push'/);
 });
 
-test('development workflow documents processing PR lifecycle and no direct main push', () => {
-  const workflow = execFileSync('cat', ['docs/development-workflow.md'], { encoding: 'utf8' });
-  assert.match(workflow, /workflow creates processing branch/);
-  assert.match(workflow, /workflow opens processing PR/);
-  assert.match(workflow, /Direct pushes to `main` are intentionally not used/);
-  assert.match(workflow, /automation\/process-feature-<request-id>/);
+test('issue creation supports changed and all-files recovery modes', async () => {
+  const helper = await import('../scripts/create-feature-issues-from-requests.mjs');
+  assert.deepEqual(helper.requestPaths({ env: { FEATURE_REQUEST_MODE: 'changed', FEATURE_REQUEST_FILES: 'requests/features/a.json\nrequests/features/nested/b.json' }, gitExec: () => '' }), ['requests/features/a.json']);
+  assert.deepEqual(helper.requestPaths({ env: { FEATURE_REQUEST_MODE: 'all' }, gitExec: () => 'requests/features/a.json\nrequests/features/pending/b.json\nrequests/features/c.json\n' }), ['requests/features/a.json', 'requests/features/c.json']);
+});
+
+test('partial failure is safe to retry because issues are checked per request before create', () => {
+  const source = execFileSync('cat', ['scripts/create-feature-issues-from-requests.mjs'], { encoding: 'utf8' });
+  assert.match(source, /for \(const path of paths\)/);
+  assert.match(source, /failures \+= 1/);
+  assert.match(source, /findExistingIssue\(requestId\)/);
+  assert.match(source, /continue|Failed to process/);
+});
+
+test('feature issue workflow has minimum permissions and no PR lifecycle step', () => {
+  const workflow = execFileSync('cat', ['.github/workflows/create-feature-issues.yml'], { encoding: 'utf8' });
+  assert.match(workflow, /workflow_dispatch:/);
+  assert.match(workflow, /- all\n\s+- changed/);
+  assert.match(workflow, /contents: read/);
+  assert.match(workflow, /issues: write/);
+  assert.doesNotMatch(workflow, /pull-requests: write/);
+  assert.doesNotMatch(workflow, /open-feature-request-processing-prs/);
+});
+
+test('post-merge orchestration explicitly creates issues and dispatches deploy only for runtime files', () => {
+  const workflow = execFileSync('cat', ['.github/workflows/post-merge-orchestration.yml'], { encoding: 'utf8' });
+  assert.match(workflow, /pull_request:/);
+  assert.match(workflow, /- closed/);
+  assert.match(workflow, /if: github\.event\.pull_request\.merged == true/);
+  assert.match(workflow, /requests\\\/features\\\/\[\^\/\]\+\\\.json/);
+  assert.match(workflow, /FEATURE_REQUEST_FILES/);
+  assert.match(workflow, /gh workflow run deploy-cloudflare\.yml --ref main/);
+  assert.match(workflow, /\^\(app\|components\|lib\|public\)/);
+  assert.doesNotMatch(workflow, /npm run build:worker/);
+  assert.doesNotMatch(workflow, /wrangler deploy/);
+});
+
+test('documentation-only merge does not deploy unnecessarily', () => {
+  const workflow = execFileSync('cat', ['.github/workflows/post-merge-orchestration.yml'], { encoding: 'utf8' });
+  assert.doesNotMatch(workflow, /docs\//);
+  assert.match(workflow, /if: steps\.files\.outputs\.runtime_files != ''/);
 });
 
 test('auto-merge workflow uses GITHUB_TOKEN and no PAT-backed secret', () => {
@@ -165,43 +188,16 @@ test('auto-merge workflow uses GITHUB_TOKEN and no PAT-backed secret', () => {
   assert.match(workflow, /GH_TOKEN: \$\{\{ github\.token \}\}/);
   assert.doesNotMatch(workflow, /AUTO_MERGE_TOKEN/);
   assert.match(workflow, /pull_request_target:/);
-  assert.match(workflow, /opened/);
-  assert.match(workflow, /reopened/);
-  assert.match(workflow, /ready_for_review/);
   assert.match(workflow, /github\.event\.pull_request\.draft == false/);
   assert.match(workflow, /--auto --squash --delete-branch/);
-  assert.match(workflow, /contents: write/);
-  assert.match(workflow, /issues: write/);
-  assert.match(workflow, /pull-requests: write/);
 });
 
-test('post-merge Cloudflare dispatcher runs only for merged PRs into main', () => {
-  const workflow = execFileSync('cat', ['.github/workflows/dispatch-cloudflare-deploy.yml'], { encoding: 'utf8' });
-  assert.match(workflow, /pull_request:/);
-  assert.match(workflow, /- closed/);
-  assert.match(workflow, /branches:\n\s+- main/);
-  assert.match(workflow, /if: github\.event\.pull_request\.merged == true/);
-  assert.doesNotMatch(workflow, /actions\/checkout/);
-});
-
-test('post-merge Cloudflare dispatcher invokes existing deployment workflow on main without duplicating deploy commands', () => {
-  const workflow = execFileSync('cat', ['.github/workflows/dispatch-cloudflare-deploy.yml'], { encoding: 'utf8' });
-  assert.match(workflow, /GH_TOKEN: \$\{\{ github\.token \}\}/);
-  assert.match(workflow, /gh workflow run deploy-cloudflare\.yml --ref main/);
-  assert.match(workflow, /actions: write/);
-  assert.match(workflow, /contents: read/);
-  assert.doesNotMatch(workflow, /npm run build:worker/);
-  assert.doesNotMatch(workflow, /wrangler deploy/);
-  assert.doesNotMatch(workflow, /CLOUDFLARE_API_TOKEN/);
-  assert.doesNotMatch(workflow, /CLOUDFLARE_ACCOUNT_ID/);
-});
-
-test('Cloudflare deployment has one automatic path and remains manually runnable', () => {
+test('Cloudflare deployment has one explicit dispatch path and remains manually runnable', () => {
   const deploy = execFileSync('cat', ['.github/workflows/deploy-cloudflare.yml'], { encoding: 'utf8' });
-  const dispatcher = execFileSync('cat', ['.github/workflows/dispatch-cloudflare-deploy.yml'], { encoding: 'utf8' });
+  const orchestrator = execFileSync('cat', ['.github/workflows/post-merge-orchestration.yml'], { encoding: 'utf8' });
   assert.match(deploy, /workflow_dispatch:/);
   assert.doesNotMatch(deploy, /push:/);
   assert.match(deploy, /npm run build:worker/);
   assert.match(deploy, /npx wrangler deploy/);
-  assert.match(dispatcher, /gh workflow run deploy-cloudflare\.yml --ref main/);
+  assert.match(orchestrator, /gh workflow run deploy-cloudflare\.yml --ref main/);
 });

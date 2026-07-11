@@ -8,11 +8,11 @@ Use this procedure only when a user gives Codex structured feature-request data 
 2. Read the current feature schema at `.github/ISSUE_TEMPLATE/feature-schema.json` and the workflow at `docs/development-workflow.md` before editing files.
 3. Read `specs/000-current-application-spec.md` to confirm whether the request changes implemented application behaviour. Request creation alone should not require a specification update because it does not implement application behaviour.
 4. Create a new branch named `feature-request/<request-id>`, where `<request-id>` is the exact `requestId` supplied in the structured data.
-5. Create exactly one pending request file named `requests/features/pending/<request-id>.json`.
+5. Create one canonical request file named `requests/features/<request-id>.json`. When several feature requests are agreed together, place all corresponding JSON files in one pull request unless the user explicitly asks for separate PRs.
 6. Preserve the supplied structured feature data without shortening, summarising, replacing, or inventing requirements.
 7. Write only schema-compatible issue fields to the JSON request file. Keep `requestId` available for branch and filename naming, but do not rely on it as a rendered issue field unless the schema adds it later.
 8. Validate the JSON with the repository's current validation tooling.
-9. Run the canonical renderer in dry-run mode with the pending JSON file.
+9. Run the canonical renderer in dry-run mode with the feature JSON file.
 10. Confirm that the rendered output includes the full Codex execution contract and the full definition of done.
 11. Run relevant repository checks for a documentation/request-only change.
 12. Commit the request and supporting documentation-only changes, if any.
@@ -27,23 +27,23 @@ Use this procedure only when a user gives Codex structured feature-request data 
 - Do not create the GitHub issue directly.
 - Do not move files into `requests/features/processed/` or `requests/features/failed/`.
 - Do not weaken validation, branch protection, CI, auto-merge, idempotency, or post-merge issue creation.
-- Let the post-merge workflow create the GitHub issue after the pending request reaches `main`.
+- Let the post-merge workflow create the GitHub issue after the feature request reaches `main`; it will keep the JSON as a permanent design record.
 
 ## Structured input contract
 
-ChatGPT should provide one JSON object in the Codex prompt. Codex must treat the object as the source data for the pending request.
+ChatGPT should provide one or more JSON objects in the Codex prompt. Codex must treat the object as the source data for the feature request.
 
 ### Required orchestration field
 
 | Field | Required | Purpose |
 | --- | --- | --- |
-| `requestId` | Yes | Deterministic branch and file stem. Use `feature-request/<requestId>` and `requests/features/pending/<requestId>.json`. |
+| `requestId` | Yes | Deterministic branch and file stem. Use `feature-request/<requestId>` and `requests/features/<requestId>.json`. |
 
 Use a lowercase, URL-safe `requestId`, for example `ui-001-theme-support`.
 
 ### Current schema-backed issue fields
 
-The pending request JSON must use the camelCase keys from `.github/ISSUE_TEMPLATE/feature-schema.json`:
+The feature request JSON must use the camelCase keys from `.github/ISSUE_TEMPLATE/feature-schema.json`:
 
 | Field | Required by schema | Notes |
 | --- | --- | --- |
@@ -98,8 +98,8 @@ Run these before opening the pull request, replacing `<request-id>` with the sup
 
 ```bash
 npm run issue:validate
-npm run issue:validate-request -- requests/features/pending/<request-id>.json
-npm run issue:render -- requests/features/pending/<request-id>.json > /tmp/<request-id>-feature-issue.md
+npm run issue:validate-request -- requests/features/<request-id>.json
+npm run issue:render -- requests/features/<request-id>.json > /tmp/<request-id>-feature-issue.md
 npm test
 ```
 
