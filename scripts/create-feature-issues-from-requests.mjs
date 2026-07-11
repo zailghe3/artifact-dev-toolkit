@@ -50,9 +50,49 @@ function issueTitle(data) {
   return featureId ? `[${featureId}]: ${compactObjective}` : compactObjective;
 }
 
+const managedLabels = new Map([
+  ['type:feature', { color: '0e8a16', description: 'Feature request' }],
+  ['status:ready-for-codex', { color: 'fbca04', description: 'Ready for Codex implementation' }],
+]);
+
+function labelNamesFor(data) {
+  const configured = Array.isArray(data.labels) ? data.labels : [...managedLabels.keys()];
+  return configured.map((label) => String(label));
+}
+
 function labelsFor(data) {
-  const configured = Array.isArray(data.labels) ? data.labels : ['type:feature', 'status:ready-for-codex'];
-  return configured.flatMap((label) => ['--label', String(label)]);
+  return labelNamesFor(data).flatMap((label) => ['--label', label]);
+}
+
+function ensureManagedLabels(labels) {
+  for (const label of labels) {
+    const definition = managedLabels.get(label);
+    if (!definition) continue;
+
+    try {
+      execFileSync('gh', [
+        'label',
+        'create',
+        label,
+        '--color',
+        definition.color,
+        '--description',
+        definition.description,
+      ], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      console.log(`Created missing GitHub label ${label}.`);
+    } catch (error) {
+      const stderr = String(error.stderr ?? '');
+      if (/already exists/i.test(stderr)) {
+        console.log(`GitHub label ${label} already exists.`);
+        continue;
+      }
+      throw error;
+    }
+  }
 }
 
 function timestamp() {
@@ -82,12 +122,14 @@ function createIssue(requestPath) {
     return;
   }
   validateFeatureRequestData(data);
+  const labels = labelNamesFor(data);
+  ensureManagedLabels(labels);
   const body = renderFeatureIssue(data);
   const bodyPath = resolve(repoRoot, `.feature-issue-body-${timestamp()}.md`);
   writeFileSync(bodyPath, body);
 
   try {
-    const issueUrl = execFileSync('gh', ['issue', 'create', '--title', issueTitle(data), '--body-file', bodyPath, ...labelsFor(data)], {
+    const issueUrl = execFileSync('gh', ['issue', 'create', '--title', issueTitle(data), '--body-file', bodyPath, ...labels.flatMap((label) => ['--label', label])], {
       cwd: repoRoot,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
