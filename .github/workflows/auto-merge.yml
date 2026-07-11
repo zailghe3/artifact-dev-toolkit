@@ -8,7 +8,6 @@ on:
       - ready_for_review
 
 permissions:
-  contents: write
   issues: write
   pull-requests: write
 
@@ -18,14 +17,92 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Check trusted auto-merge eligibility
+        id: eligibility
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$PR_AUTHOR" != "$REPOSITORY_OWNER" ]]; then
+            echo "eligible=false" >> "$GITHUB_OUTPUT"
+            echo "reason=Pull request author '$PR_AUTHOR' is not the repository owner '$REPOSITORY_OWNER'." >> "$GITHUB_OUTPUT"
+            echo "Skipping auto-merge: pull request author is not the repository owner."
+            exit 0
+          fi
+
+          if [[ "$HEAD_REPOSITORY" != "$REPOSITORY" ]]; then
+            echo "eligible=false" >> "$GITHUB_OUTPUT"
+            echo "reason=Pull request branch is from a fork or different repository." >> "$GITHUB_OUTPUT"
+            echo "Skipping auto-merge: pull request branch is from a fork or different repository."
+            exit 0
+          fi
+
+          changed_files="$(mktemp)"
+          gh api --paginate \
+            "repos/${REPOSITORY}/pulls/${PR_NUMBER}/files" \
+            --jq '.[] | {filename, previous_filename, status}' > "$changed_files"
+
+          sensitive_files="$(node --input-type=module - "$changed_files" <<'NODE'
+          import { readFileSync } from 'node:fs';
+
+          const changedFilesPath = process.argv[2];
+          const sensitivePaths = new Set(['package.json', 'package-lock.json', 'wrangler.jsonc']);
+          const isSensitivePath = (path) => {
+            const normalized = String(path ?? '').replace(/^\.\//, '');
+            return normalized.startsWith('.github/workflows/')
+              || normalized.startsWith('.github/actions/')
+              || normalized.startsWith('scripts/')
+              || sensitivePaths.has(normalized)
+              || /^open-next\.config\..+$/.test(normalized);
+          };
+
+          const sensitiveFiles = new Set();
+          for (const line of readFileSync(changedFilesPath, 'utf8').split('\n')) {
+            if (!line.trim()) continue;
+            const file = JSON.parse(line);
+            for (const path of [file.filename, file.previous_filename].filter(Boolean)) {
+              if (isSensitivePath(path)) sensitiveFiles.add(String(path).replace(/^\.\//, ''));
+            }
+          }
+
+          console.log([...sensitiveFiles].join(', '));
+          NODE
+          )"
+
+          if [[ -n "$sensitive_files" ]]; then
+            echo "eligible=false" >> "$GITHUB_OUTPUT"
+            echo "reason=Sensitive file changes require manual review: $sensitive_files" >> "$GITHUB_OUTPUT"
+            echo "Skipping auto-merge: sensitive file changes require manual review: $sensitive_files"
+            exit 0
+          fi
+
+          echo "eligible=true" >> "$GITHUB_OUTPUT"
+          echo "reason=Trusted same-repository pull request contains no sensitive file changes." >> "$GITHUB_OUTPUT"
+          echo "Auto-merge eligibility confirmed for trusted same-repository pull request."
+
       - name: Apply auto-merge label
+        if: steps.eligibility.outputs.eligible == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_URL: ${{ github.event.pull_request.html_url }}
         run: gh pr edit "$PR_URL" --add-label auto-merge
 
       - name: Enable GitHub auto-merge
+        if: steps.eligibility.outputs.eligible == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_URL: ${{ github.event.pull_request.html_url }}
         run: gh pr merge "$PR_URL" --auto --squash --delete-branch
+
+      - name: Report skipped auto-merge
+        if: steps.eligibility.outputs.eligible != 'true'
+        env:
+          SKIP_REASON: ${{ steps.eligibility.outputs.reason }}
+        run: |
+          echo "Auto-merge skipped: $SKIP_REASON"
