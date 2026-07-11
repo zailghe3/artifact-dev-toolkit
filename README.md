@@ -65,7 +65,7 @@ For programmatic feature requests, discuss and agree the product definition with
 
 ## GitHub automation
 
-This repository includes GitHub Actions for pull request validation, optional auto-merge, and Cloudflare publication.
+This repository includes GitHub Actions for pull request validation, optional auto-merge, explicit post-merge deployment dispatch, and Cloudflare publication.
 
 ### Pull request checks
 
@@ -85,11 +85,26 @@ To let GitHub merge a pull request after required checks pass:
 2. Configure branch protection on `main` so the `CI / Typecheck and build` check is required.
 3. Add the `auto-merge` label to a non-draft pull request.
 
-The `Auto-merge pull requests` workflow calls `gh pr merge --auto --squash --delete-branch`, so GitHub performs the merge only after required checks and branch protection rules are satisfied.
+The `Apply label and enable auto-merge` workflow applies the `auto-merge` label and calls `gh pr merge --auto --squash --delete-branch`, so GitHub performs the merge only after required checks and branch protection rules are satisfied. It intentionally uses the repository-provided `GITHUB_TOKEN` because that token is ephemeral and repository-scoped. `AUTO_MERGE_TOKEN` or other personal access token secrets are no longer required for auto-merge; after this change is merged, any unused `AUTO_MERGE_TOKEN` repository secret can be deleted manually from **Settings → Secrets and variables → Actions**.
+
+After GitHub successfully merges a pull request into `main`, `Dispatch Cloudflare deployment` explicitly starts the deployment workflow on `main` with `gh workflow run deploy-cloudflare.yml --ref main`. This replaces reliance on token-generated push events to cascade into deployment. The sequence is:
+
+```text
+PR opened
+→ auto-merge enabled with GITHUB_TOKEN
+→ checks pass
+→ PR merges into main
+→ post-merge dispatcher explicitly starts Cloudflare deployment
+→ deployment workflow builds and publishes current main
+```
 
 ### Cloudflare publication
 
-`Publish to Cloudflare` runs after commits land on `main` and can also be started manually from the Actions tab. It builds the OpenNext Cloudflare worker and publishes it with Wrangler. Wrangler reads Cloudflare credentials from environment variables, so do not hard-code API tokens, account IDs, or other credentials in workflow files, `wrangler.jsonc`, package scripts, or source code.
+`Publish to Cloudflare` is the single source of truth for the Cloudflare build and deployment. It is started automatically by the post-merge dispatcher after a pull request is merged into `main`, and it can also be started manually from the Actions tab with `workflow_dispatch`. Its direct `push` trigger is intentionally disabled to avoid duplicate deployments from both a merge push and an explicit dispatch.
+
+Direct commits to `main` should not be the normal path because repository rules require pull requests. If an exceptional direct commit reaches `main`, start `Publish to Cloudflare` manually from the Actions tab to deploy that commit. Do not weaken branch protection or enable direct pushes for deployment.
+
+`Publish to Cloudflare` builds the OpenNext Cloudflare worker and publishes it with Wrangler. Wrangler reads Cloudflare credentials from environment variables, so do not hard-code API tokens, account IDs, or other credentials in workflow files, `wrangler.jsonc`, package scripts, or source code.
 
 #### GitHub Actions secrets
 

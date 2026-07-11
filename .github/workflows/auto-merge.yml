@@ -20,12 +20,12 @@ jobs:
     steps:
       - name: Apply auto-merge label
         env:
-          GH_TOKEN: ${{ secrets.AUTO_MERGE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           PR_URL: ${{ github.event.pull_request.html_url }}
         run: gh pr edit "$PR_URL" --add-label auto-merge
 
       - name: Enable GitHub auto-merge
         env:
-          GH_TOKEN: ${{ secrets.AUTO_MERGE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           PR_URL: ${{ github.event.pull_request.html_url }}
         run: gh pr merge "$PR_URL" --auto --squash --delete-branch

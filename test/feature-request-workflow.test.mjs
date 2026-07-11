@@ -159,3 +159,49 @@ test('development workflow documents processing PR lifecycle and no direct main 
   assert.match(workflow, /Direct pushes to `main` are intentionally not used/);
   assert.match(workflow, /automation\/process-feature-<request-id>/);
 });
+
+test('auto-merge workflow uses GITHUB_TOKEN and no PAT-backed secret', () => {
+  const workflow = execFileSync('cat', ['.github/workflows/auto-merge.yml'], { encoding: 'utf8' });
+  assert.match(workflow, /GH_TOKEN: \$\{\{ github\.token \}\}/);
+  assert.doesNotMatch(workflow, /AUTO_MERGE_TOKEN/);
+  assert.match(workflow, /pull_request_target:/);
+  assert.match(workflow, /opened/);
+  assert.match(workflow, /reopened/);
+  assert.match(workflow, /ready_for_review/);
+  assert.match(workflow, /github\.event\.pull_request\.draft == false/);
+  assert.match(workflow, /--auto --squash --delete-branch/);
+  assert.match(workflow, /contents: write/);
+  assert.match(workflow, /issues: write/);
+  assert.match(workflow, /pull-requests: write/);
+});
+
+test('post-merge Cloudflare dispatcher runs only for merged PRs into main', () => {
+  const workflow = execFileSync('cat', ['.github/workflows/dispatch-cloudflare-deploy.yml'], { encoding: 'utf8' });
+  assert.match(workflow, /pull_request:/);
+  assert.match(workflow, /- closed/);
+  assert.match(workflow, /branches:\n\s+- main/);
+  assert.match(workflow, /if: github\.event\.pull_request\.merged == true/);
+  assert.doesNotMatch(workflow, /actions\/checkout/);
+});
+
+test('post-merge Cloudflare dispatcher invokes existing deployment workflow on main without duplicating deploy commands', () => {
+  const workflow = execFileSync('cat', ['.github/workflows/dispatch-cloudflare-deploy.yml'], { encoding: 'utf8' });
+  assert.match(workflow, /GH_TOKEN: \$\{\{ github\.token \}\}/);
+  assert.match(workflow, /gh workflow run deploy-cloudflare\.yml --ref main/);
+  assert.match(workflow, /actions: write/);
+  assert.match(workflow, /contents: read/);
+  assert.doesNotMatch(workflow, /npm run build:worker/);
+  assert.doesNotMatch(workflow, /wrangler deploy/);
+  assert.doesNotMatch(workflow, /CLOUDFLARE_API_TOKEN/);
+  assert.doesNotMatch(workflow, /CLOUDFLARE_ACCOUNT_ID/);
+});
+
+test('Cloudflare deployment has one automatic path and remains manually runnable', () => {
+  const deploy = execFileSync('cat', ['.github/workflows/deploy-cloudflare.yml'], { encoding: 'utf8' });
+  const dispatcher = execFileSync('cat', ['.github/workflows/dispatch-cloudflare-deploy.yml'], { encoding: 'utf8' });
+  assert.match(deploy, /workflow_dispatch:/);
+  assert.doesNotMatch(deploy, /push:/);
+  assert.match(deploy, /npm run build:worker/);
+  assert.match(deploy, /npx wrangler deploy/);
+  assert.match(dispatcher, /gh workflow run deploy-cloudflare\.yml --ref main/);
+});
