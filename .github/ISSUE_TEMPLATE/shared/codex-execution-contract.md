@@ -16,4 +16,5 @@ This issue is intended to be a self-sufficient instruction for Codex. When Codex
 - run relevant tests, type checking, and production build validation;
 - open a pull request whose title or summary includes the Feature ID;
 - include a closing reference such as `Closes #<issue-number>`;
+- After opening the pull request, retrieve or inspect the created PR and verify that its body contains an exact closing reference such as `Closes #25`. If it is missing, update the PR body before finishing the task;
 - describe any intentional deviation or unresolved item in the pull request.
