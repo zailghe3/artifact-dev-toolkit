@@ -11,6 +11,29 @@ body:
 
         Assign a Feature ID before implementation using the repository convention, such as `DEV-001`. The Feature ID identifies the product capability independently from the GitHub issue number; the GitHub issue number remains the canonical work-item tracker.
 
+  - type: markdown
+    attributes:
+      value: |
+        ## Codex execution contract
+
+        This issue is intended to be a self-sufficient instruction for Codex. When Codex is launched with the full GitHub issue URL, Codex must:
+
+        - treat the current GitHub issue as the complete implementation contract and single source of truth;
+        - read the complete issue before changing code;
+        - verify that the issue belongs to `zailghe3/artifact-dev-toolkit`;
+        - verify that the issue title, Feature ID, objective, required behaviour, and expected scope are mutually consistent;
+        - briefly restate the understood objective and likely areas of change before implementation;
+        - stop without modifying code if the issue cannot be retrieved, belongs to another repository, is incomplete, or conflicts with the task context;
+        - never substitute another issue, prior task, inferred feature, or remembered requirement;
+        - remain strictly within the stated scope and out-of-scope boundaries;
+        - not implement unrelated improvements;
+        - read `specs/000-current-application-spec.md` before implementation;
+        - update `specs/000-current-application-spec.md` in the same pull request whenever implemented behaviour changes;
+        - run relevant tests, type checking, and production build validation;
+        - open a pull request whose title or summary includes the Feature ID;
+        - include a closing reference such as `Closes #<issue-number>`;
+        - describe any intentional deviation or unresolved item in the pull request.
+
   - type: input
     id: feature-id
     attributes:
@@ -96,28 +119,21 @@ body:
     validations:
       required: true
 
-  - type: markdown
-    attributes:
-      value: |
-        ## Standard implementation requirements
-
-        Codex must treat this issue as the complete scope and source of truth for implementation. The implementation pull request must stay within the agreed scope, update the current application specification when implemented behaviour changes, run relevant validation, and link back to this issue with a closing keyword.
-
-        Do not include unrelated improvements or future roadmap work in the implementation pull request.
-
   - type: checkboxes
     id: implementation-completion
     attributes:
       label: Definition of done
       description: These requirements apply to the implementation pull request.
       options:
-        - label: The implementation stays within the agreed issue scope.
+        - label: The issue acceptance criteria are satisfied.
           required: true
         - label: Relevant checks, tests, typechecking, and build validation pass.
           required: true
-        - label: The current application specification is updated in the same pull request after development, so it describes the implemented behaviour.
+        - label: Security and deployment implications have been considered.
           required: true
-        - label: The pull request links to and closes this issue.
+        - label: The current application specification has been reviewed and updated in the same pull request where required.
+          required: true
+        - label: The pull request includes the Feature ID and a closing reference to this issue.
           required: true
 
   - type: textarea
