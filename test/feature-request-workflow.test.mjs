@@ -93,3 +93,33 @@ test('file validator accepts valid JSON from disk', () => {
     assert.match(validateFeatureRequestFile(file), /DEV-999/);
   });
 });
+
+test('Codex feature-request instructions define deterministic branch and request filename', () => {
+  const instructions = execFileSync('cat', ['docs/codex-create-feature-request.md'], { encoding: 'utf8' });
+  assert.match(instructions, /feature-request\/<request-id>/);
+  assert.match(instructions, /requests\/features\/pending\/<request-id>\.json/);
+  assert.match(instructions, /exact `requestId` supplied/);
+});
+
+test('Codex feature-request instructions forbid implementation and direct issue creation', () => {
+  const instructions = execFileSync('cat', ['docs/codex-create-feature-request.md'], { encoding: 'utf8' });
+  assert.match(instructions, /Do not implement the feature itself\./);
+  assert.match(instructions, /Do not create the GitHub issue directly\./);
+  assert.match(instructions, /Let the post-merge workflow create the GitHub issue/);
+});
+
+test('ChatGPT prompt template is copy-pasteable and stops after opening a PR', () => {
+  const template = execFileSync('cat', ['docs/templates/codex-create-feature-request-prompt.md'], { encoding: 'utf8' });
+  assert.match(template, /https:\/\/github\.com\/zailghe3\/artifact-dev-toolkit/);
+  assert.match(template, /Follow `docs\/codex-create-feature-request\.md` exactly\./);
+  assert.match(template, /open a non-draft pull request, and stop/);
+  assert.match(template, /Do not implement the feature\./);
+  assert.match(template, /"requestId": "<request-id>"/);
+});
+
+test('development workflow documents ChatGPT-to-Codex responsibilities', () => {
+  const workflow = execFileSync('cat', ['docs/development-workflow.md'], { encoding: 'utf8' });
+  assert.match(workflow, /ChatGPT is responsible for product definition and the complete structured feature content/);
+  assert.match(workflow, /Codex is responsible for repository changes, validation, commits, and pull requests/);
+  assert.match(workflow, /post-merge workflow creates issue/);
+});

@@ -59,7 +59,9 @@ To select a future repository backend, use environment configuration such as `AR
 
 ## Development workflow
 
-Feature work uses a stable Feature ID convention documented in `docs/development-workflow.md`. A Feature ID such as `DEV-001` identifies the product capability independently from the GitHub issue number, while the GitHub issue remains the canonical work-item tracker. Feature issues should be self-sufficient implementation contracts for Codex and include objective, context, required behaviour, functional requirements, out-of-scope notes, acceptance criteria, and definition of done.
+Feature work uses a stable Feature ID convention documented in `docs/development-workflow.md`. A Feature ID such as `DEV-001` identifies the product capability independently from the GitHub issue number, while the GitHub issue remains the canonical work-item tracker.
+
+For programmatic feature requests, discuss and agree the product definition with ChatGPT, have ChatGPT produce one complete Codex prompt, and paste that prompt into Codex. Codex should follow `docs/codex-create-feature-request.md`: create `feature-request/<request-id>`, write `requests/features/pending/<request-id>.json`, validate and dry-run render the request, open a non-draft pull request, and stop without implementing the feature or creating the issue directly. The post-merge workflow creates the canonical GitHub issue after the request reaches `main`. A reusable ChatGPT-populated prompt template is available at `docs/templates/codex-create-feature-request-prompt.md`.
 
 ## GitHub automation
 

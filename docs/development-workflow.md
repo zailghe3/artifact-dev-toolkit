@@ -103,19 +103,25 @@ Do not use the `auto-merge` label on issues. It applies to pull requests only.
 
 ### Automated feature issue requests
 
-Feature issues can also be created from JSON request files, but repository rules require those files to be contributed through pull requests. Direct commits to `main` are not supported and assistants must not try to bypass branch protections.
+The supported programmatic feature-request workflow is ChatGPT-to-Codex hand-off. ChatGPT is responsible for product definition and the complete structured feature content. Codex is responsible for repository changes, validation, commits, and pull requests.
 
 Supported flow:
 
 ```text
-Create branch
-→ add requests/features/pending/<request>.json
-→ open pull request
-→ CI validates
-→ auto-merge merges
-→ main-branch workflow creates issue
-→ request is moved to processed
+Discuss feature with ChatGPT
+→ copy one complete feature-creation prompt into Codex
+→ Codex creates branch
+→ Codex writes pending feature JSON
+→ Codex validates and dry-run renders it
+→ Codex opens PR
+→ CI and auto-merge merge it
+→ post-merge workflow creates issue
+→ use issue URL for implementation
 ```
+
+ChatGPT should return one self-contained Codex prompt that includes the structured JSON data. Codex should follow `docs/codex-create-feature-request.md`, create `feature-request/<request-id>`, write `requests/features/pending/<request-id>.json`, run repository validation, open a non-draft pull request, and stop. Codex must not implement the feature and must not create the GitHub issue directly.
+
+Repository rules require pending request files to be contributed through pull requests. Direct commits to `main` are not supported and assistants must not try to bypass branch protections.
 
 Add one JSON file per feature request under:
 
@@ -123,21 +129,32 @@ Add one JSON file per feature request under:
 requests/features/pending/
 ```
 
-The JSON keys match `.github/ISSUE_TEMPLATE/feature-schema.json`. Use the camelCase keys shown in the schema, for example:
+The JSON keys match `.github/ISSUE_TEMPLATE/feature-schema.json`. Use the camelCase keys shown in the schema. Required schema fields are `featureId`, `objective`, `userContext`, `currentBehaviour`, `requiredBehaviour`, `functionalRequirements`, and `acceptanceCriteria`. Optional schema-backed fields are `userExperience`, `technicalConsiderations`, `outOfScope`, and `codexGuidance`. The issue creation script also accepts optional metadata such as `title`, `priority`, and `labels`; only schema-backed fields are rendered into the canonical issue body unless the schema changes.
 
 ```json
 {
-  "featureId": "DEV-001",
+  "requestId": "ui-001-theme-support",
+  "featureId": "UI-001",
+  "title": "Add dark and light themes with theme-specific accents",
+  "priority": "medium",
   "objective": "Describe the implementation-ready outcome.",
   "userContext": "Explain who needs this and why.",
   "currentBehaviour": "Describe the current state.",
   "requiredBehaviour": "Describe the required state.",
+  "userExperience": "Describe the intended experience.",
   "functionalRequirements": [
     "List required behaviours as concrete requirements."
   ],
+  "technicalConsiderations": [
+    "List relevant constraints or risks."
+  ],
+  "outOfScope": [
+    "List explicit boundaries."
+  ],
   "acceptanceCriteria": [
     "List observable criteria that prove the feature is complete."
-  ]
+  ],
+  "codexGuidance": "Give implementation guidance for the later issue-based Codex task."
 }
 ```
 
@@ -156,7 +173,7 @@ requests/features/failed/
 
 Processed records include the created issue URL. Failed records include the error message so the request can be corrected and submitted through a new pull request as a new pending JSON file. Workflow-generated commits that record processed or failed requests do not create additional issues because issue creation only considers added pending JSON files on `main` and skips requests already recorded as processed.
 
-When an assistant contributes a request on behalf of a user, it should create a branch, commit the JSON file, open a pull request, wait for validation and normal auto-merge, and then use the generated issue URL to launch Codex.
+When an assistant contributes a request on behalf of a user, it should create a branch, commit the JSON file, open a pull request, wait for validation and normal auto-merge, and then use the generated issue URL to launch Codex for implementation.
 
 ## 5. Codex implementation launch
 
