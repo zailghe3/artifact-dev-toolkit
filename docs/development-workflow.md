@@ -210,7 +210,11 @@ PR opened
 → deployment workflow builds and publishes current main
 ```
 
-The auto-merge workflow uses the repository-provided `GITHUB_TOKEN` to apply the `auto-merge` label and enable squash auto-merge with branch deletion. This token is ephemeral and repository-scoped, so `AUTO_MERGE_TOKEN` or other personal access token secrets are no longer required. After the deployment-dispatch change is merged, any unused `AUTO_MERGE_TOKEN` repository secret can be deleted manually in GitHub repository settings.
+The auto-merge workflow uses the repository-provided `GITHUB_TOKEN` to apply the `auto-merge` label and enable squash auto-merge with branch deletion. Before taking either write action, it verifies that the pull request author is the repository owner reported by `github.repository_owner`, and that the pull request branch is from this repository rather than a fork. Codex-created pull requests remain eligible when Codex acts through the repository owner GitHub identity. The workflow does not treat an author-supplied `auto-merge` label as authorization.
+
+Auto-merge is limited to low-risk changes. The workflow retrieves the complete pull-request file list with API pagination and skips automatic labeling and auto-merge when a pull request adds, modifies, renames, or deletes sensitive CI/CD or execution-sensitive files: `.github/workflows/**`, `.github/actions/**`, `package.json`, `package-lock.json`, `wrangler.jsonc`, `open-next.config.*`, or `scripts/**`. These skipped pull requests should remain open for normal human review and manual merging.
+
+This token is ephemeral and repository-scoped, so `AUTO_MERGE_TOKEN` or other personal access token secrets are no longer required. After the deployment-dispatch change is merged, any unused `AUTO_MERGE_TOKEN` repository secret can be deleted manually in GitHub repository settings.
 
 The Cloudflare deployment workflow remains manually runnable with `workflow_dispatch`, but it does not run directly on every push to `main`. Instead, after a pull request targeting `main` is closed and actually merged, a dedicated dispatcher workflow calls `gh workflow run deploy-cloudflare.yml --ref main` with the repository `GITHUB_TOKEN`. This makes downstream deployment explicit rather than relying on whether a merge push was created by a token that can trigger more workflows. It also avoids duplicate automatic deployments by keeping a single automatic path: merged pull request → dispatcher → Cloudflare deployment workflow.
 
@@ -245,7 +249,7 @@ Before merging, confirm:
 - the pull request closes the issue;
 - no credentials, secrets, or confidential content were committed.
 
-Use a draft pull request when work is not ready to merge. Use the `auto-merge` label only when the pull request is safe to merge automatically after required checks pass.
+Use a draft pull request when work is not ready to merge. Automatic labeling and auto-merge are reserved for trusted same-repository pull requests authored by the repository owner reported by `github.repository_owner` that do not touch sensitive CI/CD or execution-sensitive paths; all other pull requests should be reviewed and merged manually after required checks pass.
 
 ## 9. Scope management
 
