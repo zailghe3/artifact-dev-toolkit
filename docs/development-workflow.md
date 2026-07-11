@@ -228,6 +228,27 @@ For a behaviour-changing feature, a pull request is incomplete until the specifi
 
 For a bug fix, the specification must be reviewed. Update it when the fix changes documented behaviour or exposes that the previous specification was inaccurate. A purely internal fix may require no text change, but the PR should state that the specification was reviewed.
 
+## Deployment automation
+
+Deployment automation is intentionally split between auto-merge and deployment dispatch:
+
+```text
+PR opened
+→ auto-merge enabled with GITHUB_TOKEN
+→ checks pass
+→ PR merges into main
+→ post-merge dispatcher explicitly starts Cloudflare deployment
+→ deployment workflow builds and publishes current main
+```
+
+The auto-merge workflow uses the repository-provided `GITHUB_TOKEN` to apply the `auto-merge` label and enable squash auto-merge with branch deletion. This token is ephemeral and repository-scoped, so `AUTO_MERGE_TOKEN` or other personal access token secrets are no longer required. After the deployment-dispatch change is merged, any unused `AUTO_MERGE_TOKEN` repository secret can be deleted manually in GitHub repository settings.
+
+The Cloudflare deployment workflow remains manually runnable with `workflow_dispatch`, but it does not run directly on every push to `main`. Instead, after a pull request targeting `main` is closed and actually merged, a dedicated dispatcher workflow calls `gh workflow run deploy-cloudflare.yml --ref main` with the repository `GITHUB_TOKEN`. This makes downstream deployment explicit rather than relying on whether a merge push was created by a token that can trigger more workflows. It also avoids duplicate automatic deployments by keeping a single automatic path: merged pull request → dispatcher → Cloudflare deployment workflow.
+
+Direct commits to `main` are not the expected workflow because repository rules require pull requests. If an exceptional direct commit reaches `main`, use the manual `Publish to Cloudflare` workflow dispatch as the recovery deployment path rather than weakening branch protection.
+
+`specs/000-current-application-spec.md` was reviewed for deployment context; no update is required for this automation-only change because the application behaviour and runtime deployment target are unchanged.
+
 ## 7. Specification maintenance
 
 `specs/000-current-application-spec.md` is the baseline description of the application as it exists now.
