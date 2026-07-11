@@ -1,0 +1,27 @@
+{
+  "contractPath": ".github/ISSUE_TEMPLATE/shared/codex-execution-contract.md",
+  "fields": [
+    { "id": "feature-id", "key": "featureId", "label": "Feature ID", "required": true },
+    { "id": "objective", "key": "objective", "label": "Objective", "required": true },
+    { "id": "user-context", "key": "userContext", "label": "User context", "required": true },
+    { "id": "current-behaviour", "key": "currentBehaviour", "label": "Current behaviour", "required": true },
+    { "id": "required-behaviour", "key": "requiredBehaviour", "label": "Required behaviour", "required": true },
+    { "id": "user-experience", "key": "userExperience", "label": "User experience", "required": false },
+    { "id": "functional-requirements", "key": "functionalRequirements", "label": "Functional requirements", "required": true },
+    { "id": "technical-considerations", "key": "technicalConsiderations", "label": "Technical considerations", "required": false },
+    { "id": "out-of-scope", "key": "outOfScope", "label": "Out of scope", "required": false },
+    { "id": "acceptance-criteria", "key": "acceptanceCriteria", "label": "Acceptance criteria", "required": true },
+    { "id": "codex-guidance", "key": "codexGuidance", "label": "Codex implementation guidance", "required": false }
+  ],
+  "definitionOfDone": {
+    "id": "implementation-completion",
+    "label": "Definition of done",
+    "options": [
+      "The issue acceptance criteria are satisfied.",
+      "Relevant checks, tests, typechecking, and build validation pass.",
+      "Security and deployment implications have been considered.",
+      "The current application specification has been reviewed and updated in the same pull request where required.",
+      "The pull request includes the Feature ID and a closing reference to this issue."
+    ]
+  }
+}

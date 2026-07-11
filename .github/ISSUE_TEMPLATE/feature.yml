@@ -11,6 +11,8 @@ body:
 
         Assign a Feature ID before implementation using the repository convention, such as `DEV-001`. The Feature ID identifies the product capability independently from the GitHub issue number; the GitHub issue number remains the canonical work-item tracker.
 
+  # Keep this block synchronized with .github/ISSUE_TEMPLATE/shared/codex-execution-contract.md.
+  # `npm run issue:validate` detects drift because GitHub issue forms cannot include external Markdown files.
   - type: markdown
     attributes:
       value: |
