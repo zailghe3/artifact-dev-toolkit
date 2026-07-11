@@ -2,6 +2,8 @@ name: Create feature issues from requests
 
 on:
   push:
+    branches:
+      - main
     paths:
       - 'requests/features/pending/*.json'
   workflow_dispatch:
@@ -39,7 +41,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Validate feature issue tooling
         run: npm run issue:validate

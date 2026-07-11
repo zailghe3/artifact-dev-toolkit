@@ -15,7 +15,9 @@
     "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts",
     "issue:render": "node scripts/render-feature-issue.mjs",
     "issue:validate": "node scripts/validate-feature-issue-template.mjs",
-    "issue:create-from-requests": "node scripts/create-feature-issues-from-requests.mjs"
+    "issue:create-from-requests": "node scripts/create-feature-issues-from-requests.mjs",
+    "issue:validate-request": "node scripts/validate-feature-request.mjs",
+    "test": "node --test"
   },
   "dependencies": {
     "gray-matter": "^4.0.3",
