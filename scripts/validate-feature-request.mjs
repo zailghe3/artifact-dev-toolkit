@@ -3,7 +3,7 @@ import { validateFeatureRequestFile } from './feature-request-validation.mjs';
 
 const paths = process.argv.slice(2);
 if (paths.length === 0) {
-  console.error('Usage: npm run issue:validate-request -- requests/features/pending/<request>.json [...]');
+  console.error('Usage: npm run issue:validate-request -- requests/features/<request>.json [...]');
   process.exit(1);
 }
 

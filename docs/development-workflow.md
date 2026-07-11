@@ -105,90 +105,59 @@ Do not use the `auto-merge` label on issues. It applies to pull requests only.
 
 The supported programmatic feature-request workflow is ChatGPT-to-Codex hand-off. ChatGPT is responsible for product definition and the complete structured feature content. Codex is responsible for repository changes, validation, commits, and pull requests.
 
-Supported flow:
+Feature planning flow:
 
 ```text
-Discuss feature with ChatGPT
-→ copy one complete feature-creation prompt into Codex
-→ Codex creates branch
-→ Codex writes pending feature JSON
-→ Codex validates and dry-run renders it
-→ Codex opens PR
-→ CI and auto-merge merge it
-→ post-merge workflow creates issue
-→ use issue URL for implementation
+Discuss and agree one or more features
+→ ChatGPT generates one Codex prompt
+→ Codex creates all feature JSONs in one PR
+→ CI validates
+→ auto-merge
+→ one issue per JSON is created automatically
 ```
 
-ChatGPT should return one self-contained Codex prompt that includes the structured JSON data. Codex should follow `docs/codex-create-feature-request.md`, create `feature-request/<request-id>`, write `requests/features/pending/<request-id>.json`, run repository validation, open a non-draft pull request, and stop. Codex must not implement the feature and must not create the GitHub issue directly.
+Codex should follow `docs/codex-create-feature-request.md`, create `feature-request/<request-id>`, write canonical design records under `requests/features/<request-id>.json`, run repository validation, open a non-draft pull request, and stop. When several feature requests are agreed together, put all of the corresponding JSON files in one pull request unless the user explicitly asks for separate PRs. Codex must not implement the feature and must not create the GitHub issue directly.
 
-Repository rules require pending request files to be contributed through pull requests. Direct commits to `main` are not supported and assistants must not try to bypass branch protections.
+Feature JSON files remain permanently in `requests/features/` as design records. They are not moved to processed or failed folders as workflow state, and there is no pending-to-processed branch or pull-request lifecycle. Legacy files from the previous `pending`, `processed`, and `failed` layout were migrated into the canonical directory without losing request content.
 
-Add one JSON file per feature request under:
+Each request JSON must include an immutable `requestId` matching its file name. The issue renderer prepends a hidden marker such as:
 
-```text
-requests/features/pending/
+```html
+<!-- feature-request-id: ui-001-theme-support -->
 ```
 
-The JSON keys match `.github/ISSUE_TEMPLATE/feature-schema.json`. Use the camelCase keys shown in the schema. Required schema fields are `featureId`, `objective`, `userContext`, `currentBehaviour`, `requiredBehaviour`, `functionalRequirements`, and `acceptanceCriteria`. Optional schema-backed fields are `userExperience`, `technicalConsiderations`, `outOfScope`, and `codexGuidance`. The issue creation script also accepts optional metadata such as `title`, `priority`, and `labels`; only schema-backed fields are rendered into the canonical issue body unless the schema changes.
+Before creating an issue, automation searches open and closed issues for that exact marker. If the marker exists, issue creation is skipped; if it is absent, one new issue is created. Folder state and issue titles are not the source of truth for idempotency.
 
-```json
-{
-  "requestId": "ui-001-theme-support",
-  "featureId": "UI-001",
-  "title": "Add dark and light themes with theme-specific accents",
-  "priority": "medium",
-  "objective": "Describe the implementation-ready outcome.",
-  "userContext": "Explain who needs this and why.",
-  "currentBehaviour": "Describe the current state.",
-  "requiredBehaviour": "Describe the required state.",
-  "userExperience": "Describe the intended experience.",
-  "functionalRequirements": [
-    "List required behaviours as concrete requirements."
-  ],
-  "technicalConsiderations": [
-    "List relevant constraints or risks."
-  ],
-  "outOfScope": [
-    "List explicit boundaries."
-  ],
-  "acceptanceCriteria": [
-    "List observable criteria that prove the feature is complete."
-  ],
-  "codexGuidance": "Give implementation guidance for the later issue-based Codex task."
-}
-```
+Normal post-merge automation processes only canonical feature JSON files added or modified by the merged pull request. Manual recovery is available through the `Create feature issues from requests` workflow with `mode: all`, which scans every canonical request file and relies on immutable markers to avoid duplicates. If issue creation partially fails, successfully created issues remain valid; rerunning skips those markers and retries only missing issues.
 
-Pull requests that add or modify `requests/features/pending/*.json` run feature-request validation before merge. The validation detects all added or changed pending request files, validates required schema fields, dry-run renders the issue with the canonical renderer, confirms the Codex execution contract and definition of done are present, and does not create issues or move files. You can run the same validation locally for one or more files:
+Run local validation for one or more files with:
 
 ```bash
-npm run issue:validate-request -- requests/features/pending/ui-001-theme-support.json
+npm run issue:validate-request -- requests/features/ui-001-theme-support.json
 ```
 
-After the pull request is merged into `main`, the `Create feature issues from requests` workflow processes pending request JSON files that actually reached `main`:
+The post-merge orchestration workflow is explicit because merges performed with the repository `GITHUB_TOKEN` must not rely on suppressed push-event chaining:
 
 ```text
-Feature request PR merged
-→ issue creation workflow creates issue
-→ workflow creates processing branch
-→ workflow opens processing PR
-→ CI and auto-merge merge processing PR
-→ request appears under processed
+Feature-definition PR merged
+→ post-merge orchestration inspects changed files
+→ changed feature JSON files are validated and create issues
 ```
 
-The workflow validates the issue template, renders the request with the repository renderer, creates or reuses the GitHub issue with the expected labels, records the request ID, feature ID, issue number, issue URL, processing timestamp, and source commit, and moves the request to one of these locations with processing metadata:
-
-```text
-requests/features/processed/
-requests/features/failed/
-```
-
-Processed records include the created issue URL. Failed records include the error message so the request can be corrected and submitted through a new pull request as a new pending JSON file. Direct pushes to `main` are intentionally not used because repository rules require changes to `main` to go through pull requests. Instead, the workflow pushes a deterministic `automation/process-feature-<request-id>` branch and opens a normal, non-draft processing pull request that contains only the lifecycle move from `requests/features/pending/` to `requests/features/processed/`. Existing CI and the repository auto-merge workflow then merge that processing pull request.
-
-The processing flow is idempotent. It embeds a stable request marker in created issue bodies, searches for an existing issue before creating one, searches for an existing open processing pull request by deterministic branch name before opening another, and does nothing when the processed state is already merged. Workflow-generated processing pull requests and their merge commits do not create additional issues because issue creation only considers pending request JSON files under `requests/features/pending/` on `main` and skips requests already recorded as processed.
-
-When an assistant contributes a request on behalf of a user, it should create a branch, commit the JSON file, open a pull request, wait for validation and normal auto-merge, and then use the generated issue URL to launch Codex for implementation.
+No personal access token, GitHub App token, direct push to `main`, processing branch, or lifecycle pull request is required.
 
 ## 5. Codex implementation launch
+
+Feature implementation flow:
+
+```text
+Give Codex the full issue URL
+→ Codex implements and opens PR
+→ CI validates
+→ auto-merge
+→ issue closes
+→ Cloudflare deployment runs automatically
+```
 
 Launching Codex for a feature issue should require only three steps:
 
