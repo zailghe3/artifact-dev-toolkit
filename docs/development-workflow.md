@@ -100,19 +100,23 @@ priority:low
 
 Do not use the `auto-merge` label on issues. It applies to pull requests only.
 
-## 5. Codex implementation instructions
+## 5. Codex implementation launch
 
-A typical Codex instruction is:
+Launching Codex for a feature issue should require only three steps:
+
+1. Complete and review the issue.
+2. Mark it ready for Codex.
+3. Give Codex only the full GitHub issue URL.
+
+A typical Codex instruction is now minimal:
 
 ```text
-Implement <FEATURE-ID> from GitHub issue #<number>.
-
-Read specs/000-current-application-spec.md before changing the code.
-Keep the implementation within the agreed issue scope.
-Update the current application specification in the same pull request after development so it describes the implemented behaviour.
-Run the relevant tests, typecheck, and production build checks.
-Open a pull request that links to and closes the issue.
+Implement this issue: https://github.com/zailghe3/artifact-dev-toolkit/issues/<number>
 ```
+
+The feature issue template contains the complete Codex execution contract, including repository verification, issue-as-source-of-truth requirements, scope boundaries, specification maintenance, validation, and pull request closing expectations. No additional implementation prompt should normally be required.
+
+Use the full GitHub issue URL rather than only an issue number. Issue numbers alone are discouraged because they are ambiguous outside a confirmed repository context and make it easier to launch Codex against the wrong repository or work item.
 
 Codex should use the issue as the complete source of truth for scope. Material deviations should be discussed and reflected in the issue before implementation continues.
 
