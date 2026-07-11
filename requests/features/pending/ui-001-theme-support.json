@@ -1,0 +1,62 @@
+{
+  "requestId": "ui-001-theme-support",
+  "featureId": "UI-001",
+  "title": "Add dark and light themes with theme-specific accents",
+  "priority": "medium",
+  "objective": "Add an application-wide theme toggle that allows the user to switch between dark and light mode. Dark mode must be the default. Dark mode must use orange as its primary accent colour, while light mode must retain the existing blue/sky accent colour.",
+  "userContext": "The application is intended for frequent use throughout the working day. A dark default reduces glare and gives the application a distinct visual identity, while a simple persistent toggle allows the user to choose light mode when preferred. The control must remain immediately accessible without interfering with the primary search and artifact workflows.",
+  "currentBehaviour": "The application currently renders only in light mode, declares a light colour scheme, uses a light page background, and uses blue/sky as its main accent colour. Several components contain hard-coded light-theme colours. There is no shared theme toggle and no persisted theme preference.",
+  "requiredBehaviour": "The application must support dark and light themes. Dark mode must be used by default when no saved preference exists. A theme toggle must appear in the top-right corner on every application page. Switching themes must take effect immediately without reloading. The selected theme must be persisted in browser storage and restored on later visits. A saved preference must take precedence over the operating-system colour-scheme preference. Dark mode must use orange as its primary accent colour. Light mode must retain the current blue/sky accent colour. All current pages and controls must remain readable and usable in both themes.",
+  "userExperience": "The toggle should appear in the top-right area of the shared application shell and be available on the library and artifact detail pages. It should use a compact icon-based or icon-plus-label design, clearly indicate the available action or active theme, include an accessible label such as 'Switch to light mode' or 'Switch to dark mode', and support keyboard navigation. The selected theme should be applied early enough to avoid a noticeable flash of the wrong theme during initial page load.",
+  "functionalRequirements": [
+    "Introduce a reusable application-wide theme toggle component.",
+    "Apply the active theme at the root document level.",
+    "Store the selected theme using a stable browser-storage key.",
+    "Default to dark mode when the stored preference is absent or invalid.",
+    "Ensure the implementation works with Next.js server rendering and client hydration.",
+    "Avoid hydration warnings caused by client-only theme state.",
+    "Make the toggle available on all current application pages.",
+    "Use orange accents for dark mode.",
+    "Retain the current blue/sky accents for light mode.",
+    "Update all current components so cards, text, links, buttons, forms, badges, focus states, borders, backgrounds, and selection states remain readable in both themes.",
+    "Provide visible keyboard focus indicators in both themes.",
+    "Preserve all existing artifact search, viewing, copy, and variation functionality."
+  ],
+  "technicalConsiderations": [
+    "Prefer Tailwind's class-based dark-mode approach or an equivalent root-class implementation.",
+    "Keep the implementation lightweight and avoid adding a theme library unless it provides clear value over a small local implementation.",
+    "A short inline initialisation script may be used in the root layout to apply the saved theme before paint.",
+    "Browser storage is sufficient; do not require authentication, cookies, a database, or account-based preferences.",
+    "Avoid duplicating theme state across pages.",
+    "Use shared semantic styling patterns where practical instead of scattering unrelated colour choices.",
+    "Review hard-coded classes such as bg-white, text-slate-*, border-slate-*, bg-sky-*, text-sky-*, focus rings, and page gradients.",
+    "Status badges may retain semantic colours provided they remain accessible in both themes."
+  ],
+  "outOfScope": [
+    "Additional themes beyond dark and light.",
+    "User-selectable accent colours.",
+    "Automatically following operating-system theme changes after the user has saved a preference.",
+    "Synchronising theme preferences between devices.",
+    "Account-based theme preferences.",
+    "Redesigning the page layout or information architecture."
+  ],
+  "acceptanceCriteria": [
+    "A theme toggle is displayed in the top-right corner of the library page.",
+    "The same toggle is available on artifact detail pages.",
+    "A first-time visit displays dark mode by default.",
+    "Dark mode uses orange as its primary accent colour.",
+    "Light mode retains the current blue/sky primary accent colour.",
+    "The user can switch immediately between dark and light mode without reloading.",
+    "Refreshing or reopening the application preserves the selected theme.",
+    "A saved preference takes precedence over the operating-system colour-scheme preference.",
+    "Search, artifact cards, artifact details, copy controls, and variation forms are readable and usable in both themes.",
+    "The toggle has an accessible name and is keyboard operable.",
+    "Focus indicators are visible in both themes.",
+    "Initial page load does not show a significant flash of the wrong theme.",
+    "Existing artifact functionality continues to work.",
+    "Relevant tests, type checking, and production build validation pass.",
+    "specs/000-current-application-spec.md is updated to describe the implemented theme behaviour, default theme, persistence, and theme-specific accent colours.",
+    "The implementation pull request includes UI-001 and closes the generated GitHub issue."
+  ],
+  "codexGuidance": "Read specs/000-current-application-spec.md before implementation. Review the entire current UI rather than styling only the home page. Preserve all existing artifact functionality and Cloudflare deployment behaviour. Prefer a simple first-party implementation. Manually review the library and artifact detail pages in both themes after implementation."
+}
