@@ -164,14 +164,27 @@ Pull requests that add or modify `requests/features/pending/*.json` run feature-
 npm run issue:validate-request -- requests/features/pending/ui-001-theme-support.json
 ```
 
-After the pull request is merged into `main`, the `Create feature issues from requests` workflow processes pending request JSON files that actually reached `main`. It validates the issue template, renders the request with the repository renderer, creates the GitHub issue with the expected labels, records the issue URL and source commit, and moves the request to one of these locations with processing metadata:
+After the pull request is merged into `main`, the `Create feature issues from requests` workflow processes pending request JSON files that actually reached `main`:
+
+```text
+Feature request PR merged
+→ issue creation workflow creates issue
+→ workflow creates processing branch
+→ workflow opens processing PR
+→ CI and auto-merge merge processing PR
+→ request appears under processed
+```
+
+The workflow validates the issue template, renders the request with the repository renderer, creates or reuses the GitHub issue with the expected labels, records the request ID, feature ID, issue number, issue URL, processing timestamp, and source commit, and moves the request to one of these locations with processing metadata:
 
 ```text
 requests/features/processed/
 requests/features/failed/
 ```
 
-Processed records include the created issue URL. Failed records include the error message so the request can be corrected and submitted through a new pull request as a new pending JSON file. Workflow-generated commits that record processed or failed requests do not create additional issues because issue creation only considers added pending JSON files on `main` and skips requests already recorded as processed.
+Processed records include the created issue URL. Failed records include the error message so the request can be corrected and submitted through a new pull request as a new pending JSON file. Direct pushes to `main` are intentionally not used because repository rules require changes to `main` to go through pull requests. Instead, the workflow pushes a deterministic `automation/process-feature-<request-id>` branch and opens a normal, non-draft processing pull request that contains only the lifecycle move from `requests/features/pending/` to `requests/features/processed/`. Existing CI and the repository auto-merge workflow then merge that processing pull request.
+
+The processing flow is idempotent. It embeds a stable request marker in created issue bodies, searches for an existing issue before creating one, searches for an existing open processing pull request by deterministic branch name before opening another, and does nothing when the processed state is already merged. Workflow-generated processing pull requests and their merge commits do not create additional issues because issue creation only considers pending request JSON files under `requests/features/pending/` on `main` and skips requests already recorded as processed.
 
 When an assistant contributes a request on behalf of a user, it should create a branch, commit the JSON file, open a pull request, wait for validation and normal auto-merge, and then use the generated issue URL to launch Codex for implementation.
 

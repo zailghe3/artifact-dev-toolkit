@@ -40,6 +40,19 @@ function requestPaths() {
   return [...new Set(paths)].filter((path) => path.endsWith('.json'));
 }
 
+function requestIdFromPath(path) {
+  return basename(path, '.json');
+}
+
+function issueMarker(requestId) {
+  return `<!-- feature-request:request-id=${requestId} -->`;
+}
+
+function issueNumberFromUrl(issueUrl) {
+  const match = String(issueUrl).match(/\/(\d+)$/);
+  return match ? Number(match[1]) : undefined;
+}
+
 function issueTitle(data) {
   const featureId = String(data.featureId ?? data['feature-id'] ?? '').trim();
   const explicitTitle = String(data.title ?? '').trim();
@@ -113,9 +126,24 @@ function moveWithMetadata(sourcePath, targetDir, metadata) {
   return targetPath;
 }
 
+function findExistingIssue(requestId) {
+  const search = `${issueMarker(requestId)} in:body`;
+  try {
+    const output = execFileSync('gh', ['issue', 'list', '--state', 'all', '--search', search, '--json', 'number,url', '--limit', '1'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim();
+    return JSON.parse(output || '[]')[0];
+  } catch (error) {
+    throw new Error(`Unable to search for existing issue for ${requestId}: ${error.message}`);
+  }
+}
+
 function createIssue(requestPath) {
   const absolutePath = resolve(repoRoot, requestPath);
   const data = JSON.parse(readFileSync(absolutePath, 'utf8'));
+  const requestId = requestIdFromPath(requestPath);
   const processedPath = `${processedDir}/${basename(requestPath)}`;
   if (existsSync(resolve(repoRoot, processedPath))) {
     console.log(`Skipping ${requestPath}; ${processedPath} already exists.`);
@@ -124,24 +152,30 @@ function createIssue(requestPath) {
   validateFeatureRequestData(data);
   const labels = labelNamesFor(data);
   ensureManagedLabels(labels);
-  const body = renderFeatureIssue(data);
+  const body = `${issueMarker(requestId)}\n\n${renderFeatureIssue(data)}`;
   const bodyPath = resolve(repoRoot, `.feature-issue-body-${timestamp()}.md`);
   writeFileSync(bodyPath, body);
 
   try {
-    const issueUrl = execFileSync('gh', ['issue', 'create', '--title', issueTitle(data), '--body-file', bodyPath, ...labels.flatMap((label) => ['--label', label])], {
+    const existingIssue = findExistingIssue(requestId);
+    const issueUrl = existingIssue?.url ?? execFileSync('gh', ['issue', 'create', '--title', issueTitle(data), '--body-file', bodyPath, ...labels.flatMap((label) => ['--label', label])], {
       cwd: repoRoot,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
     }).trim();
+    const issueNumber = existingIssue?.number ?? issueNumberFromUrl(issueUrl);
 
     const processedPath = moveWithMetadata(requestPath, processedDir, {
-      status: 'processed',
+      status: 'created',
+      requestId,
+      featureId: data.featureId ?? data['feature-id'],
+      issueNumber,
       issueUrl,
       processedAt: new Date().toISOString(),
       sourceCommit: process.env.AFTER_SHA || git(['rev-parse', 'HEAD']),
     });
-    console.log(`Created ${issueUrl} from ${requestPath}; moved request to ${processedPath}`);
+    const action = existingIssue ? 'Reused existing issue' : 'Created';
+    console.log(`${action} ${issueUrl} from ${requestPath}; moved request to ${processedPath}`);
   } finally {
     if (existsSync(bodyPath)) rmSync(bodyPath);
   }

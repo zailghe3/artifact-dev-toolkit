@@ -123,3 +123,39 @@ test('development workflow documents ChatGPT-to-Codex responsibilities', () => {
   assert.match(workflow, /Codex is responsible for repository changes, validation, commits, and pull requests/);
   assert.match(workflow, /post-merge workflow creates issue/);
 });
+
+test('issue creation workflow opens processing PRs instead of pushing directly to main', () => {
+  const workflow = execFileSync('cat', ['.github/workflows/create-feature-issues.yml'], { encoding: 'utf8' });
+  assert.match(workflow, /pull-requests: write/);
+  assert.match(workflow, /Open processed request pull requests/);
+  assert.match(workflow, /node scripts\/open-feature-request-processing-prs\.mjs/);
+  assert.doesNotMatch(workflow, /\bgit push\b/);
+});
+
+test('processing helper uses deterministic branch naming and reuses existing PRs', async () => {
+  const helper = await import('../scripts/open-feature-request-processing-prs.mjs');
+  assert.equal(helper.processingBranchName('UI-001'), 'automation/process-feature-UI-001');
+  assert.equal(helper.processingPrTitle({ requestId: 'ui-001', featureId: 'UI-001' }), 'Record processed feature request UI-001');
+  const source = execFileSync('cat', ['scripts/open-feature-request-processing-prs.mjs'], { encoding: 'utf8' });
+  assert.match(source, /pr', 'list', '--state', 'open', '--head', branch/);
+  assert.match(source, /--force-with-lease/);
+  assert.match(source, /No lifecycle changes remain/);
+});
+
+test('issue creation records stable markers and reuses an already-created issue', () => {
+  const source = execFileSync('cat', ['scripts/create-feature-issues-from-requests.mjs'], { encoding: 'utf8' });
+  assert.match(source, /feature-request:request-id=/);
+  assert.match(source, /issue', 'list', '--state', 'all', '--search'/);
+  assert.match(source, /status: 'created'/);
+  assert.match(source, /issueNumber/);
+  assert.match(source, /requestId/);
+  assert.match(source, /featureId/);
+});
+
+test('development workflow documents processing PR lifecycle and no direct main push', () => {
+  const workflow = execFileSync('cat', ['docs/development-workflow.md'], { encoding: 'utf8' });
+  assert.match(workflow, /workflow creates processing branch/);
+  assert.match(workflow, /workflow opens processing PR/);
+  assert.match(workflow, /Direct pushes to `main` are intentionally not used/);
+  assert.match(workflow, /automation\/process-feature-<request-id>/);
+});
