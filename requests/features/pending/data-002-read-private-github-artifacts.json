@@ -1,0 +1,59 @@
+{
+  "requestId": "data-002-read-private-github-artifacts",
+  "featureId": "DATA-002",
+  "title": "Read artifacts from the private GitHub repository",
+  "priority": "high",
+  "objective": "Implement the GitHub-backed artifact repository so the application can list and retrieve Markdown artifacts from the configured private repository.",
+  "userContext": "The deployed Cloudflare Worker cannot read the application repository's local artifacts directory. The artifact library must instead retrieve content from a dedicated private GitHub repository after the user has authenticated and been authorised.",
+  "currentBehaviour": "FileArtifactRepository reads Markdown from the local filesystem. GitHubArtifactRepository exists only as an unimplemented placeholder and throws errors. Production therefore shows zero artifacts.",
+  "requiredBehaviour": "When ARTIFACT_REPOSITORY is configured for GitHub, the application must retrieve artifact Markdown files from the configured private repository and return the same Artifact model currently used by the UI. Existing list, counters, search, detail and copy behaviour must work without UI-specific repository logic.",
+  "userExperience": "After signing in, the user sees all valid artifacts from the configured private repository. Search and counters reflect repository content. Selecting an artifact opens its content, and copying works as before. Repository or parsing failures produce explicit errors rather than silently displaying zero artifacts.",
+  "functionalRequirements": [
+    "Implement GitHubArtifactRepository.list().",
+    "Implement GitHubArtifactRepository.findById().",
+    "Recursively enumerate Markdown files beneath the configured artifact path.",
+    "Retrieve private file contents through authenticated server-side GitHub API calls.",
+    "Parse files using the canonical artifact schema.",
+    "Return the same Artifact shape as FileArtifactRepository.",
+    "Preserve title sorting or document any deliberate ordering change.",
+    "Detect and reject duplicate artifact IDs.",
+    "Report malformed artifacts with file-specific diagnostics.",
+    "Distinguish an empty repository from an unavailable repository.",
+    "Never expose GitHub access tokens to the browser.",
+    "Support configurable repository owner, name, branch and root path.",
+    "Keep FileArtifactRepository available for local development and tests.",
+    "Ensure the existing library, search, detail and copy features work with GitHub-backed data."
+  ],
+  "technicalConsiderations": [
+    "Reuse the repository abstraction rather than adding GitHub logic to pages or components.",
+    "Use authenticated server-side GitHub API requests.",
+    "Account for pagination and nested repository trees.",
+    "Consider using the Git Trees API for efficient recursive enumeration and the Contents or Blob API for file retrieval.",
+    "Validate response sizes and supported encodings.",
+    "Avoid silently converting API or filesystem errors into empty collections.",
+    "Build on DATA-001, AUTH-001 and AUTH-002."
+  ],
+  "outOfScope": [
+    "Creating or editing artifacts.",
+    "Caching artifact content beyond minimal request-level optimisation.",
+    "Supporting multiple storage repositories.",
+    "Offline editing.",
+    "Migration automation for arbitrary existing repositories."
+  ],
+  "acceptanceCriteria": [
+    "The deployed app lists artifacts from the configured private GitHub repository.",
+    "Repository content is available only to authenticated and authorised users.",
+    "Search, counters, detail and copy work with GitHub-backed artifacts.",
+    "Nested Markdown files are discovered.",
+    "Malformed files produce actionable errors.",
+    "Duplicate IDs are detected.",
+    "An empty repository displays a genuine empty state.",
+    "GitHub API failures do not appear as zero artifacts.",
+    "No repository token is sent to the client.",
+    "Local filesystem mode remains available for development.",
+    "Relevant tests, type checking, worker build and production build validation pass.",
+    "The current application specification is updated for GitHub-backed artifact loading.",
+    "The implementation pull request includes DATA-002 and closes the generated issue."
+  ],
+  "codexGuidance": "Implement through GitHubArtifactRepository and shared parsing utilities. Do not add write support or caching beyond what is necessary for correctness."
+}

@@ -1,0 +1,58 @@
+{
+  "requestId": "edit-001-create-and-edit-github-artifacts",
+  "featureId": "EDIT-001",
+  "title": "Create and edit artifacts in the private GitHub repository",
+  "priority": "medium",
+  "objective": "Allow authorised users to create and edit artifact Markdown files through the application, with changes persisted as attributable commits in the private storage repository.",
+  "userContext": "The application should support daily capture and improvement of prompts and other artifacts without requiring the user to open GitHub and edit Markdown manually. GitHub should remain the durable source of truth and version history.",
+  "currentBehaviour": "The application can read artifacts after DATA-002 but cannot persist new or edited content to GitHub. Existing local variation writes rely on an unsupported Worker filesystem.",
+  "requiredBehaviour": "Authorised users must be able to create new artifacts and edit existing artifacts through server-side GitHub API operations. Writes must validate content, protect against conflicts and update the application cache.",
+  "userExperience": "The user can open a form, create or edit an artifact, review validation errors and save it. On success, the application confirms the change and provides a link to the resulting GitHub commit. Concurrent modifications are not silently overwritten.",
+  "functionalRequirements": [
+    "Add createArtifact support to the repository abstraction.",
+    "Add updateArtifact support to the repository abstraction.",
+    "Implement GitHub-backed create and update operations.",
+    "Generate valid Markdown and canonical front matter.",
+    "Validate artifact metadata and content before writing.",
+    "Run existing secret-pattern checks before persistence.",
+    "Require the current GitHub blob or file SHA when updating.",
+    "Detect and reject edit conflicts.",
+    "Create attributable GitHub commits.",
+    "Invalidate the artifact cache after successful writes.",
+    "Provide clear validation, permission, conflict and API error messages.",
+    "Provide a commit URL after successful persistence.",
+    "Restrict write operations to authenticated and authorised users.",
+    "Document required GitHub App write permissions."
+  ],
+  "technicalConsiderations": [
+    "Use minimum GitHub App permission: repository Contents read and write.",
+    "Keep GitHub write tokens server-side.",
+    "Use optimistic concurrency based on file SHA.",
+    "Do not overwrite a production artifact without confirming the exact source revision.",
+    "Preserve repository history and human-readable Markdown.",
+    "Design repository methods so direct commits and future pull-request workflows can coexist."
+  ],
+  "outOfScope": [
+    "Variation-specific workflow.",
+    "Pull-request approval for production artifact changes.",
+    "Bulk import.",
+    "Deleting artifacts.",
+    "Rich text editing.",
+    "Multiple-user roles."
+  ],
+  "acceptanceCriteria": [
+    "An authorised user can create a valid new artifact.",
+    "An authorised user can edit an existing artifact.",
+    "Changes are committed to the configured private repository.",
+    "The resulting commit is attributable and linked in the UI.",
+    "Invalid metadata is rejected before writing.",
+    "Content resembling secrets is rejected.",
+    "Conflicting updates do not silently overwrite newer repository content.",
+    "The artifact cache refreshes after a successful write.",
+    "Unauthorised users cannot write.",
+    "Relevant tests, type checking, worker build and deployment validation pass.",
+    "The current application specification is updated for create and edit behaviour.",
+    "The implementation pull request includes EDIT-001 and closes the generated issue."
+  ],
+  "codexGuidance": "Build on DATA-002, DATA-003 and the existing repository abstraction. Prefer direct commits for this feature; branch and pull-request policy for selected changes belongs in EDIT-002."
+}

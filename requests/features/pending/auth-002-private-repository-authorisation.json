@@ -1,0 +1,54 @@
+{
+  "requestId": "auth-002-private-repository-authorisation",
+  "featureId": "AUTH-002",
+  "title": "Authorise access to the configured private artifact repository",
+  "priority": "high",
+  "objective": "Allow authenticated users into the application only when they are authorised to access the configured private artifact repository through the installed GitHub App.",
+  "userContext": "Signing into GitHub proves identity but does not by itself grant access to the private artifact library. Access should depend on both the GitHub App installation permissions and the signed-in user's access to the exact configured repository.",
+  "currentBehaviour": "AUTH-001 provides authenticated sessions, but there is no repository-specific authorisation check, GitHub App installation verification or repository allowlist.",
+  "requiredBehaviour": "After GitHub authentication, the application must verify that the configured private repository is accessible to both the installed GitHub App and the signed-in user. Users who fail this check must be denied access to artifact content.",
+  "userExperience": "An authorised user enters the library normally. A signed-in but unauthorised user sees a clear access-denied page explaining whether repository access, app installation or configuration is missing, without exposing private artifact data.",
+  "functionalRequirements": [
+    "Define configuration for the allowed repository owner and name.",
+    "Verify the GitHub App is installed with access to the configured repository.",
+    "Verify the signed-in GitHub user has access to the configured repository.",
+    "Ensure access is limited to the exact configured repository.",
+    "Deny application access when either the app or the user lacks repository access.",
+    "Recheck authorisation when a new session starts.",
+    "Handle revoked repository access or uninstalled GitHub App access.",
+    "Provide a clear unauthorised state distinct from unauthenticated state.",
+    "Support an optional allowlist of GitHub logins as defence in depth.",
+    "Protect all artifact pages and APIs with both authentication and repository authorisation.",
+    "Do not leak repository existence or content beyond what is necessary for the access-denied message."
+  ],
+  "technicalConsiderations": [
+    "Prefer GitHub App user access tokens where access is limited by both user and installation permissions.",
+    "Keep user authentication, repository authorisation and repository data access as separate concerns.",
+    "Cache authorisation briefly where appropriate, but do not keep stale access indefinitely.",
+    "Use minimum GitHub App permissions.",
+    "Do not use a broad personal access token."
+  ],
+  "outOfScope": [
+    "Reading artifact files.",
+    "Writing artifact files.",
+    "Supporting multiple repositories.",
+    "Organisation role mapping.",
+    "Custom application roles.",
+    "Inviting users to the repository."
+  ],
+  "acceptanceCriteria": [
+    "A signed-in user without repository access is denied.",
+    "A user with repository access and a valid app installation is authorised.",
+    "Removing user repository access prevents subsequent authorised sessions.",
+    "Removing the GitHub App installation prevents access.",
+    "Only the configured repository is accepted.",
+    "Optional GitHub login allowlisting works when configured.",
+    "Authentication and authorisation failures are clearly distinguished.",
+    "Protected pages and APIs enforce the repository authorisation check.",
+    "No private artifact data is returned to unauthorised users.",
+    "Relevant tests and Cloudflare production build validation pass.",
+    "The current application specification is updated to describe repository-based authorisation.",
+    "The implementation pull request includes AUTH-002 and closes the generated issue."
+  ],
+  "codexGuidance": "Build on AUTH-001. Do not implement artifact repository reading yet. Prefer an explicit authorisation service or policy function that later data and edit APIs can reuse."
+}

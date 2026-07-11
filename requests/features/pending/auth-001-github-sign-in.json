@@ -1,0 +1,57 @@
+{
+  "requestId": "auth-001-github-sign-in",
+  "featureId": "AUTH-001",
+  "title": "Add GitHub sign-in and protect the application",
+  "priority": "high",
+  "objective": "Require users to sign in with GitHub before they can access the artifact library, artifact details or protected application APIs.",
+  "userContext": "The application will expose content stored in a private GitHub repository. Unauthenticated visitors must not be able to see artifact metadata or content. The user needs a simple GitHub-based sign-in experience that works in the Cloudflare-hosted application.",
+  "currentBehaviour": "The application is publicly accessible and has no user authentication, session management, sign-in page or protected routes.",
+  "requiredBehaviour": "Unauthenticated users must be redirected to a GitHub sign-in experience. After successful GitHub authentication, the application must establish a secure server-side session and allow access to protected pages and APIs. Users must be able to sign out. Authentication must work in the deployed Cloudflare Worker environment.",
+  "userExperience": "An unauthenticated visitor sees a clear sign-in page with a Sign in with GitHub action. After authentication, the user returns to the application. Expired or invalid sessions return the user to sign-in without exposing protected content.",
+  "functionalRequirements": [
+    "Add a GitHub sign-in page.",
+    "Implement the GitHub OAuth or GitHub App user authorisation flow.",
+    "Implement a secure callback endpoint.",
+    "Validate OAuth state to prevent request forgery.",
+    "Create a secure server-side session after successful authentication.",
+    "Store the session identifier in an HttpOnly, Secure and appropriately SameSite cookie.",
+    "Protect the library page, artifact detail pages and artifact APIs.",
+    "Ensure protected data is not included in responses for unauthenticated users.",
+    "Add sign-out behaviour that invalidates the session.",
+    "Handle denied authorisation, invalid callbacks and expired sessions clearly.",
+    "Support an optional return URL so users return to their intended page after sign-in.",
+    "Provide configuration validation for required GitHub and session secrets."
+  ],
+  "technicalConsiderations": [
+    "The browser must not receive repository access credentials.",
+    "Authentication and session logic must run server-side.",
+    "The solution must work with Next.js, OpenNext and Cloudflare Workers.",
+    "Use encrypted or strongly random session identifiers.",
+    "Do not store secrets in committed files.",
+    "Use GitHub-provided identity as the initial user identity.",
+    "Keep repository authorisation separate for AUTH-002."
+  ],
+  "outOfScope": [
+    "Verifying access to the private artifact repository.",
+    "Reading or writing artifacts from GitHub.",
+    "Supporting non-GitHub identity providers.",
+    "User profiles or account settings.",
+    "Team or role management.",
+    "Public anonymous access."
+  ],
+  "acceptanceCriteria": [
+    "Unauthenticated users cannot access the library page.",
+    "Unauthenticated users cannot access artifact detail pages or protected APIs.",
+    "The user can sign in through GitHub.",
+    "A successful callback creates a secure authenticated session.",
+    "The user can sign out.",
+    "Invalid or expired sessions are rejected.",
+    "OAuth state validation is implemented.",
+    "No GitHub client secret or repository token is exposed to browser JavaScript.",
+    "Required environment configuration is documented.",
+    "Cloudflare-compatible tests and production build validation pass.",
+    "The current application specification is updated to describe authentication behaviour.",
+    "The implementation pull request includes AUTH-001 and closes the generated issue."
+  ],
+  "codexGuidance": "Implement authentication only. Do not infer repository access from successful GitHub sign-in. Design the session abstraction so AUTH-002 can add repository authorisation without replacing the authentication flow."
+}
