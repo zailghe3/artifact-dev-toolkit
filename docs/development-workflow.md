@@ -100,6 +100,42 @@ priority:low
 
 Do not use the `auto-merge` label on issues. It applies to pull requests only.
 
+
+### Automated feature issue requests
+
+Feature issues can also be created from committed JSON request files. Add one JSON file per feature request under:
+
+```text
+requests/features/pending/
+```
+
+The JSON keys match `.github/ISSUE_TEMPLATE/feature-schema.json`. Use the camelCase keys shown in the schema, for example:
+
+```json
+{
+  "featureId": "DEV-001",
+  "objective": "Describe the implementation-ready outcome.",
+  "userContext": "Explain who needs this and why.",
+  "currentBehaviour": "Describe the current state.",
+  "requiredBehaviour": "Describe the required state.",
+  "functionalRequirements": [
+    "List required behaviours as concrete requirements."
+  ],
+  "acceptanceCriteria": [
+    "List observable criteria that prove the feature is complete."
+  ]
+}
+```
+
+When a pending request JSON file is added and pushed, the `Create feature issues from requests` GitHub Actions workflow validates the issue template, renders the request with the repository renderer, creates a GitHub issue, and moves the request to one of these locations with processing metadata:
+
+```text
+requests/features/processed/
+requests/features/failed/
+```
+
+Processed records include the created issue URL. Failed records include the error message so the request can be corrected and recommitted as a new pending JSON file.
+
 ## 5. Codex implementation launch
 
 Launching Codex for a feature issue should require only three steps:
