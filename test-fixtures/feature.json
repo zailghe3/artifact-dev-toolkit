@@ -1,0 +1,17 @@
+{
+  "featureId": "DEV-001",
+  "objective": "Allow maintainers to render feature issues outside GitHub's interactive form.",
+  "userContext": "Assistants and integrations create GitHub issues through the API.",
+  "currentBehaviour": "API-created issues must hand-write Markdown bodies and can drift from the form.",
+  "requiredBehaviour": "Structured feature data renders a complete issue body matching the feature form sections.",
+  "userExperience": "Maintainers run the npm script with a JSON file and paste or submit the rendered Markdown.",
+  "functionalRequirements": [
+    "Validate required fields before rendering.",
+    "Render all implementation-contract sections.",
+    "Use the canonical Codex execution contract."
+  ],
+  "technicalConsiderations": "Keep GitHub's issue form intact while detecting drift from shared metadata.",
+  "outOfScope": "Automatically creating GitHub issues.",
+  "acceptanceCriteria": "- [ ] Missing required fields fail with a clear error\n- [ ] Complete data renders all feature sections",
+  "codexGuidance": "Review the issue template scripts before changing feature issue structure."
+}
