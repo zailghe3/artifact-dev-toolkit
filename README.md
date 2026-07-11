@@ -57,6 +57,10 @@ A `GitHubArtifactRepository` placeholder is included to make a future GitHub API
 
 To select a future repository backend, use environment configuration such as `ARTIFACT_REPOSITORY=github`; keep any corresponding credentials out of Git and in deployment secrets only.
 
+## Development workflow
+
+Feature work uses a stable Feature ID convention documented in `docs/development-workflow.md`. A Feature ID such as `DEV-001` identifies the product capability independently from the GitHub issue number, while the GitHub issue remains the canonical work-item tracker. Feature issues should be self-sufficient implementation contracts for Codex and include objective, context, required behaviour, functional requirements, out-of-scope notes, acceptance criteria, and definition of done.
+
 ## GitHub automation
 
 This repository includes GitHub Actions for pull request validation, optional auto-merge, and Cloudflare publication.
