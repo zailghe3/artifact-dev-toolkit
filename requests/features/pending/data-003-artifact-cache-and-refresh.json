@@ -1,0 +1,54 @@
+{
+  "requestId": "data-003-artifact-cache-and-refresh",
+  "featureId": "DATA-003",
+  "title": "Add production caching and refresh for GitHub artifacts",
+  "priority": "medium",
+  "objective": "Reduce GitHub API traffic and improve application responsiveness by caching the private repository artifact catalogue while keeping refresh behaviour predictable.",
+  "userContext": "Reading a repository tree and downloading multiple Markdown files on every page request would be slow and consume GitHub API quota. The user also needs a clear way to know when content was last refreshed and to request fresh data.",
+  "currentBehaviour": "DATA-002 reads artifacts directly from GitHub. There is no persistent production cache, last-refresh metadata, stale-data fallback or manual refresh action.",
+  "requiredBehaviour": "The application must cache the parsed artifact catalogue server-side, detect repository changes, refresh predictably and provide safe stale-data behaviour during temporary GitHub failures.",
+  "userExperience": "The library loads quickly. The user can see when artifacts were last refreshed and can request a refresh. Newly committed artifacts become visible within a documented period or after manual refresh. Temporary GitHub outages do not unnecessarily make previously loaded artifacts disappear.",
+  "functionalRequirements": [
+    "Add a server-side cache for the parsed artifact catalogue.",
+    "Key cached content by repository, branch and repository revision or commit SHA.",
+    "Store last successful refresh metadata.",
+    "Define and implement a cache freshness period.",
+    "Check for repository changes efficiently before downloading all files.",
+    "Add a protected manual refresh action.",
+    "Invalidate or replace the cache after successful repository writes.",
+    "Serve stale cached content during temporary GitHub API failures where safe.",
+    "Clearly indicate stale data and last refresh time.",
+    "Do not serve cached artifact data to unauthorised users.",
+    "Avoid concurrent duplicate refreshes where practical.",
+    "Document expected refresh timing and failure behaviour."
+  ],
+  "technicalConsiderations": [
+    "Prefer Cloudflare-compatible storage such as KV or Cache API.",
+    "Avoid introducing D1 unless richer querying is demonstrably required.",
+    "Keep cache content scoped to the configured private repository.",
+    "Do not put access tokens or session data in cache entries.",
+    "Use commit SHA or equivalent revision data for deterministic invalidation.",
+    "Ensure tests can use a local or mocked cache implementation."
+  ],
+  "outOfScope": [
+    "Full-text search indexing outside the current client-side search behaviour.",
+    "Multi-repository caching.",
+    "Webhook-driven synchronisation unless needed later.",
+    "Historical snapshot browsing.",
+    "Writing artifacts."
+  ],
+  "acceptanceCriteria": [
+    "Repeated library requests do not redownload every artifact file unnecessarily.",
+    "The cache is invalidated or refreshed when the repository revision changes.",
+    "A manual refresh action is available to authorised users.",
+    "Last refresh time is visible.",
+    "Stale cached content can be served during temporary GitHub failures with a clear indication.",
+    "Unauthorised users cannot read cached artifact content.",
+    "Concurrent refresh behaviour is safe.",
+    "Cache configuration and lifecycle are documented.",
+    "Relevant tests and Cloudflare deployment validation pass.",
+    "The current application specification is updated for cache and refresh behaviour.",
+    "The implementation pull request includes DATA-003 and closes the generated issue."
+  ],
+  "codexGuidance": "Build on DATA-002. Keep the initial design small and Cloudflare-native. Prefer a catalogue cache over caching individual UI pages."
+}

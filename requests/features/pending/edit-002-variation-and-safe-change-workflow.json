@@ -1,0 +1,58 @@
+{
+  "requestId": "edit-002-variation-and-safe-change-workflow",
+  "featureId": "EDIT-002",
+  "title": "Add safe artifact variation and change workflows",
+  "priority": "medium",
+  "objective": "Replace local filesystem variation writes with a GitHub-backed workflow for creating variations and safely proposing changes to established artifacts.",
+  "userContext": "The user wants to customise prompts during use, preserve useful variations and tidy them later. New drafts should be quick to capture, while changes to established production artifacts should be harder to overwrite accidentally.",
+  "currentBehaviour": "The existing variation form writes a new Markdown file to the local filesystem, which is not durable in Cloudflare Workers. There is no review workflow for changing production artifacts.",
+  "requiredBehaviour": "Creating a variation must persist a new artifact in the private GitHub repository with a source relationship. New drafts may be committed directly, while edits to production artifacts should be capable of using a branch and pull request workflow.",
+  "userExperience": "The user can fork an artifact, customise the title and body, preview the resulting content and save it as a draft variation. When changing an existing production artifact, the user can create a proposed change and receive a GitHub pull request link rather than overwriting the source immediately.",
+  "functionalRequirements": [
+    "Replace filesystem-backed createVariation with GitHub-backed persistence.",
+    "Create variations as new artifacts with a sourceId reference.",
+    "Generate a stable unique artifact ID.",
+    "Preserve or normalise tags and aliases according to documented rules.",
+    "Default new variations to draft status.",
+    "Allow the user to preview the resulting artifact before saving.",
+    "Support direct commits for new draft artifacts.",
+    "Support branch and pull-request creation for changes to production artifacts.",
+    "Use deterministic branch naming for proposed changes.",
+    "Include artifact ID and source information in commit and pull request metadata.",
+    "Prevent accidental overwrite of the original artifact.",
+    "Invalidate or refresh cached content after direct writes and merged changes.",
+    "Show resulting commit or pull request links.",
+    "Handle duplicate IDs, conflicts and branch collisions safely."
+  ],
+  "technicalConsiderations": [
+    "Reuse EDIT-001 write primitives.",
+    "Keep direct-draft and proposed-production-change paths explicit.",
+    "Use file SHA checks for edits.",
+    "Do not merge storage-repository pull requests automatically unless separately configured.",
+    "Ensure branch and PR operations use the configured private repository only.",
+    "Preserve source relationships in front matter."
+  ],
+  "outOfScope": [
+    "Automated AI rewriting.",
+    "Approval workflows beyond GitHub pull requests.",
+    "Multi-stage publishing.",
+    "Artifact deletion.",
+    "Cross-repository variations.",
+    "Automatic merging of storage changes."
+  ],
+  "acceptanceCriteria": [
+    "Creating a variation produces a new GitHub-backed draft artifact.",
+    "The new artifact records sourceId.",
+    "The original artifact remains unchanged.",
+    "The user can preview a variation before saving.",
+    "New drafts can be committed directly.",
+    "Production artifact changes can be proposed through a branch and pull request.",
+    "The UI shows the resulting commit or pull request.",
+    "Duplicate IDs and edit conflicts are handled safely.",
+    "The cache is updated after successful persistence.",
+    "Relevant tests and Cloudflare deployment validation pass.",
+    "The current application specification is updated for variation and safe-change behaviour.",
+    "The implementation pull request includes EDIT-002 and closes the generated issue."
+  ],
+  "codexGuidance": "Build on EDIT-001. Preserve the existing user intent of quickly customising an artifact while making all persistence GitHub-backed and auditable."
+}

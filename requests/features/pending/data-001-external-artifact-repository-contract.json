@@ -1,0 +1,54 @@
+{
+  "requestId": "data-001-external-artifact-repository-contract",
+  "featureId": "DATA-001",
+  "title": "Define the external artifact repository contract",
+  "priority": "high",
+  "objective": "Define and validate the repository structure, Markdown format and metadata contract for storing artifacts in a separate private GitHub repository.",
+  "userContext": "The application currently expects artifacts to exist on a local filesystem, which is not available in the deployed Cloudflare Worker. Artifacts must instead live in a dedicated private GitHub repository that remains human-editable, version-controlled and independent from the application source code.",
+  "currentBehaviour": "Artifacts are stored under the application repository's local artifacts directory and loaded through filesystem APIs. The existing front-matter schema supports IDs, titles, types, statuses, tags, aliases, source IDs and creation timestamps, but there is no formal contract for an external storage repository.",
+  "requiredBehaviour": "The project must define a stable, documented storage contract for a dedicated artifact repository. The contract must specify the directory structure, supported Markdown file format, required and optional front-matter fields, allowed values, ID uniqueness rules, nested-directory behaviour, authoritative branch and validation expectations.",
+  "userExperience": "A maintainer should be able to create or edit artifact Markdown files directly in the storage repository and run a validation command that clearly reports malformed files, duplicate IDs, unsupported values and structural problems.",
+  "functionalRequirements": [
+    "Document the expected directory structure for prompts, agents, snippets, templates, app ideas and variations.",
+    "Define the canonical Markdown front-matter schema.",
+    "Define required and optional metadata fields.",
+    "Define permitted artifact types and statuses.",
+    "Define whether artifact IDs must be globally unique across all directories.",
+    "Define whether nested directories are supported.",
+    "Define the authoritative branch and configurable artifact root path.",
+    "Add a reusable validator capable of validating a complete external artifact repository checkout.",
+    "Detect malformed front matter, duplicate IDs, missing required fields and unsupported values.",
+    "Provide clear file-specific validation errors.",
+    "Provide representative valid and invalid fixtures or examples.",
+    "Document how the existing sample artifacts should be migrated to the storage repository."
+  ],
+  "technicalConsiderations": [
+    "Reuse the existing Zod artifact schema where practical.",
+    "Avoid coupling validation to Cloudflare or GitHub authentication.",
+    "Keep the storage format human-readable and editable through GitHub.",
+    "Prefer Markdown with YAML front matter.",
+    "Do not require a database.",
+    "Ensure the schema can support future read and write operations without breaking current artifact content."
+  ],
+  "outOfScope": [
+    "GitHub authentication.",
+    "Reading the private repository from production.",
+    "Writing artifacts through the application.",
+    "Caching GitHub content.",
+    "Creating the private repository automatically.",
+    "Moving real private content during automated tests."
+  ],
+  "acceptanceCriteria": [
+    "The external artifact repository structure is documented.",
+    "The complete artifact metadata schema is documented.",
+    "A repository validation command exists.",
+    "The validator detects malformed files and duplicate artifact IDs.",
+    "Valid nested Markdown artifacts can be validated successfully.",
+    "Validation errors identify the affected file and reason.",
+    "Examples exist for each supported artifact type.",
+    "The current application specification is reviewed and updated where the storage contract affects expected behaviour.",
+    "Relevant tests, type checking and build validation pass.",
+    "The implementation pull request includes DATA-001 and closes the generated issue."
+  ],
+  "codexGuidance": "Review lib/artifact-repository.ts and the existing sample artifacts before implementation. Treat this feature as the canonical data-contract foundation for later GitHub authentication and repository access features. Do not implement GitHub API access."
+}
