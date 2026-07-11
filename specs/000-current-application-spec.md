@@ -3,7 +3,7 @@
 **Document status:** Baseline specification of the implemented application  
 **Application version:** 0.1.0  
 **Scope:** Current behaviour only; this document is not a roadmap  
-**Last updated:** 2026-07-10
+**Last updated:** 2026-07-11
 
 ## 1. Purpose
 
@@ -280,7 +280,14 @@ The current interface shall:
 - use badges to distinguish status, type, and tags;
 - use a constrained central content width;
 - provide visible hover and focus states;
-- use Tailwind CSS for styling.
+- use Tailwind CSS for styling;
+- support application-wide dark and light themes, with dark mode used by default.
+
+The active theme is applied on the root document element and initialised before paint from browser storage. The stable storage key is `artifact-library-theme`. When the stored value is absent or invalid, the application defaults to dark mode rather than following the operating-system colour-scheme preference. A saved light or dark preference takes precedence on later visits.
+
+A compact theme toggle is available in the top-right area of the shared page chrome on the library page and artifact detail pages. Switching themes takes effect immediately without a page reload, persists the selected value in browser storage, exposes an accessible label for the next action, and remains keyboard operable with visible focus styling.
+
+Dark mode uses orange as the primary accent colour for theme-specific highlights, focus rings, hover states, primary controls, and type badges. Light mode retains the existing blue/sky primary accent colour. Cards, text, links, buttons, forms, badges, backgrounds, borders, selection states, artifact search, artifact details, copy controls, and variation forms are styled to remain readable and usable in both themes.
 
 Accessibility is supported through standard HTML controls and focus styling, but the current application has no documented WCAG conformance target or automated accessibility test suite.
 
