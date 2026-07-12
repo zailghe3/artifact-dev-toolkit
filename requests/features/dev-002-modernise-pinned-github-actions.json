@@ -1,0 +1,51 @@
+{
+  "requestId": "dev-002-modernise-pinned-github-actions",
+  "featureId": "DEV-002",
+  "title": "02 — Modernise pinned GitHub Actions",
+  "priority": "high",
+  "objective": "Adopt current supported GitHub Actions releases while preserving immutable SHA pinning, trusted-code execution, least privilege, and deterministic workflow behaviour.",
+  "userContext": "Maintainers need workflows that receive supported action fixes without losing the repository security model that prevents privileged workflows from executing untrusted pull-request code.",
+  "currentBehaviour": "Pinned GitHub Actions can become outdated, adjacent release comments can drift, and Dependabot action updates need careful integration with the repository trusted-checkout and least-privilege workflow model.",
+  "requiredBehaviour": "All relevant workflows must use current supported action releases pinned to immutable full commit SHAs, accurately documented by adjacent comments, while consuming the canonical Node.js version source from Feature 01 and preserving trusted-code and exact-commit guarantees.",
+  "userExperience": "Maintainers see modern action versions in workflows, clear release comments beside each pinned SHA, passing workflow validation, and no regression in secure pull-request validation or deployment behaviour.",
+  "functionalRequirements": [
+    "Incorporate or supersede the changes proposed by the currently open Dependabot GitHub Actions pull request.",
+    "Upgrade actions/checkout and actions/setup-node to current supported releases.",
+    "Continue pinning every third-party action to an immutable full commit SHA.",
+    "Ensure adjacent comments accurately identify the corresponding action release for every pinned third-party action.",
+    "Use the canonical Node.js version source introduced by Feature 01.",
+    "Review every affected workflow, including reusable, deployment, validation, feature-processing, repair, and recovery workflows.",
+    "Confirm no privileged workflow checks out or executes untrusted pull-request code.",
+    "Confirm exact-commit and trusted-main checkout behaviour remains correct.",
+    "Review workflow permissions and retain least privilege without breaking intended behaviour.",
+    "Update tests that validate GitHub Actions security, action pinning, release comments, or version consistency.",
+    "Ensure all workflow validation and repository tests pass."
+  ],
+  "technicalConsiderations": [
+    "This feature depends on Feature 01 for the canonical Node.js version source.",
+    "Keep this feature focused on action implementations, workflow security, and workflow compatibility.",
+    "Do not combine this with application dependency, framework, TypeScript, ESLint, Tailwind, or Cloudflare package upgrades.",
+    "Use official GitHub Actions release information to map release tags to full immutable commit SHAs.",
+    "If an open Dependabot pull request is already superseded by a newer action release, document that the implementation intentionally supersedes it.",
+    "Preserve sensitive-file protections, trusted-main checkout behaviour, exact commit validation, and deployment secret boundaries."
+  ],
+  "outOfScope": [
+    "Application dependency upgrades.",
+    "Changing deployment architecture beyond what is required for compatible action upgrades.",
+    "Relaxing SHA pinning, action trust checks, workflow permissions, or pull-request code execution protections.",
+    "Changing the canonical Node.js version baseline established by Feature 01."
+  ],
+  "acceptanceCriteria": [
+    "actions/checkout and actions/setup-node use current supported releases pinned to full commit SHAs.",
+    "Every third-party action remains pinned to a full immutable commit SHA.",
+    "Adjacent comments accurately identify the action release corresponding to each pinned SHA.",
+    "Workflows use the canonical Node.js version source from Feature 01.",
+    "Privileged workflows do not check out or execute untrusted pull-request code.",
+    "Exact-commit and trusted-main checkout tests or validations continue to pass.",
+    "Workflow permissions remain least-privilege for each workflow purpose.",
+    "Workflow validation and repository tests pass.",
+    "The implementation documents whether it incorporated or superseded the open Dependabot GitHub Actions pull request.",
+    "No unrelated application dependency upgrades are included."
+  ],
+  "codexGuidance": "Implement after DEV-001. Review workflow security tests before editing workflows, then update pinned action SHAs and comments together so validation remains deterministic."
+}

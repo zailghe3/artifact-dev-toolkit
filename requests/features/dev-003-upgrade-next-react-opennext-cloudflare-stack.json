@@ -1,0 +1,52 @@
+{
+  "requestId": "dev-003-upgrade-next-react-opennext-cloudflare-stack",
+  "featureId": "DEV-003",
+  "title": "03 — Upgrade the Next.js, React, OpenNext, and Cloudflare deployment stack",
+  "priority": "high",
+  "objective": "Move the application to the latest mutually compatible stable versions of Next.js, React, React DOM, the OpenNext Cloudflare adapter, Wrangler, and directly related packages.",
+  "userContext": "Maintainers need the application and deployment stack to stay current while preserving routing, rendering, deployment metadata, Cloudflare Worker builds, and existing repository architecture.",
+  "currentBehaviour": "The framework and deployment packages may lag current stable compatible releases and may require coordinated migration because Next.js, React, OpenNext, Wrangler, generated types, and deployment workflows interact closely.",
+  "requiredBehaviour": "The repository must run on a current stable mutually compatible Next.js, React, OpenNext, Wrangler, and Cloudflare deployment set, with official migrations applied where needed and all existing application and deployment behaviours preserved.",
+  "userExperience": "Users continue to search, view, copy, and create artifact variations without visible regression. Maintainers can build, preview, and deploy the Cloudflare Worker using the upgraded framework stack and documented commands.",
+  "functionalRequirements": [
+    "Determine the latest stable mutually compatible release set at implementation time.",
+    "Upgrade next.",
+    "Upgrade eslint-config-next where framework compatibility requires it.",
+    "Upgrade react and react-dom.",
+    "Upgrade React type packages where they must align with the selected React versions.",
+    "Upgrade @opennextjs/cloudflare and wrangler.",
+    "Upgrade directly related Cloudflare or framework packages required for compatibility.",
+    "Review official migration documentation and release notes for every major-version change.",
+    "Use official codemods where appropriate, while reviewing all generated modifications.",
+    "Remove deprecated framework configuration and APIs.",
+    "Preserve existing application behaviour and repository architecture unless a migration requires an explicit design change.",
+    "Regenerate relevant generated types or configuration using repository commands.",
+    "Update repository documentation where commands, prerequisites, configuration, or behaviour changed."
+  ],
+  "technicalConsiderations": [
+    "This feature depends on Feature 01 for Node.js 24 and npm 11 and should follow Feature 02 so workflow action compatibility is already modernised.",
+    "Do not combine unrelated ESLint-major migration work with this feature unless strictly required by the chosen Next.js release.",
+    "Verify local development startup, linting, type checking, tests, Next.js production build, OpenNext Worker build, Cloudflare preview, and Cloudflare deployment.",
+    "Verify application routing and rendering, deployment identity generation and display, commit and pull-request links, browser-local rendering of deployment timestamps, and explicit development-build state.",
+    "Generated Cloudflare types or framework configuration must be produced by repository commands rather than manually edited where generation is expected.",
+    "If a selected stable release is incompatible with another required package, record the compatibility constraint and the latest tested mutually compatible version."
+  ],
+  "outOfScope": [
+    "Unrelated ESLint-major migration work unless strictly required by the selected Next.js release.",
+    "Broad application redesign or repository architecture changes not required by migration.",
+    "Refreshing unrelated direct dependencies reserved for Feature 05.",
+    "Changing the Node.js or npm baseline established by Feature 01."
+  ],
+  "acceptanceCriteria": [
+    "The selected Next.js, React, React DOM, OpenNext Cloudflare adapter, Wrangler, and directly related package versions are documented as mutually compatible stable releases.",
+    "Official migration documentation and release notes for major-version changes have been reviewed and relevant changes applied.",
+    "Deprecated framework configuration and APIs within scope are removed or replaced.",
+    "Application routing, rendering, artifact browsing, copying, variation flow, and theme behaviour remain functional.",
+    "Deployment identity generation and display continue to work, including commit links, pull-request links, browser-local timestamps, and development-build fallback.",
+    "Linting, type checking, tests, Next.js production build, OpenNext Worker build, Cloudflare preview, and deployment validation pass or have documented external-service limitations.",
+    "Generated types or configuration are regenerated with repository commands.",
+    "Documentation reflects changed commands, prerequisites, configuration, or behaviour.",
+    "No unrelated dependency refresh or broad refactoring is included."
+  ],
+  "codexGuidance": "Implement after DEV-002. Treat the framework and deployment packages as one compatibility set, use official migration sources, and keep unrelated linting and dependency maintenance for DEV-004 and DEV-005 unless required for this migration."
+}

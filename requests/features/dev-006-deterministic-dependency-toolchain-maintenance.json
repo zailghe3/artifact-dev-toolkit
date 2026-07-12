@@ -1,0 +1,55 @@
+{
+  "requestId": "dev-006-deterministic-dependency-toolchain-maintenance",
+  "featureId": "DEV-006",
+  "title": "06 — Make dependency and toolchain maintenance deterministic",
+  "priority": "medium",
+  "objective": "Prevent future drift between package metadata, runtime configuration, Codex, GitHub Actions, deployment tooling, and supported dependency versions.",
+  "userContext": "Maintainers need routine dependency and toolchain maintenance to be reviewable, grouped by compatibility domain, compatible with trusted auto-merge protections, and supported by deterministic validation or reporting instead of ad hoc manual checks.",
+  "currentBehaviour": "Dependency update grouping, outdated-package visibility, runtime-version consistency, action pinning comments, and package-manager consistency can drift unless maintainers remember to check multiple files and workflows manually.",
+  "requiredBehaviour": "Dependabot configuration, repository validation, optional reporting workflows, and documentation must make toolchain and dependency drift visible while keeping major upgrades intentional and routine reports non-noisy.",
+  "userExperience": "Maintainers receive sensible grouped dependency pull requests, can initiate major upgrades intentionally, can run or inspect deterministic drift reports, and understand how exceptions are recorded and verified.",
+  "functionalRequirements": [
+    "Review and improve Dependabot configuration.",
+    "Group updates by compatibility domain, including Next.js, React, and OpenNext; ESLint, TypeScript, and type definitions; Tailwind and PostCSS; Cloudflare tooling; and GitHub Actions.",
+    "Keep major-version upgrades intentional and separately reviewable.",
+    "Allow sensible grouped minor and patch maintenance.",
+    "Ensure dependency pull requests do not bypass sensitive-file or trusted-auto-merge protections.",
+    "Add deterministic repository validation or reporting for outdated direct dependencies.",
+    "Add deterministic repository validation or reporting for unsupported runtime versions.",
+    "Add deterministic repository validation or reporting for disagreement between canonical toolchain sources.",
+    "Add deterministic repository validation or reporting for deprecated direct packages.",
+    "Add deterministic repository validation or reporting for lockfile/package-manager inconsistency.",
+    "Add deterministic repository validation or reporting for stale GitHub Action release comments or unpinned action references.",
+    "Where appropriate, add a scheduled manual-reporting workflow with one clear responsibility, explicit permissions, no automatic repository modification, and a useful GitHub Actions summary.",
+    "Avoid creating noisy issues or commits for routine reports.",
+    "Document the supported Node.js and npm baseline, dependency update grouping, how major upgrades are initiated, how exceptions are recorded, and how maintainers verify the repository is current."
+  ],
+  "technicalConsiderations": [
+    "This feature depends on Features 01 through 05 so validation and grouping reflect the final supported runtime and dependency stack.",
+    "Do not introduce automatic commits or noisy issue creation for routine reports.",
+    "Any scheduled reporting workflow must have explicit least-privilege permissions and must not modify repository contents.",
+    "Validation should be deterministic enough for CI and local developer use, with clear failure messages or summary output.",
+    "The maintenance model must remain compatible with trusted auto-merge and sensitive-file classification.",
+    "Group boundaries should reflect compatibility domains rather than arbitrary package names when possible."
+  ],
+  "outOfScope": [
+    "Performing another dependency upgrade sweep beyond what is needed to validate or demonstrate the maintenance model.",
+    "Weakening trusted auto-merge, sensitive-file classification, action pinning, or workflow permission controls.",
+    "Creating automated repository-modifying bots beyond existing Dependabot behaviour.",
+    "Creating noisy scheduled issues for routine reports.",
+    "Changing product functionality or application UI."
+  ],
+  "acceptanceCriteria": [
+    "Dependabot configuration groups updates by the requested compatibility domains.",
+    "Major-version upgrades remain intentional and separately reviewable.",
+    "Minor and patch maintenance can be grouped sensibly where compatibility domains allow it.",
+    "Dependency pull requests remain subject to sensitive-file and trusted-auto-merge protections.",
+    "Deterministic validation or reporting covers outdated direct dependencies, unsupported runtime versions, toolchain source disagreement, deprecated direct packages, lockfile/package-manager inconsistency, stale GitHub Action release comments, and unpinned action references.",
+    "Any scheduled reporting workflow has one clear responsibility, explicit least-privilege permissions, no automatic repository modification, and a useful GitHub Actions summary.",
+    "Routine reports do not create noisy issues or commits.",
+    "Documentation explains the Node.js and npm baseline, dependency grouping, major-upgrade initiation, exception recording, and currentness verification.",
+    "The maintenance model is compatible with the trusted auto-merge and sensitive-file classification model.",
+    "Repository validation and tests pass."
+  ],
+  "codexGuidance": "Implement after DEV-005. Focus on deterministic maintenance controls, reporting, and documentation rather than performing another broad upgrade."
+}

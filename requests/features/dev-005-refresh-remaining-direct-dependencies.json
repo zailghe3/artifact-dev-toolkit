@@ -1,0 +1,51 @@
+{
+  "requestId": "dev-005-refresh-remaining-direct-dependencies",
+  "featureId": "DEV-005",
+  "title": "05 — Refresh remaining direct dependencies and remove obsolete packages",
+  "priority": "medium",
+  "objective": "Bring all remaining direct dependencies to their latest stable compatible versions and ensure package.json accurately represents the versions the repository has validated.",
+  "userContext": "Maintainers need dependency metadata that reflects tested direct package versions instead of relying on stale ranges or newer transitive lockfile resolutions, while avoiding unnecessary package additions.",
+  "currentBehaviour": "After the runtime, workflow, framework, deployment, linting, TypeScript, and type-definition upgrades, remaining direct dependencies may still have outdated declared ranges, unused packages, or compatibility constraints that are not explicitly recorded.",
+  "requiredBehaviour": "Every remaining direct production and development dependency must be inspected, upgraded where safely compatible with Features 01–04, removed if obsolete, or documented with a clear constraint and removal condition.",
+  "userExperience": "Developers and maintainers can trust package.json and package-lock.json to represent the current tested dependency set, and dependency audit results are understood rather than ignored.",
+  "functionalRequirements": [
+    "Inspect every remaining production and development dependency.",
+    "Compare declared version ranges with lockfile-resolved versions.",
+    "Upgrade each remaining direct dependency to the latest stable version compatible with the repository stack established by Features 01 through 04.",
+    "Explicitly assess gray-matter, remark, remark-html, zod, tailwindcss, @tailwindcss/postcss, postcss, and any other remaining direct package.",
+    "Review release notes for behavioural, security, compatibility, or deprecation implications.",
+    "Remove unused, redundant, deprecated, or superseded dependencies.",
+    "Avoid adding replacement dependencies unless necessary.",
+    "Update declared lower bounds so package.json reflects the versions actually tested.",
+    "Regenerate the lockfile using the repository-declared npm version.",
+    "Run dependency audit and investigate findings.",
+    "Record any dependency that cannot safely be upgraded, including the reason, latest tested compatible version, and condition that would allow the restriction to be removed."
+  ],
+  "technicalConsiderations": [
+    "This feature depends on Features 01 through 04 so compatibility is evaluated against the established runtime, framework, deployment, linting, and type-checking stack.",
+    "Do not revisit framework-stack or toolchain-major upgrades that belong to earlier features except to account for already-merged outcomes.",
+    "Use the repository-declared npm version for lockfile generation.",
+    "A dependency should be removed when repository code no longer imports or needs it.",
+    "Security audit findings should be investigated for reachability, exploitability, fix availability, and compatibility impact.",
+    "Document intentional non-upgrades in a durable place that maintainers can revisit."
+  ],
+  "outOfScope": [
+    "Changing the Node.js or npm baseline.",
+    "Upgrading GitHub Actions.",
+    "Major framework, deployment, ESLint, or TypeScript migrations already covered by Features 03 and 04.",
+    "Adding new packages for convenience when existing platform capabilities or repository dependencies are sufficient.",
+    "Unrelated application refactoring."
+  ],
+  "acceptanceCriteria": [
+    "Every direct dependency and devDependency has been inspected against latest stable compatible versions.",
+    "gray-matter, remark, remark-html, zod, tailwindcss, @tailwindcss/postcss, postcss, and all other direct packages have explicit upgrade, removal, or constraint outcomes.",
+    "package.json declared ranges reflect versions actually validated by the implementation.",
+    "Unused, redundant, deprecated, or superseded direct dependencies are removed.",
+    "No replacement dependency is added without a documented necessity and compatibility justification.",
+    "package-lock.json is regenerated using the repository-declared npm version.",
+    "Dependency audit has been run and findings are investigated or documented.",
+    "Linting, type checking, tests, application build, Worker build, preview, and relevant validation tooling pass or have documented external-service limitations.",
+    "Any dependency that cannot safely be upgraded is recorded with reason, latest tested compatible version, and removal condition."
+  ],
+  "codexGuidance": "Implement after DEV-004. Treat package.json and package-lock.json as the tested dependency contract, avoid expanding dependency surface area, and document any intentional compatibility hold."
+}
