@@ -1,6 +1,15 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+@source "../app/**/*.{js,ts,jsx,tsx,mdx}";
+@source "../components/**/*.{js,ts,jsx,tsx,mdx}";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-ink: #14213d;
+  --color-paper: #f8fafc;
+  --shadow-soft: 0 18px 60px -30px rgba(15, 23, 42, 0.45);
+}
 
 :root {
   color-scheme: light;

@@ -34,8 +34,10 @@ Supported `status` values: `production`, `draft`, `archived`.
 
 ## Setup
 
+Use Node.js 22 (`.nvmrc` / `.node-version`) and install dependencies reproducibly.
+
 ```bash
-npm install
+npm ci
 npm run dev
 ```
 
@@ -44,6 +46,7 @@ Open [http://localhost:3000](http://localhost:3000).
 ## Checks
 
 ```bash
+npm run lint
 npm run typecheck
 npm run build
 ```
@@ -72,9 +75,12 @@ This repository includes GitHub Actions for pull request validation, optional au
 `CI` runs on pull requests and pushes to `main`:
 
 ```bash
-npm install
+npm ci
+npm test
+npm run lint
 npm run typecheck
 npm run build
+npm run build:worker
 ```
 
 ### Auto-merge
@@ -82,7 +88,7 @@ npm run build
 To let GitHub merge a pull request after required checks pass:
 
 1. Enable **Allow auto-merge** in the repository settings.
-2. Configure branch protection on `main` so the `CI / Typecheck and build` check is required.
+2. Configure branch protection on `main` so the `verify-main / verify` and `verify-pr / verify` checks are required.
 3. Open a non-draft pull request from the same repository as the repository owner reported by `github.repository_owner`. Codex-created pull requests qualify when Codex acts through that GitHub identity.
 
 The `Apply label and enable auto-merge` workflow applies the `auto-merge` label and calls `gh pr merge --auto --squash --delete-branch`, so GitHub performs the merge only after required checks and branch protection rules are satisfied. The workflow does not trust labels supplied by a pull request author as authorization: it first confirms that the pull request author matches `github.repository_owner`, that the branch comes from this repository rather than a fork, and that the complete changed-file list contains no sensitive CI/CD or execution-sensitive paths. Sensitive changes under `.github/workflows/**`, `.github/actions/**`, `scripts/**`, `package.json`, `package-lock.json`, `wrangler.jsonc`, or `open-next.config.*` are skipped for manual review and manual merging. It intentionally uses the repository-provided `GITHUB_TOKEN` because that token is ephemeral and repository-scoped. `AUTO_MERGE_TOKEN` or other personal access token secrets are no longer required for auto-merge; after this change is merged, any unused `AUTO_MERGE_TOKEN` repository secret can be deleted manually from **Settings → Secrets and variables → Actions**.

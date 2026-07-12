@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import matter from "gray-matter";
 import { z } from "zod";
-import { artifactMetadataSchema, artifactStatusSchema, artifactTypeSchema } from "./artifact-schemas";
+import { artifactMetadataSchema, artifactStatusSchema } from "./artifact-schemas";
 
 const artifactsDir = path.join(process.cwd(), "artifacts");
 
