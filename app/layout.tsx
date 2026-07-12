@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Script from "next/script";
 import { DeploymentFooter } from "@/components/DeploymentFooter";
 import { deploymentMetadata } from "@/lib/deployment-metadata";
 import "./globals.css";
@@ -25,9 +26,7 @@ const themeInitScript = `
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className="dark" data-theme="dark" suppressHydrationWarning>
-      <head>
-        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
-      </head>
+      <Script id="theme-init" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       <body>
         <div className="flex min-h-screen flex-col">
           <div className="flex-1">{children}</div>
