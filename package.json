@@ -23,24 +23,24 @@
   },
   "dependencies": {
     "gray-matter": "^4.0.3",
-    "next": "^15.1.6",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
+    "next": "^16.2.10",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
     "remark": "^15.0.1",
     "remark-html": "^16.0.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",
-    "@types/react": "^19.0.7",
-    "@types/react-dom": "^19.0.3",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
     "eslint": "^9.39.5",
-    "eslint-config-next": "^15.5.20",
+    "eslint-config-next": "^16.2.10",
     "postcss": "^8.5.1",
     "tailwindcss": "^4.1.17",
     "typescript": "^5.7.3",
     "@opennextjs/cloudflare": "^1.20.1",
-    "wrangler": "^4.107.1",
+    "wrangler": "^4.110.0",
     "@tailwindcss/postcss": "^4.1.17"
   },
   "engines": {
