@@ -1,19 +1,11 @@
 import type { Config } from "tailwindcss";
 
+// Tailwind CSS v4 is configured CSS-first in app/globals.css. This file remains
+// as a compatibility shim for editor integrations or tools that still probe for
+// a Tailwind config file.
 const config: Config = {
   darkMode: "class",
   content: ["./app/**/*.{js,ts,jsx,tsx,mdx}", "./components/**/*.{js,ts,jsx,tsx,mdx}"],
-  theme: {
-    extend: {
-      colors: {
-        ink: "#14213d",
-        paper: "#f8fafc",
-      },
-      boxShadow: {
-        soft: "0 18px 60px -30px rgba(15, 23, 42, 0.45)",
-      },
-    },
-  },
-  plugins: [],
 };
+
 export default config;

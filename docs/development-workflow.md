@@ -296,3 +296,17 @@ Migration sequence:
 3. Update branch protection from legacy `CI` checks to `classify-pr` and `verify-pr / verify` after the new checks appear.
 4. Keep manual merge required for future sensitive CI/CD changes.
 5. If DATA-001 or any earlier runtime-relevant commit was not deployed during the old workflow transition, run `Manual Cloudflare deployment` against the current `main` SHA. If feature issues from DATA-001 are missing, run `Manual feature issue recovery` with `mode: all`.
+
+## Dependency compatibility and upgrade policy
+
+The canonical local, CI, and Cloudflare/OpenNext build runtime is Node.js 22. Keep `.nvmrc`, `.node-version`, `package.json` `engines.node`, GitHub Actions `node-version`, and `@types/node` on the same major unless a runtime migration is deliberately planned and reviewed.
+
+The supported dependency set for this repository is Next.js 15 with React 19, `eslint-config-next` 15, ESLint 9, TypeScript 5, Tailwind CSS 4, PostCSS 8, OpenNext Cloudflare 1, Wrangler 4, and Zod 4. Next.js and `eslint-config-next` must stay on the same major. `@types/node` must not be grouped with unrelated package upgrades because it represents the runtime API surface.
+
+Tailwind CSS uses the v4 CSS-first architecture. `app/globals.css` imports Tailwind with `@import "tailwindcss"`, declares scanned application and component sources with `@source`, preserves class-based dark mode with `@custom-variant dark`, and owns the project design tokens (`ink`, `paper`, and `soft`). `postcss.config.js` uses `@tailwindcss/postcss`; the legacy Tailwind v3 `@tailwind` directives and direct `tailwindcss` PostCSS plugin are obsolete.
+
+Required verification for PRs and `main` is `npm ci`, `npm test`, `npm run lint`, `npm run typecheck`, `npm run build`, and the OpenNext Cloudflare compatibility build `npm run build:worker`. Linting is intentionally run with `eslint .` rather than `next lint` so the command remains stable across supported Next.js 15 tooling.
+
+Dependabot groups compatible patch and minor updates for the Next.js, ESLint, Tailwind, and Node type-definition ecosystems. Major framework, CSS pipeline, linting, runtime, GitHub Actions, OpenNext, Wrangler, or deployment-tool upgrades require a dedicated manual migration PR and must not be auto-merged solely because CI is green. The current Tailwind-only Dependabot PR #48 should be closed manually as superseded by the full Tailwind v4 and dependency-alignment migration PR.
+
+Third-party GitHub Actions are pinned to full commit SHAs with comments recording the release tag. Dependabot remains configured for the `github-actions` ecosystem so pinned action SHAs can be refreshed deliberately while keeping workflows reproducible.

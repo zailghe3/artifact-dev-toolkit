@@ -4,7 +4,57 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    groups:
+      pinned-github-actions:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: ci
+
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
+    groups:
+      next-ecosystem-minor-patch:
+        patterns:
+          - next
+          - eslint-config-next
+        update-types:
+          - minor
+          - patch
+      eslint-ecosystem-minor-patch:
+        patterns:
+          - eslint
+          - "@typescript-eslint/*"
+          - "eslint-*"
+        update-types:
+          - minor
+          - patch
+      tailwind-ecosystem-minor-patch:
+        patterns:
+          - tailwindcss
+          - "@tailwindcss/*"
+          - postcss
+        update-types:
+          - minor
+          - patch
+      node-types-minor-patch:
+        patterns:
+          - "@types/node"
+        update-types:
+          - minor
+          - patch
+    ignore:
+      - dependency-name: next
+        update-types: [version-update:semver-major]
+      - dependency-name: eslint-config-next
+        update-types: [version-update:semver-major]
+      - dependency-name: eslint
+        update-types: [version-update:semver-major]
+      - dependency-name: tailwindcss
+        update-types: [version-update:semver-major]
+      - dependency-name: "@tailwindcss/*"
+        update-types: [version-update:semver-major]
+      - dependency-name: "@types/node"
+        update-types: [version-update:semver-major]

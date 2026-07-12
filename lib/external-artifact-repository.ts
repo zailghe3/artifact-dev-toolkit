@@ -129,7 +129,7 @@ export async function validateExternalArtifactRepository(
       continue;
     }
 
-    if (!parsed.matter.trim()) {
+    if (!String(parsed.matter ?? "").trim()) {
       errors.push({ file: displayPath, reason: "Missing YAML front matter." });
       continue;
     }
