@@ -92,11 +92,16 @@ Unknown metadata may remain in the JSON file, but only schema-backed fields are 
 }
 ```
 
+## Toolchain contract
+
+Use the repository toolchain contract while creating requests: Node.js 24 from `.nvmrc` and npm 11.4.2 from `package.json` `packageManager`.
+
 ## Local validation commands
 
 Run these before opening the pull request, replacing `<request-id>` with the supplied value:
 
 ```bash
+npm run toolchain:validate
 npm run issue:validate
 npm run issue:validate-request -- requests/features/<request-id>.json
 npm run issue:render -- requests/features/<request-id>.json > /tmp/<request-id>-feature-issue.md

@@ -18,7 +18,8 @@
     "issue:create-from-requests": "node scripts/create-feature-issues-from-requests.mjs",
     "issue:validate-request": "node scripts/validate-feature-request.mjs",
     "test": "node --test",
-    "artifacts:validate": "node scripts/validate-artifact-repository.mjs"
+    "artifacts:validate": "node scripts/validate-artifact-repository.mjs",
+    "toolchain:validate": "node scripts/validate-toolchain.mjs"
   },
   "dependencies": {
     "gray-matter": "^4.0.3",
@@ -43,8 +44,8 @@
     "@tailwindcss/postcss": "^4.1.17"
   },
   "engines": {
-    "node": "22.x",
-    "npm": "10.9.7"
+    "node": "24.x",
+    "npm": "11.4.2"
   },
-  "packageManager": "npm@10.9.7"
+  "packageManager": "npm@11.4.2"
 }
