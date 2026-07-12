@@ -34,7 +34,7 @@ Supported `status` values: `production`, `draft`, `archived`.
 
 ## Setup
 
-Use Node.js 22 (`.nvmrc` / `.node-version`) and install dependencies reproducibly.
+Use Node.js 22 (`.nvmrc` / `.node-version`) with npm 10.9.7 (`package.json` `packageManager`) and install dependencies reproducibly.
 
 ```bash
 npm ci

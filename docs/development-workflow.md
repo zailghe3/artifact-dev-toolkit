@@ -299,7 +299,7 @@ Migration sequence:
 
 ## Dependency compatibility and upgrade policy
 
-The canonical local, CI, and Cloudflare/OpenNext build runtime is Node.js 22. Keep `.nvmrc`, `.node-version`, `package.json` `engines.node`, GitHub Actions `node-version`, and `@types/node` on the same major unless a runtime migration is deliberately planned and reviewed.
+The canonical local, CI, and Cloudflare/OpenNext build runtime is Node.js 22 with npm 10.9.7. Keep `.nvmrc`, `.node-version`, `package.json` `engines.node`, GitHub Actions `node-version`, and `@types/node` on the same Node major unless a runtime migration is deliberately planned and reviewed. Keep `package.json` `packageManager`, `engines.npm`, and workflow npm setup on the same exact npm version so `npm ci` does not depend on whichever npm release happens to ship with the runner image.
 
 The supported dependency set for this repository is Next.js 15 with React 19, `eslint-config-next` 15, ESLint 9, TypeScript 5, Tailwind CSS 4, PostCSS 8, OpenNext Cloudflare 1, Wrangler 4, and Zod 4. Next.js and `eslint-config-next` must stay on the same major. `@types/node` must not be grouped with unrelated package upgrades because it represents the runtime API surface.
 
