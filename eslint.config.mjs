@@ -12,6 +12,7 @@ const eslintConfig = defineConfig([
     "node_modules/**",
     "out/**",
     "cloudflare-env.d.ts",
+    "next-env.d.ts",
   ]),
 ]);
 
