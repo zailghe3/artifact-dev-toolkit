@@ -437,3 +437,11 @@ The current application is considered operational when:
 This file describes the implemented baseline as of its stated update date.
 
 When behaviour changes, this specification should be updated in the same pull request as the implementation. Future product ideas should be documented separately rather than added here as if already implemented.
+
+## 15. Deployment identity footer
+
+Every page renders a visually secondary site footer containing deployment identity. When production deployment metadata is available at build time, the footer displays the deployment timestamp, abbreviated source commit SHA and, when resolved, the pull request number associated with the deployed commit.
+
+The deployment timestamp is stored as a canonical UTC ISO-8601 value and is rendered in the browser's local timezone using semantic `<time>` markup. The canonical UTC value remains available through the `dateTime` attribute and title. The abbreviated commit links to the repository commit while preserving the full SHA in accessible metadata. The pull request element is optional and is omitted when no associated pull request is resolved.
+
+Local development and builds without generated deployment metadata display `Development build`. Deployment metadata is supplied at build time by the production workflow and is validated through `lib/deployment-metadata.ts`; generated deployment-specific data is not committed to the repository.

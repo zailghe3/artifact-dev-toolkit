@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { DeploymentFooter } from "@/components/DeploymentFooter";
+import { deploymentMetadata } from "@/lib/deployment-metadata";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -26,7 +28,12 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
-      <body>{children}</body>
+      <body>
+        <div className="flex min-h-screen flex-col">
+          <div className="flex-1">{children}</div>
+          <DeploymentFooter metadata={deploymentMetadata} />
+        </div>
+      </body>
     </html>
   );
 }

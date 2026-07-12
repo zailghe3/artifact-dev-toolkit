@@ -6,6 +6,13 @@ on:
       ref:
         required: true
         type: string
+      commit_sha:
+        required: true
+        type: string
+      pull_request_number:
+        required: false
+        type: string
+        default: ""
     secrets:
       CLOUDFLARE_API_TOKEN:
         required: true
@@ -43,6 +50,17 @@ jobs:
           echo "npm $(npm --version)" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Install dependencies
         run: npm ci
+      - name: Generate deployment metadata environment
+        run: |
+          set -euo pipefail
+          DEPLOYED_AT="$(date -u +'%Y-%m-%dT%H:%M:%S.000Z')"
+          echo "NEXT_PUBLIC_DEPLOYED_AT=${DEPLOYED_AT}" >> "$GITHUB_ENV"
+          echo "NEXT_PUBLIC_DEPLOY_COMMIT_SHA=${{ inputs.commit_sha }}" >> "$GITHUB_ENV"
+          echo "NEXT_PUBLIC_DEPLOY_PULL_REQUEST_NUMBER=${{ inputs.pull_request_number }}" >> "$GITHUB_ENV"
+          echo "NEXT_PUBLIC_DEPLOY_REPOSITORY=${{ github.repository }}" >> "$GITHUB_ENV"
+          echo "Deployment metadata: ${DEPLOYED_AT} / ${{ inputs.commit_sha }} / PR ${{ inputs.pull_request_number }}" >> "$GITHUB_STEP_SUMMARY"
+      - name: Verify exact deployed commit
+        run: test "$(git rev-parse HEAD)" = "${{ inputs.commit_sha }}"
       - name: Build OpenNext Cloudflare worker
         run: npm run build:worker
       - name: Validate Cloudflare deployment secrets
@@ -59,4 +77,4 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: npx wrangler deploy
       - name: Summarize deployment
-        run: echo "Deployed commit ${{ inputs.ref }} to Cloudflare production." >> "$GITHUB_STEP_SUMMARY"
+        run: echo "Deployed commit ${{ inputs.commit_sha }} to Cloudflare production." >> "$GITHUB_STEP_SUMMARY"
