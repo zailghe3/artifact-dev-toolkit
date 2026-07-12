@@ -197,7 +197,10 @@ test('auto-merge workflow uses GITHUB_TOKEN and no PAT-backed secret', () => {
   assert.match(workflow, /gh api --paginate/);
   assert.match(workflow, /\.github\/workflows\//);
   assert.match(workflow, /package\.json/);
-  assert.doesNotMatch(workflow, /contents: write/);
+  assert.match(workflow, /contents: write/);
+  assert.match(workflow, /pull-requests: write/);
+  assert.doesNotMatch(workflow, /issues: write/);
+  assert.doesNotMatch(workflow, /AUTO_MERGE_TOKEN/);
   assert.doesNotMatch(workflow, /actions\/checkout/);
   assert.match(workflow, /--auto --squash --delete-branch/);
 });
