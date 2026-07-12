@@ -218,13 +218,13 @@ Pull request
 Entry workflows and triggers:
 
 - `PR lifecycle` (`.github/workflows/pr-orchestrator.yml`): `pull_request` on `opened`, `synchronize`, `reopened`, and `ready_for_review`. It has read-only permissions, validates all PRs, never accesses production secrets, never creates issues, never deploys, and never enables a merge.
-- `Trusted auto-merge` (`.github/workflows/auto-merge.yml`): `pull_request_target` on the same PR activity types. It never checks out or executes PR code. It only uses metadata and the complete paginated PR file list to decide whether to label and enable squash auto-merge.
+- `Trusted auto-merge` (`.github/workflows/auto-merge.yml`): `pull_request_target` on the same PR activity types. It never checks out or executes PR code. It only uses metadata and the complete paginated PR file list to decide whether to enable squash auto-merge. It grants `contents: write` because enabling or completing a merge updates the target branch; the former informational label step was removed so `issues: write` is not required.
 - `Main lifecycle` (`.github/workflows/main-orchestrator.yml`): `push` to `main`. It operates on the exact pushed commit, verifies it, then runs feature issue creation and Cloudflare deployment as independent sibling jobs. Failure in one side-effecting job does not block the other.
 - `Manual feature issue recovery` and `Manual Cloudflare deployment` are thin `workflow_dispatch` wrappers around the same reusable workflows. Operators must provide an explicit target ref or SHA; the safe default is `main`.
 
 Reusable workflows:
 
-- `Reusable / classify changes` gathers changed files with explicit repository context, handles PR API pagination, detects canonical request files under `requests/features/*.json`, sensitive CI/CD files, documentation/request-only changes, and deployable changes.
+- `Reusable / classify changes` gathers changed files with explicit repository context, handles PR API pagination, detects canonical request files under `requests/features/*.json`, sensitive CI/CD files, documentation/request-only changes, and deployable changes. Reusable workflows cannot elevate permissions beyond their callers, so `Main lifecycle` grants `pull-requests: read` while this shared classifier requests that scope for PR-mode API pagination; push-mode classification still uses Git commit comparison.
 - `Reusable / verify` runs `npm ci`, `npm test`, `npm run typecheck`, and `npm run build` with Node.js 22 and read-only permissions. `npm ci` intentionally fails if `package.json` and `package-lock.json` drift.
 - `Reusable / validate feature requests` validates changed canonical feature JSON files, validates the issue template contract, and dry-run renders issues without writes.
 - `Reusable / create feature issues` checks out the exact verified main commit, runs `npm ci`, and uses the immutable `<!-- feature-request-id: ... -->` marker to create only missing issues. It is safe to rerun after partial failure.
@@ -284,7 +284,7 @@ Production secret boundary: PR workflows have read-only permissions and receive 
 Recovery procedures:
 
 - Failed PR validation: fix the branch and push again; `synchronize` reruns classification, verification, feature validation, and auto-merge eligibility.
-- Failed feature issue creation: rerun `Manual feature issue recovery` with `mode: changed` and explicit newline-separated files, or `mode: all` to reprocess every canonical request. Existing marker-bearing issues are skipped.
+- Failed feature issue creation: rerun `Manual feature issue recovery` from **Actions → Manual feature issue recovery → Run workflow**. For OPS-002, set `ref` to `main`, `mode` to `changed`, and `files` to `requests/features/ops-002-deployment-identity-footer.json`; alternatively set `mode` to `all` to reprocess every canonical request. Existing issues with immutable `<!-- feature-request-id: ... -->` markers are skipped, so rerunning recovery does not create duplicates.
 - Failed deployment: rerun `Manual Cloudflare deployment` with the exact main SHA that already passed verification, or `main` to deploy the current branch tip.
 - Manual deployment of a specific commit: run `Manual Cloudflare deployment`, set `ref` to the desired main commit SHA, and confirm the job summary records that SHA.
 - Reprocessing feature requests: run `Manual feature issue recovery`; immutable request markers make all recovery modes idempotent.
