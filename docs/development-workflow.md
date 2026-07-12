@@ -310,7 +310,7 @@ Required verification for PRs and `main` is `npm ci`, `npm run toolchain:validat
 
 Dependabot groups compatible patch and minor updates for the Next.js, ESLint, Tailwind, and Node type-definition ecosystems. Major framework, CSS pipeline, linting, runtime, GitHub Actions, OpenNext, Wrangler, or deployment-tool upgrades require a dedicated manual migration PR and must not be auto-merged solely because CI is green. The current Tailwind-only Dependabot PR #48 should be closed manually as superseded by the full Tailwind v4 and dependency-alignment migration PR.
 
-Third-party GitHub Actions are pinned to full commit SHAs with comments recording the release tag. Dependabot remains configured for the `github-actions` ecosystem so pinned action SHAs can be refreshed deliberately while keeping workflows reproducible.
+Third-party GitHub Actions are pinned to full commit SHAs with comments recording the release tag. The current workflow baseline uses `actions/checkout@v7.0.0` and `actions/setup-node@v6.4.0`, each referenced by its immutable release commit SHA. Dependabot remains configured for the `github-actions` ecosystem so pinned action SHAs can be refreshed deliberately while keeping workflows reproducible; DEV-002 intentionally supersedes any older open Dependabot GitHub Actions PR proposing only the previous action major versions.
 
 ## Production deployment identity
 

@@ -49,7 +49,7 @@ jobs:
       deployable_changes: ${{ steps.classify.outputs.deployable_changes }}
     steps:
       - name: Check out classifier
-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # actions/checkout@v7.0.0
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0

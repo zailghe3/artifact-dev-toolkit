@@ -370,7 +370,7 @@ npm run typecheck
 npm run build
 ```
 
-The repository uses Node.js 24 LTS from `.nvmrc`/`.node-version` and npm 11.4.2 from `package.json` `packageManager`. The `npm run toolchain:validate` command checks agreement between the canonical version files, package metadata, lockfile metadata, GitHub Actions workflows, and Codex/documentation templates. The repository's continuous integration workflow runs installation, toolchain validation, type checking, and production build checks on pull requests and pushes to `main`.
+The repository uses Node.js 24 LTS from `.nvmrc`/`.node-version` and npm 11.4.2 from `package.json` `packageManager`. GitHub Actions workflows select Node.js with `node-version-file: .nvmrc`; third-party actions remain pinned to full immutable commit SHAs with adjacent comments identifying their release tags, currently `actions/checkout@v7.0.0` and `actions/setup-node@v6.4.0` where those actions are used. The `npm run toolchain:validate` command checks agreement between the canonical version files, package metadata, lockfile metadata, GitHub Actions workflows, and Codex/documentation templates. The repository's continuous integration workflow runs installation, toolchain validation, type checking, and production build checks on pull requests and pushes to `main`.
 
 ## 11. Deployment
 
