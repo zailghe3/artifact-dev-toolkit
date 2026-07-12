@@ -148,10 +148,10 @@ test('issue creation supports changed and all-files recovery modes', async () =>
 
 test('partial failure is safe to retry because issues are checked per request before create', () => {
   const source = execFileSync('cat', ['scripts/create-feature-issues-from-requests.mjs'], { encoding: 'utf8' });
-  assert.match(source, /for \(const path of paths\)/);
-  assert.match(source, /failures \+= 1/);
-  assert.match(source, /findExistingIssue\(requestId\)/);
-  assert.match(source, /continue|Failed to process/);
+  assert.match(source, /validateSelectedRequests/);
+  assert.match(source, /findExistingIssue\(request\.requestId/);
+  assert.match(source, /status: 'skipped'/);
+  assert.match(source, /status: 'created'/);
 });
 
 test('feature issue workflow has minimum permissions and no PR lifecycle step', () => {
@@ -215,4 +215,88 @@ test('Cloudflare deployment uses reusable workflow and remains manually runnable
   assert.match(reusable, /environment: production/);
   assert.match(orchestrator, /reusable-deploy-cloudflare\.yml/);
   assert.doesNotMatch(orchestrator, /gh workflow run/);
+});
+
+test('reprocess selection accepts a valid specific feature file', async () => {
+  const helper = await import('../scripts/reprocess-feature-requests.mjs');
+  assert.equal(
+    helper.validateSpecificFeaturePath('./requests/features/ops-002-deployment-identity-footer.json'),
+    'requests/features/ops-002-deployment-identity-footer.json',
+  );
+});
+
+test('reprocess selection rejects missing, traversal, and outside paths', async () => {
+  const helper = await import('../scripts/reprocess-feature-requests.mjs');
+  assert.throws(() => helper.validateSpecificFeaturePath('requests/features/missing.json'), /does not exist/);
+  assert.throws(() => helper.validateSpecificFeaturePath('../requests/features/auth-001-github-sign-in.json'), /unsafe/);
+  assert.throws(() => helper.validateSpecificFeaturePath('docs/example.json'), /requests\/features/);
+});
+
+test('reprocess all mode discovers sorted canonical files and handles no files', async () => {
+  const helper = await import('../scripts/reprocess-feature-requests.mjs');
+  assert.deepEqual(helper.discoverFeaturePaths({ gitExec: () => 'requests/features/z.json\nrequests/features/a.json\nrequests/features/nested/b.json\n' }), ['requests/features/a.json', 'requests/features/z.json']);
+  assert.deepEqual(helper.discoverFeaturePaths({ gitExec: () => '' }), []);
+});
+
+test('feature issue processing skips existing issues, creates missing issues, supports partial recovery and dry run', async () => {
+  const helper = await import('../scripts/create-feature-issues-from-requests.mjs');
+  const existingUrl = 'https://github.com/example/repo/issues/7';
+  const created = [];
+  const existing = new Set(['auth-001-github-sign-in']);
+  const ghExec = (args) => {
+    if (args[0] === 'issue' && args[1] === 'list') {
+      const requestId = String(args[args.indexOf('--search') + 1]).match(/feature-request-id: ([^ ]+)/)[1];
+      return existing.has(requestId) ? JSON.stringify([{ number: 7, url: existingUrl }]) : '[]';
+    }
+    if (args[0] === 'label') return '';
+    if (args[0] === 'issue' && args[1] === 'create') {
+      created.push(args);
+      return `https://github.com/example/repo/issues/${20 + created.length}`;
+    }
+    throw new Error(`unexpected gh args: ${args.join(' ')}`);
+  };
+
+  const paths = ['requests/features/auth-001-github-sign-in.json', 'requests/features/ops-002-deployment-identity-footer.json'];
+  const first = helper.processRequests(paths, { ghExec });
+  assert.equal(first.filter((result) => result.status === 'created').length, 1);
+  assert.equal(first.filter((result) => result.status === 'skipped').length, 1);
+  assert.equal(created.length, 1);
+
+  existing.add('ops-002-deployment-identity-footer');
+  const second = helper.processRequests(paths, { ghExec });
+  assert.equal(second.every((result) => result.status === 'skipped'), true);
+  assert.equal(created.length, 1);
+
+  existing.delete('ops-002-deployment-identity-footer');
+  const dryRun = helper.processRequests(paths, { dryRun: true, ghExec });
+  assert.equal(dryRun.some((result) => result.status === 'would-create'), true);
+  assert.equal(created.length, 1);
+});
+
+test('feature issue processing validates all requests before any write and rejects duplicate ids', async () => {
+  const helper = await import('../scripts/create-feature-issues-from-requests.mjs');
+  assert.throws(
+    () => helper.processRequests(['requests/features/auth-001-github-sign-in.json', 'requests/features/auth-001-github-sign-in.json'], { ghExec: () => '[]' }),
+    /Duplicate requestId/,
+  );
+  let writes = 0;
+  assert.throws(
+    () => helper.processRequests(['requests/features/auth-001-github-sign-in.json', 'requests/features/missing.json'], { ghExec: () => { writes += 1; return '[]'; } }),
+    /Unable to read|ENOENT/,
+  );
+  assert.equal(writes, 0);
+});
+
+test('reprocess workflow is manual-only, checks out main, isolates write permission, and documents dry run', () => {
+  const workflow = execFileSync('cat', ['.github/workflows/reprocess-feature-requests.yml'], { encoding: 'utf8' });
+  assert.match(workflow, /name: Reprocess feature requests/);
+  assert.match(workflow, /workflow_dispatch:/);
+  assert.doesNotMatch(workflow, /pull_request:|push:/);
+  assert.match(workflow, /ref: main/);
+  assert.match(workflow, /reusable-verify\.yml/);
+  assert.match(workflow, /reusable-create-feature-issues\.yml/);
+  assert.match(workflow, /issues: read/);
+  assert.match(workflow, /issues: write/);
+  assert.doesNotMatch(workflow, /contents: write|pull-requests: write|actions: write/);
+  assert.match(workflow, /cancel-in-progress: false/);
 });

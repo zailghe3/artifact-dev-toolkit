@@ -71,12 +71,12 @@ function gh(args) {
   return execFileSync('gh', [...args, ...repositoryArgs], { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 }
 
-function ensureManagedLabels(labels) {
+function ensureManagedLabels(labels, { ghExec = gh } = {}) {
   for (const label of labels) {
     const definition = managedLabels.get(label);
     if (!definition) continue;
     try {
-      gh(['label', 'create', label, '--color', definition.color, '--description', definition.description]);
+      ghExec(['label', 'create', label, '--color', definition.color, '--description', definition.description]);
       console.log(`Created missing GitHub label ${label}.`);
     } catch (error) {
       if (/already exists/i.test(String(error.stderr ?? ''))) continue;
@@ -110,25 +110,61 @@ export function loadAndRenderRequest(requestPath) {
   return { data, requestId, body: `${issueMarker(requestId)}\n\n${renderFeatureIssue(data)}` };
 }
 
-export function createIssue(requestPath) {
-  const { data, requestId, body } = loadAndRenderRequest(requestPath);
-  const existingIssue = findExistingIssue(requestId);
+function createIssueFromLoaded(request, { ghExec = gh } = {}) {
+  const { data, requestId, body, path: requestPath } = request;
+  const existingIssue = findExistingIssue(requestId, { ghExec });
   if (existingIssue) {
     console.log(`Skipped ${requestPath}; marker already exists in ${existingIssue.url}.`);
-    return { path: requestPath, status: 'skipped', issue: existingIssue };
+    return { path: requestPath, requestId, status: 'skipped', issue: existingIssue };
   }
   const labels = labelNamesFor(data);
-  ensureManagedLabels(labels);
+  ensureManagedLabels(labels, { ghExec });
   const bodyPath = resolve(repoRoot, `.feature-issue-body-${timestamp()}.md`);
   writeFileSync(bodyPath, body);
   try {
-    const issueUrl = gh(['issue', 'create', '--title', issueTitle(data), '--body-file', bodyPath, ...labels.flatMap((label) => ['--label', label])]);
+    const issueUrl = ghExec(['issue', 'create', '--title', issueTitle(data), '--body-file', bodyPath, ...labels.flatMap((label) => ['--label', label])]);
     const issue = { url: issueUrl, number: issueNumberFromUrl(issueUrl) };
     console.log(`Created ${issueUrl} from ${requestPath}.`);
-    return { path: requestPath, status: 'created', issue };
+    return { path: requestPath, requestId, status: 'created', issue };
   } finally {
     if (existsSync(bodyPath)) rmSync(bodyPath);
   }
+}
+
+export function createIssue(requestPath, options = {}) {
+  return createIssueFromLoaded({ path: requestPath, ...loadAndRenderRequest(requestPath) }, options);
+}
+
+export function validateSelectedRequests(paths) {
+  const requests = paths.map((path) => ({ path, ...loadAndRenderRequest(path) }));
+  const seen = new Map();
+  for (const request of requests) {
+    if (seen.has(request.requestId)) {
+      throw new Error(`Duplicate requestId "${request.requestId}" found in ${seen.get(request.requestId)} and ${request.path}.`);
+    }
+    seen.set(request.requestId, request.path);
+  }
+  return requests;
+}
+
+export function processRequests(paths, { dryRun = false, ghExec = gh } = {}) {
+  const requests = validateSelectedRequests(paths);
+  const results = [];
+  for (const request of requests) {
+    const existingIssue = findExistingIssue(request.requestId, { ghExec });
+    if (existingIssue) {
+      console.log(`Skipped ${request.path}; marker already exists in ${existingIssue.url}.`);
+      results.push({ path: request.path, requestId: request.requestId, status: 'skipped', issue: existingIssue });
+      continue;
+    }
+    if (dryRun) {
+      console.log(`Dry run: would create issue for ${request.path} (${request.requestId}).`);
+      results.push({ path: request.path, requestId: request.requestId, status: 'would-create' });
+      continue;
+    }
+    results.push(createIssueFromLoaded(request, { ghExec }));
+  }
+  return results;
 }
 
 function main() {
@@ -137,16 +173,12 @@ function main() {
     console.log('No changed feature request JSON files found.');
     return;
   }
-  let failures = 0;
-  for (const path of paths) {
-    try {
-      createIssue(path);
-    } catch (error) {
-      failures += 1;
-      console.error(`Failed to process ${path}: ${error.message}`);
-    }
+  try {
+    processRequests(paths, { dryRun: process.env.FEATURE_REQUEST_DRY_RUN === 'true' });
+  } catch (error) {
+    console.error(`Failed to process feature requests: ${error.message}`);
+    process.exit(1);
   }
-  if (failures > 0) process.exit(1);
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) main();
