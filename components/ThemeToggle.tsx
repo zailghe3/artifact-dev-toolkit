@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 
 const storageKey = "artifact-library-theme";
+const themeChangeEvent = "artifact-library-theme-change";
 type Theme = "dark" | "light";
 
 function applyTheme(theme: Theme) {
@@ -10,24 +11,33 @@ function applyTheme(theme: Theme) {
   document.documentElement.dataset.theme = theme;
 }
 
-function getInitialTheme(): Theme {
+function getThemeSnapshot(): Theme {
   if (typeof document === "undefined") return "dark";
   return document.documentElement.classList.contains("dark") ? "dark" : "light";
 }
 
+function subscribeToThemeChanges(onStoreChange: () => void) {
+  window.addEventListener(themeChangeEvent, onStoreChange);
+  window.addEventListener("storage", onStoreChange);
+
+  return () => {
+    window.removeEventListener(themeChangeEvent, onStoreChange);
+    window.removeEventListener("storage", onStoreChange);
+  };
+}
+
+function getServerThemeSnapshot(): Theme {
+  return "dark";
+}
+
 export function ThemeToggle() {
-  const [theme, setTheme] = useState<Theme>(getInitialTheme);
-
-  useEffect(() => {
-    setTheme(getInitialTheme());
-  }, []);
-
+  const theme = useSyncExternalStore(subscribeToThemeChanges, getThemeSnapshot, getServerThemeSnapshot);
   const nextTheme = theme === "dark" ? "light" : "dark";
 
   function toggleTheme() {
     applyTheme(nextTheme);
     window.localStorage.setItem(storageKey, nextTheme);
-    setTheme(nextTheme);
+    window.dispatchEvent(new Event(themeChangeEvent));
   }
 
   return (

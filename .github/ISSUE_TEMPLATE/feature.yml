@@ -43,7 +43,7 @@ body:
         - update `specs/000-current-application-spec.md` in the same pull request whenever implemented behaviour changes;
         - run relevant tests, type checking, and production build validation;
         - open a pull request whose title or summary includes the Feature ID;
-        - include a closing reference such as `Closes #<issue-number>`;
+        - include a closing reference such as `Closes #` in the body of the PR description;
         - After opening the pull request, retrieve or inspect the created PR and verify that its body contains an exact closing reference such as `Closes #25`. If it is missing, update the PR body before finishing the task;
         - describe any intentional deviation or unresolved item in the pull request.
   - type: input

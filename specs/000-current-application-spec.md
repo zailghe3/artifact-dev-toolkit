@@ -323,15 +323,15 @@ Accessibility is supported through standard HTML controls and focus styling, but
 
 The current application uses:
 
-- Next.js 15;
-- React 19;
+- Next.js 16.2.10;
+- React 19.2.7;
 - TypeScript;
 - Tailwind CSS;
 - Zod for validation;
 - gray-matter for Markdown frontmatter parsing;
 - remark and remark-html for Markdown rendering;
-- OpenNext for Cloudflare;
-- Wrangler for Cloudflare deployment.
+- OpenNext for Cloudflare 1.20.1;
+- Wrangler 4.110.0 for Cloudflare deployment.
 
 ### 9.2 Rendering model
 
@@ -368,6 +368,9 @@ npm run dev
 npm run toolchain:validate
 npm run typecheck
 npm run build
+npm run build:worker
+npm run preview
+npm run deploy
 ```
 
 The repository uses Node.js 24 LTS from `.nvmrc`/`.node-version` and npm 11.4.2 from `package.json` `packageManager`. GitHub Actions workflows select Node.js with `node-version-file: .nvmrc`; third-party actions remain pinned to full immutable commit SHAs with adjacent comments identifying their release tags, currently `actions/checkout@v7.0.0` and `actions/setup-node@v6.4.0` where those actions are used. The `npm run toolchain:validate` command checks agreement between the canonical version files, package metadata, lockfile metadata, GitHub Actions workflows, and Codex/documentation templates. The repository's continuous integration workflow runs installation, toolchain validation, type checking, and production build checks on pull requests and pushes to `main`.
