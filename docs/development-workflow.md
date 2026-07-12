@@ -311,3 +311,9 @@ Required verification for PRs and `main` is `npm ci`, `npm test`, `npm run lint`
 Dependabot groups compatible patch and minor updates for the Next.js, ESLint, Tailwind, and Node type-definition ecosystems. Major framework, CSS pipeline, linting, runtime, GitHub Actions, OpenNext, Wrangler, or deployment-tool upgrades require a dedicated manual migration PR and must not be auto-merged solely because CI is green. The current Tailwind-only Dependabot PR #48 should be closed manually as superseded by the full Tailwind v4 and dependency-alignment migration PR.
 
 Third-party GitHub Actions are pinned to full commit SHAs with comments recording the release tag. Dependabot remains configured for the `github-actions` ecosystem so pinned action SHAs can be refreshed deliberately while keeping workflows reproducible.
+
+## Production deployment identity
+
+Production Cloudflare deployments expose immutable build identity in the application footer. The main lifecycle workflow resolves the pull request associated with the verified commit when one exists, then passes the exact verified commit SHA into the reusable deployment workflow. The reusable deployment workflow verifies that the checked-out commit matches that explicit SHA and writes build-time metadata environment variables immediately before `npm run build:worker`.
+
+The application reads those build-time values only through the typed deployment metadata contract in `lib/deployment-metadata.ts`. Local development, tests, and preview builds that do not provide deployment metadata render `Development build` and do not depend on GitHub or Cloudflare availability.
