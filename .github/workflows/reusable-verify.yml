@@ -24,6 +24,13 @@ jobs:
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install canonical npm
+        run: npm install -g npm@10.9.7
+      - name: Report runtime versions
+        run: |
+          echo "Node.js $(node --version)" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "npm $(npm --version)" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Install dependencies
         run: npm ci
       - name: Test
