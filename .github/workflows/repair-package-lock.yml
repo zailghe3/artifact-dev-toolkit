@@ -123,7 +123,8 @@ jobs:
             echo '- npm run build:worker: passed'
             echo '- npm run issue:validate: passed'
           } >> "$GITHUB_STEP_SUMMARY"
-
+          git restore --source=HEAD --worktree -- next-env.d.ts tsconfig.json
+          
       - name: Ensure only package-lock.json changed
         run: |
           set -euo pipefail
