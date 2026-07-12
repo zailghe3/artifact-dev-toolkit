@@ -5,8 +5,7 @@ on:
     types: [opened, reopened, synchronize, ready_for_review]
 
 permissions:
-  contents: read
-  issues: write
+  contents: write
   pull-requests: write
 
 jobs:
@@ -50,13 +49,6 @@ jobs:
 
       - name: Explain decision
         run: echo "${{ steps.eligibility.outputs.reason }}" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Apply auto-merge label
-        if: steps.eligibility.outputs.eligible == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_URL: ${{ github.event.pull_request.html_url }}
-        run: gh pr edit "${PR_URL}" --add-label auto-merge
 
       - name: Enable GitHub auto-merge
         if: steps.eligibility.outputs.eligible == 'true'

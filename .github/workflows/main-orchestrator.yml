@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: main-lifecycle-${{ github.repository }}-${{ github.ref }}
