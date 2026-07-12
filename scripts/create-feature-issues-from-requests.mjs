@@ -67,7 +67,8 @@ export function requestPaths({ env = process.env, gitExec = git } = {}) {
 }
 
 function gh(args) {
-  return execFileSync('gh', args, { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  const repositoryArgs = process.env.GH_REPO ? ['--repo', process.env.GH_REPO] : [];
+  return execFileSync('gh', [...args, ...repositoryArgs], { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 }
 
 function ensureManagedLabels(labels) {

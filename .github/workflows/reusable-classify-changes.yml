@@ -1,0 +1,106 @@
+name: Reusable / classify changes
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        required: true
+        type: string
+      pr_number:
+        required: false
+        type: string
+      base_sha:
+        required: false
+        type: string
+      head_sha:
+        required: false
+        type: string
+    outputs:
+      changed_files:
+        value: ${{ jobs.classify.outputs.changed_files }}
+      canonical_feature_files:
+        value: ${{ jobs.classify.outputs.canonical_feature_files }}
+      sensitive_files:
+        value: ${{ jobs.classify.outputs.sensitive_files }}
+      has_feature_request_changes:
+        value: ${{ jobs.classify.outputs.has_feature_request_changes }}
+      has_sensitive_changes:
+        value: ${{ jobs.classify.outputs.has_sensitive_changes }}
+      documentation_request_only:
+        value: ${{ jobs.classify.outputs.documentation_request_only }}
+      deployable_changes:
+        value: ${{ jobs.classify.outputs.deployable_changes }}
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  classify:
+    name: classify
+    runs-on: ubuntu-latest
+    outputs:
+      changed_files: ${{ steps.classify.outputs.changed_files }}
+      canonical_feature_files: ${{ steps.classify.outputs.canonical_feature_files }}
+      sensitive_files: ${{ steps.classify.outputs.sensitive_files }}
+      has_feature_request_changes: ${{ steps.classify.outputs.has_feature_request_changes }}
+      has_sensitive_changes: ${{ steps.classify.outputs.has_sensitive_changes }}
+      documentation_request_only: ${{ steps.classify.outputs.documentation_request_only }}
+      deployable_changes: ${{ steps.classify.outputs.deployable_changes }}
+    steps:
+      - name: Check out classifier
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Collect pull request files
+        if: inputs.mode == 'pr'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/files" --jq '.[] | {filename, previous_filename, status}' > files.jsonl
+
+      - name: Collect pushed files
+        if: inputs.mode == 'push'
+        env:
+          BASE_SHA: ${{ inputs.base_sha }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${BASE_SHA}" || "${BASE_SHA}" =~ ^0+$ ]]; then
+            git diff-tree --no-commit-id --name-status -M -r "${HEAD_SHA}" > names.txt
+          else
+            git diff --name-status -M "${BASE_SHA}" "${HEAD_SHA}" > names.txt
+          fi
+          node --input-type=module <<'NODE' > files.jsonl
+          import { readFileSync } from 'node:fs';
+          for (const line of readFileSync('names.txt', 'utf8').split('\n')) {
+            if (!line.trim()) continue;
+            const parts = line.split('\t');
+            const code = parts[0];
+            if (code.startsWith('R')) console.log(JSON.stringify({ status: 'renamed', previous_filename: parts[1], filename: parts[2] }));
+            else console.log(JSON.stringify({ status: code === 'A' ? 'added' : code === 'D' ? 'removed' : 'modified', filename: parts[1] }));
+          }
+          NODE
+
+      - name: Classify changes
+        id: classify
+        run: node scripts/classify-changes.mjs files.jsonl
+
+      - name: Summarize classification
+        run: |
+          set -euo pipefail
+          {
+            echo '## Change classification'
+            echo '- Feature request changes: `${{ steps.classify.outputs.has_feature_request_changes }}`'
+            echo '- Sensitive changes: `${{ steps.classify.outputs.has_sensitive_changes }}`'
+            echo '- Documentation/request only: `${{ steps.classify.outputs.documentation_request_only }}`'
+            echo '- Deployable changes: `${{ steps.classify.outputs.deployable_changes }}`'
+            echo ''
+            echo '### Files'
+            printf '%s\n' '${{ steps.classify.outputs.changed_files }}'
+          } >> "$GITHUB_STEP_SUMMARY"
