@@ -2,22 +2,11 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import matter from "gray-matter";
 import { z } from "zod";
+import { artifactMetadataSchema, artifactStatusSchema, artifactTypeSchema } from "./artifact-schemas";
 
 const artifactsDir = path.join(process.cwd(), "artifacts");
 
-export const artifactStatusSchema = z.enum(["production", "draft", "archived"]);
-export const artifactTypeSchema = z.enum(["prompt", "agent", "snippet", "template", "app-idea"]);
-
-const artifactSchema = z.object({
-  id: z.string().min(1),
-  title: z.string().min(1),
-  type: artifactTypeSchema,
-  status: artifactStatusSchema,
-  tags: z.array(z.string()).default([]),
-  aliases: z.array(z.string()).default([]),
-  sourceId: z.string().optional(),
-  createdAt: z.string().optional(),
-});
+const artifactSchema = artifactMetadataSchema;
 
 export type Artifact = z.infer<typeof artifactSchema> & {
   body: string;
