@@ -365,11 +365,12 @@ The application shall support the following local commands:
 ```bash
 npm install
 npm run dev
+npm run toolchain:validate
 npm run typecheck
 npm run build
 ```
 
-The repository's continuous integration workflow runs installation, type checking, and production build checks on pull requests and pushes to `main`.
+The repository uses Node.js 24 LTS from `.nvmrc`/`.node-version` and npm 11.4.2 from `package.json` `packageManager`. The `npm run toolchain:validate` command checks agreement between the canonical version files, package metadata, lockfile metadata, GitHub Actions workflows, and Codex/documentation templates. The repository's continuous integration workflow runs installation, toolchain validation, type checking, and production build checks on pull requests and pushes to `main`.
 
 ## 11. Deployment
 

@@ -34,7 +34,7 @@ Supported `status` values: `production`, `draft`, `archived`.
 
 ## Setup
 
-Use Node.js 22 (`.nvmrc` / `.node-version`) with npm 10.9.7 (`package.json` `packageManager`) and install dependencies reproducibly.
+Use Node.js 24 LTS (`.nvmrc` / `.node-version`) with npm 11.4.2 (`package.json` `packageManager`) and install dependencies reproducibly.
 
 ```bash
 npm ci
@@ -46,6 +46,7 @@ Open [http://localhost:3000](http://localhost:3000).
 ## Checks
 
 ```bash
+npm run toolchain:validate
 npm run lint
 npm run typecheck
 npm run build
@@ -77,6 +78,7 @@ This repository includes GitHub Actions for pull request validation, optional au
 ```bash
 npm ci
 npm test
+npm run toolchain:validate
 npm run lint
 npm run typecheck
 npm run build
