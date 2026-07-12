@@ -34,7 +34,7 @@ Supported `status` values: `production`, `draft`, `archived`.
 
 ## Setup
 
-Use Node.js 24 LTS (`.nvmrc` / `.node-version`) with npm 11.4.2 (`package.json` `packageManager`) and install dependencies reproducibly. The framework/deployment compatibility set is Next.js 16.2.10, React/React DOM 19.2.7, `@opennextjs/cloudflare` 1.20.1, and Wrangler 4.110.0.
+Use Node.js 24 LTS (`.nvmrc` / `.node-version`) with npm 11.4.2 (`package.json` `packageManager`) and install dependencies reproducibly. The framework/deployment compatibility set is Next.js 16.2.10, React/React DOM 19.2.7, TypeScript 5.9.3, ESLint 9.39.5 with `typescript-eslint` 8.63.0, Node 24-aligned `@types/node`, `@opennextjs/cloudflare` 1.20.1, and Wrangler 4.110.0.
 
 ```bash
 npm ci
