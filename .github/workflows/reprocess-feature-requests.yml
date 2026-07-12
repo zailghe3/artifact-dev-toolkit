@@ -46,7 +46,7 @@ jobs:
       count: ${{ steps.selection.outputs.count }}
     steps:
       - name: Checkout trusted main
-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # actions/checkout@v4
         with:
           ref: main
       - name: Resolve current main SHA
@@ -57,7 +57,7 @@ jobs:
           echo "sha=${sha}" >> "$GITHUB_OUTPUT"
           echo "Current main SHA: ${sha}" >> "$GITHUB_STEP_SUMMARY"
       - name: Setup Node.js
-        uses: actions/setup-node@60edb5dd545a775178f52524783378180af0d1f8 # actions/setup-node@v4
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # actions/setup-node@v4
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -107,11 +107,11 @@ jobs:
       issues: read
     steps:
       - name: Checkout exact main commit
-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # actions/checkout@v4
         with:
           ref: ${{ needs.validate-inputs.outputs.main_sha }}
       - name: Setup Node.js
-        uses: actions/setup-node@60edb5dd545a775178f52524783378180af0d1f8 # actions/setup-node@v4
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # actions/setup-node@v4
         with:
           node-version-file: .nvmrc
           cache: npm
