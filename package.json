@@ -17,7 +17,8 @@
     "issue:validate": "node scripts/validate-feature-issue-template.mjs",
     "issue:create-from-requests": "node scripts/create-feature-issues-from-requests.mjs",
     "issue:validate-request": "node scripts/validate-feature-request.mjs",
-    "test": "node --test"
+    "test": "node --test",
+    "artifacts:validate": "node scripts/validate-artifact-repository.mjs"
   },
   "dependencies": {
     "gray-matter": "^4.0.3",

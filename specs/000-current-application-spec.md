@@ -3,7 +3,7 @@
 **Document status:** Baseline specification of the implemented application  
 **Application version:** 0.1.0  
 **Scope:** Current behaviour only; this document is not a roadmap  
-**Last updated:** 2026-07-11
+**Last updated:** 2026-07-12
 
 ## 1. Purpose
 
@@ -46,7 +46,7 @@ Anyone who can access the deployed URL can view the artifacts exposed by that de
 
 ## 4. Artifact data model
 
-Artifacts are stored as Markdown files with YAML frontmatter under the `artifacts/` directory and its subdirectories.
+Artifacts are stored as Markdown files with YAML frontmatter under the `artifacts/` directory and its subdirectories. DATA-001 also defines the compatible external private repository contract documented in `docs/external-artifact-repository-contract.md`.
 
 ### 4.1 Required frontmatter
 
@@ -237,7 +237,33 @@ It shall:
 - return artifacts sorted by title;
 - create variation files beneath `artifacts/variations/`.
 
-### 6.3 GitHub repository placeholder
+### 6.3 External artifact repository contract
+
+The stable storage contract for a dedicated private artifact repository is documented in `docs/external-artifact-repository-contract.md`.
+
+That contract specifies:
+
+- authoritative branch `main`;
+- configurable artifact root path, defaulting to `artifacts/`;
+- supported top-level directories `prompts/`, `agents/`, `snippets/`, `templates/`, `app-ideas/`, and `variations/`;
+- recursive nested Markdown artifact support inside those directories;
+- globally unique artifact IDs across the complete artifact root;
+- required frontmatter fields `id`, `title`, `type`, `status`, `tags`, and `aliases`;
+- optional `sourceId` and `createdAt` variation metadata;
+- the same supported artifact types and statuses used by the application.
+
+A validation command exists for complete checkouts of that external repository:
+
+```bash
+npm run artifacts:validate -- ../private-artifact-storage
+npm run artifacts:validate -- ../private-artifact-storage --root custom-root
+```
+
+The validator is independent of GitHub authentication and Cloudflare runtime behaviour. It reports file-specific errors for missing roots or directories, malformed or missing YAML front matter, missing required fields, unsupported values, duplicate IDs, and Markdown files placed outside the supported top-level directories.
+
+Representative valid and invalid fixtures exist under `test-fixtures/external-artifact-repository/`, and examples for every supported artifact type exist under `docs/examples/external-artifact-repository/`.
+
+### 6.4 GitHub repository placeholder
 
 A `GitHubArtifactRepository` class exists but is not implemented.
 
@@ -251,7 +277,7 @@ currently selects that placeholder and causes repository operations to fail with
 
 No current application requirement depends on GitHub-backed runtime storage.
 
-### 6.4 Hosted deployment limitation
+### 6.5 Hosted deployment limitation
 
 Variation creation is fully functional when the application runs in an environment with a persistent, writable project filesystem.
 
@@ -261,14 +287,14 @@ Persistent hosted variation storage is outside the scope of the current implemen
 
 ## 7. Seed content
 
-The repository currently includes example prompt artifacts covering:
+The application repository currently includes example prompt artifacts covering:
 
 - board updates;
 - slide narrative creation;
 - Copilot coding requests;
 - meeting summaries.
 
-These serve both as usable initial content and as examples of the artifact format.
+These serve both as usable initial content and as examples of the artifact format. Under the external repository contract, these samples should be migrated to `artifacts/prompts/` in the storage repository because each sample currently has `type: prompt`.
 
 ## 8. User experience and presentation
 
@@ -386,7 +412,8 @@ The following capabilities are not part of the current application:
 - artifact version history within the application;
 - agents that execute actions;
 - API integrations with Copilot, ChatGPT, Outlook, Teams, or PowerPoint;
-- automated tests beyond type checking and production build validation.
+- GitHub-backed artifact reads or writes;
+- automated tests beyond the currently included Node test suite, type checking, and production build validation.
 
 ## 13. Baseline acceptance criteria
 
