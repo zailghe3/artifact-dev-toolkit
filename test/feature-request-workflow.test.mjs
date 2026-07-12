@@ -157,30 +157,33 @@ test('partial failure is safe to retry because issues are checked per request be
 test('feature issue workflow has minimum permissions and no PR lifecycle step', () => {
   const workflow = execFileSync('cat', ['.github/workflows/create-feature-issues.yml'], { encoding: 'utf8' });
   assert.match(workflow, /workflow_dispatch:/);
-  assert.match(workflow, /- all\n\s+- changed/);
+  assert.match(workflow, /- all\n\s+- changed|options: \[all, changed\]/);
   assert.match(workflow, /contents: read/);
   assert.match(workflow, /issues: write/);
   assert.doesNotMatch(workflow, /pull-requests: write/);
   assert.doesNotMatch(workflow, /open-feature-request-processing-prs/);
 });
 
-test('post-merge orchestration explicitly creates issues and dispatches deploy only for runtime files', () => {
-  const workflow = execFileSync('cat', ['.github/workflows/post-merge-orchestration.yml'], { encoding: 'utf8' });
-  assert.match(workflow, /pull_request:/);
-  assert.match(workflow, /- closed/);
-  assert.match(workflow, /if: github\.event\.pull_request\.merged == true/);
-  assert.match(workflow, /requests\\\/features\\\/\[\^\/\]\+\\\.json/);
-  assert.match(workflow, /FEATURE_REQUEST_FILES/);
-  assert.match(workflow, /gh workflow run deploy-cloudflare\.yml --ref main/);
-  assert.match(workflow, /\^\(app\|components\|lib\|public\)/);
-  assert.doesNotMatch(workflow, /npm run build:worker/);
-  assert.doesNotMatch(workflow, /wrangler deploy/);
+test('main orchestration verifies before independent issue creation and deployment', () => {
+  const workflow = execFileSync('cat', ['.github/workflows/main-orchestrator.yml'], { encoding: 'utf8' });
+  assert.match(workflow, /push:/);
+  assert.match(workflow, /branches: \[main\]/);
+  assert.match(workflow, /verify-main:/);
+  assert.match(workflow, /create-feature-issues:/);
+  assert.match(workflow, /deploy:/);
+  assert.match(workflow, /needs: \[classify, verify-main\]/);
+  assert.match(workflow, /reusable-create-feature-issues\.yml/);
+  assert.match(workflow, /reusable-deploy-cloudflare\.yml/);
+  assert.doesNotMatch(workflow, /gh workflow run/);
 });
 
-test('documentation-only merge does not deploy unnecessarily', () => {
-  const workflow = execFileSync('cat', ['.github/workflows/post-merge-orchestration.yml'], { encoding: 'utf8' });
-  assert.doesNotMatch(workflow, /docs\//);
-  assert.match(workflow, /if: steps\.files\.outputs\.runtime_files != ''/);
+test('documentation-only merge skip logic is narrow and classification-driven', () => {
+  const workflow = execFileSync('cat', ['.github/workflows/main-orchestrator.yml'], { encoding: 'utf8' });
+  const classifier = execFileSync('cat', ['scripts/classify-changes.mjs'], { encoding: 'utf8' });
+  assert.match(workflow, /if: needs\.classify\.outputs\.deployable_changes == 'true'/);
+  assert.match(classifier, /docs\//);
+  assert.match(classifier, /requests\/features\//);
+  assert.match(classifier, /README\.md/);
 });
 
 test('auto-merge workflow uses GITHUB_TOKEN and no PAT-backed secret', () => {
@@ -188,7 +191,7 @@ test('auto-merge workflow uses GITHUB_TOKEN and no PAT-backed secret', () => {
   assert.match(workflow, /GH_TOKEN: \$\{\{ github\.token \}\}/);
   assert.doesNotMatch(workflow, /AUTO_MERGE_TOKEN/);
   assert.match(workflow, /pull_request_target:/);
-  assert.match(workflow, /github\.event\.pull_request\.draft == false/);
+  assert.match(workflow, /IS_DRAFT|github\.event\.pull_request\.draft/);
   assert.match(workflow, /REPOSITORY_OWNER: \$\{\{ github\.repository_owner \}\}/);
   assert.match(workflow, /HEAD_REPOSITORY/);
   assert.match(workflow, /gh api --paginate/);
@@ -199,12 +202,17 @@ test('auto-merge workflow uses GITHUB_TOKEN and no PAT-backed secret', () => {
   assert.match(workflow, /--auto --squash --delete-branch/);
 });
 
-test('Cloudflare deployment has one explicit dispatch path and remains manually runnable', () => {
+test('Cloudflare deployment uses reusable workflow and remains manually runnable', () => {
   const deploy = execFileSync('cat', ['.github/workflows/deploy-cloudflare.yml'], { encoding: 'utf8' });
-  const orchestrator = execFileSync('cat', ['.github/workflows/post-merge-orchestration.yml'], { encoding: 'utf8' });
+  const reusable = execFileSync('cat', ['.github/workflows/reusable-deploy-cloudflare.yml'], { encoding: 'utf8' });
+  const orchestrator = execFileSync('cat', ['.github/workflows/main-orchestrator.yml'], { encoding: 'utf8' });
   assert.match(deploy, /workflow_dispatch:/);
+  assert.match(deploy, /ref:/);
   assert.doesNotMatch(deploy, /push:/);
-  assert.match(deploy, /npm run build:worker/);
-  assert.match(deploy, /npx wrangler deploy/);
-  assert.match(orchestrator, /gh workflow run deploy-cloudflare\.yml --ref main/);
+  assert.match(deploy, /reusable-deploy-cloudflare\.yml/);
+  assert.match(reusable, /npm run build:worker/);
+  assert.match(reusable, /npx wrangler deploy/);
+  assert.match(reusable, /environment: production/);
+  assert.match(orchestrator, /reusable-deploy-cloudflare\.yml/);
+  assert.doesNotMatch(orchestrator, /gh workflow run/);
 });

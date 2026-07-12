@@ -1,26 +1,21 @@
-name: Create feature issues from requests
+name: Manual feature issue recovery
 
 on:
   workflow_dispatch:
     inputs:
-      mode:
-        description: 'Request selection mode'
+      ref:
+        description: Explicit main ref or SHA to process
         required: true
-        default: 'all'
+        default: main
+        type: string
+      mode:
+        description: Request selection mode
+        required: true
+        default: all
         type: choice
-        options:
-          - all
-          - changed
+        options: [all, changed]
       files:
-        description: 'Optional newline-separated canonical request files for changed mode'
-        required: false
-        type: string
-  workflow_call:
-    inputs:
-      mode:
-        required: true
-        type: string
-      files:
+        description: Optional newline-separated canonical request files for changed mode
         required: false
         type: string
 
@@ -28,33 +23,10 @@ permissions:
   contents: read
   issues: write
 
-concurrency:
-  group: feature-request-issues-${{ github.ref }}
-  cancel-in-progress: false
-
 jobs:
   create-feature-issues:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: Validate feature issue tooling
-        run: npm run issue:validate
-
-      - name: Create GitHub issues
-        env:
-          GH_TOKEN: ${{ github.token }}
-          FEATURE_REQUEST_MODE: ${{ inputs.mode || 'all' }}
-          FEATURE_REQUEST_FILES: ${{ inputs.files }}
-        run: node scripts/create-feature-issues-from-requests.mjs
+    uses: ./.github/workflows/reusable-create-feature-issues.yml
+    with:
+      ref: ${{ inputs.ref }}
+      mode: ${{ inputs.mode }}
+      files: ${{ inputs.files }}

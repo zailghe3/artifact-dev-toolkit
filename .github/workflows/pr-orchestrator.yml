@@ -1,0 +1,33 @@
+name: PR lifecycle
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  classify:
+    name: classify-pr
+    uses: ./.github/workflows/reusable-classify-changes.yml
+    with:
+      mode: pr
+      pr_number: ${{ github.event.pull_request.number }}
+
+  verify-pr:
+    name: verify-pr
+    needs: classify
+    uses: ./.github/workflows/reusable-verify.yml
+    with:
+      ref: ${{ github.event.pull_request.head.sha }}
+
+  validate-feature-requests:
+    name: validate-feature-requests
+    needs: classify
+    if: needs.classify.outputs.has_feature_request_changes == 'true'
+    uses: ./.github/workflows/reusable-validate-feature-requests.yml
+    with:
+      ref: ${{ github.event.pull_request.head.sha }}
+      files: ${{ needs.classify.outputs.canonical_feature_files }}

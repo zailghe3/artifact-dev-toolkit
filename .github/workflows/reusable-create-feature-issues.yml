@@ -1,0 +1,59 @@
+name: Reusable / create feature issues
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        required: true
+        type: string
+      mode:
+        required: true
+        type: string
+      files:
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: feature-issue-creation-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  create-feature-issues:
+    name: create-feature-issues
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Validate feature issue tooling
+        run: npm run issue:validate
+      - name: Create missing issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          FEATURE_REQUEST_MODE: ${{ inputs.mode }}
+          FEATURE_REQUEST_FILES: ${{ inputs.files }}
+        run: |
+          set -euo pipefail
+          node scripts/create-feature-issues-from-requests.mjs | tee feature-issues.log
+          {
+            echo '## Feature issue creation'
+            echo 'Mode: `${{ inputs.mode }}`'
+            echo 'Files:'
+            printf '%s\n' '${{ inputs.files }}'
+            echo ''
+            echo 'Log:'
+            sed 's/^/- /' feature-issues.log
+          } >> "$GITHUB_STEP_SUMMARY"

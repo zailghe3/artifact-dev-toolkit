@@ -197,86 +197,102 @@ For a behaviour-changing feature, a pull request is incomplete until the specifi
 
 For a bug fix, the specification must be reviewed. Update it when the fix changes documented behaviour or exposes that the previous specification was inaccurate. A purely internal fix may require no text change, but the PR should state that the specification was reviewed.
 
-## Deployment automation
+## CI/CD lifecycle automation
 
-Deployment automation is intentionally split between auto-merge and deployment dispatch:
-
-```text
-PR opened
-→ auto-merge enabled with GITHUB_TOKEN
-→ checks pass
-→ PR merges into main
-→ post-merge dispatcher explicitly starts Cloudflare deployment
-→ deployment workflow builds and publishes current main
-```
-
-The auto-merge workflow uses the repository-provided `GITHUB_TOKEN` to apply the `auto-merge` label and enable squash auto-merge with branch deletion. Before taking either write action, it verifies that the pull request author is the repository owner reported by `github.repository_owner`, and that the pull request branch is from this repository rather than a fork. Codex-created pull requests remain eligible when Codex acts through the repository owner GitHub identity. The workflow does not treat an author-supplied `auto-merge` label as authorization.
-
-Auto-merge is limited to low-risk changes. The workflow retrieves the complete pull-request file list with API pagination and skips automatic labeling and auto-merge when a pull request adds, modifies, renames, or deletes sensitive CI/CD or execution-sensitive files: `.github/workflows/**`, `.github/actions/**`, `package.json`, `package-lock.json`, `wrangler.jsonc`, `open-next.config.*`, or `scripts/**`. These skipped pull requests should remain open for normal human review and manual merging.
-
-This token is ephemeral and repository-scoped, so `AUTO_MERGE_TOKEN` or other personal access token secrets are no longer required. After the deployment-dispatch change is merged, any unused `AUTO_MERGE_TOKEN` repository secret can be deleted manually in GitHub repository settings.
-
-The Cloudflare deployment workflow remains manually runnable with `workflow_dispatch`, but it does not run directly on every push to `main`. Instead, after a pull request targeting `main` is closed and actually merged, a dedicated dispatcher workflow calls `gh workflow run deploy-cloudflare.yml --ref main` with the repository `GITHUB_TOKEN`. This makes downstream deployment explicit rather than relying on whether a merge push was created by a token that can trigger more workflows. It also avoids duplicate automatic deployments by keeping a single automatic path: merged pull request → dispatcher → Cloudflare deployment workflow.
-
-Direct commits to `main` are not the expected workflow because repository rules require pull requests. If an exceptional direct commit reaches `main`, use the manual `Publish to Cloudflare` workflow dispatch as the recovery deployment path rather than weakening branch protection.
-
-`specs/000-current-application-spec.md` was reviewed for deployment context; no update is required for this automation-only change because the application behaviour and runtime deployment target are unchanged.
-
-## 7. Specification maintenance
-
-`specs/000-current-application-spec.md` is the baseline description of the application as it exists now.
-
-It must not describe unimplemented roadmap items as current behaviour.
-
-When implementation changes the application:
-
-- update the relevant existing section;
-- add a section only when the new behaviour does not fit the current structure;
-- update exclusions when a previously excluded capability is implemented;
-- update acceptance criteria where the operational baseline changes;
-- keep architectural and deployment limitations accurate.
-
-Feature proposals remain in GitHub issues until implemented. The current specification is updated only as part of the implementation pull request.
-
-## 8. Review and merge
-
-Before merging, confirm:
-
-- the issue acceptance criteria are satisfied;
-- CI checks have passed;
-- no unresolved review comments remain;
-- the specification has been reviewed and updated as required;
-- the pull request closes the issue;
-- no credentials, secrets, or confidential content were committed.
-
-Use a draft pull request when work is not ready to merge. Automatic labeling and auto-merge are reserved for trusted same-repository pull requests authored by the repository owner reported by `github.repository_owner` that do not touch sensitive CI/CD or execution-sensitive paths; all other pull requests should be reviewed and merged manually after required checks pass.
-
-## 9. Scope management
-
-Prefer small issues that can be implemented and verified in one focused pull request.
-
-Split a larger capability when it contains independently valuable or risky work. For example:
+The repository uses a deterministic GitHub Actions lifecycle with one entry workflow for pull requests, one entry workflow for pushes to `main`, and a separate privileged workflow that only enables trusted auto-merge. Reusable atomic workflows are called directly with `workflow_call`; workflows do not continue the pipeline by applying labels, dispatching other workflows with `gh workflow run`, or relying on events emitted by actions taken with `GITHUB_TOKEN`.
 
 ```text
-Persistent artifact management
-  → implement GitHub-backed repository
-  → add authentication for write actions
-  → persist variations
-  → create new artifacts from the UI
-  → add editing and promotion workflows
+Pull request
+  → PR lifecycle / classify-pr
+  → PR lifecycle / verify-pr
+  → PR lifecycle / validate-feature-requests when requests/features/*.json changed
+  → Trusted auto-merge may enable squash auto-merge for owner-authored, same-repo, non-sensitive PRs
+  → GitHub waits for required checks
+  → squash merge creates a native push to main
+  → Main lifecycle / classify-main
+  → Main lifecycle / verify-main
+     ├─ create-feature-issues for changed feature JSON files
+     └─ deploy-cloudflare for deployable changes
 ```
 
-Do not add unrelated improvements to an implementation pull request. Capture them as separate issues.
+Entry workflows and triggers:
 
-## 10. Definition of done
+- `PR lifecycle` (`.github/workflows/pr-orchestrator.yml`): `pull_request` on `opened`, `synchronize`, `reopened`, and `ready_for_review`. It has read-only permissions, validates all PRs, never accesses production secrets, never creates issues, never deploys, and never enables a merge.
+- `Trusted auto-merge` (`.github/workflows/auto-merge.yml`): `pull_request_target` on the same PR activity types. It never checks out or executes PR code. It only uses metadata and the complete paginated PR file list to decide whether to label and enable squash auto-merge.
+- `Main lifecycle` (`.github/workflows/main-orchestrator.yml`): `push` to `main`. It operates on the exact pushed commit, verifies it, then runs feature issue creation and Cloudflare deployment as independent sibling jobs. Failure in one side-effecting job does not block the other.
+- `Manual feature issue recovery` and `Manual Cloudflare deployment` are thin `workflow_dispatch` wrappers around the same reusable workflows. Operators must provide an explicit target ref or SHA; the safe default is `main`.
 
-A change is done when:
+Reusable workflows:
 
-- the agreed behaviour is implemented;
-- acceptance criteria are satisfied;
-- relevant checks pass;
-- security and deployment implications have been considered;
-- the Feature ID is referenced in the pull request;
-- the issue is linked and will close on merge;
-- the current application specification has been reviewed and updated in the same pull request where required;
-- the merged repository accurately describes and implements the same product state.
+- `Reusable / classify changes` gathers changed files with explicit repository context, handles PR API pagination, detects canonical request files under `requests/features/*.json`, sensitive CI/CD files, documentation/request-only changes, and deployable changes.
+- `Reusable / verify` runs `npm ci`, `npm test`, `npm run typecheck`, and `npm run build` with Node.js 22 and read-only permissions. `npm ci` intentionally fails if `package.json` and `package-lock.json` drift.
+- `Reusable / validate feature requests` validates changed canonical feature JSON files, validates the issue template contract, and dry-run renders issues without writes.
+- `Reusable / create feature issues` checks out the exact verified main commit, runs `npm ci`, and uses the immutable `<!-- feature-request-id: ... -->` marker to create only missing issues. It is safe to rerun after partial failure.
+- `Reusable / deploy Cloudflare` checks out the exact verified commit, runs `npm ci`, builds the production worker with `npm run build:worker`, validates Cloudflare secrets inside the deployment job, deploys with Wrangler in the `production` environment, and records the deployed commit in the job summary. Production deployments use a non-cancelling concurrency group.
+
+Required status checks should be migrated to the stable PR check names `classify-pr`, `verify-pr / verify`, and, if branch protection supports conditionally required checks without deadlock, `validate-feature-requests / validate-feature-requests`. Because feature validation is skipped for non-feature PRs, the safest always-required checks are classification and verification. Update branch protection only after this CI/CD PR is manually merged and the new workflow names have appeared at least once.
+
+Feature request PR timeline:
+
+```text
+ChatGPT prompt
+→ Codex creates one or more requests/features/*.json files
+→ Codex opens a non-draft PR
+→ PR lifecycle classifies changes
+→ general verification runs
+→ feature-request validation runs
+→ trusted auto-merge enables auto-merge if eligible
+→ GitHub waits for required checks
+→ GitHub auto-merges
+→ push to main triggers Main lifecycle
+→ exact main commit is verified
+→ feature issues are created idempotently
+→ deployment is skipped because canonical feature-request-only changes are conclusively non-runtime changes
+```
+
+Implementation PR timeline:
+
+```text
+Issue
+→ Codex implements code, tests, and specifications
+→ Codex opens a non-draft PR with an exact closing reference
+→ PR lifecycle runs tests, typecheck, and build
+→ trusted auto-merge enables auto-merge if eligible
+→ GitHub waits for required checks
+→ GitHub auto-merges and closes the issue
+→ push to main triggers Main lifecycle
+→ exact main commit is verified
+→ Cloudflare deployment runs
+```
+
+Sensitive CI/CD PR timeline:
+
+```text
+Codex opens a PR touching sensitive paths
+→ PR validation still runs
+→ Trusted auto-merge skips successfully
+→ human reviews and manually merges
+→ push to main triggers the same verified post-merge path
+```
+
+Sensitive paths are `.github/workflows/**`, `.github/actions/**`, `scripts/**`, `package.json`, `package-lock.json`, `wrangler.jsonc`, and `open-next.config.*`. The trusted auto-merge workflow checks both `filename` and `previous_filename` for added, modified, renamed, and deleted files, including files on later API pages. User-controlled labels are never authorization. This CI/CD stabilisation PR touches sensitive workflow and script files, so it must remain available for manual review and manual merge.
+
+Deployment policy is conservative: after every verified merge to `main`, deploy unless the change is conclusively documentation-only or feature-request-only. The skip set is intentionally narrow (`docs/**`, `specs/**`, `requests/features/**`, root `*.md`, and `README.md`) so runtime-relevant root configuration changes are not silently skipped.
+
+Production secret boundary: PR workflows have read-only permissions and receive no Cloudflare secrets. Cloudflare credentials are passed only from the main/manual deployment caller to `Reusable / deploy Cloudflare`, and only the deployment job runs in the `production` environment. Privileged `pull_request_target` auto-merge never checks out PR code.
+
+Recovery procedures:
+
+- Failed PR validation: fix the branch and push again; `synchronize` reruns classification, verification, feature validation, and auto-merge eligibility.
+- Failed feature issue creation: rerun `Manual feature issue recovery` with `mode: changed` and explicit newline-separated files, or `mode: all` to reprocess every canonical request. Existing marker-bearing issues are skipped.
+- Failed deployment: rerun `Manual Cloudflare deployment` with the exact main SHA that already passed verification, or `main` to deploy the current branch tip.
+- Manual deployment of a specific commit: run `Manual Cloudflare deployment`, set `ref` to the desired main commit SHA, and confirm the job summary records that SHA.
+- Reprocessing feature requests: run `Manual feature issue recovery`; immutable request markers make all recovery modes idempotent.
+
+Migration sequence:
+
+1. Manually review and merge this sensitive CI/CD PR; do not rely on auto-merge for it.
+2. Let the native push to `main` run `Main lifecycle`; enabling GitHub auto-merge for future PRs does not suppress this native push-to-main workflow because the post-merge continuation is the `push` event itself, not a token-generated dispatch chain.
+3. Update branch protection from legacy `CI` checks to `classify-pr` and `verify-pr / verify` after the new checks appear.
+4. Keep manual merge required for future sensitive CI/CD changes.
+5. If DATA-001 or any earlier runtime-relevant commit was not deployed during the old workflow transition, run `Manual Cloudflare deployment` against the current `main` SHA. If feature issues from DATA-001 are missing, run `Manual feature issue recovery` with `mode: all`.
