@@ -1,0 +1,156 @@
+name: Reprocess feature requests
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Feature request selection mode.
+        required: true
+        default: specific
+        type: choice
+        options:
+          - specific
+          - all
+      file:
+        description: Canonical file when mode is specific (requests/features/<filename>.json).
+        required: false
+        default: requests/features/ops-002-deployment-identity-footer.json
+        type: string
+      dry_run:
+        description: Validate, render, and report without creating issues.
+        required: true
+        default: false
+        type: boolean
+      verify_repository:
+        description: Run normal repository verification before issue processing.
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reprocess-feature-requests-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  validate-inputs:
+    name: validate-inputs
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      main_sha: ${{ steps.main.outputs.sha }}
+      files: ${{ steps.selection.outputs.files }}
+      count: ${{ steps.selection.outputs.count }}
+    steps:
+      - name: Checkout trusted main
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # actions/checkout@v4
+        with:
+          ref: main
+      - name: Resolve current main SHA
+        id: main
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+          echo "Current main SHA: ${sha}" >> "$GITHUB_STEP_SUMMARY"
+      - name: Setup Node.js
+        uses: actions/setup-node@60edb5dd545a775178f52524783378180af0d1f8 # actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install canonical npm
+        run: npm install -g npm@10.9.7
+      - name: Install dependencies
+        run: npm ci
+      - name: Validate issue tooling
+        run: npm run issue:validate
+      - name: Determine and validate files
+        id: selection
+        env:
+          REPROCESS_MODE: ${{ inputs.mode }}
+          REPROCESS_FILE: ${{ inputs.file }}
+        run: |
+          set -euo pipefail
+          node scripts/reprocess-feature-requests.mjs | tee selected-feature-requests.txt
+      - name: Write validation summary
+        run: |
+          set -euo pipefail
+          {
+            echo '## Reprocess feature requests validation'
+            echo 'Selected mode: `${{ inputs.mode }}`'
+            echo 'Current main SHA: `${{ steps.main.outputs.sha }}`'
+            echo 'Dry run: `${{ inputs.dry_run }}`'
+            echo 'Repository verification requested: `${{ inputs.verify_repository }}`'
+            echo 'Files inspected:'
+            if [ -s selected-feature-requests.txt ]; then sed 's/^/- `/' selected-feature-requests.txt | sed 's/$/`/'; else echo '- none'; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  verify-main:
+    name: verify-main
+    if: ${{ inputs.verify_repository }}
+    needs: validate-inputs
+    uses: ./.github/workflows/reusable-verify.yml
+    with:
+      ref: ${{ needs.validate-inputs.outputs.main_sha }}
+
+  dry-run:
+    name: dry-run
+    if: ${{ always() && inputs.dry_run && needs.validate-inputs.outputs.count != '0' && (inputs.verify_repository == false || needs.verify-main.result == 'success') }}
+    needs: [validate-inputs, verify-main]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: read
+    steps:
+      - name: Checkout exact main commit
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # actions/checkout@v4
+        with:
+          ref: ${{ needs.validate-inputs.outputs.main_sha }}
+      - name: Setup Node.js
+        uses: actions/setup-node@60edb5dd545a775178f52524783378180af0d1f8 # actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install canonical npm
+        run: npm install -g npm@10.9.7
+      - name: Install dependencies
+        run: npm ci
+      - name: Dry-run issue processing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          FEATURE_REQUEST_MODE: changed
+          FEATURE_REQUEST_FILES: ${{ needs.validate-inputs.outputs.files }}
+          FEATURE_REQUEST_DRY_RUN: 'true'
+        run: |
+          set -euo pipefail
+          node scripts/create-feature-issues-from-requests.mjs | tee feature-issues.log
+          {
+            echo '## Reprocess feature requests dry run'
+            echo 'Selected mode: `${{ inputs.mode }}`'
+            echo 'Current main SHA: `${{ needs.validate-inputs.outputs.main_sha }}`'
+            if [ '${{ inputs.verify_repository }}' = 'true' ]; then verify_status='passed'; else verify_status='skipped'; fi
+            echo "Repository verification: \`${verify_status}\`"
+            echo 'Rerun safety: immutable request-ID markers are checked before any issue would be created.'
+            echo 'Log:'
+            sed 's/^/- /' feature-issues.log
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  create-missing-issues:
+    name: create-missing-issues
+    if: ${{ always() && !inputs.dry_run && needs.validate-inputs.outputs.count != '0' && (inputs.verify_repository == false || needs.verify-main.result == 'success') }}
+    needs: [validate-inputs, verify-main]
+    permissions:
+      contents: read
+      issues: write
+    uses: ./.github/workflows/reusable-create-feature-issues.yml
+    with:
+      ref: ${{ needs.validate-inputs.outputs.main_sha }}
+      mode: changed
+      files: ${{ needs.validate-inputs.outputs.files }}
+      dry_run: false

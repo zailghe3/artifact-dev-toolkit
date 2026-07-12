@@ -12,6 +12,10 @@ on:
       files:
         required: false
         type: string
+      dry_run:
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -46,18 +50,20 @@ jobs:
         run: npm ci
       - name: Validate feature issue tooling
         run: npm run issue:validate
-      - name: Create missing issues
+      - name: Process missing issues
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           FEATURE_REQUEST_MODE: ${{ inputs.mode }}
           FEATURE_REQUEST_FILES: ${{ inputs.files }}
+          FEATURE_REQUEST_DRY_RUN: ${{ inputs.dry_run }}
         run: |
           set -euo pipefail
           node scripts/create-feature-issues-from-requests.mjs | tee feature-issues.log
           {
             echo '## Feature issue creation'
             echo 'Mode: `${{ inputs.mode }}`'
+            echo 'Dry run: `${{ inputs.dry_run }}`'
             echo 'Files:'
             printf '%s\n' '${{ inputs.files }}'
             echo ''
