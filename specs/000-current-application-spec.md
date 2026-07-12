@@ -325,7 +325,7 @@ The current application uses:
 
 - Next.js 16.2.10;
 - React 19.2.7;
-- TypeScript;
+- TypeScript 5.9.3 with ESLint 9.39.5, `eslint-config-next` 16.2.10, and `typescript-eslint` 8.63.0;
 - Tailwind CSS;
 - Zod for validation;
 - gray-matter for Markdown frontmatter parsing;
@@ -373,7 +373,7 @@ npm run preview
 npm run deploy
 ```
 
-The repository uses Node.js 24 LTS from `.nvmrc`/`.node-version` and npm 11.4.2 from `package.json` `packageManager`. GitHub Actions workflows select Node.js with `node-version-file: .nvmrc`; third-party actions remain pinned to full immutable commit SHAs with adjacent comments identifying their release tags, currently `actions/checkout@v7.0.0` and `actions/setup-node@v6.4.0` where those actions are used. The `npm run toolchain:validate` command checks agreement between the canonical version files, package metadata, lockfile metadata, GitHub Actions workflows, and Codex/documentation templates. The repository's continuous integration workflow runs installation, toolchain validation, type checking, and production build checks on pull requests and pushes to `main`.
+The repository uses Node.js 24 LTS from `.nvmrc`/`.node-version`, npm 11.4.2 from `package.json` `packageManager`, and Node 24-aligned `@types/node` declarations. The React type declarations track React/React DOM 19.2.7, and the linting stack uses Next.js flat ESLint configuration with the `typescript-eslint` package required by `eslint-config-next`. GitHub Actions workflows select Node.js with `node-version-file: .nvmrc`; third-party actions remain pinned to full immutable commit SHAs with adjacent comments identifying their release tags, currently `actions/checkout@v7.0.0` and `actions/setup-node@v6.4.0` where those actions are used. The `npm run toolchain:validate` command checks agreement between the canonical version files, package metadata, lockfile metadata, GitHub Actions workflows, and Codex/documentation templates. The repository's continuous integration workflow runs installation, toolchain validation, type checking, and production build checks on pull requests and pushes to `main`.
 
 ## 11. Deployment
 
