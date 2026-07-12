@@ -1,0 +1,49 @@
+{
+  "requestId": "dev-004-upgrade-linting-typescript-types",
+  "featureId": "DEV-004",
+  "title": "04 — Upgrade the linting, TypeScript, and type-definition toolchain",
+  "priority": "high",
+  "objective": "Move the repository to the latest stable compatible linting, compiler, and type-definition stack without weakening validation.",
+  "userContext": "Maintainers need current static-analysis tooling aligned with Node.js 24 and the framework versions selected earlier, while preserving strong linting, type checking, tests, and automation coverage.",
+  "currentBehaviour": "The linting, TypeScript, and type-definition packages can drift behind current stable releases and may not fully align with the Node.js 24 baseline or the React versions selected by the framework-stack upgrade.",
+  "requiredBehaviour": "ESLint, TypeScript, Node and React type definitions, and directly related linting packages must be upgraded to the latest stable compatible versions, with configuration updated to supported APIs and new errors resolved without weakening validation.",
+  "userExperience": "Developers run the same lint, typecheck, test, build, and automation commands with current tooling and receive clear, strict validation rather than suppressed or diluted checks.",
+  "functionalRequirements": [
+    "Upgrade ESLint to the latest stable compatible version.",
+    "Upgrade TypeScript to the latest stable compatible version.",
+    "Upgrade @types/node and align it with the Node.js 24 runtime baseline.",
+    "Upgrade @types/react and @types/react-dom and align them with the React versions selected in Feature 03.",
+    "Upgrade directly related linting packages required by the selected ESLint and framework versions.",
+    "Review official migration documentation for major ESLint or TypeScript changes.",
+    "Update linting and compiler configuration to supported formats and APIs.",
+    "Remove obsolete compatibility configuration.",
+    "Resolve new linting and type errors properly.",
+    "Preserve or strengthen existing validation coverage.",
+    "Update documentation where developer commands or requirements change."
+  ],
+  "technicalConsiderations": [
+    "This feature depends on Features 01 and 03 because type definitions must align with Node.js 24 and the selected React framework stack.",
+    "Do not disable rules, add broad exclusions, introduce unsafe casts, or weaken compiler options merely to make validation pass.",
+    "If the selected Next.js version from Feature 03 constrains eslint-config-next or ESLint compatibility, document and respect that constraint.",
+    "Verify linting, type checking, tests, application build, Worker build, feature-request validation, and repository automation tests.",
+    "Prefer targeted code or configuration fixes over suppressions.",
+    "Remove obsolete compatibility settings only when replacement tooling is verified."
+  ],
+  "outOfScope": [
+    "Application framework upgrades already covered by Feature 03.",
+    "Remaining unrelated dependency refresh covered by Feature 05.",
+    "Broad refactors unrelated to resolving legitimate linting or type errors.",
+    "Weakening lint, type, test, validation, or security controls to make the upgrade pass."
+  ],
+  "acceptanceCriteria": [
+    "ESLint, TypeScript, @types/node, @types/react, @types/react-dom, and directly related linting packages are on latest stable compatible versions.",
+    "Node type definitions align with the Node.js 24 baseline.",
+    "React type definitions align with the React versions selected in Feature 03.",
+    "Official migration documentation for major ESLint or TypeScript changes has been reviewed and applied where relevant.",
+    "Configuration uses supported formats and APIs, with obsolete compatibility configuration removed.",
+    "New linting and type errors are resolved without broad suppressions, unsafe casts, weakened rules, or weakened compiler options.",
+    "Linting, type checking, tests, application build, Worker build, feature-request validation, and repository automation tests pass.",
+    "Documentation reflects any changed developer commands or requirements."
+  ],
+  "codexGuidance": "Implement after DEV-003. Keep the work focused on static-analysis and type tooling, and treat any required source edits as targeted fixes for stricter current tooling rather than a general refactor."
+}

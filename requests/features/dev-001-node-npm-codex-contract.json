@@ -1,0 +1,56 @@
+{
+  "requestId": "dev-001-node-npm-codex-contract",
+  "featureId": "DEV-001",
+  "title": "01 — Establish a single Node.js, npm, and Codex engineering contract",
+  "priority": "high",
+  "objective": "Make Node.js 24 and npm 11 authoritative and consistent across local development, Codex, GitHub Actions, package metadata, lockfile generation, repository documentation, and generated Codex implementation contracts.",
+  "userContext": "Maintainers and Codex need one deterministic toolchain contract so dependency upgrades, workflow execution, generated lockfiles, deployments, and future issue implementation all use the same supported Node.js and npm baseline without hidden drift.",
+  "currentBehaviour": "The repository declares Node.js and npm versions in package metadata, workflows, documentation, and Codex instructions in ways that can drift independently. Generated feature implementation contracts do not yet carry explicit debt-reducing engineering expectations for dependency, configuration, abstraction, validation, and generated-file discipline.",
+  "requiredBehaviour": "The repository must have a single canonical Node.js version source for Node.js 24 LTS, npm 11 package-manager metadata, deterministic validation for toolchain agreement, updated documentation and Codex setup guidance, and a strengthened shared Codex execution contract that automatically appears in future generated feature issues.",
+  "userExperience": "Developers, maintainers, CI workflows, deployment jobs, and Codex sessions all discover and use the same Node.js 24 and npm 11 contract. Future GitHub issues generated from feature request JSON files visibly include the shared engineering expectations without requiring each request to repeat them manually.",
+  "functionalRequirements": [
+    "Add one canonical repository-level Node.js version source using the repository convention best suited to local development, Codex, CI, and deployment.",
+    "Set the supported runtime baseline to Node.js 24 LTS.",
+    "Set the supported package-manager baseline to npm 11.",
+    "Update package.json engines.node, engines.npm, and packageManager consistently with the canonical Node.js and npm baselines.",
+    "Update all GitHub Actions workflows to consume the canonical Node.js version source rather than independently hard-coding the Node.js version.",
+    "Regenerate package-lock.json using the selected npm 11 version and repository-declared package manager.",
+    "Ensure Codex setup instructions, feature-request creation guidance, and repository documentation use or reference the repository-declared Node.js and npm versions.",
+    "Add deterministic validation that detects disagreement between the canonical Node.js version source, package.json engines, packageManager, GitHub Actions configuration, and Codex setup instructions or templates.",
+    "Confirm repository validation, tests, feature-request processing, recovery workflows, builds, previews, and deployment workflows work under Node.js 24 and npm 11.",
+    "Strengthen the shared Codex execution contract template so future implementation issues require debt-reducing engineering practices without duplicating those requirements in every feature request."
+  ],
+  "technicalConsiderations": [
+    "This feature intentionally changes toolchain metadata, lockfile generation, validation, documentation, workflows, and the shared Codex contract; it must not perform unrelated dependency or application framework upgrades.",
+    "The canonical Node.js source should be easy for local tools, GitHub Actions setup-node, Codex setup, and deployment documentation to consume.",
+    "The validation should fail clearly when a workflow hard-codes an inconsistent Node.js version, when packageManager disagrees with engines.npm, or when Codex templates describe a different baseline.",
+    "The strengthened contract must require Codex to reuse existing environment variables, configuration values, constants, templates, helpers, components, and abstractions instead of duplicating or hard-coding equivalent values.",
+    "The strengthened contract must require Codex to avoid unexplained literals, duplicated configuration, hidden behaviour, and magic values.",
+    "The strengthened contract must require Codex to introduce a new environment variable or configuration value only when it represents genuine runtime or deployment configuration, and to keep definitions, examples, validation, typing, documentation, and deployment configuration consistent.",
+    "The strengthened contract must require Codex to use the latest stable compatible package version when introducing a dependency and verify compatibility with the supported Node.js, npm, Next.js, React, Cloudflare, TypeScript, linting, and deployment stack.",
+    "The strengthened contract must require Codex to avoid deprecated, unmaintained, redundant, or overlapping packages, prefer existing platform capabilities and repository dependencies, justify every new dependency, minimise dependency surface area, and remove dependencies made obsolete by the change.",
+    "The strengthened contract must require Codex to follow existing repository patterns unless there is a documented reason to improve them, prefer reusable abstractions where they remove real duplication, and avoid premature abstraction or unnecessary frameworks.",
+    "The strengthened contract must require Codex to preserve explicit contracts, deterministic behaviour, least privilege, secure defaults, clear failure modes, and documented removal conditions for temporary compatibility code.",
+    "The strengthened contract must require Codex to update tests and documentation alongside behavioural or contract changes and never weaken linting, type checking, tests, validation, or security controls merely to make a change pass.",
+    "The strengthened contract must require Codex to identify and remove obsolete in-scope code, configuration, comments, feature flags, or compatibility paths, keep changes focused, record out-of-scope debt separately, and ensure generated files are produced by declared tools."
+  ],
+  "outOfScope": [
+    "Upgrading GitHub Action implementations beyond the minimum required to consume the canonical Node.js source.",
+    "Upgrading Next.js, React, OpenNext, Cloudflare, ESLint, TypeScript, Tailwind, PostCSS, or remaining application dependencies except where npm lockfile regeneration requires metadata changes.",
+    "Changing application runtime behaviour or UI.",
+    "Creating feature issues directly."
+  ],
+  "acceptanceCriteria": [
+    "A canonical repository-level Node.js version source exists and declares Node.js 24 LTS.",
+    "package.json engines.node, engines.npm, and packageManager agree with Node.js 24 and npm 11.",
+    "package-lock.json is regenerated by the declared npm 11 package manager.",
+    "Every GitHub Actions workflow obtains Node.js from the canonical source instead of hard-coding a conflicting version.",
+    "Codex setup guidance and repository documentation describe the same Node.js and npm baseline.",
+    "A deterministic validation command fails when the canonical Node.js source, package.json engines, packageManager, workflow configuration, or Codex setup instructions disagree.",
+    "Repository tests, feature-request validation, issue rendering, builds, preview path, and deployment workflows are verified under Node.js 24 and npm 11 or have documented environment limitations.",
+    "The shared Codex execution contract contains the requested debt-reducing engineering expectations.",
+    "Rendering any future feature request includes the strengthened engineering expectations from the shared contract without each feature JSON repeating them manually.",
+    "No unrelated application dependency, framework, or feature implementation changes are included."
+  ],
+  "codexGuidance": "Implement this first. Treat it as the root toolchain and Codex-contract foundation for the later dependency-maintenance features. Keep the change focused on authoritative version sources, validation, documentation, workflow consumption, lockfile regeneration, and the shared issue contract."
+}
