@@ -288,6 +288,7 @@ Recovery procedures:
 - Failed deployment: rerun `Manual Cloudflare deployment` with the exact main SHA that already passed verification, or `main` to deploy the current branch tip.
 - Manual deployment of a specific commit: run `Manual Cloudflare deployment`, set `ref` to the desired main commit SHA, and confirm the job summary records that SHA.
 - Reprocessing feature requests: run `Manual feature issue recovery`; immutable request markers make all recovery modes idempotent.
+- Temporary package-lock repair: after the sensitive workflow PR adding `.github/workflows/repair-package-lock.yml` has been manually reviewed and merged, run `Repair package lock` from the Actions tab. The workflow starts from the latest `main`, regenerates `package-lock.json` with npm 10.9.7 on a GitHub-hosted runner with npm registry access, validates the regenerated lockfile with the complete suite, and pushes only the repaired lockfile to `repair/regenerate-package-lock` for a separate PR. Remove the temporary repair workflow after that repaired lockfile PR has merged.
 
 Migration sequence:
 

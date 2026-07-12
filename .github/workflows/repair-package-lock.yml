@@ -1,0 +1,111 @@
+name: Repair package lock
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  regenerate-package-lock:
+    name: regenerate-package-lock
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout latest main
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Reset workspace to latest main
+        run: |
+          set -euo pipefail
+          git fetch origin main --prune
+          git checkout main
+          git reset --hard origin/main
+
+      - name: Setup Node.js
+        uses: actions/setup-node@60edb5dd545a775178f52524783378180af0d1f8 # actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install and confirm npm 10.9.7
+        run: |
+          set -euo pipefail
+          npm install -g npm@10.9.7
+          node_version="$(node --version)"
+          npm_version="$(npm --version)"
+          if [[ "${npm_version}" != '10.9.7' ]]; then
+            echo "Expected npm 10.9.7, got ${npm_version}" >&2
+            exit 1
+          fi
+          {
+            echo '## Runtime versions'
+            echo "- Node.js: ${node_version}"
+            echo "- npm: ${npm_version}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Regenerate package-lock.json
+        run: |
+          set -euo pipefail
+          rm -rf node_modules package-lock.json
+          npm install
+
+      - name: Confirm regenerated lockfile from clean install
+        run: |
+          set -euo pipefail
+          rm -rf node_modules
+          npm ci
+
+      - name: Run complete validation suite
+        run: |
+          set -euo pipefail
+          npm test
+          npm run lint
+          npm run typecheck
+          npm run build
+          npm run build:worker
+          npm run issue:validate
+          {
+            echo '## Validation results'
+            echo '- npm test: passed'
+            echo '- npm run lint: passed'
+            echo '- npm run typecheck: passed'
+            echo '- npm run build: passed'
+            echo '- npm run build:worker: passed'
+            echo '- npm run issue:validate: passed'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Commit and push regenerated lockfile
+        env:
+          REPAIR_BRANCH: repair/regenerate-package-lock
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- package-lock.json; then
+            {
+              echo '## Repair branch'
+              echo '- No package-lock.json changes were generated; nothing was committed or pushed.'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -C "${REPAIR_BRANCH}"
+          git add package-lock.json
+
+          staged_files="$(git diff --cached --name-only)"
+          if [[ "${staged_files}" != 'package-lock.json' ]]; then
+            echo "Unexpected staged files:" >&2
+            printf '%s\n' "${staged_files}" >&2
+            exit 1
+          fi
+
+          git commit -m 'Regenerate package lock with npm 10.9.7'
+          git push --force-with-lease origin "${REPAIR_BRANCH}"
+          {
+            echo '## Repair branch'
+            echo "- Created or reset branch: ${REPAIR_BRANCH}"
+            echo '- Commit: Regenerate package lock with npm 10.9.7'
+          } >> "$GITHUB_STEP_SUMMARY"
