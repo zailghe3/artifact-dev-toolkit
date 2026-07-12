@@ -9,12 +9,15 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   regenerate-package-lock:
     name: regenerate-package-lock
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - name: Validate target branch
         env:
@@ -91,11 +94,15 @@ jobs:
             echo "- npm: ${npm_version}"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Regenerate package-lock.json
+      - name: Regenerate and save package-lock.json
         run: |
           set -euo pipefail
+          saved_lockfile="${RUNNER_TEMP}/package-lock.regenerated.json"
           rm -rf node_modules package-lock.json
           npm install
+          test -f package-lock.json
+          cp package-lock.json "${saved_lockfile}"
+          echo "SAVED_LOCKFILE=${saved_lockfile}" >> "$GITHUB_ENV"
 
       - name: Confirm regenerated lockfile from clean install
         run: |
@@ -123,28 +130,40 @@ jobs:
             echo '- npm run build:worker: passed'
             echo '- npm run issue:validate: passed'
           } >> "$GITHUB_STEP_SUMMARY"
-          git restore --source=HEAD --worktree -- next-env.d.ts tsconfig.json
-          
-      - name: Ensure only package-lock.json changed
+
+      - name: Restore only regenerated package-lock.json
         run: |
           set -euo pipefail
-          changed_files="$(git status --porcelain --untracked-files=no | sed 's/^...//')"
-          if [[ -n "${changed_files}" && "${changed_files}" != 'package-lock.json' ]]; then
-            echo "Unexpected modified files:" >&2
-            printf '%s\n' "${changed_files}" >&2
+          test -f "${SAVED_LOCKFILE}"
+          git reset --hard HEAD
+          git clean -fdx
+          cp "${SAVED_LOCKFILE}" package-lock.json
+
+          mapfile -t changed_files < <(git diff --name-only)
+          if [[ "${#changed_files[@]}" -eq 0 ]]; then
+            {
+              echo '## Package lock repair'
+              echo '- No package-lock.json changes were generated; nothing will be committed or pushed.'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          if [[ "${#changed_files[@]}" -ne 1 || "${changed_files[0]}" != 'package-lock.json' ]]; then
+            echo "Unexpected tracked files remain modified after restoring the saved lockfile:" >&2
+            printf '%s\n' "${changed_files[@]}" >&2
             exit 1
           fi
 
-      - name: Commit and push regenerated lockfile
+      - name: Commit and publish regenerated lockfile
         env:
           TARGET_BRANCH: ${{ inputs.target_branch }}
+          REPAIR_BRANCH: repair/regenerate-package-lock
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
         run: |
           set -euo pipefail
           if git diff --quiet -- package-lock.json; then
-            {
-              echo '## Package lock repair'
-              echo '- No package-lock.json changes were generated; nothing was committed or pushed.'
-            } >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
 
@@ -160,9 +179,57 @@ jobs:
           fi
 
           git commit -m 'Regenerate package lock with canonical npm'
-          git push origin "HEAD:${TARGET_BRANCH}"
-          {
-            echo '## Package lock repair'
-            echo "- Updated branch: ${TARGET_BRANCH}"
-            echo '- Commit: Regenerate package lock with canonical npm'
-          } >> "$GITHUB_STEP_SUMMARY"
+          generated_commit="$(git rev-parse HEAD)"
+
+          if [[ "${TARGET_BRANCH}" == 'main' ]]; then
+            open_pr_json="$(gh pr list --head "${REPOSITORY_OWNER}:${REPAIR_BRANCH}" --base main --state open --json number,url --limit 1)"
+            open_pr_number="$(node -e 'const prs = JSON.parse(process.argv[1]); console.log(prs[0]?.number ?? "")' "${open_pr_json}")"
+            open_pr_url="$(node -e 'const prs = JSON.parse(process.argv[1]); console.log(prs[0]?.url ?? "")' "${open_pr_json}")"
+
+            if git ls-remote --exit-code --heads origin "${REPAIR_BRANCH}" >/dev/null 2>&1; then
+              git fetch origin "refs/heads/${REPAIR_BRANCH}:refs/remotes/origin/${REPAIR_BRANCH}"
+              if [[ -z "${open_pr_number}" ]]; then
+                echo "Remote repair branch ${REPAIR_BRANCH} already exists without an open PR targeting main; refusing to overwrite possibly unrelated work." >&2
+                exit 1
+              fi
+              git push --force-with-lease=refs/heads/${REPAIR_BRANCH}:refs/remotes/origin/${REPAIR_BRANCH} origin "HEAD:refs/heads/${REPAIR_BRANCH}"
+            else
+              git push origin "HEAD:refs/heads/${REPAIR_BRANCH}"
+            fi
+
+            pr_body="${RUNNER_TEMP}/package-lock-repair-pr.md"
+            cat > "${pr_body}" <<'PR_BODY'
+          This repair PR updates only `package-lock.json`.
+
+          The lockfile was regenerated with the repository canonical Node.js version from `.nvmrc` and the exact npm version declared in `package.json#packageManager`, then validated by the package-lock repair workflow. Validation side effects from framework tools are discarded before committing so the PR contains only the npm-generated lockfile.
+          PR_BODY
+
+            if [[ -z "${open_pr_number}" ]]; then
+              pr_url="$(gh pr create \
+                --base main \
+                --head "${REPAIR_BRANCH}" \
+                --title 'Regenerate package-lock.json with canonical npm' \
+                --body-file "${pr_body}")"
+            else
+              gh pr edit "${open_pr_number}" \
+                --title 'Regenerate package-lock.json with canonical npm' \
+                --body-file "${pr_body}"
+              pr_url="${open_pr_url}"
+            fi
+
+            {
+              echo '## Package lock repair'
+              echo '- Target branch: main'
+              echo "- Repair branch: ${REPAIR_BRANCH}"
+              echo "- Generated commit: ${generated_commit}"
+              echo "- Pull request: ${pr_url}"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            git push origin "HEAD:${TARGET_BRANCH}"
+            {
+              echo '## Package lock repair'
+              echo "- Target branch: ${TARGET_BRANCH}"
+              echo "- Direct push: completed"
+              echo "- Generated commit: ${generated_commit}"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
