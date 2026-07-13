@@ -4,14 +4,10 @@ import { CopyButton } from "@/components/CopyButton";
 import { SignOutButton } from "@/components/SignOutButton";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { VariationForm } from "@/components/VariationForm";
-import { getArtifact, getArtifacts } from "@/lib/artifacts";
+import { getArtifact } from "@/lib/artifacts";
 import { requireAuth } from "@/lib/auth";
 import { markdownToHtml } from "@/lib/markdown";
 
-export async function generateStaticParams() {
-  const artifacts = await getArtifacts();
-  return artifacts.map((artifact) => ({ id: artifact.id }));
-}
 
 export const dynamic = "force-dynamic";
 

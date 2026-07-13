@@ -33,9 +33,16 @@ test("OAuth state tokens use secure randomness and short-lived secure cookies", 
   assert.match(first, /^[0-9a-f]{64}$/);
   assert.notEqual(first, second);
   assert.equal(oauthStateTtlSeconds, 600);
-  assert.deepEqual(cookieOptions(oauthStateTtlSeconds), {
+  assert.deepEqual(cookieOptions(oauthStateTtlSeconds, "production"), {
     httpOnly: true,
     secure: true,
+    sameSite: "lax",
+    path: "/",
+    maxAge: oauthStateTtlSeconds,
+  });
+  assert.deepEqual(cookieOptions(oauthStateTtlSeconds, "development"), {
+    httpOnly: true,
+    secure: false,
     sameSite: "lax",
     path: "/",
     maxAge: oauthStateTtlSeconds,
@@ -98,7 +105,7 @@ test("GitHub identity validation requires a stable numeric id and login", () => 
   });
 
   for (const value of [{}, { id: "123", login: "octocat" }, { id: 123 }, { id: 123, login: "" }, null]) {
-    assert.throws(() => validateGitHubUser(value), /valid user identity/);
+    assert.throws(() => validateGitHubUser(value), /github_identity_failed/);
   }
 });
 
@@ -115,23 +122,22 @@ test("session parsing rejects missing, malformed, expired, revoked, and unknown 
 
 test("session cookies and no-store headers match protected-response requirements", () => {
   assert.equal(sessionTtlSeconds, 60 * 60 * 8);
-  assert.deepEqual(cookieOptions(sessionTtlSeconds), {
+  assert.deepEqual(cookieOptions(sessionTtlSeconds, "production"), {
     httpOnly: true,
     secure: true,
     sameSite: "lax",
     path: "/",
     maxAge: sessionTtlSeconds,
   });
-  assert.equal(Object.hasOwn(cookieOptions(sessionTtlSeconds), "domain"), false);
+  assert.equal(Object.hasOwn(cookieOptions(sessionTtlSeconds, "production"), "domain"), false);
   assert.equal(noStoreHeaders["cache-control"], "private, no-store, max-age=0");
 });
 
 test("secret values are not embedded in auth error messages", () => {
   const secret = "gho_secret_token_value";
   for (const message of [
-    "GitHub token exchange failed.",
-    "GitHub user lookup failed.",
-    "GitHub did not return a valid user identity.",
+    "github_exchange_failed",
+    "github_identity_failed",
     "Authentication required",
   ]) {
     assert.equal(message.includes(secret), false);
@@ -156,4 +162,84 @@ test("protected API routes authenticate before loading artifacts or creating var
   assert.match(variationRoute, /const authError = await requireApiAuth\(request\);\n  if \(authError\) return authError;\n  const \{ id \}/);
   assert.equal(variationRoute.indexOf("requireApiAuth(request)") < variationRoute.indexOf("getArtifact(id)"), true);
   assert.equal(variationRoute.indexOf("requireApiAuth(request)") < variationRoute.indexOf("createVariation(source"), true);
+});
+
+const storeModuleUrl = pathToFileURL(new URL("../lib/auth-session-store.ts", import.meta.url).pathname).href;
+const { findSession, hashSessionId, insertSession, revokeSessionId } = await import(storeModuleUrl);
+
+function createFakeD1() {
+  const rows = new Map();
+  const calls = [];
+  return {
+    rows,
+    calls,
+    prepare(query) {
+      calls.push(query);
+      return {
+        values: [],
+        bind(...values) {
+          this.values = values;
+          return this;
+        },
+        async run() {
+          if (query.startsWith("INSERT")) {
+            rows.set(this.values[0], {
+              id: this.values[0],
+              github_id: this.values[1],
+              login: this.values[2],
+              name: this.values[3],
+              avatar_url: this.values[4],
+              expires_at: this.values[5],
+              created_at: this.values[6],
+              revoked_at: null,
+            });
+          } else if (query.startsWith("UPDATE")) {
+            const row = rows.get(this.values[1]);
+            if (row && row.revoked_at === null) row.revoked_at = this.values[0];
+          }
+          return {};
+        },
+        async first() {
+          return rows.get(this.values[0]) ?? null;
+        },
+      };
+    },
+  };
+}
+
+test("D1 session store persists an HMAC key, finds valid sessions, and rejects unknown, expired, and revoked sessions", async () => {
+  const database = createFakeD1();
+  const secret = "session-secret-that-is-at-least-32-bytes";
+  const now = Date.UTC(2026, 6, 13);
+  const session = { id: "raw-cookie-session-id", githubId: 123, login: "octocat", expiresAt: now + 60_000 };
+  const storedId = await insertSession(database, secret, session, now);
+
+  assert.notEqual(storedId, session.id);
+  assert.equal(storedId, await hashSessionId(session.id, secret));
+  assert.equal(database.rows.has(session.id), false);
+  assert.deepEqual(await findSession(database, secret, session.id, now), session);
+  assert.equal(await findSession(database, secret, "unknown-session", now), undefined);
+  assert.equal(await findSession(database, secret, session.id, session.expiresAt), undefined);
+
+  await revokeSessionId(database, secret, session.id, now + 1);
+  await revokeSessionId(database, secret, session.id, now + 2);
+  assert.equal(database.rows.get(storedId).revoked_at, now + 1);
+  assert.equal(await findSession(database, secret, session.id, now + 3), undefined);
+  assert.equal(database.calls.some((query) => query.includes("CREATE TABLE")), false);
+});
+
+test("sign-in page renders only a local OAuth start URL and does not import cookie-mutating OAuth start helpers", async () => {
+  const fs = await import("node:fs/promises");
+  const page = await fs.readFile(new URL("../app/sign-in/page.tsx", import.meta.url), "utf8");
+  assert.equal(page.includes("createOAuthStart"), false);
+  assert.equal(page.includes("cookies().set"), false);
+  assert.equal(page.includes("/auth/github/start?returnTo="), true);
+});
+
+test("page-level session lookup does not delete or set stale cookies", async () => {
+  const fs = await import("node:fs/promises");
+  const auth = await fs.readFile(new URL("../lib/auth.ts", import.meta.url), "utf8");
+  const getSessionBody = auth.match(/export async function getSession\(\)[\s\S]*?\n}\n/)?.[0] ?? "";
+  assert.equal(getSessionBody.includes("cookieStore.delete"), false);
+  assert.equal(getSessionBody.includes("cookieStore.set"), false);
 });

@@ -1,12 +1,18 @@
-export const sessionCookieName = "__Host-adt_session";
-export const stateCookieName = "__Host-adt_oauth_state";
-export const returnCookieName = "__Host-adt_oauth_return";
+export const productionSessionCookieName = "__Host-adt_session";
+export const productionStateCookieName = "__Host-adt_oauth_state";
+export const productionReturnCookieName = "__Host-adt_oauth_return";
+export const developmentSessionCookieName = "adt_session";
+export const developmentStateCookieName = "adt_oauth_state";
+export const developmentReturnCookieName = "adt_oauth_return";
+export const sessionCookieName = productionSessionCookieName;
+export const stateCookieName = productionStateCookieName;
+export const returnCookieName = productionReturnCookieName;
 export const sessionTtlSeconds = 60 * 60 * 8;
 export const oauthStateTtlSeconds = 60 * 10;
 
 export type AuthCookie = {
   httpOnly: true;
-  secure: true;
+  secure: boolean;
   sameSite: "lax";
   path: "/";
   maxAge: number;
@@ -28,8 +34,32 @@ export type GitHubUser = {
   avatar_url?: string;
 };
 
-export function cookieOptions(maxAge: number): AuthCookie {
-  return { httpOnly: true, secure: true, sameSite: "lax", path: "/", maxAge };
+export type CookieNames = {
+  session: string;
+  state: string;
+  returnTo: string;
+};
+
+export type OAuthErrorCode = "denied" | "invalid_state" | "missing_code" | "github_exchange_failed" | "github_identity_failed" | "session_creation_failed";
+
+export const oauthErrorMessages: Record<OAuthErrorCode, string> = {
+  denied: "GitHub authorization was denied or cancelled.",
+  invalid_state: "The sign-in request expired or could not be verified. Please try again.",
+  missing_code: "GitHub did not return an authorization code. Please try again.",
+  github_exchange_failed: "GitHub sign-in could not be completed. Please try again.",
+  github_identity_failed: "GitHub identity could not be verified. Please try again.",
+  session_creation_failed: "A server session could not be created. Please try again.",
+};
+
+export function cookieNames(nodeEnv = process.env.NODE_ENV): CookieNames {
+  if (nodeEnv === "production") {
+    return { session: productionSessionCookieName, state: productionStateCookieName, returnTo: productionReturnCookieName };
+  }
+  return { session: developmentSessionCookieName, state: developmentStateCookieName, returnTo: developmentReturnCookieName };
+}
+
+export function cookieOptions(maxAge: number, nodeEnv = process.env.NODE_ENV): AuthCookie {
+  return { httpOnly: true, secure: nodeEnv === "production", sameSite: "lax", path: "/", maxAge };
 }
 
 export const noStoreHeaders = { "cache-control": "private, no-store, max-age=0" } as const;
@@ -72,12 +102,12 @@ export function safeReturnTo(value: string | null | undefined) {
 }
 
 export function validateGitHubUser(value: unknown): GitHubUser {
-  if (!value || typeof value !== "object") throw new Error("GitHub did not return a valid user identity.");
+  if (!value || typeof value !== "object") throw new Error("github_identity_failed");
   const user = value as Record<string, unknown>;
   const githubId = user.id;
   const login = user.login;
   if (typeof githubId !== "number" || !Number.isSafeInteger(githubId) || typeof login !== "string" || login.length === 0) {
-    throw new Error("GitHub did not return a valid user identity.");
+    throw new Error("github_identity_failed");
   }
   const validated: GitHubUser = { id: githubId, login };
   if (typeof user.name === "string" && user.name.length > 0) validated.name = user.name;

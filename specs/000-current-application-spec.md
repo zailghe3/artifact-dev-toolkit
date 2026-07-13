@@ -38,7 +38,7 @@ The application currently has:
 
 - GitHub OAuth sign-in as the only identity provider;
 - server-side session tracking in Cloudflare D1 keyed by HMACs of strongly random session identifiers;
-- an `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/` `__Host-` session cookie with no `Domain` attribute;
+- a production `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/` `__Host-` session cookie with no `Domain` attribute and non-production localhost cookie names with `secure: false`;
 - sign-out behaviour that revokes the D1 session record and expires the browser cookie;
 - no repository authorisation check beyond successful GitHub authentication;
 - no role model;
@@ -221,9 +221,9 @@ This is a safety check, not a complete secret-scanning or data-loss-prevention s
 
 ### 5.7 Authentication
 
-The sign-in page at `/sign-in` explains that GitHub authentication is required and provides a Sign in with GitHub action. It supports a relative `returnTo` URL so successful authentication returns users to their intended protected page.
+The sign-in page at `/sign-in` explains that GitHub authentication is required and links to `/auth/github/start`, which creates OAuth state cookies in a Route Handler before redirecting to GitHub. It supports a relative `returnTo` URL so successful authentication returns users to their intended protected page.
 
-The GitHub OAuth callback at `/auth/github/callback` validates the OAuth `state` value stored in an `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/` `__Host-` cookie before exchanging the authorization code server-side. OAuth state cookies are short-lived, single-use, compared without early-exit equality, and deleted during callback processing including denied authorization outcomes. After a successful callback, the application fetches the authenticated GitHub user through GitHub server-side APIs, validates the stable numeric user ID and login, creates a strongly random server-side session identifier, stores only that identifier in the session cookie, and redirects to the safe return URL. The OAuth access token is discarded after the identity fetch; it is not retained in the session database or exposed to browser JavaScript. Denied authorization, missing codes, invalid state, token-exchange failures, and identity-fetch failures redirect back to sign-in with a clear non-secret-bearing error.
+The GitHub OAuth callback at `/auth/github/callback` validates the OAuth `state` value stored in an `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/` `__Host-` cookie before accepting either a denied or successful callback and before exchanging the authorization code server-side. OAuth state cookies are short-lived, single-use, compared without early-exit equality, and deleted during callback processing including denied authorization outcomes. After a successful callback, the application fetches the authenticated GitHub user through GitHub server-side APIs, validates the stable numeric user ID and login, creates a strongly random server-side session identifier, stores only that identifier in the session cookie, and redirects to the safe return URL. The OAuth access token is discarded after the identity fetch; it is not retained in the session database or exposed to browser JavaScript. Denied authorization, missing codes, invalid state, token-exchange failures, and identity-fetch failures redirect back to sign-in with a clear non-secret-bearing error.
 
 The sign-out endpoint at `/sign-out` changes state only for POST requests. POST sign-out revokes the server-side D1 session record, clears the session cookie, and redirects to a safe local destination. GET sign-out does not invalidate the session and only redirects to a safe local destination. Sign-out is idempotent and does not disclose whether an arbitrary session identifier existed. Expired, revoked, malformed, missing, or unknown sessions are rejected and protected pages redirect back to sign-in without rendering artifact content.
 
@@ -417,7 +417,7 @@ Production deployment through GitHub Actions requires deployment credentials to 
 - `GITHUB_OAUTH_CLIENT_SECRET`
 - `SESSION_SECRET`
 
-Credentials and OAuth/session secrets shall not be committed to source control. `SESSION_SECRET` must be at least 32 characters long. The GitHub OAuth App callback URL must point to `/auth/github/callback` on the deployed application host. Deployments must bind the Cloudflare D1 database `AUTH_SESSIONS_DB`; `wrangler.jsonc` records the binding name and database name, and operators replace the placeholder database ID with the ID returned by `wrangler d1 create fpo-adt-auth-sessions`.
+Credentials and OAuth/session secrets shall not be committed to source control. `SESSION_SECRET` must be at least 32 characters long. The GitHub OAuth App callback URL must point to `/auth/github/callback` on the deployed application host. Deployments must bind the Cloudflare D1 database `AUTH_SESSIONS_DB`; `wrangler.jsonc` records the binding name, database name, and migrations directory. Operators must run `npx wrangler d1 create fpo-adt-auth-sessions`, replace the placeholder database ID, then run `npx wrangler d1 migrations apply fpo-adt-auth-sessions --local` and `npx wrangler d1 migrations apply fpo-adt-auth-sessions --remote`. Until the real database ID is configured, the branch is not production-deployable.
 
 The repository may also be deployed through Cloudflare's Git integration, but only one automatic deployment path should normally be active to avoid duplicate builds and deployments.
 

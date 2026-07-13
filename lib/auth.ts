@@ -4,32 +4,19 @@ import { redirect } from "next/navigation";
 import { NextResponse } from "next/server";
 import {
   constantTimeEqual,
+  cookieNames,
   cookieOptions,
   noStoreHeaders,
   oauthStateTtlSeconds,
-  parseSession,
   randomToken,
-  returnCookieName,
   safeReturnTo,
-  serializeSession,
-  sessionCookieName,
   sessionTtlSeconds,
-  stateCookieName,
   validateGitHubUser,
   type GitHubUser,
   type SessionRecord,
 } from "@/lib/auth-core";
 
-type D1PreparedStatement = {
-  bind(...values: unknown[]): D1PreparedStatement;
-  first<T = unknown>(column?: string): Promise<T | null>;
-  run(): Promise<unknown>;
-};
-
-type D1DatabaseBinding = {
-  prepare(query: string): D1PreparedStatement;
-  exec(query: string): Promise<unknown>;
-};
+import { findSession, insertSession, revokeSessionId, type D1DatabaseBinding } from "@/lib/auth-session-store";
 
 let testSessionDatabase: D1DatabaseBinding | undefined;
 
@@ -45,69 +32,19 @@ async function getSessionDatabase() {
   return database;
 }
 
-async function ensureSessionSchema(database: D1DatabaseBinding) {
-  await database.exec(`CREATE TABLE IF NOT EXISTS auth_sessions (
-    id TEXT PRIMARY KEY,
-    github_id INTEGER NOT NULL,
-    login TEXT NOT NULL,
-    name TEXT,
-    avatar_url TEXT,
-    expires_at INTEGER NOT NULL,
-    created_at INTEGER NOT NULL,
-    revoked_at INTEGER
-  )`);
-}
-
-async function hashSessionId(id: string) {
-  const { sessionSecret } = getAuthConfig();
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(sessionSecret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(id));
-  return Array.from(new Uint8Array(signature), (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
 async function storeSession(session: SessionRecord) {
   const database = await getSessionDatabase();
-  const storedId = await hashSessionId(session.id);
-  await ensureSessionSchema(database);
-  await database
-    .prepare("INSERT INTO auth_sessions (id, github_id, login, name, avatar_url, expires_at, created_at, revoked_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL)")
-    .bind(storedId, session.githubId, session.login, session.name ?? null, session.avatarUrl ?? null, session.expiresAt, Date.now())
-    .run();
+  await insertSession(database, getAuthConfig().sessionSecret, session);
 }
 
 async function loadSession(id: string) {
   const database = await getSessionDatabase();
-  const storedId = await hashSessionId(id);
-  await ensureSessionSchema(database);
-  const row = await database
-    .prepare("SELECT id, github_id, login, name, avatar_url, expires_at, revoked_at FROM auth_sessions WHERE id = ?")
-    .bind(storedId)
-    .first<{ id: string; github_id: number; login: string; name: string | null; avatar_url: string | null; expires_at: number; revoked_at: number | null }>();
-
-  if (!row || row.revoked_at !== null || row.expires_at <= Date.now()) return undefined;
-  return parseSession(
-    serializeSession({
-      id,
-      githubId: row.github_id,
-      login: row.login,
-      name: row.name ?? undefined,
-      avatarUrl: row.avatar_url ?? undefined,
-      expiresAt: row.expires_at,
-    }),
-  );
+  return findSession(database, getAuthConfig().sessionSecret, id);
 }
 
 async function revokeSession(id: string) {
   const database = await getSessionDatabase();
-  const storedId = await hashSessionId(id);
-  await ensureSessionSchema(database);
-  await database.prepare("UPDATE auth_sessions SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL").bind(Date.now(), storedId).run();
+  await revokeSessionId(database, getAuthConfig().sessionSecret, id);
 }
 
 export function getAuthConfig() {
@@ -135,22 +72,23 @@ export async function createOAuthStart(returnTo: string | null) {
   const { clientId } = getAuthConfig();
   const state = randomToken();
   const cookieStore = await cookies();
-  cookieStore.set(stateCookieName, state, cookieOptions(oauthStateTtlSeconds));
-  cookieStore.set(returnCookieName, safeReturnTo(returnTo), cookieOptions(oauthStateTtlSeconds));
+  const names = cookieNames();
+  cookieStore.set(names.state, state, cookieOptions(oauthStateTtlSeconds));
+  cookieStore.set(names.returnTo, safeReturnTo(returnTo), cookieOptions(oauthStateTtlSeconds));
 
   const authorizeUrl = new URL("https://github.com/login/oauth/authorize");
   authorizeUrl.searchParams.set("client_id", clientId);
   authorizeUrl.searchParams.set("state", state);
-  authorizeUrl.searchParams.set("scope", "read:user");
   return authorizeUrl;
 }
 
 export async function consumeOAuthState(state: string | null) {
   const cookieStore = await cookies();
-  const expected = cookieStore.get(stateCookieName)?.value;
-  const returnTo = safeReturnTo(cookieStore.get(returnCookieName)?.value ?? null);
-  cookieStore.delete(stateCookieName);
-  cookieStore.delete(returnCookieName);
+  const names = cookieNames();
+  const expected = cookieStore.get(names.state)?.value;
+  const returnTo = safeReturnTo(cookieStore.get(names.returnTo)?.value ?? null);
+  cookieStore.delete(names.state);
+  cookieStore.delete(names.returnTo);
   return { valid: constantTimeEqual(state, expected), returnTo };
 }
 
@@ -161,14 +99,14 @@ export async function exchangeGitHubCode(code: string) {
     headers: { accept: "application/json", "content-type": "application/json" },
     body: JSON.stringify({ client_id: clientId, client_secret: clientSecret, code }),
   });
-  if (!tokenResponse.ok) throw new Error("GitHub token exchange failed.");
+  if (!tokenResponse.ok) throw new Error("github_exchange_failed");
   const tokenPayload = (await tokenResponse.json()) as { access_token?: string; error_description?: string };
-  if (!tokenPayload.access_token) throw new Error(tokenPayload.error_description ?? "GitHub did not return an access token.");
+  if (!tokenPayload.access_token) throw new Error("github_exchange_failed");
 
   const userResponse = await fetch("https://api.github.com/user", {
     headers: { authorization: `Bearer ${tokenPayload.access_token}`, accept: "application/vnd.github+json", "user-agent": "artifact-dev-toolkit" },
   });
-  if (!userResponse.ok) throw new Error("GitHub user lookup failed.");
+  if (!userResponse.ok) throw new Error("github_identity_failed");
   return validateGitHubUser(await userResponse.json());
 }
 
@@ -183,19 +121,16 @@ export async function createSession(user: GitHubUser) {
   };
   await storeSession(session);
   const cookieStore = await cookies();
-  cookieStore.set(sessionCookieName, session.id, cookieOptions(sessionTtlSeconds));
+  cookieStore.set(cookieNames().session, session.id, cookieOptions(sessionTtlSeconds));
   return session;
 }
 
 export async function getSession() {
   const cookieStore = await cookies();
-  const id = cookieStore.get(sessionCookieName)?.value;
+  const id = cookieStore.get(cookieNames().session)?.value;
   if (!id) return undefined;
   const session = await loadSession(id);
-  if (!session) {
-    cookieStore.delete(sessionCookieName);
-    return undefined;
-  }
+  if (!session) return undefined;
   return session;
 }
 
@@ -216,7 +151,7 @@ export async function requireApiAuth(request: Request) {
 
 export async function destroySession() {
   const cookieStore = await cookies();
-  const id = cookieStore.get(sessionCookieName)?.value;
+  const id = cookieStore.get(cookieNames().session)?.value;
   if (id) await revokeSession(id);
-  cookieStore.delete(sessionCookieName);
+  cookieStore.delete(cookieNames().session);
 }

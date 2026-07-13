@@ -159,12 +159,14 @@ Required runtime environment variables:
 - `SESSION_SECRET` — high-entropy session secret with at least 32 characters.
 - `NEXT_PUBLIC_APP_URL` or `APP_URL` — optional canonical application URL for deployment documentation and operator clarity.
 
-Authenticated sessions are represented by strongly random server-side session identifiers stored in an `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/` `__Host-` cookie. Session records, expiry timestamps, and sign-out revocations are stored server-side in the Cloudflare D1 binding `AUTH_SESSIONS_DB`; D1 stores an HMAC of the session identifier rather than the raw browser cookie value, so deployed sessions are available consistently across Worker isolates instead of relying on process memory.
+In production, authenticated sessions are represented by strongly random server-side session identifiers stored in an `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/` `__Host-` cookie. Local non-production development uses the same `HttpOnly`, `SameSite=Lax`, `Path=/` policy with non-`__Host-` cookie names and `secure: false` so standard HTTP localhost OAuth callbacks work; use Wrangler/local HTTPS to exercise production cookie names. Session records, expiry timestamps, and sign-out revocations are stored server-side in the Cloudflare D1 binding `AUTH_SESSIONS_DB`; D1 stores an HMAC of the session identifier rather than the raw browser cookie value, so deployed sessions are available consistently across Worker isolates instead of relying on process memory.
 
 Before deploying, create and bind the session database:
 
 ```bash
-wrangler d1 create fpo-adt-auth-sessions
+npx wrangler d1 create fpo-adt-auth-sessions
+npx wrangler d1 migrations apply fpo-adt-auth-sessions --local
+npx wrangler d1 migrations apply fpo-adt-auth-sessions --remote
 ```
 
-Replace the placeholder `database_id` for `AUTH_SESSIONS_DB` in `wrangler.jsonc` with the generated ID. The application lazily creates its `auth_sessions` table at runtime; no repository token, GitHub OAuth token, client secret, or session secret is written to browser-accessible storage. Configure OAuth values as Cloudflare Worker secrets for deployed environments; never commit real secret values.
+Replace the placeholder `database_id` for `AUTH_SESSIONS_DB` in `wrangler.jsonc` with the generated ID. The migration in `migrations/0001_create_auth_sessions.sql` creates the `auth_sessions` table; application requests do not create schema at runtime; no repository token, GitHub OAuth token, client secret, or session secret is written to browser-accessible storage. Configure OAuth values as Cloudflare Worker secrets for deployed environments; never commit real secret values. Until the real Cloudflare database ID replaces the placeholder, the branch is not production-deployable and must not be merged into a deployment branch.

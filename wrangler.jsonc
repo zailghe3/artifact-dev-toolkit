@@ -24,7 +24,8 @@
     {
       "binding": "AUTH_SESSIONS_DB",
       "database_name": "fpo-adt-auth-sessions",
-      "database_id": "00000000-0000-0000-0000-000000000000"
+      "database_id": "REPLACE_WITH_CLOUDFLARE_D1_DATABASE_ID",
+      "migrations_dir": "migrations"
     }
   ],
   "observability": {
