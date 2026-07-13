@@ -32,17 +32,21 @@ The implemented application aims to:
 
 ## 3. Users and access
 
-The current application has a single-user, trusted-user model.
+The current application requires GitHub sign-in before a visitor can access artifact metadata, artifact bodies, library pages, detail pages, or protected artifact APIs.
 
-There is currently:
+The application currently has:
 
-- no authentication;
-- no authorisation or role model;
-- no user profile;
+- GitHub OAuth sign-in as the only identity provider;
+- server-side session tracking in Cloudflare D1 keyed by HMACs of strongly random session identifiers;
+- a production `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/` `__Host-` session cookie with no `Domain` attribute and non-production localhost cookie names with `secure: false`;
+- sign-out behaviour that revokes the D1 session record and expires the browser cookie;
+- no repository authorisation check beyond successful GitHub authentication;
+- no role model;
+- no user profile or account settings;
 - no tenant separation;
 - no sharing or collaboration workflow.
 
-Anyone who can access the deployed URL can view the artifacts exposed by that deployment.
+Unauthenticated visitors are redirected to `/sign-in` and must complete GitHub authentication before protected application content is rendered.
 
 ## 4. Artifact data model
 
@@ -101,13 +105,15 @@ Invalid artifact metadata causes artifact loading to fail rather than being sile
 
 The home page shall:
 
-1. Load all available artifacts from the configured artifact repository.
-2. Display the total number of artifacts.
-3. Display the number of artifacts with `production` status.
-4. Present a search field with focus on initial page load.
-5. Display the number of artifacts matching the current search.
-6. Display matching artifacts as selectable cards.
-7. Sort artifacts alphabetically by title before displaying them.
+1. Require an authenticated GitHub session before loading artifacts from the configured artifact repository.
+2. Load all available artifacts from the configured artifact repository.
+3. Display the total number of artifacts.
+4. Display the number of artifacts with `production` status.
+5. Present a search field with focus on initial page load.
+6. Display the number of artifacts matching the current search.
+7. Display matching artifacts as selectable cards.
+8. Sort artifacts alphabetically by title before displaying them.
+9. Display the signed-in GitHub login and provide a sign-out action.
 
 Each artifact card shall display:
 
@@ -140,17 +146,19 @@ The application currently provides text search only. It does not provide semanti
 
 The artifact detail page shall:
 
-1. Resolve an artifact by its `id`.
-2. return the standard not-found page when no artifact matches the requested ID;
-3. display the artifact type;
-4. display the artifact title;
-5. display the status;
-6. display all tags;
-7. display aliases when present;
-8. render the Markdown body as HTML;
-9. provide navigation back to the library;
-10. provide a copy action;
-11. provide the variation editor.
+1. Require an authenticated GitHub session before resolving or rendering artifact data.
+2. Resolve an artifact by its `id`.
+3. return the standard not-found page when no artifact matches the requested ID;
+4. display the artifact type;
+5. display the artifact title;
+6. display the status;
+7. display all tags;
+8. display aliases when present;
+9. render the Markdown body as HTML;
+10. provide navigation back to the library;
+11. provide a copy action;
+12. provide the variation editor;
+13. display the signed-in GitHub login and provide a sign-out action.
 
 Artifact detail routes use the form:
 
@@ -210,6 +218,16 @@ Before writing a variation, the application shall refuse content that appears to
 - OpenAI-style secret keys.
 
 This is a safety check, not a complete secret-scanning or data-loss-prevention system.
+
+### 5.7 Authentication
+
+The sign-in page at `/sign-in` explains that GitHub authentication is required and links to `/auth/github/start`, which creates OAuth state cookies in a Route Handler before redirecting to GitHub. It supports a relative `returnTo` URL so successful authentication returns users to their intended protected page.
+
+The GitHub OAuth callback at `/auth/github/callback` validates the OAuth `state` value stored in an `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/` `__Host-` cookie before accepting either a denied or successful callback and before exchanging the authorization code server-side. OAuth state cookies are short-lived, single-use, compared without early-exit equality, and deleted during callback processing including denied authorization outcomes. After a successful callback, the application fetches the authenticated GitHub user through GitHub server-side APIs, validates the stable numeric user ID and login, creates a strongly random server-side session identifier, stores only that identifier in the session cookie, and redirects to the safe return URL. The OAuth access token is discarded after the identity fetch; it is not retained in the session database or exposed to browser JavaScript. Denied authorization, missing codes, invalid state, token-exchange failures, and identity-fetch failures redirect back to sign-in with a clear non-secret-bearing error.
+
+The sign-out endpoint at `/sign-out` changes state only for POST requests. POST sign-out revokes the server-side D1 session record, clears the session cookie, and redirects to a safe local destination. GET sign-out does not invalidate the session and only redirects to a safe local destination. Sign-out is idempotent and does not disclose whether an arbitrary session identifier existed. Expired, revoked, malformed, missing, or unknown sessions are rejected and protected pages redirect back to sign-in without rendering artifact content.
+
+Protected artifact APIs return private, no-store `401` JSON responses for unauthenticated callers before artifact loading, repository access, or variation creation occurs. Authenticated protected API responses, OAuth callback responses, and sign-out redirects also use private/no-store cache controls.
 
 ## 6. Storage behaviour
 
@@ -349,8 +367,7 @@ The current application assumes that artifact files are trusted repository conte
 
 The current implementation does not include:
 
-- authentication;
-- per-user access controls;
+- per-user repository access controls;
 - content approval;
 - malware scanning;
 - comprehensive secret scanning;
@@ -396,8 +413,11 @@ Production deployment through GitHub Actions requires deployment credentials to 
 
 - `CLOUDFLARE_API_TOKEN`
 - `CLOUDFLARE_ACCOUNT_ID`
+- `GITHUB_OAUTH_CLIENT_ID`
+- `GITHUB_OAUTH_CLIENT_SECRET`
+- `SESSION_SECRET`
 
-Credentials shall not be committed to source control.
+Credentials and OAuth/session secrets shall not be committed to source control. `SESSION_SECRET` must be at least 32 characters long. The GitHub OAuth App callback URL must point to `/auth/github/callback` on the deployed application host. Deployments must bind the Cloudflare D1 database `AUTH_SESSIONS_DB`; `wrangler.jsonc` records the binding name, database name, and migrations directory. Operators must run `npx wrangler d1 create fpo-adt-db`, then run `npx wrangler d1 migrations apply fpo-adt-db --local` and `npx wrangler d1 migrations apply fpo-adt-db --remote`.
 
 The repository may also be deployed through Cloudflare's Git integration, but only one automatic deployment path should normally be active to avoid duplicate builds and deployments.
 
@@ -411,7 +431,6 @@ The following capabilities are not part of the current application:
 - comparing or merging variations;
 - durable variation writes on Cloudflare Workers;
 - GitHub-backed artifact reads or writes;
-- authentication and private-user access;
 - multiple users or collaboration;
 - favourites, recent items, or usage history;
 - filtering or sorting controls in the UI;
@@ -438,7 +457,10 @@ The current application is considered operational when:
 9. copy places the source Markdown body on the clipboard;
 10. local variation creation writes a valid Markdown file and opens the new artifact;
 11. secret-like variation content is rejected;
-12. the OpenNext Cloudflare worker build succeeds with the supported deployment configuration.
+12. unauthenticated visitors are redirected away from protected pages and receive `401` responses from protected APIs;
+13. GitHub OAuth callbacks validate state before creating a session;
+14. sign-out invalidates the current session;
+15. the OpenNext Cloudflare worker build succeeds with the supported deployment configuration.
 
 ## 14. Document maintenance
 

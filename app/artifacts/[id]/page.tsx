@@ -1,27 +1,28 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CopyButton } from "@/components/CopyButton";
+import { SignOutButton } from "@/components/SignOutButton";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { VariationForm } from "@/components/VariationForm";
-import { getArtifact, getArtifacts } from "@/lib/artifacts";
+import { getArtifact } from "@/lib/artifacts";
+import { requireAuth } from "@/lib/auth";
 import { markdownToHtml } from "@/lib/markdown";
 
-export async function generateStaticParams() {
-  const artifacts = await getArtifacts();
-  return artifacts.map((artifact) => ({ id: artifact.id }));
-}
+
+export const dynamic = "force-dynamic";
 
 export default async function ArtifactPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const session = await requireAuth(`/artifacts/${encodeURIComponent(id)}`);
   const artifact = await getArtifact(id);
   if (!artifact) notFound();
   const html = await markdownToHtml(artifact.body);
 
   return (
     <main className="mx-auto min-h-screen max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
-      <div className="mb-4 flex items-center justify-between gap-4">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
         <Link href="/" className="rounded-lg text-sm font-semibold text-sky-700 transition hover:text-sky-900 focus:outline-none focus:ring-4 focus:ring-sky-200 dark:text-orange-300 dark:hover:text-orange-200 dark:focus:ring-orange-500/35">← Back to library</Link>
-        <ThemeToggle />
+        <div className="flex items-center gap-4"><SignOutButton login={session.login} /><ThemeToggle /></div>
       </div>
       <article className="my-6 rounded-[2rem] border border-slate-200 bg-white p-6 shadow-soft dark:border-slate-800 dark:bg-slate-900 sm:p-8">
         <div className="flex flex-wrap items-start justify-between gap-4">

@@ -143,3 +143,30 @@ If you deploy through Cloudflare Pages instead of GitHub Actions, configure the 
 The deployed worker is configured in `wrangler.jsonc`, which intentionally contains no API token.
 
 Local file writes for variation creation work in local development. On hosted deployments, runtime filesystem writes are ephemeral/read-only depending on the execution environment, so persist variations by committing generated Markdown files or later adding durable storage.
+
+## GitHub authentication configuration
+
+The application requires GitHub sign-in before serving artifact pages or protected artifact APIs. Configure a GitHub OAuth App with this callback URL:
+
+```text
+https://<your-app-host>/auth/github/callback
+```
+
+Required runtime environment variables:
+
+- `GITHUB_OAUTH_CLIENT_ID` — GitHub OAuth App client ID.
+- `GITHUB_OAUTH_CLIENT_SECRET` — GitHub OAuth App client secret. Do not expose this to browser JavaScript.
+- `SESSION_SECRET` — high-entropy session secret with at least 32 characters.
+- `NEXT_PUBLIC_APP_URL` or `APP_URL` — optional canonical application URL for deployment documentation and operator clarity.
+
+In production, authenticated sessions are represented by strongly random server-side session identifiers stored in an `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/` `__Host-` cookie. Local non-production development uses the same `HttpOnly`, `SameSite=Lax`, `Path=/` policy with non-`__Host-` cookie names and `secure: false` so standard HTTP localhost OAuth callbacks work; use Wrangler/local HTTPS to exercise production cookie names. Session records, expiry timestamps, and sign-out revocations are stored server-side in the Cloudflare D1 binding `AUTH_SESSIONS_DB`; D1 stores an HMAC of the session identifier rather than the raw browser cookie value, so deployed sessions are available consistently across Worker isolates instead of relying on process memory.
+
+Before deploying, create and bind the session database:
+
+```bash
+npx wrangler d1 create fpo-adt-db
+npx wrangler d1 migrations apply fpo-adt-db --local
+npx wrangler d1 migrations apply fpo-adt-db --remote
+```
+
+The migration in `migrations/0001_create_auth_sessions.sql` creates the `auth_sessions` table; application requests do not create schema at runtime; no repository token, GitHub OAuth token, client secret, or session secret is written to browser-accessible storage. Configure OAuth values as Cloudflare Worker secrets for deployed environments; never commit real secret values.
