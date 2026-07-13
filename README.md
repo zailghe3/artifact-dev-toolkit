@@ -152,29 +152,12 @@ The deployed worker is configured in `wrangler.jsonc`, which intentionally conta
 
 Local file writes for variation creation work in local development. On hosted deployments, runtime filesystem writes are ephemeral/read-only depending on the execution environment, so persist variations by committing generated Markdown files or later adding durable storage.
 
-## GitHub authentication configuration
+## GitHub App authentication and artifact repository access
 
-The application requires GitHub sign-in before serving artifact pages or protected artifact APIs. Configure a GitHub OAuth App with this callback URL:
+The production Worker uses a GitHub App web application flow, not a traditional OAuth App and not a broad personal access token. Configure `GITHUB_APP_ID`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_TOKEN_ENCRYPTION_KEY`, `GITHUB_ARTIFACT_REPOSITORY_OWNER`, and `GITHUB_ARTIFACT_REPOSITORY_NAME`; optional settings are `GITHUB_ARTIFACT_REPOSITORY_BRANCH`, `GITHUB_ARTIFACT_REPOSITORY_ROOT`, and `GITHUB_ARTIFACT_ALLOWED_LOGINS`. The GitHub App callback URL is `/auth/github/callback`, and the App needs only Metadata read-only and Contents read-only permissions with selected-repository installation for the artifact repository. `GITHUB_ARTIFACT_REPOSITORY_TOKEN`, `GITHUB_OAUTH_CLIENT_ID`, and `GITHUB_OAUTH_CLIENT_SECRET` are obsolete and are not runtime credentials.
 
-```text
-https://<your-app-host>/auth/github/callback
-```
+User sign-in uses OAuth state plus S256 PKCE without requesting `repo` or other OAuth scopes. User access tokens are encrypted at rest with AES-GCM using the dedicated `GITHUB_TOKEN_ENCRYPTION_KEY`; installation tokens are minted on demand for the exact repository, restricted to Contents read-only, and are not stored as long-lived secrets. Repository authorisation is refreshed after a short seven-minute freshness window so removed user access, removed app installation access, changed owner/name/repository ID, or allowlist changes fail closed before artifact reads.
 
-Required runtime environment variables:
+The initial `auth_sessions` schema persists the complete authenticated and repository-authorisation state. Because no real user has ever successfully logged in, no session data migration or compatibility backfill is required.
 
-- `GITHUB_OAUTH_CLIENT_ID` — GitHub OAuth App client ID.
-- `GITHUB_OAUTH_CLIENT_SECRET` — GitHub OAuth App client secret. Do not expose this to browser JavaScript.
-- `SESSION_SECRET` — high-entropy session secret with at least 32 characters.
-- `NEXT_PUBLIC_APP_URL` or `APP_URL` — optional canonical application URL for deployment documentation and operator clarity.
-
-In production, authenticated sessions are represented by strongly random server-side session identifiers stored in an `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/` `__Host-` cookie. Local non-production development uses the same `HttpOnly`, `SameSite=Lax`, `Path=/` policy with non-`__Host-` cookie names and `secure: false` so standard HTTP localhost OAuth callbacks work; use Wrangler/local HTTPS to exercise production cookie names. Session records, expiry timestamps, and sign-out revocations are stored server-side in the Cloudflare D1 binding `AUTH_SESSIONS_DB`; D1 stores an HMAC of the session identifier rather than the raw browser cookie value, so deployed sessions are available consistently across Worker isolates instead of relying on process memory.
-
-Before deploying, create and bind the session database:
-
-```bash
-npx wrangler d1 create fpo-adt-db
-npx wrangler d1 migrations apply fpo-adt-db --local
-npx wrangler d1 migrations apply fpo-adt-db --remote
-```
-
-The migration in `migrations/0001_create_auth_sessions.sql` creates the `auth_sessions` table; application requests do not create schema at runtime; no repository token, GitHub OAuth token, client secret, or session secret is written to browser-accessible storage. Configure OAuth values as Cloudflare Worker secrets for deployed environments; never commit real secret values.
+The DATA-001 artifact contract is centralized in `lib/artifact-contract.ts`. Local validation, local runtime reads, and GitHub runtime reads share the same allowed types, statuses, directories, metadata normalization, path checks, duplicate-ID checks, and diagnostics. Allowed top-level directories are allowed locations, not mandatory empty directories.

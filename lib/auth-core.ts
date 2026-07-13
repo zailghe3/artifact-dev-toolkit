@@ -1,12 +1,15 @@
 export const productionSessionCookieName = "__Host-adt_session";
 export const productionStateCookieName = "__Host-adt_oauth_state";
 export const productionReturnCookieName = "__Host-adt_oauth_return";
+export const productionPkceCookieName = "__Host-adt_pkce_verifier";
 export const developmentSessionCookieName = "adt_session";
 export const developmentStateCookieName = "adt_oauth_state";
 export const developmentReturnCookieName = "adt_oauth_return";
+export const developmentPkceCookieName = "adt_pkce_verifier";
 export const sessionCookieName = productionSessionCookieName;
 export const stateCookieName = productionStateCookieName;
 export const returnCookieName = productionReturnCookieName;
+export const pkceCookieName = productionPkceCookieName;
 export const sessionTtlSeconds = 60 * 60 * 8;
 export const oauthStateTtlSeconds = 60 * 10;
 
@@ -25,12 +28,22 @@ export type SessionRecord = {
   name?: string;
   avatarUrl?: string;
   expiresAt: number;
-  repositoryAuthorization?: {
+  createdAt?: number;
+  revokedAt?: number;
+  repositoryAuthorization: {
+    state: "authorized" | "denied";
+    denialReason?: "configuration" | "allowlist" | "app_access" | "user_access" | "temporary_unavailable";
     owner: string;
     repo: string;
+    repositoryId?: number;
+    installationId?: number;
     login: string;
+    githubId: number;
     checkedAt: number;
   };
+  encryptedUserAccessToken?: string;
+  userAccessTokenExpiresAt?: number;
+  tokenIv?: string;
 };
 
 export type GitHubUser = {
@@ -44,6 +57,7 @@ export type CookieNames = {
   session: string;
   state: string;
   returnTo: string;
+  pkce: string;
 };
 
 export type OAuthErrorCode = "denied" | "invalid_state" | "missing_code" | "github_exchange_failed" | "github_identity_failed" | "session_creation_failed";
@@ -59,9 +73,9 @@ export const oauthErrorMessages: Record<OAuthErrorCode, string> = {
 
 export function cookieNames(nodeEnv = process.env.NODE_ENV): CookieNames {
   if (nodeEnv === "production") {
-    return { session: productionSessionCookieName, state: productionStateCookieName, returnTo: productionReturnCookieName };
+    return { session: productionSessionCookieName, state: productionStateCookieName, returnTo: productionReturnCookieName, pkce: productionPkceCookieName };
   }
-  return { session: developmentSessionCookieName, state: developmentStateCookieName, returnTo: developmentReturnCookieName };
+  return { session: developmentSessionCookieName, state: developmentStateCookieName, returnTo: developmentReturnCookieName, pkce: developmentPkceCookieName };
 }
 
 export function cookieOptions(maxAge: number, nodeEnv = process.env.NODE_ENV): AuthCookie {
@@ -133,14 +147,14 @@ export function parseSession(value: string | null, now = Date.now()) {
     if (!Number.isSafeInteger(parsed.githubId)) return undefined;
     if (typeof parsed.login !== "string" || parsed.login.length === 0) return undefined;
     if (typeof parsed.expiresAt !== "number" || !Number.isFinite(parsed.expiresAt) || parsed.expiresAt <= now) return undefined;
-    if (parsed.repositoryAuthorization !== undefined) {
-      const authorization = parsed.repositoryAuthorization as Record<string, unknown>;
-      if (!authorization || typeof authorization !== "object") return undefined;
-      if (typeof authorization.owner !== "string" || authorization.owner.length === 0) return undefined;
-      if (typeof authorization.repo !== "string" || authorization.repo.length === 0) return undefined;
-      if (typeof authorization.login !== "string" || authorization.login.length === 0) return undefined;
-      if (typeof authorization.checkedAt !== "number" || !Number.isFinite(authorization.checkedAt)) return undefined;
-    }
+    const authorization = parsed.repositoryAuthorization as Record<string, unknown> | undefined;
+    if (!authorization || typeof authorization !== "object") return undefined;
+    if (typeof authorization.owner !== "string" || authorization.owner.length === 0) return undefined;
+    if (typeof authorization.repo !== "string" || authorization.repo.length === 0) return undefined;
+    if (typeof authorization.login !== "string" || authorization.login.length === 0) return undefined;
+    if (authorization.state !== "authorized" && authorization.state !== "denied") return undefined;
+    if (!Number.isSafeInteger(authorization.githubId)) return undefined;
+    if (typeof authorization.checkedAt !== "number" || !Number.isFinite(authorization.checkedAt)) return undefined;
     return parsed as SessionRecord;
   } catch {
     return undefined;

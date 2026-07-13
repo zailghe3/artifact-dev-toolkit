@@ -44,7 +44,7 @@ function repository(fetch, overrides = {}) {
   return new GitHubArtifactRepository({
     owner: 'example-owner',
     repo: 'artifact-store',
-    token: 'server-side-token',
+    credentialProvider: async () => 'installation-token',
     branch: 'main',
     rootPath: 'artifacts',
     fetch,
@@ -80,7 +80,7 @@ aliases: [first]
   assert.equal(artifacts[0].path, 'artifacts/variations/nested/a.md');
   assert.equal(artifacts[0].excerpt, 'Alpha body.');
   assert.equal(artifacts[1].body, 'Beta body with   whitespace.');
-  assert.match(fetch.calls[0].options.headers.authorization, /^Bearer /);
+  assert.equal(fetch.calls[0].options.headers.authorization, 'Bearer installation-token');
 });
 
 test('GitHubArtifactRepository findById returns one parsed artifact', async () => {

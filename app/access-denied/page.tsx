@@ -1,18 +1,18 @@
 import Link from "next/link";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { getSession } from "@/lib/auth";
 import { repositoryAccessDeniedMessages, type RepositoryAuthorizationFailureReason } from "@/lib/repository-authorization";
 
 export const dynamic = "force-dynamic";
 
-function getReason(value: string | string[] | undefined): RepositoryAuthorizationFailureReason {
-  const reason = Array.isArray(value) ? value[0] : value;
-  if (reason === "allowlist" || reason === "app_access" || reason === "user_access" || reason === "configuration") return reason;
+function getReason(value: string | undefined): RepositoryAuthorizationFailureReason {
+  if (value === "allowlist" || value === "app_access" || value === "user_access" || value === "configuration" || value === "temporary_unavailable") return value;
   return "configuration";
 }
 
-export default async function AccessDeniedPage({ searchParams }: { searchParams: Promise<{ reason?: string | string[] }> }) {
-  const params = await searchParams;
-  const reason = getReason(params.reason);
+export default async function AccessDeniedPage() {
+  const session = await getSession();
+  const reason = getReason(session?.repositoryAuthorization.denialReason);
 
   return (
     <main className="mx-auto flex min-h-screen max-w-3xl flex-col px-4 py-8 sm:px-6 lg:px-8">
