@@ -57,9 +57,17 @@ npm run build
 
 The app reads and writes artifacts through an `ArtifactRepository` interface. Local development uses `FileArtifactRepository`, which stores Markdown files under `artifacts/` and writes variations under `artifacts/variations/`.
 
-A `GitHubArtifactRepository` placeholder is included to make a future GitHub API-backed implementation explicit. Do not commit GitHub tokens, API keys, or other credentials to this repository. Future GitHub-backed storage must load credentials only from environment variables, platform secrets, or a managed secrets service. The repository layer rejects variation content that looks like a private key, token, API key, password, or secret before persisting it.
+A read-only `GitHubArtifactRepository` is available for deployments that need to load artifacts from a dedicated private GitHub repository. Do not commit GitHub tokens, API keys, or other credentials to this repository. GitHub-backed storage loads credentials only from environment variables, platform secrets, or a managed secrets service. The repository layer rejects variation content that looks like a private key, token, API key, password, or secret before any write attempt.
 
-To select a future repository backend, use environment configuration such as `ARTIFACT_REPOSITORY=github`; keep any corresponding credentials out of Git and in deployment secrets only.
+To select the GitHub-backed repository, set `ARTIFACT_REPOSITORY=github` and configure these server-side variables:
+
+- `GITHUB_ARTIFACT_REPOSITORY_OWNER` — repository owner or organisation.
+- `GITHUB_ARTIFACT_REPOSITORY_NAME` — repository name.
+- `GITHUB_ARTIFACT_REPOSITORY_TOKEN` — server-side GitHub token with read access to the private artifact repository.
+- `GITHUB_ARTIFACT_REPOSITORY_BRANCH` — optional branch or ref; defaults to `main`.
+- `GITHUB_ARTIFACT_REPOSITORY_ROOT` — optional artifact root; defaults to `artifacts`.
+
+The GitHub token is used only by server-side repository code. It is never sent to browser JavaScript.
 
 ## Development workflow
 
