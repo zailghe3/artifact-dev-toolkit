@@ -17,6 +17,12 @@ import {
 } from "@/lib/auth-core";
 
 import { findSession, insertSession, revokeSessionId, type D1DatabaseBinding } from "@/lib/auth-session-store";
+import {
+  authorizationDeniedResponse,
+  createRepositoryAuthorizationRecord,
+  verifyRepositoryAuthorization,
+  type RepositoryAuthorizationStatus,
+} from "@/lib/repository-authorization";
 
 let testSessionDatabase: D1DatabaseBinding | undefined;
 
@@ -79,6 +85,7 @@ export async function createOAuthStart(returnTo: string | null) {
   const authorizeUrl = new URL("https://github.com/login/oauth/authorize");
   authorizeUrl.searchParams.set("client_id", clientId);
   authorizeUrl.searchParams.set("state", state);
+  authorizeUrl.searchParams.set("scope", "repo");
   return authorizeUrl;
 }
 
@@ -107,10 +114,17 @@ export async function exchangeGitHubCode(code: string) {
     headers: { authorization: `Bearer ${tokenPayload.access_token}`, accept: "application/vnd.github+json", "user-agent": "artifact-dev-toolkit" },
   });
   if (!userResponse.ok) throw new Error("github_identity_failed");
-  return validateGitHubUser(await userResponse.json());
+  const user = validateGitHubUser(await userResponse.json());
+  const repositoryAuthorization = await verifyRepositoryAuthorization(user, tokenPayload.access_token);
+  if (!repositoryAuthorization.ok) {
+    const error = new Error("repository_authorization_failed") as Error & { repositoryAuthorization?: RepositoryAuthorizationStatus };
+    error.repositoryAuthorization = repositoryAuthorization;
+    throw error;
+  }
+  return { user, repositoryAuthorization };
 }
 
-export async function createSession(user: GitHubUser) {
+export async function createSession(user: GitHubUser, repositoryAuthorization?: Extract<RepositoryAuthorizationStatus, { ok: true }>) {
   const session: SessionRecord = {
     id: randomToken(48),
     githubId: user.id,
@@ -118,6 +132,7 @@ export async function createSession(user: GitHubUser) {
     name: user.name,
     avatarUrl: user.avatar_url,
     expiresAt: Date.now() + sessionTtlSeconds * 1000,
+    repositoryAuthorization: repositoryAuthorization ? createRepositoryAuthorizationRecord(repositoryAuthorization) : undefined,
   };
   await storeSession(session);
   const cookieStore = await cookies();
@@ -140,9 +155,16 @@ export async function requireAuth(returnTo = "/") {
   return session;
 }
 
+export async function requireRepositoryAuthorization(returnTo = "/") {
+  const session = await requireAuth(returnTo);
+  if (!session.repositoryAuthorization) redirect(`/access-denied?reason=configuration`);
+  return session;
+}
+
 export async function requireApiAuth(request: Request) {
   const session = await getSession();
-  if (session) return undefined;
+  if (session?.repositoryAuthorization) return undefined;
+  if (session) return authorizationDeniedResponse("configuration");
   const signInUrl = new URL("/sign-in", request.url);
   const requestUrl = new URL(request.url);
   signInUrl.searchParams.set("returnTo", requestUrl.pathname + requestUrl.search);

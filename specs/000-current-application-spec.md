@@ -40,13 +40,14 @@ The application currently has:
 - server-side session tracking in Cloudflare D1 keyed by HMACs of strongly random session identifiers;
 - a production `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/` `__Host-` session cookie with no `Domain` attribute and non-production localhost cookie names with `secure: false`;
 - sign-out behaviour that revokes the D1 session record and expires the browser cookie;
-- no repository authorisation check beyond successful GitHub authentication in this implementation; GitHub-backed artifact reads use the configured server-side repository token;
+- repository authorisation during session creation that verifies the exact configured private artifact repository is readable by the configured GitHub App/server token and by the signed-in GitHub user token;
+- an optional comma-separated `GITHUB_ARTIFACT_ALLOWED_LOGINS` defence-in-depth allowlist, matched case-insensitively after sign-in;
 - no role model;
 - no user profile or account settings;
 - no tenant separation;
 - no sharing or collaboration workflow.
 
-Unauthenticated visitors are redirected to `/sign-in` and must complete GitHub authentication before protected application content is rendered.
+Unauthenticated visitors are redirected to `/sign-in` and must complete GitHub authentication before protected application content is rendered. Authenticated visitors who fail repository authorisation are sent to `/access-denied` with a non-secret reason that distinguishes missing configuration, allowlist denial, missing GitHub App repository access, and missing user repository access.
 
 ## 4. Artifact data model
 
@@ -223,11 +224,11 @@ This is a safety check, not a complete secret-scanning or data-loss-prevention s
 
 The sign-in page at `/sign-in` explains that GitHub authentication is required and links to `/auth/github/start`, which creates OAuth state cookies in a Route Handler before redirecting to GitHub. It supports a relative `returnTo` URL so successful authentication returns users to their intended protected page.
 
-The GitHub OAuth callback at `/auth/github/callback` validates the OAuth `state` value stored in an `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/` `__Host-` cookie before accepting either a denied or successful callback and before exchanging the authorization code server-side. OAuth state cookies are short-lived, single-use, compared without early-exit equality, and deleted during callback processing including denied authorization outcomes. After a successful callback, the application fetches the authenticated GitHub user through GitHub server-side APIs, validates the stable numeric user ID and login, creates a strongly random server-side session identifier, stores only that identifier in the session cookie, and redirects to the safe return URL. The OAuth access token is discarded after the identity fetch; it is not retained in the session database or exposed to browser JavaScript. Denied authorization, missing codes, invalid state, token-exchange failures, and identity-fetch failures redirect back to sign-in with a clear non-secret-bearing error.
+The GitHub OAuth callback at `/auth/github/callback` validates the OAuth `state` value stored in an `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/` `__Host-` cookie before accepting either a denied or successful callback and before exchanging the authorization code server-side. OAuth state cookies are short-lived, single-use, compared without early-exit equality, and deleted during callback processing including denied authorization outcomes. The OAuth start request asks GitHub for repository read capability so the callback can verify private repository access. After a successful callback, the application fetches the authenticated GitHub user through GitHub server-side APIs, validates the stable numeric user ID and login, verifies optional login allowlisting, verifies that the configured GitHub App/server token can read only the configured repository, verifies that the signed-in user token can read that same repository, creates a strongly random server-side session identifier only when those checks pass, stores only that identifier in the session cookie, and redirects to the safe return URL. The OAuth access token is discarded after the identity and repository authorisation checks; it is not retained in the session database or exposed to browser JavaScript. Denied authorization, missing codes, invalid state, token-exchange failures, identity-fetch failures, and repository-authorisation failures redirect to clear non-secret-bearing states.
 
 The sign-out endpoint at `/sign-out` changes state only for POST requests. POST sign-out revokes the server-side D1 session record, clears the session cookie, and redirects to a safe local destination. GET sign-out does not invalidate the session and only redirects to a safe local destination. Sign-out is idempotent and does not disclose whether an arbitrary session identifier existed. Expired, revoked, malformed, missing, or unknown sessions are rejected and protected pages redirect back to sign-in without rendering artifact content.
 
-Protected artifact APIs return private, no-store `401` JSON responses for unauthenticated callers before artifact loading, repository access, or variation creation occurs. Authenticated protected API responses, OAuth callback responses, and sign-out redirects also use private/no-store cache controls.
+Protected artifact APIs return private, no-store `401` JSON responses for unauthenticated callers and private, no-store `403` JSON responses for authenticated but unauthorised callers before artifact loading, repository access, or variation creation occurs. Authenticated protected API responses, OAuth callback responses, and sign-out redirects also use private/no-store cache controls.
 
 ## 6. Storage behaviour
 
@@ -375,7 +376,7 @@ The current application assumes that artifact files are trusted repository conte
 
 The current implementation does not include:
 
-- per-user repository access controls;
+- per-artifact or role-based authorisation beyond the configured repository authorisation gate;
 - content approval;
 - malware scanning;
 - comprehensive secret scanning;

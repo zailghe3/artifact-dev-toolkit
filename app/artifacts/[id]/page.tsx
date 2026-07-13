@@ -5,7 +5,7 @@ import { SignOutButton } from "@/components/SignOutButton";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { VariationForm } from "@/components/VariationForm";
 import { getArtifact } from "@/lib/artifacts";
-import { requireAuth } from "@/lib/auth";
+import { requireRepositoryAuthorization } from "@/lib/auth";
 import { markdownToHtml } from "@/lib/markdown";
 
 
@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 
 export default async function ArtifactPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const session = await requireAuth(`/artifacts/${encodeURIComponent(id)}`);
+  const session = await requireRepositoryAuthorization(`/artifacts/${encodeURIComponent(id)}`);
   const artifact = await getArtifact(id);
   if (!artifact) notFound();
   const html = await markdownToHtml(artifact.body);

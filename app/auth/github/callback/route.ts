@@ -20,14 +20,20 @@ export async function GET(request: Request) {
   if (!code) return redirectWithError(request, "missing_code");
 
   try {
-    const user = await exchangeGitHubCode(code);
+    const { user, repositoryAuthorization } = await exchangeGitHubCode(code);
     try {
-      await createSession(user);
+      await createSession(user, repositoryAuthorization);
     } catch {
       return redirectWithError(request, "session_creation_failed");
     }
     return NextResponse.redirect(new URL(returnTo, request.url), { headers: noStoreHeaders });
   } catch (caught) {
+    if (caught instanceof Error && caught.message === "repository_authorization_failed") {
+      const reason = (caught as Error & { repositoryAuthorization?: { ok: false; reason: string } }).repositoryAuthorization?.reason ?? "configuration";
+      const url = new URL("/access-denied", request.url);
+      url.searchParams.set("reason", reason);
+      return NextResponse.redirect(url, { headers: noStoreHeaders });
+    }
     return redirectWithError(request, caught instanceof Error && caught.message === "github_identity_failed" ? "github_identity_failed" : "github_exchange_failed");
   }
 }

@@ -243,3 +243,87 @@ test("page-level session lookup does not delete or set stale cookies", async () 
   assert.equal(getSessionBody.includes("cookieStore.delete"), false);
   assert.equal(getSessionBody.includes("cookieStore.set"), false);
 });
+
+const repositoryAuthorizationModuleUrl = pathToFileURL(new URL("../lib/repository-authorization.ts", import.meta.url).pathname).href;
+const {
+  createRepositoryAuthorizationRecord,
+  repositoryAccessDeniedMessages,
+  verifyRepositoryAuthorization,
+} = await import(repositoryAuthorizationModuleUrl);
+
+test("repository authorisation enforces optional login allowlist before GitHub repository checks", async () => {
+  let called = false;
+  const status = await verifyRepositoryAuthorization(
+    { id: 123, login: "octocat" },
+    "user-token",
+    { owner: "owner", repo: "repo", appToken: "app-token", allowedLogins: ["maintainer"] },
+    async () => {
+      called = true;
+      return new Response("{}", { status: 200 });
+    },
+  );
+
+  assert.deepEqual(status, { ok: false, reason: "allowlist", message: repositoryAccessDeniedMessages.allowlist });
+  assert.equal(called, false);
+});
+
+test("repository authorisation requires app and signed-in user access to the exact configured repository", async () => {
+  const calls = [];
+  const okStatus = await verifyRepositoryAuthorization(
+    { id: 123, login: "OctoCat" },
+    "user-token",
+    { owner: "owner", repo: "private-artifacts", appToken: "app-token", allowedLogins: ["octocat"] },
+    async (url, init) => {
+      calls.push({ url: String(url), authorization: init?.headers.authorization });
+      return new Response("{}", { status: 200 });
+    },
+  );
+
+  assert.deepEqual(okStatus, { ok: true, owner: "owner", repo: "private-artifacts", login: "OctoCat" });
+  assert.deepEqual(calls.map((call) => call.url), [
+    "https://api.github.com/repos/owner/private-artifacts",
+    "https://api.github.com/repos/owner/private-artifacts",
+  ]);
+  assert.deepEqual(calls.map((call) => call.authorization), ["Bearer app-token", "Bearer user-token"]);
+  assert.deepEqual(createRepositoryAuthorizationRecord(okStatus, 1234), { owner: "owner", repo: "private-artifacts", login: "OctoCat", checkedAt: 1234 });
+});
+
+test("repository authorisation distinguishes app installation and user repository failures", async () => {
+  const appFailure = await verifyRepositoryAuthorization(
+    { id: 123, login: "octocat" },
+    "user-token",
+    { owner: "owner", repo: "repo", appToken: "app-token", allowedLogins: [] },
+    async () => new Response("{}", { status: 404 }),
+  );
+  assert.deepEqual(appFailure, { ok: false, reason: "app_access", message: repositoryAccessDeniedMessages.app_access });
+
+  let count = 0;
+  const userFailure = await verifyRepositoryAuthorization(
+    { id: 123, login: "octocat" },
+    "user-token",
+    { owner: "owner", repo: "repo", appToken: "app-token", allowedLogins: [] },
+    async () => new Response("{}", { status: ++count === 1 ? 200 : 404 }),
+  );
+  assert.deepEqual(userFailure, { ok: false, reason: "user_access", message: repositoryAccessDeniedMessages.user_access });
+});
+
+test("repository authorisation sessions and protected routes carry repository decisions", async () => {
+  const now = Date.UTC(2026, 6, 13);
+  const session = {
+    id: randomToken(48),
+    githubId: 123,
+    login: "octocat",
+    expiresAt: now + 1000,
+    repositoryAuthorization: { owner: "owner", repo: "repo", login: "octocat", checkedAt: now },
+  };
+  assert.deepEqual(parseSession(serializeSession(session), now), session);
+  assert.equal(parseSession(serializeSession({ ...session, repositoryAuthorization: { ...session.repositoryAuthorization, repo: "" } }), now), undefined);
+
+  const fs = await import("node:fs/promises");
+  const homePage = await fs.readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.equal(homePage.includes("requireRepositoryAuthorization"), true);
+  assert.equal(homePage.indexOf("requireRepositoryAuthorization") < homePage.indexOf("getArtifacts()"), true);
+
+  const artifactsRoute = await fs.readFile(new URL("../app/api/artifacts/route.ts", import.meta.url), "utf8");
+  assert.equal(artifactsRoute.includes("requireApiAuth(request)"), true);
+});

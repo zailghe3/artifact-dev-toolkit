@@ -25,6 +25,12 @@ export type SessionRecord = {
   name?: string;
   avatarUrl?: string;
   expiresAt: number;
+  repositoryAuthorization?: {
+    owner: string;
+    repo: string;
+    login: string;
+    checkedAt: number;
+  };
 };
 
 export type GitHubUser = {
@@ -127,6 +133,14 @@ export function parseSession(value: string | null, now = Date.now()) {
     if (!Number.isSafeInteger(parsed.githubId)) return undefined;
     if (typeof parsed.login !== "string" || parsed.login.length === 0) return undefined;
     if (typeof parsed.expiresAt !== "number" || !Number.isFinite(parsed.expiresAt) || parsed.expiresAt <= now) return undefined;
+    if (parsed.repositoryAuthorization !== undefined) {
+      const authorization = parsed.repositoryAuthorization as Record<string, unknown>;
+      if (!authorization || typeof authorization !== "object") return undefined;
+      if (typeof authorization.owner !== "string" || authorization.owner.length === 0) return undefined;
+      if (typeof authorization.repo !== "string" || authorization.repo.length === 0) return undefined;
+      if (typeof authorization.login !== "string" || authorization.login.length === 0) return undefined;
+      if (typeof authorization.checkedAt !== "number" || !Number.isFinite(authorization.checkedAt)) return undefined;
+    }
     return parsed as SessionRecord;
   } catch {
     return undefined;
