@@ -19,7 +19,8 @@
     "issue:validate-request": "node scripts/validate-feature-request.mjs",
     "test": "node --test",
     "artifacts:validate": "node scripts/validate-artifact-repository.mjs",
-    "toolchain:validate": "node scripts/validate-toolchain.mjs"
+    "toolchain:validate": "node scripts/validate-toolchain.mjs",
+    "maintenance:report": "node scripts/maintenance-report.mjs"
   },
   "dependencies": {
     "gray-matter": "^4.0.3",
