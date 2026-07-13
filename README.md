@@ -164,9 +164,9 @@ In production, authenticated sessions are represented by strongly random server-
 Before deploying, create and bind the session database:
 
 ```bash
-npx wrangler d1 create fpo-adt-auth-sessions
-npx wrangler d1 migrations apply fpo-adt-auth-sessions --local
-npx wrangler d1 migrations apply fpo-adt-auth-sessions --remote
+npx wrangler d1 create fpo-adt-db
+npx wrangler d1 migrations apply fpo-adt-db --local
+npx wrangler d1 migrations apply fpo-adt-db --remote
 ```
 
-Replace the placeholder `database_id` for `AUTH_SESSIONS_DB` in `wrangler.jsonc` with the generated ID. The migration in `migrations/0001_create_auth_sessions.sql` creates the `auth_sessions` table; application requests do not create schema at runtime; no repository token, GitHub OAuth token, client secret, or session secret is written to browser-accessible storage. Configure OAuth values as Cloudflare Worker secrets for deployed environments; never commit real secret values. Until the real Cloudflare database ID replaces the placeholder, the branch is not production-deployable and must not be merged into a deployment branch.
+The migration in `migrations/0001_create_auth_sessions.sql` creates the `auth_sessions` table; application requests do not create schema at runtime; no repository token, GitHub OAuth token, client secret, or session secret is written to browser-accessible storage. Configure OAuth values as Cloudflare Worker secrets for deployed environments; never commit real secret values.

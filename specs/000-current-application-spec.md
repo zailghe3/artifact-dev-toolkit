@@ -417,7 +417,7 @@ Production deployment through GitHub Actions requires deployment credentials to 
 - `GITHUB_OAUTH_CLIENT_SECRET`
 - `SESSION_SECRET`
 
-Credentials and OAuth/session secrets shall not be committed to source control. `SESSION_SECRET` must be at least 32 characters long. The GitHub OAuth App callback URL must point to `/auth/github/callback` on the deployed application host. Deployments must bind the Cloudflare D1 database `AUTH_SESSIONS_DB`; `wrangler.jsonc` records the binding name, database name, and migrations directory. Operators must run `npx wrangler d1 create fpo-adt-auth-sessions`, replace the placeholder database ID, then run `npx wrangler d1 migrations apply fpo-adt-auth-sessions --local` and `npx wrangler d1 migrations apply fpo-adt-auth-sessions --remote`. Until the real database ID is configured, the branch is not production-deployable.
+Credentials and OAuth/session secrets shall not be committed to source control. `SESSION_SECRET` must be at least 32 characters long. The GitHub OAuth App callback URL must point to `/auth/github/callback` on the deployed application host. Deployments must bind the Cloudflare D1 database `AUTH_SESSIONS_DB`; `wrangler.jsonc` records the binding name, database name, and migrations directory. Operators must run `npx wrangler d1 create fpo-adt-db`, then run `npx wrangler d1 migrations apply fpo-adt-db --local` and `npx wrangler d1 migrations apply fpo-adt-db --remote`.
 
 The repository may also be deployed through Cloudflare's Git integration, but only one automatic deployment path should normally be active to avoid duplicate builds and deployments.
 
