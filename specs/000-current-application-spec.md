@@ -3,7 +3,7 @@
 **Document status:** Baseline specification of the implemented application  
 **Application version:** 0.1.0  
 **Scope:** Current behaviour only; this document is not a roadmap  
-**Last updated:** 2026-07-12
+**Last updated:** 2026-07-13
 
 ## 1. Purpose
 
@@ -326,12 +326,14 @@ The current application uses:
 - Next.js 16.2.10;
 - React 19.2.7;
 - TypeScript 5.9.3 with ESLint 9.39.5, `eslint-config-next` 16.2.10, and `typescript-eslint` 8.63.0;
-- Tailwind CSS;
+- Tailwind CSS 4.3.2 with `@tailwindcss/postcss` 4.3.2 and PostCSS 8.5.18;
 - Zod for validation;
 - gray-matter for Markdown frontmatter parsing;
 - remark and remark-html for Markdown rendering;
 - OpenNext for Cloudflare 1.20.1;
 - Wrangler 4.110.0 for Cloudflare deployment.
+
+Direct dependency declarations are maintained as the tested lower bounds for the package versions validated by this repository. DEV-005 records the inspected dependency outcomes, removal decisions, audit status, and compatibility constraints in `docs/dev-005-dependency-refresh.md`.
 
 ### 9.2 Rendering model
 
