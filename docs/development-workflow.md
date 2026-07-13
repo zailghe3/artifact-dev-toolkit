@@ -204,6 +204,9 @@ The repository uses a deterministic GitHub Actions lifecycle with one entry work
 ```text
 Pull request
   → PR lifecycle / classify-pr
+  → PR lifecycle / repair-package-lock calls the existing repair workflow for eligible same-repository lockfile-relevant PRs
+     ├─ if package-lock.json is repaired, stop old-head validation and wait for the synchronize run
+     └─ if no repair is published, continue validation on the current head
   → PR lifecycle / verify-pr
   → PR lifecycle / validate-feature-requests when requests/features/*.json changed
   → Trusted auto-merge may enable squash auto-merge for owner-authored, same-repo, non-sensitive PRs
@@ -217,14 +220,15 @@ Pull request
 
 Entry workflows and triggers:
 
-- `PR lifecycle` (`.github/workflows/pr-orchestrator.yml`): `pull_request` on `opened`, `synchronize`, `reopened`, and `ready_for_review`. It has read-only permissions, validates all PRs, never accesses production secrets, never creates issues, never deploys, and never enables a merge.
+- `PR lifecycle` (`.github/workflows/pr-orchestrator.yml`): `pull_request` on `opened`, `synchronize`, `reopened`, and `ready_for_review`. It has read-only default permissions, validates all PRs, never accesses production secrets, never creates issues, never deploys, and never enables a merge. Its only write-capable job is `repair-package-lock`, which delegates to `.github/workflows/repair-package-lock.yml` for same-repository `codex/*`, `repair/*`, and `dependabot/*` PR branches with lockfile-relevant changes detected by the shared classifier. Fork PRs, external branches, and same-repository branches outside the existing repair workflow's permitted scope are classified and validated read-only; they receive the normal `npm ci` failure as an actionable signal to repair the lockfile manually or ask a maintainer to run the manual workflow after trusting the branch.
 - `Trusted auto-merge` (`.github/workflows/auto-merge.yml`): `pull_request_target` on the same PR activity types. It never checks out or executes PR code. It only uses metadata and the complete paginated PR file list to decide whether to enable squash auto-merge. It grants `contents: write` because enabling or completing a merge updates the target branch; the former informational label step was removed so `issues: write` is not required.
 - `Main lifecycle` (`.github/workflows/main-orchestrator.yml`): `push` to `main`. It operates on the exact pushed commit, verifies it, then runs feature issue creation and Cloudflare deployment as independent sibling jobs. Failure in one side-effecting job does not block the other.
 - `Manual feature issue recovery` and `Manual Cloudflare deployment` are thin `workflow_dispatch` wrappers around the same reusable workflows. Operators must provide an explicit target ref or SHA; the safe default is `main`.
 
 Reusable workflows:
 
-- `Reusable / classify changes` gathers changed files with explicit repository context, handles PR API pagination, detects canonical request files under `requests/features/*.json`, sensitive CI/CD files, documentation/request-only changes, and deployable changes. Reusable workflows cannot elevate permissions beyond their callers, so `Main lifecycle` grants `pull-requests: read` while this shared classifier requests that scope for PR-mode API pagination; push-mode classification still uses Git commit comparison.
+- `Reusable / classify changes` gathers changed files with explicit repository context, handles PR API pagination, detects canonical request files under `requests/features/*.json`, sensitive CI/CD files, lockfile-repair-relevant package/toolchain/dependency-management files, documentation/request-only changes, and deployable changes. Reusable workflows cannot elevate permissions beyond their callers, so `Main lifecycle` grants `pull-requests: read` while this shared classifier requests that scope for PR-mode API pagination; push-mode classification still uses Git commit comparison.
+- `PR lifecycle / repair-package-lock` is a reusable-workflow call to the existing `Repair package lock` workflow, passing the PR head branch as `target_branch` and granting write permissions only to that called job. The repair workflow remains the single implementation for canonical Node/npm setup, lockfile regeneration, clean validation, side-effect cleanup, single-file commit enforcement, and branch publishing. It now also exposes `repair_published` so the PR lifecycle can continue verification when regeneration is a no-op and can skip obsolete old-head verification when the called repair workflow pushed a new lockfile commit. Dependabot and other bot branches are repaired only when they are same-repository branches in the existing permitted repair scope and the repository token can write to them; otherwise maintainers use the documented manual repair fallback.
 - `Reusable / verify` runs `npm ci`, `npm run toolchain:validate`, `npm test`, `npm run lint`, `npm run typecheck`, `npm run build`, and `npm run build:worker` with Node.js 24 and read-only permissions. `npm ci` intentionally fails if `package.json` and `package-lock.json` drift.
 - `Reusable / validate feature requests` validates changed canonical feature JSON files, validates the issue template contract, and dry-run renders issues without writes.
 - `Reusable / create feature issues` checks out the exact verified main commit, runs `npm ci`, and uses the immutable `<!-- feature-request-id: ... -->` marker to create only missing issues. It is safe to rerun after partial failure.

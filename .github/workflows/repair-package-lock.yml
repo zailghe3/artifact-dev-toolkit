@@ -1,6 +1,16 @@
 name: Repair package lock
 
 on:
+  workflow_call:
+    inputs:
+      target_branch:
+        description: Same-repository branch to repair
+        required: true
+        type: string
+    outputs:
+      repair_published:
+        description: Whether the workflow committed or opened a repair for package-lock.json
+        value: ${{ jobs.regenerate-package-lock.outputs.repair_published }}
   workflow_dispatch:
     inputs:
       target_branch:
@@ -18,6 +28,8 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+    outputs:
+      repair_published: ${{ steps.outcome.outputs.repair_published }}
     steps:
       - name: Validate target branch
         env:
@@ -145,6 +157,7 @@ jobs:
               echo '## Package lock repair'
               echo '- No package-lock.json changes were generated; nothing will be committed or pushed.'
             } >> "$GITHUB_STEP_SUMMARY"
+            echo 'PACKAGE_LOCK_REPAIR_PUBLISHED=false' >> "$GITHUB_ENV"
             exit 0
           fi
 
@@ -224,6 +237,7 @@ jobs:
               echo "- Generated commit: ${generated_commit}"
               echo "- Pull request: ${pr_url}"
             } >> "$GITHUB_STEP_SUMMARY"
+            echo 'PACKAGE_LOCK_REPAIR_PUBLISHED=true' >> "$GITHUB_ENV"
           else
             git push origin "HEAD:${TARGET_BRANCH}"
             {
@@ -232,4 +246,9 @@ jobs:
               echo "- Direct push: completed"
               echo "- Generated commit: ${generated_commit}"
             } >> "$GITHUB_STEP_SUMMARY"
+            echo 'PACKAGE_LOCK_REPAIR_PUBLISHED=true' >> "$GITHUB_ENV"
           fi
+
+      - name: Record repair outcome
+        id: outcome
+        run: echo "repair_published=${PACKAGE_LOCK_REPAIR_PUBLISHED:-false}" >> "$GITHUB_OUTPUT"
