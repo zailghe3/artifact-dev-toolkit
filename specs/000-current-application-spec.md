@@ -333,7 +333,7 @@ The current application uses:
 - OpenNext for Cloudflare 1.20.1;
 - Wrangler 4.110.0 for Cloudflare deployment.
 
-Direct dependency declarations are maintained as the tested lower bounds for the package versions validated by this repository. DEV-005 records the inspected dependency outcomes, removal decisions, audit status, and compatibility constraints in `docs/dev-005-dependency-refresh.md`. DEV-006 documents the deterministic maintenance model in `docs/dependency-toolchain-maintenance.md`, including Dependabot compatibility-domain grouping, intentional major-upgrade handling, exception recording, and currentness verification.
+Direct dependency declarations are maintained as the tested lower bounds for the package versions validated by this repository. DEV-005 records the inspected dependency outcomes, removal decisions, audit status, and compatibility constraints in `docs/dev-005-dependency-refresh.md`. DEV-006 documents the deterministic maintenance model in `docs/dependency-toolchain-maintenance.md`, including Dependabot compatibility-domain grouping, intentional major-upgrade handling, exception recording, and currentness verification. DEV-007 documents the TypeScript 7 assessment in `docs/dev-007-typescript-7-assessment.md`; the migration is deferred because the required `typescript-eslint` 8.63.0 parser/compiler-API stack declares TypeScript support only through `<6.1.0`, so the application remains on TypeScript 5.9.3 until that integration supports TypeScript 7 and the full validation matrix is reassessed.
 
 ### 9.2 Rendering model
 
