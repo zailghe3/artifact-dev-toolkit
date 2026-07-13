@@ -43,3 +43,9 @@ test('does not require lockfile repair for unrelated source changes', () => {
   assert.equal(result.has_lockfile_repair_changes, false);
   assert.equal(result.lockfile_repair_files, '');
 });
+
+test('classifies migrations as production-affecting and not documentation-only', () => {
+  const result = classifyChanges([{ filename: 'migrations/0002_rebuild_auth_sessions.sql', status: 'added' }]);
+  assert.equal(result.deployable_changes, true);
+  assert.equal(result.documentation_request_only, false);
+});

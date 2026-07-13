@@ -161,3 +161,7 @@ User sign-in uses OAuth state plus S256 PKCE without requesting `repo` or other 
 The initial `auth_sessions` schema persists the complete authenticated and repository-authorisation state. Because no real user has ever successfully logged in, no session data migration or compatibility backfill is required.
 
 The DATA-001 artifact contract is centralized in `lib/artifact-contract.ts`. Local validation, local runtime reads, and GitHub runtime reads share the same allowed types, statuses, directories, metadata normalization, path checks, duplicate-ID checks, and diagnostics. Allowed top-level directories are allowed locations, not mandatory empty directories.
+
+### D1 auth session migration history
+
+`migrations/0001_create_auth_sessions.sql` is the original AUTH-001 table and must remain immutable after being applied. AUTH-002 is represented by `migrations/0002_rebuild_auth_sessions.sql`, which intentionally drops and recreates `auth_sessions`. This destructive reset is safe only for the current production state because no real user has successfully logged in and no production session data must be retained.

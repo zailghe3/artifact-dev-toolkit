@@ -327,3 +327,26 @@ The application reads those build-time values only through the typed deployment 
 The repository maintenance model is documented in `docs/dependency-toolchain-maintenance.md`. Dependabot groups compatible minor and patch updates by compatibility domain for Next.js/React/OpenNext, ESLint/TypeScript/type definitions, Tailwind/PostCSS, Cloudflare tooling, runtime support packages, and GitHub Actions. Semver-major npm updates are intentionally excluded from Dependabot grouping and should be opened as dedicated migration PRs with explicit compatibility review.
 
 Maintainers can run `npm run maintenance:report` locally or inspect the scheduled `Dependency maintenance report` workflow summary for deterministic, read-only reporting of outdated direct dependencies, deprecated direct packages, runtime/toolchain disagreement, lockfile/package-manager inconsistency, unpinned action references, and stale GitHub Actions release comments. The report workflow has `contents: read` permission only and does not create issues, commits, pull requests, or other repository modifications.
+
+## Deployment regression repair: PR #93 through PR #95
+
+Observed state before this repair: the local main tip is `2bbb8cc` from PR #95, after PR #92 (`9953326`), PR #93 (`05519bf`), and PR #94 (`9b715ca`). The repository had a `Trusted auto-merge` workflow that used `GITHUB_TOKEN` to enable GitHub auto-merge, and a `Main lifecycle` push workflow attempted to perform post-merge deployment. That chain is unsafe for token-generated continuations: GitHub suppresses most workflow events produced by actions taken with the repository `GITHUB_TOKEN`; `workflow_dispatch` and `repository_dispatch` are the supported exceptions. The production symptom was that Cloudflare still identified the live deployment as PR #92 while main already contained PR #95.
+
+Corrected automatic sequence:
+
+1. `PR lifecycle` validates the exact PR head SHA without production secrets.
+2. `Trusted auto-merge` receives the successful validation completion, resolves the one open main pull request for the validated SHA, and reapplies trust checks: same repository, repository-owner author, non-draft, successful required validation, and current PR head exactly matching the validated SHA.
+3. The shared changed-file classifier determines whether the pull request affects production. Runtime files under `app/**`, `components/**`, `lib/**`, `public/**`, `migrations/**`, `wrangler.jsonc`, package files, Next/OpenNext config, TypeScript config, and PostCSS/Tailwind config are production-affecting. Documentation, specs, tests, and feature-request JSON alone do not deploy.
+4. The trusted workflow completes or confirms the squash merge with `--match-head-commit`, resolves the immutable merge commit SHA, and explicitly calls `workflow_dispatch` for `Manual Cloudflare deployment` with that SHA and the PR number.
+5. The manual deployment wrapper resolves the provided ref to an immutable SHA and passes that SHA to `Reusable / deploy Cloudflare`.
+6. The reusable deployment checks out exactly that SHA, verifies `git rev-parse HEAD`, installs the canonical Node/npm toolchain, builds the Worker, validates Cloudflare credentials, applies remote D1 migrations for the `AUTH_SESSIONS_DB` binding from `wrangler.jsonc`, and only then runs `wrangler deploy`.
+
+`CLOUDFLARE_API_TOKEN` must have the minimum Cloudflare permissions needed to deploy the Worker and apply D1 migrations for the configured `AUTH_SESSIONS_DB` database; `CLOUDFLARE_ACCOUNT_ID` must also be configured. Database UUIDs stay in `wrangler.jsonc` and are not duplicated in workflow secrets.
+
+Manual recovery after this repair PR is merged:
+
+1. Obtain the new `main` SHA with `git rev-parse origin/main` or from the merged commit shown by GitHub.
+2. In GitHub Actions, run **Manual Cloudflare deployment** and set `ref` to that exact SHA, not the moving branch name.
+3. Confirm the deployment summary shows the same resolved SHA and that D1 migration `0002_rebuild_auth_sessions.sql` was applied to `AUTH_SESSIONS_DB`.
+4. Confirm Cloudflare reports the same deployed SHA in the deployment metadata.
+5. Confirm the live application deployment identity footer matches the new SHA.

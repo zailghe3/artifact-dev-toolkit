@@ -3,16 +3,25 @@ name: Trusted auto-merge
 on:
   pull_request_target:
     types: [opened, reopened, synchronize, ready_for_review]
+  workflow_run:
+    workflows: ["PR lifecycle"]
+    types: [completed]
 
 permissions:
+  actions: write
   contents: write
   pull-requests: write
 
 jobs:
   enable-auto-merge:
     name: trusted-auto-merge
+    if: github.event_name == 'pull_request_target'
     runs-on: ubuntu-latest
     steps:
+      - name: Check out trusted base scripts
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # actions/checkout@v7.0.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
       - name: Check trusted auto-merge eligibility
         id: eligibility
         env:
@@ -31,28 +40,87 @@ jobs:
             exit 0
           fi
           gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/files" --jq '.[] | {filename, previous_filename, status}' > files.jsonl
-          node --input-type=module <<'NODE' >> "$GITHUB_OUTPUT"
-          import { readFileSync } from 'node:fs';
-          const exact = new Set(['package.json', 'package-lock.json', 'wrangler.jsonc']);
-          const norm = (p) => String(p ?? '').replace(/^\.\//, '');
-          const sensitive = (p) => norm(p).startsWith('.github/workflows/') || norm(p).startsWith('.github/actions/') || norm(p).startsWith('scripts/') || exact.has(norm(p)) || /^open-next\.config\..+$/.test(norm(p));
-          const files = readFileSync('files.jsonl', 'utf8').split('\n').filter(Boolean).map(JSON.parse);
-          const sensitiveFiles = [...new Set(files.flatMap((f) => [f.filename, f.previous_filename]).filter(Boolean).map(norm).filter(sensitive))].sort();
-          let eligible = true;
-          let reason = 'Trusted same-repository pull request contains no sensitive file changes.';
-          if (process.env.PR_AUTHOR !== process.env.REPOSITORY_OWNER) { eligible = false; reason = `Pull request author '${process.env.PR_AUTHOR}' is not repository owner '${process.env.REPOSITORY_OWNER}'.`; }
-          else if (process.env.HEAD_REPOSITORY !== process.env.REPOSITORY) { eligible = false; reason = 'Pull request branch is from a fork or different repository.'; }
-          else if (sensitiveFiles.length) { eligible = false; reason = `Sensitive file changes require manual review: ${sensitiveFiles.join(', ')}`; }
-          console.log(`eligible=${eligible}`);
-          console.log(`reason=${reason}`);
-          NODE
-
+          node scripts/auto-merge-eligibility.mjs files.jsonl >> "$GITHUB_OUTPUT"
       - name: Explain decision
         run: echo "${{ steps.eligibility.outputs.reason }}" >> "$GITHUB_STEP_SUMMARY"
-
       - name: Enable GitHub auto-merge
         if: steps.eligibility.outputs.eligible == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_URL: ${{ github.event.pull_request.html_url }}
         run: gh pr merge "${PR_URL}" --auto --squash --delete-branch
+
+  merge-and-dispatch-deployment:
+    name: merge and dispatch deployment
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out trusted base scripts
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # actions/checkout@v7.0.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Resolve trusted pull request and validate head
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
+          VALIDATED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          gh api "/repos/${REPOSITORY}/commits/${VALIDATED_SHA}/pulls" -H "Accept: application/vnd.github+json" > pulls.json
+          node --input-type=module <<'NODE' >> "$GITHUB_OUTPUT"
+          import { readFileSync } from 'node:fs';
+          const pulls = JSON.parse(readFileSync('pulls.json', 'utf8')).filter((pr) => pr.state === 'open' && pr.base?.ref === 'main');
+          if (pulls.length !== 1) throw new Error(`Expected exactly one open main pull request for ${process.env.VALIDATED_SHA}, found ${pulls.length}`);
+          const pr = pulls[0];
+          if (pr.draft) throw new Error('Pull request is a draft.');
+          if (pr.user?.login !== process.env.REPOSITORY_OWNER) throw new Error(`Untrusted PR author ${pr.user?.login}.`);
+          if (pr.head?.repo?.full_name !== process.env.REPOSITORY) throw new Error('Pull request branch is not from this repository.');
+          if (pr.head?.sha !== process.env.VALIDATED_SHA) throw new Error(`Current head ${pr.head?.sha} does not match validated SHA ${process.env.VALIDATED_SHA}.`);
+          console.log(`number=${pr.number}`);
+          console.log(`url=${pr.html_url}`);
+          console.log(`head_sha=${pr.head.sha}`);
+          NODE
+      - name: Classify production impact
+        id: classify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/files" --jq '.[] | {filename, previous_filename, status}' > files.jsonl
+          node scripts/classify-changes.mjs files.jsonl >> "$GITHUB_OUTPUT"
+      - name: Complete or confirm squash merge
+        id: merge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ steps.pr.outputs.url }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          REPOSITORY: ${{ github.repository }}
+          VALIDATED_SHA: ${{ steps.pr.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          state="$(gh api "/repos/${REPOSITORY}/pulls/${PR_NUMBER}" --jq '.state')"
+          if [[ "${state}" == "open" ]]; then
+            gh pr merge "${PR_URL}" --squash --delete-branch --match-head-commit "${VALIDATED_SHA}"
+          fi
+          merge_sha="$(gh api "/repos/${REPOSITORY}/pulls/${PR_NUMBER}" --jq '.merge_commit_sha')"
+          test -n "${merge_sha}"
+          echo "merge_sha=${merge_sha}" >> "$GITHUB_OUTPUT"
+          echo "Merged PR #${PR_NUMBER} at ${merge_sha}" >> "$GITHUB_STEP_SUMMARY"
+      - name: Dispatch production deployment
+        if: steps.classify.outputs.deployable_changes == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          MERGE_SHA: ${{ steps.merge.outputs.merge_sha }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        run: |
+          set -euo pipefail
+          gh workflow run deploy-cloudflare.yml --repo "${REPOSITORY}" --ref "${MERGE_SHA}" -f ref="${MERGE_SHA}" -f pull_request_number="${PR_NUMBER}"
+          echo "Dispatched Manual Cloudflare deployment for ${MERGE_SHA} / PR #${PR_NUMBER}." >> "$GITHUB_STEP_SUMMARY"
+      - name: Summarize skipped deployment
+        if: steps.classify.outputs.deployable_changes != 'true'
+        run: echo "No production-affecting files changed; Cloudflare deployment was not dispatched." >> "$GITHUB_STEP_SUMMARY"

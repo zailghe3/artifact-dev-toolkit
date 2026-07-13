@@ -58,3 +58,19 @@ export function evaluateAutoMergeEligibility({ author, repositoryOwner, reposito
     reason: 'trusted same-repository pull request contains no sensitive file changes',
   };
 }
+
+if (process.argv[1] === new URL(import.meta.url).pathname) {
+  const { readFileSync } = await import('node:fs');
+  const input = process.argv[2];
+  if (!input) throw new Error('Usage: node scripts/auto-merge-eligibility.mjs files.jsonl');
+  const files = readFileSync(input, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line));
+  const result = evaluateAutoMergeEligibility({
+    author: process.env.PR_AUTHOR,
+    repositoryOwner: process.env.REPOSITORY_OWNER,
+    repository: process.env.REPOSITORY,
+    headRepository: process.env.HEAD_REPOSITORY,
+    files,
+  });
+  console.log(`eligible=${result.eligible}`);
+  console.log(`reason=${result.reason}`);
+}

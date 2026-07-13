@@ -3,6 +3,7 @@ import { readFileSync, appendFileSync } from 'node:fs';
 
 const canonicalFeatureRe = /^requests\/features\/[^/]+\.json$/;
 const exactSensitive = new Set(['package.json', 'package-lock.json', 'wrangler.jsonc']);
+const exactProduction = new Set(['package.json', 'package-lock.json', 'wrangler.jsonc', 'tsconfig.json', 'postcss.config.mjs', 'postcss.config.js', 'tailwind.config.js', 'tailwind.config.ts', 'tailwind.config.mjs']);
 const exactLockfileRepairRelevant = new Set(['package.json', 'package-lock.json', '.nvmrc', '.node-version', '.npmrc', 'npm-shrinkwrap.json']);
 
 function normalize(path) { return String(path ?? '').replace(/^\.\//, ''); }
@@ -14,6 +15,10 @@ export function isSensitivePath(path) {
 export function isLockfileRepairRelevantPath(path) {
   const p = normalize(path);
   return exactLockfileRepairRelevant.has(p) || p === '.github/dependabot.yml' || p.startsWith('.github/dependabot/') || p.startsWith('.github/workflows/') || p.startsWith('.github/actions/');
+}
+export function isProductionPath(path) {
+  const p = normalize(path);
+  return p.startsWith('app/') || p.startsWith('components/') || p.startsWith('lib/') || p.startsWith('public/') || p.startsWith('migrations/') || exactProduction.has(p) || /^next\.config\..+$/.test(p) || /^open-next\.config\..+$/.test(p) || /^postcss\.config\..+$/.test(p) || /^tailwind\.config\..+$/.test(p);
 }
 export function isDocumentationOrRequestPath(path) {
   const p = normalize(path);
@@ -27,6 +32,7 @@ export function classifyChanges(files) {
   const canonicalFeatureFiles = unique(normalized.flatMap((f) => [f.filename, f.previous_filename]).filter(isCanonicalFeaturePath));
   const sensitiveFiles = unique(normalized.flatMap((f) => [f.filename, f.previous_filename]).filter(isSensitivePath));
   const lockfileRepairFiles = unique(normalized.flatMap((f) => [f.filename, f.previous_filename]).filter(isLockfileRepairRelevantPath));
+  const hasProductionChanges = allPaths.some(isProductionPath);
   const documentationRequestOnly = allPaths.length > 0 && allPaths.every(isDocumentationOrRequestPath);
   return {
     changed_files: allPaths.join('\n'),
@@ -38,7 +44,7 @@ export function classifyChanges(files) {
     lockfile_repair_files: lockfileRepairFiles.join('\n'),
     has_lockfile_repair_changes: lockfileRepairFiles.length > 0,
     documentation_request_only: documentationRequestOnly,
-    deployable_changes: allPaths.length > 0 && !documentationRequestOnly,
+    deployable_changes: hasProductionChanges || (allPaths.length > 0 && !documentationRequestOnly),
   };
 }
 

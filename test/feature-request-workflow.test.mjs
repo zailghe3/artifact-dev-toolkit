@@ -200,23 +200,21 @@ test('feature issue workflow has minimum permissions and no PR lifecycle step', 
   assert.doesNotMatch(workflow, /open-feature-request-processing-prs/);
 });
 
-test('main orchestration verifies before independent issue creation and deployment', () => {
+test('main orchestration verifies before independent issue creation; deployment is dispatched by trusted auto-merge', () => {
   const workflow = execFileSync('cat', ['.github/workflows/main-orchestrator.yml'], { encoding: 'utf8' });
   assert.match(workflow, /push:/);
   assert.match(workflow, /branches: \[main\]/);
   assert.match(workflow, /verify-main:/);
   assert.match(workflow, /create-feature-issues:/);
-  assert.match(workflow, /deploy:/);
   assert.match(workflow, /needs: \[classify, verify-main\]/);
   assert.match(workflow, /reusable-create-feature-issues\.yml/);
-  assert.match(workflow, /reusable-deploy-cloudflare\.yml/);
+  assert.doesNotMatch(workflow, /reusable-deploy-cloudflare\.yml/);
   assert.doesNotMatch(workflow, /gh workflow run/);
 });
 
 test('documentation-only merge skip logic is narrow and classification-driven', () => {
-  const workflow = execFileSync('cat', ['.github/workflows/main-orchestrator.yml'], { encoding: 'utf8' });
   const classifier = execFileSync('cat', ['scripts/classify-changes.mjs'], { encoding: 'utf8' });
-  assert.match(workflow, /if: needs\.classify\.outputs\.deployable_changes == 'true'/);
+  assert.match(classifier, /deployable_changes/);
   assert.match(classifier, /docs\//);
   assert.match(classifier, /requests\/features\//);
   assert.match(classifier, /README\.md/);
@@ -231,13 +229,12 @@ test('auto-merge workflow uses GITHUB_TOKEN and no PAT-backed secret', () => {
   assert.match(workflow, /REPOSITORY_OWNER: \$\{\{ github\.repository_owner \}\}/);
   assert.match(workflow, /HEAD_REPOSITORY/);
   assert.match(workflow, /gh api --paginate/);
-  assert.match(workflow, /\.github\/workflows\//);
-  assert.match(workflow, /package\.json/);
+  assert.match(workflow, /scripts\/auto-merge-eligibility\.mjs/);
   assert.match(workflow, /contents: write/);
   assert.match(workflow, /pull-requests: write/);
   assert.doesNotMatch(workflow, /issues: write/);
   assert.doesNotMatch(workflow, /AUTO_MERGE_TOKEN/);
-  assert.doesNotMatch(workflow, /actions\/checkout/);
+  assert.match(workflow, /Check out trusted base scripts/);
   assert.match(workflow, /--auto --squash --delete-branch/);
 });
 
@@ -252,7 +249,7 @@ test('Cloudflare deployment uses reusable workflow and remains manually runnable
   assert.match(reusable, /npm run build:worker/);
   assert.match(reusable, /npx wrangler deploy/);
   assert.match(reusable, /environment: production/);
-  assert.match(orchestrator, /reusable-deploy-cloudflare\.yml/);
+  assert.doesNotMatch(orchestrator, /reusable-deploy-cloudflare\.yml/);
   assert.doesNotMatch(orchestrator, /gh workflow run/);
 });
 
