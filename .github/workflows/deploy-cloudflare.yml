@@ -4,19 +4,45 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: Explicit main ref or SHA to deploy
+        description: Branch, tag, or SHA to resolve and deploy
         required: true
         default: main
+        type: string
+      pull_request_number:
+        description: Optional pull request number for deployment metadata
+        required: false
+        default: ""
         type: string
 
 permissions:
   contents: read
 
 jobs:
+  resolve:
+    name: resolve immutable deployment SHA
+    runs-on: ubuntu-latest
+    outputs:
+      commit_sha: ${{ steps.resolve.outputs.commit_sha }}
+    steps:
+      - name: Checkout requested ref
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # actions/checkout@v7.0.0
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 1
+      - name: Resolve immutable commit SHA
+        id: resolve
+        run: |
+          set -euo pipefail
+          commit_sha="$(git rev-parse HEAD)"
+          echo "commit_sha=${commit_sha}" >> "$GITHUB_OUTPUT"
+          echo "Resolved ${{ inputs.ref }} to ${commit_sha}; reusable deployment will use this immutable SHA." >> "$GITHUB_STEP_SUMMARY"
+
   deploy:
+    needs: resolve
     uses: ./.github/workflows/reusable-deploy-cloudflare.yml
     with:
-      ref: ${{ inputs.ref }}
+      commit_sha: ${{ needs.resolve.outputs.commit_sha }}
+      pull_request_number: ${{ inputs.pull_request_number }}
     secrets:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

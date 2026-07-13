@@ -45,10 +45,10 @@ test('setup-node workflows consume the canonical Node.js version file', () => {
   }
 });
 
-test('trusted pull_request_target auto-merge never checks out pull-request code', () => {
+test('trusted pull_request_target auto-merge never checks out pull-request code; workflow_run checks out trusted base', () => {
   const workflow = readFileSync('.github/workflows/auto-merge.yml', 'utf8');
   assert.match(workflow, /pull_request_target:/);
-  assert.doesNotMatch(workflow, /actions\/checkout@/);
+  assert.match(workflow, /Check out trusted base scripts/);
   assert.match(workflow, /gh api --paginate/);
 });
 
