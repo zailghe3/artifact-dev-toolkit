@@ -1,14 +1,20 @@
 import { ArtifactSearch } from "@/components/ArtifactSearch";
+import { SignOutButton } from "@/components/SignOutButton";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { getArtifacts } from "@/lib/artifacts";
+import { requireAuth } from "@/lib/auth";
+
+export const dynamic = "force-dynamic";
 
 export default async function Home() {
+  const session = await requireAuth("/");
   const artifacts = await getArtifacts();
   const productionCount = artifacts.filter((artifact) => artifact.status === "production").length;
 
   return (
     <main className="mx-auto min-h-screen max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
-      <div className="mb-4 flex justify-end">
+      <div className="mb-4 flex items-center justify-between gap-4">
+        <SignOutButton login={session.login} />
         <ThemeToggle />
       </div>
       <section className="mb-8 rounded-[2rem] bg-ink p-6 text-white dark:border dark:border-orange-500/20 dark:bg-slate-950 shadow-soft sm:p-10">
