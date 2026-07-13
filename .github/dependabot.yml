@@ -4,34 +4,49 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    open-pull-requests-limit: 5
     groups:
-      pinned-github-actions:
+      pinned-github-actions-minor-patch:
         patterns:
           - "*"
+        update-types:
+          - minor
+          - patch
     commit-message:
       prefix: ci
+    labels:
+      - dependencies
+      - github-actions
 
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
+    open-pull-requests-limit: 8
+    versioning-strategy: increase-if-necessary
     groups:
-      next-ecosystem-minor-patch:
+      next-react-opennext-minor-patch:
         patterns:
           - next
+          - react
+          - react-dom
           - eslint-config-next
+          - "@opennextjs/cloudflare"
         update-types:
           - minor
           - patch
-      eslint-ecosystem-minor-patch:
+      eslint-typescript-types-minor-patch:
         patterns:
           - eslint
-          - "@typescript-eslint/*"
           - "eslint-*"
+          - typescript
+          - typescript-eslint
+          - "@typescript-eslint/*"
+          - "@types/*"
         update-types:
           - minor
           - patch
-      tailwind-ecosystem-minor-patch:
+      tailwind-postcss-minor-patch:
         patterns:
           - tailwindcss
           - "@tailwindcss/*"
@@ -39,22 +54,27 @@ updates:
         update-types:
           - minor
           - patch
-      node-types-minor-patch:
+      cloudflare-tooling-minor-patch:
         patterns:
-          - "@types/node"
+          - wrangler
+        update-types:
+          - minor
+          - patch
+      runtime-support-minor-patch:
+        patterns:
+          - zod
+          - gray-matter
+          - remark
+          - remark-html
         update-types:
           - minor
           - patch
     ignore:
-      - dependency-name: next
-        update-types: [version-update:semver-major]
-      - dependency-name: eslint-config-next
-        update-types: [version-update:semver-major]
-      - dependency-name: eslint
-        update-types: [version-update:semver-major]
-      - dependency-name: tailwindcss
-        update-types: [version-update:semver-major]
-      - dependency-name: "@tailwindcss/*"
-        update-types: [version-update:semver-major]
-      - dependency-name: "@types/node"
-        update-types: [version-update:semver-major]
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-major
+    commit-message:
+      prefix: deps
+    labels:
+      - dependencies
+      - npm

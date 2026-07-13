@@ -321,3 +321,9 @@ Third-party GitHub Actions are pinned to full commit SHAs with comments recordin
 Production Cloudflare deployments expose immutable build identity in the application footer. The main lifecycle workflow resolves the pull request associated with the verified commit when one exists, then passes the exact verified commit SHA into the reusable deployment workflow. The reusable deployment workflow verifies that the checked-out commit matches that explicit SHA and writes build-time metadata environment variables immediately before `npm run build:worker`.
 
 The application reads those build-time values only through the typed deployment metadata contract in `lib/deployment-metadata.ts`. Local development, tests, and preview builds that do not provide deployment metadata render `Development build` and do not depend on GitHub or Cloudflare availability.
+
+## DEV-006 dependency and toolchain maintenance
+
+The repository maintenance model is documented in `docs/dependency-toolchain-maintenance.md`. Dependabot groups compatible minor and patch updates by compatibility domain for Next.js/React/OpenNext, ESLint/TypeScript/type definitions, Tailwind/PostCSS, Cloudflare tooling, runtime support packages, and GitHub Actions. Semver-major npm updates are intentionally excluded from Dependabot grouping and should be opened as dedicated migration PRs with explicit compatibility review.
+
+Maintainers can run `npm run maintenance:report` locally or inspect the scheduled `Dependency maintenance report` workflow summary for deterministic, read-only reporting of outdated direct dependencies, deprecated direct packages, runtime/toolchain disagreement, lockfile/package-manager inconsistency, unpinned action references, and stale GitHub Actions release comments. The report workflow has `contents: read` permission only and does not create issues, commits, pull requests, or other repository modifications.
