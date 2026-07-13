@@ -29,6 +29,8 @@ Dependabot is configured for weekly pull requests and groups minor and patch upd
 
 Major npm dependency upgrades are ignored by Dependabot so maintainers can initiate them intentionally in dedicated migration PRs. Major GitHub Actions updates likewise remain separately reviewable because action references are sensitive CI/CD changes and must retain full-SHA pins with release comments.
 
+DEV-007 records the TypeScript 7 migration decision in `docs/dev-007-typescript-7-assessment.md`. TypeScript remains held at the supported 5.9 line until `typescript-eslint` and its parser/compiler-API packages document and declare TypeScript 7 support, after which the full Next.js, ESLint, OpenNext Cloudflare, Wrangler, generated-type, editor, and CI validation matrix must be reassessed.
+
 ## Sensitive-file and auto-merge protections
 
 Dependency PRs do not bypass trusted auto-merge or sensitive-file classification. Changes to `.github/workflows/**`, `.github/actions/**`, `scripts/**`, `package.json`, `package-lock.json`, `wrangler.jsonc`, and `open-next.config.*` remain sensitive and require manual review. Dependabot branches may use the package-lock repair workflow only when they are same-repository branches writable by the repository token and inside the existing permitted repair scope.
@@ -61,7 +63,7 @@ Record intentional exceptions in the maintenance PR description or in a dedicate
 3. the command output or upstream reference used to verify the decision;
 4. the next review trigger.
 
-Initiate major upgrades as normal focused PRs. A major upgrade PR should update package metadata, lockfile, affected workflow/tooling configuration, documentation, and the current application specification when implemented behaviour changes.
+Initiate major upgrades as normal focused PRs. A major upgrade PR should update package metadata, lockfile, affected workflow/tooling configuration, documentation, and the current application specification when implemented behaviour changes. TypeScript major upgrades must not proceed while a required compiler-API integration such as `typescript-eslint` excludes the target TypeScript major in its documented support range or package peer dependencies.
 
 ## Verifying the repository is current
 
