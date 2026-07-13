@@ -35,6 +35,42 @@ test('valid pending JSON passes validation and renders the execution contract an
   assert.match(rendered, /The current application specification has been reviewed/);
 });
 
+test('rendered feature issues include the shared Codex contract exactly once', async () => {
+  const { renderFeatureIssue } = await import('../scripts/render-feature-issue.mjs');
+  const rendered = renderFeatureIssue(validRequest);
+  assert.equal((rendered.match(/## Codex execution contract/g) ?? []).length, 1);
+  assert.match(rendered, /normal functional implementation PRs, not include unrelated dependency, framework, runtime, compiler, linting, deployment-tool, or GitHub Actions upgrades/);
+});
+
+test('Codex contract captures functional validation, dependency, lockfile, and PR reporting requirements', () => {
+  const contract = execFileSync('cat', ['.github/ISSUE_TEMPLATE/shared/codex-execution-contract.md'], { encoding: 'utf8' });
+
+  for (const command of [
+    'npm ci',
+    'npm run toolchain:validate',
+    'npm test',
+    'npm run lint',
+    'npm run typecheck',
+    'npm run build',
+    'npm run build:worker',
+    'git diff --check',
+  ]) {
+    assert.match(contract, new RegExp(command.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  }
+
+  assert.match(contract, /`Closes #<issue-number>`/);
+  assert.match(contract, /passed, failed, not run because inapplicable, or not run or incomplete because of an environment restriction/);
+  assert.match(contract, /never report a failed or unavailable command as passed/);
+  assert.match(contract, /not include unrelated dependency, framework, runtime, compiler, linting, deployment-tool, or GitHub Actions upgrades/);
+  assert.match(contract, /docs\/dependency-toolchain-maintenance\.md/);
+  assert.match(contract, /docs\/dev-007-typescript-7-assessment\.md/);
+  assert.match(contract, /`npm audit` and `npm audit --omit=dev`/);
+  assert.match(contract, /report it as \*\*not completed\*\* with the reason/);
+  assert.match(contract, /never describe an unavailable audit as passed or clean/);
+  assert.match(contract, /generate `package-lock\.json` through npm rather than manually editing lockfile internals/);
+  assert.match(contract, /package-lock repair architecture that resets validation side effects and restores only the npm-regenerated lockfile/);
+});
+
 test('invalid JSON fails clearly with the file-specific CLI validator', () => {
   withTempFile('invalid.json', '{ invalid json', (file) => {
     assert.throws(() => execFileSync(process.execPath, ['scripts/validate-feature-request.mjs', file], {
