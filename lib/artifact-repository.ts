@@ -2,23 +2,16 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import matter from "gray-matter";
 import { z } from "zod";
-import { artifactMetadataSchema, artifactStatusSchema } from "./artifact-schemas.ts";
+import { DEFAULT_ARTIFACT_BRANCH, DEFAULT_ARTIFACT_ROOT, parseArtifactMarkdown, trimSlashes, validateArtifactPath, validateUniqueArtifactIds, type ArtifactModel } from "./artifact-contract.ts";
 
 const artifactsDir = path.join(process.cwd(), "artifacts");
 const githubApiBaseUrl = "https://api.github.com";
 const githubMaxBlobBytes = 1024 * 1024;
-const defaultGitHubArtifactBranch = "main";
-const defaultGitHubArtifactRoot = "artifacts";
+const defaultGitHubArtifactBranch = DEFAULT_ARTIFACT_BRANCH;
+const defaultGitHubArtifactRoot = DEFAULT_ARTIFACT_ROOT;
 
-const artifactSchema = artifactMetadataSchema;
-
-export type Artifact = z.infer<typeof artifactSchema> & {
-  body: string;
-  excerpt: string;
-  path: string;
-};
-
-export type ArtifactStatus = z.infer<typeof artifactStatusSchema>;
+export type Artifact = ArtifactModel;
+export type ArtifactStatus = z.infer<typeof import("./artifact-schemas.ts").artifactStatusSchema>;
 
 export type CreateVariationInput = {
   source: Artifact;
@@ -55,7 +48,7 @@ type GitHubBlobResponse = {
 export type GitHubArtifactRepositoryConfig = {
   owner: string;
   repo: string;
-  token: string;
+  credentialProvider: () => Promise<string>;
   branch?: string;
   rootPath?: string;
   fetch?: typeof fetch;
@@ -93,56 +86,6 @@ async function walkMarkdownFiles(dir: string): Promise<string[]> {
   }
 }
 
-function toExcerpt(body: string) {
-  return body.replace(/\s+/g, " ").trim().slice(0, 180);
-}
-
-function formatArtifactError(file: string, error: unknown) {
-  if (error instanceof z.ZodError) {
-    return error.issues.map((issue) => {
-      const field = issue.path.length > 0 ? issue.path.join(".") : "front matter";
-      return `${file}: ${field}: ${issue.message}`;
-    }).join("; ");
-  }
-  return `${file}: ${(error as Error).message}`;
-}
-
-function parseArtifactMarkdown(raw: string, filePath: string): Artifact {
-  let parsed: matter.GrayMatterFile<string>;
-  try {
-    parsed = matter(raw);
-  } catch (error) {
-    throw new Error(`${filePath}: Unable to parse Markdown front matter: ${(error as Error).message}`);
-  }
-
-  if (!String(parsed.matter ?? "").trim()) {
-    throw new Error(`${filePath}: Missing YAML front matter.`);
-  }
-
-  try {
-    const data = artifactSchema.parse(parsed.data);
-    return {
-      ...data,
-      body: parsed.content.trim(),
-      excerpt: toExcerpt(parsed.content),
-      path: filePath,
-    };
-  } catch (error) {
-    throw new Error(formatArtifactError(filePath, error));
-  }
-}
-
-function validateUniqueArtifactIds(artifacts: Artifact[]) {
-  const seen = new Map<string, string>();
-  for (const artifact of artifacts) {
-    const previous = seen.get(artifact.id);
-    if (previous) {
-      throw new Error(`Duplicate artifact id "${artifact.id}" found in ${artifact.path}; already used by ${previous}.`);
-    }
-    seen.set(artifact.id, artifact.path);
-  }
-}
-
 export function slugify(value: string) {
   return value
     .toLowerCase()
@@ -163,7 +106,10 @@ export class FileArtifactRepository implements ArtifactRepository {
     const artifacts = await Promise.all(
       files.map(async (file) => {
         const raw = await fs.readFile(file, "utf8");
-        return parseArtifactMarkdown(raw, path.relative(process.cwd(), file).split(path.sep).join("/"));
+        const displayPath = path.relative(process.cwd(), file).split(path.sep).join("/");
+        const pathError = validateArtifactPath(displayPath);
+        if (pathError) throw new Error(`${displayPath}: ${pathError}`);
+        return parseArtifactMarkdown(raw, displayPath);
       }),
     );
 
@@ -203,18 +149,13 @@ export class FileArtifactRepository implements ArtifactRepository {
   }
 }
 
-function trimSlashes(value: string) {
-  return value.replace(/^\/+|\/+$/g, "");
-}
 
 function getGitHubRepositoryConfig(): GitHubArtifactRepositoryConfig {
   const owner = process.env.GITHUB_ARTIFACT_REPOSITORY_OWNER;
   const repo = process.env.GITHUB_ARTIFACT_REPOSITORY_NAME;
-  const token = process.env.GITHUB_ARTIFACT_REPOSITORY_TOKEN;
   const missing = [
     ["GITHUB_ARTIFACT_REPOSITORY_OWNER", owner],
     ["GITHUB_ARTIFACT_REPOSITORY_NAME", repo],
-    ["GITHUB_ARTIFACT_REPOSITORY_TOKEN", token],
   ].filter(([, value]) => !value);
 
   if (missing.length) {
@@ -224,7 +165,7 @@ function getGitHubRepositoryConfig(): GitHubArtifactRepositoryConfig {
   return {
     owner: owner!,
     repo: repo!,
-    token: token!,
+    credentialProvider: async () => { throw new Error("GitHubArtifactRepository requires an authorised installation-token provider."); },
     branch: process.env.GITHUB_ARTIFACT_REPOSITORY_BRANCH ?? defaultGitHubArtifactBranch,
     rootPath: process.env.GITHUB_ARTIFACT_REPOSITORY_ROOT ?? defaultGitHubArtifactRoot,
   };
@@ -249,6 +190,11 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     const files = tree
       .filter((entry) => entry.type === "blob" && typeof entry.path === "string" && entry.path.startsWith(prefix) && entry.path.endsWith(".md"))
       .sort((a, b) => a.path!.localeCompare(b.path!));
+
+    for (const file of files) {
+      const pathError = validateArtifactPath(file.path!, this.rootPath);
+      if (pathError) throw new Error(`${file.path}: ${pathError}`);
+    }
 
     const artifacts = await Promise.all(
       files.map(async (file) => {
@@ -281,7 +227,7 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     const response = await this.fetchImpl(url, {
       headers: {
         accept: "application/vnd.github+json",
-        authorization: `Bearer ${this.config.token}`,
+        authorization: `Bearer ${await this.config.credentialProvider()}`,
         "user-agent": "artifact-dev-toolkit",
         "x-github-api-version": "2022-11-28",
       },

@@ -10,7 +10,7 @@ function redirectWithError(request: Request, code: OAuthErrorCode) {
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  const { valid, returnTo } = await consumeOAuthState(url.searchParams.get("state"));
+  const { valid, returnTo, pkceVerifier } = await consumeOAuthState(url.searchParams.get("state"));
   if (!valid) return redirectWithError(request, "invalid_state");
 
   const error = url.searchParams.get("error");
@@ -20,12 +20,13 @@ export async function GET(request: Request) {
   if (!code) return redirectWithError(request, "missing_code");
 
   try {
-    const { user, repositoryAuthorization } = await exchangeGitHubCode(code);
+    const { user, repositoryAuthorization, userAccessToken, userTokenExpiresAt } = await exchangeGitHubCode(code, pkceVerifier!);
     try {
-      await createSession(user, repositoryAuthorization);
+      await createSession(user, repositoryAuthorization, userAccessToken, userTokenExpiresAt);
     } catch {
       return redirectWithError(request, "session_creation_failed");
     }
+    if (!repositoryAuthorization.ok) return NextResponse.redirect(new URL("/access-denied", request.url), { headers: noStoreHeaders });
     return NextResponse.redirect(new URL(returnTo, request.url), { headers: noStoreHeaders });
   } catch (caught) {
     if (caught instanceof Error && caught.message === "repository_authorization_failed") {
