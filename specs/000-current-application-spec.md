@@ -40,7 +40,7 @@ The application currently has:
 - server-side session tracking in Cloudflare D1 keyed by HMACs of strongly random session identifiers;
 - a production `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/` `__Host-` session cookie with no `Domain` attribute and non-production localhost cookie names with `secure: false`;
 - sign-out behaviour that revokes the D1 session record and expires the browser cookie;
-- no repository authorisation check beyond successful GitHub authentication;
+- no repository authorisation check beyond successful GitHub authentication in this implementation; GitHub-backed artifact reads use the configured server-side repository token;
 - no role model;
 - no user profile or account settings;
 - no tenant separation;
@@ -281,9 +281,7 @@ The validator is independent of GitHub authentication and Cloudflare runtime beh
 
 Representative valid and invalid fixtures exist under `test-fixtures/external-artifact-repository/`, and examples for every supported artifact type exist under `docs/examples/external-artifact-repository/`.
 
-### 6.4 GitHub repository placeholder
-
-A `GitHubArtifactRepository` class exists but is not implemented.
+### 6.4 GitHub repository backend
 
 Setting:
 
@@ -291,9 +289,19 @@ Setting:
 ARTIFACT_REPOSITORY=github
 ```
 
-currently selects that placeholder and causes repository operations to fail with an explicit not-implemented error.
+selects `GitHubArtifactRepository` for runtime reads. The backend requires server-side configuration only:
 
-No current application requirement depends on GitHub-backed runtime storage.
+```text
+GITHUB_ARTIFACT_REPOSITORY_OWNER=<repository-owner>
+GITHUB_ARTIFACT_REPOSITORY_NAME=<repository-name>
+GITHUB_ARTIFACT_REPOSITORY_TOKEN=<server-side-token>
+GITHUB_ARTIFACT_REPOSITORY_BRANCH=main      # optional; defaults to main
+GITHUB_ARTIFACT_REPOSITORY_ROOT=artifacts   # optional; defaults to artifacts
+```
+
+The token is sent only from server-side repository code to the GitHub API and is never returned to browser JavaScript. The repository uses the Git Trees API with recursive traversal to discover Markdown blobs beneath the configured root path, then retrieves each blob through authenticated GitHub API calls. It parses each Markdown file with the canonical artifact schema, returns the same `Artifact` shape as `FileArtifactRepository`, sorts artifacts by title, supports nested Markdown files, returns an empty list when no Markdown artifacts exist beneath the configured root, rejects duplicate artifact IDs, and raises file-specific errors for malformed Markdown or frontmatter. GitHub API failures, truncated tree responses, unsupported blob encodings, and oversized Markdown blobs fail explicitly rather than being converted into an empty collection.
+
+The GitHub backend is read-only in the current implementation. `createVariation()` validates submitted content for secret-like values and then fails with an explicit read-only error because creating or editing artifacts in GitHub is outside DATA-002 scope.
 
 ### 6.5 Hosted deployment limitation
 
@@ -430,7 +438,7 @@ The following capabilities are not part of the current application:
 - promoting a variation to production;
 - comparing or merging variations;
 - durable variation writes on Cloudflare Workers;
-- GitHub-backed artifact reads or writes;
+- GitHub-backed artifact writes;
 - multiple users or collaboration;
 - favourites, recent items, or usage history;
 - filtering or sorting controls in the UI;
@@ -439,7 +447,7 @@ The following capabilities are not part of the current application:
 - artifact version history within the application;
 - agents that execute actions;
 - API integrations with Copilot, ChatGPT, Outlook, Teams, or PowerPoint;
-- GitHub-backed artifact reads or writes;
+- GitHub-backed artifact writes;
 - automated tests beyond the currently included Node test suite, type checking, and production build validation.
 
 ## 13. Baseline acceptance criteria

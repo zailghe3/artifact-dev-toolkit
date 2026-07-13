@@ -2,9 +2,13 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import matter from "gray-matter";
 import { z } from "zod";
-import { artifactMetadataSchema, artifactStatusSchema } from "./artifact-schemas";
+import { artifactMetadataSchema, artifactStatusSchema } from "./artifact-schemas.ts";
 
 const artifactsDir = path.join(process.cwd(), "artifacts");
+const githubApiBaseUrl = "https://api.github.com";
+const githubMaxBlobBytes = 1024 * 1024;
+const defaultGitHubArtifactBranch = "main";
+const defaultGitHubArtifactRoot = "artifacts";
 
 const artifactSchema = artifactMetadataSchema;
 
@@ -27,6 +31,35 @@ export interface ArtifactRepository {
   findById(id: string): Promise<Artifact | undefined>;
   createVariation(input: CreateVariationInput): Promise<string>;
 }
+
+type GitHubTreeEntry = {
+  path?: string;
+  mode?: string;
+  type?: string;
+  sha?: string;
+  size?: number;
+  url?: string;
+};
+
+type GitHubTreeResponse = {
+  tree?: GitHubTreeEntry[];
+  truncated?: boolean;
+};
+
+type GitHubBlobResponse = {
+  content?: string;
+  encoding?: string;
+  size?: number;
+};
+
+export type GitHubArtifactRepositoryConfig = {
+  owner: string;
+  repo: string;
+  token: string;
+  branch?: string;
+  rootPath?: string;
+  fetch?: typeof fetch;
+};
 
 const secretPatterns = [
   /-----BEGIN (?:RSA |DSA |EC |OPENSSH |PGP )?PRIVATE KEY-----/i,
@@ -64,6 +97,52 @@ function toExcerpt(body: string) {
   return body.replace(/\s+/g, " ").trim().slice(0, 180);
 }
 
+function formatArtifactError(file: string, error: unknown) {
+  if (error instanceof z.ZodError) {
+    return error.issues.map((issue) => {
+      const field = issue.path.length > 0 ? issue.path.join(".") : "front matter";
+      return `${file}: ${field}: ${issue.message}`;
+    }).join("; ");
+  }
+  return `${file}: ${(error as Error).message}`;
+}
+
+function parseArtifactMarkdown(raw: string, filePath: string): Artifact {
+  let parsed: matter.GrayMatterFile<string>;
+  try {
+    parsed = matter(raw);
+  } catch (error) {
+    throw new Error(`${filePath}: Unable to parse Markdown front matter: ${(error as Error).message}`);
+  }
+
+  if (!String(parsed.matter ?? "").trim()) {
+    throw new Error(`${filePath}: Missing YAML front matter.`);
+  }
+
+  try {
+    const data = artifactSchema.parse(parsed.data);
+    return {
+      ...data,
+      body: parsed.content.trim(),
+      excerpt: toExcerpt(parsed.content),
+      path: filePath,
+    };
+  } catch (error) {
+    throw new Error(formatArtifactError(filePath, error));
+  }
+}
+
+function validateUniqueArtifactIds(artifacts: Artifact[]) {
+  const seen = new Map<string, string>();
+  for (const artifact of artifacts) {
+    const previous = seen.get(artifact.id);
+    if (previous) {
+      throw new Error(`Duplicate artifact id "${artifact.id}" found in ${artifact.path}; already used by ${previous}.`);
+    }
+    seen.set(artifact.id, artifact.path);
+  }
+}
+
 export function slugify(value: string) {
   return value
     .toLowerCase()
@@ -73,24 +152,22 @@ export function slugify(value: string) {
 }
 
 export class FileArtifactRepository implements ArtifactRepository {
-  constructor(private readonly rootDir = artifactsDir) {}
+  private readonly rootDir: string;
+
+  constructor(rootDir = artifactsDir) {
+    this.rootDir = rootDir;
+  }
 
   async list(): Promise<Artifact[]> {
     const files = await walkMarkdownFiles(this.rootDir);
     const artifacts = await Promise.all(
       files.map(async (file) => {
         const raw = await fs.readFile(file, "utf8");
-        const parsed = matter(raw);
-        const data = artifactSchema.parse(parsed.data);
-        return {
-          ...data,
-          body: parsed.content.trim(),
-          excerpt: toExcerpt(parsed.content),
-          path: path.relative(process.cwd(), file),
-        };
+        return parseArtifactMarkdown(raw, path.relative(process.cwd(), file).split(path.sep).join("/"));
       }),
     );
 
+    validateUniqueArtifactIds(artifacts);
     return artifacts.sort((a, b) => a.title.localeCompare(b.title));
   }
 
@@ -126,22 +203,115 @@ export class FileArtifactRepository implements ArtifactRepository {
   }
 }
 
+function trimSlashes(value: string) {
+  return value.replace(/^\/+|\/+$/g, "");
+}
+
+function getGitHubRepositoryConfig(): GitHubArtifactRepositoryConfig {
+  const owner = process.env.GITHUB_ARTIFACT_REPOSITORY_OWNER;
+  const repo = process.env.GITHUB_ARTIFACT_REPOSITORY_NAME;
+  const token = process.env.GITHUB_ARTIFACT_REPOSITORY_TOKEN;
+  const missing = [
+    ["GITHUB_ARTIFACT_REPOSITORY_OWNER", owner],
+    ["GITHUB_ARTIFACT_REPOSITORY_NAME", repo],
+    ["GITHUB_ARTIFACT_REPOSITORY_TOKEN", token],
+  ].filter(([, value]) => !value);
+
+  if (missing.length) {
+    throw new Error(`Missing GitHub artifact repository configuration: ${missing.map(([name]) => name).join(", ")}`);
+  }
+
+  return {
+    owner: owner!,
+    repo: repo!,
+    token: token!,
+    branch: process.env.GITHUB_ARTIFACT_REPOSITORY_BRANCH ?? defaultGitHubArtifactBranch,
+    rootPath: process.env.GITHUB_ARTIFACT_REPOSITORY_ROOT ?? defaultGitHubArtifactRoot,
+  };
+}
+
 export class GitHubArtifactRepository implements ArtifactRepository {
+  private readonly branch: string;
+  private readonly rootPath: string;
+  private readonly fetchImpl: typeof fetch;
+  private readonly config: GitHubArtifactRepositoryConfig;
+
+  constructor(config: GitHubArtifactRepositoryConfig = getGitHubRepositoryConfig()) {
+    this.config = config;
+    this.branch = config.branch ?? defaultGitHubArtifactBranch;
+    this.rootPath = trimSlashes(config.rootPath ?? defaultGitHubArtifactRoot);
+    this.fetchImpl = config.fetch ?? fetch;
+  }
+
   async list(): Promise<Artifact[]> {
-    throw new Error(
-      "GitHubArtifactRepository is not implemented yet. Future implementations must read GitHub credentials from environment variables or a secrets manager only, never from committed files.",
+    const tree = await this.fetchTree();
+    const prefix = this.rootPath.length > 0 ? `${this.rootPath}/` : "";
+    const files = tree
+      .filter((entry) => entry.type === "blob" && typeof entry.path === "string" && entry.path.startsWith(prefix) && entry.path.endsWith(".md"))
+      .sort((a, b) => a.path!.localeCompare(b.path!));
+
+    const artifacts = await Promise.all(
+      files.map(async (file) => {
+        if (!file.sha) throw new Error(`${file.path}: GitHub tree entry is missing a blob SHA.`);
+        const raw = await this.fetchBlob(file.sha, file.path!);
+        return parseArtifactMarkdown(raw, file.path!);
+      }),
     );
+
+    validateUniqueArtifactIds(artifacts);
+    return artifacts.sort((a, b) => a.title.localeCompare(b.title));
   }
 
   async findById(id: string): Promise<Artifact | undefined> {
-    void id;
-    throw new Error("GitHubArtifactRepository is not implemented yet.");
+    const artifacts = await this.list();
+    return artifacts.find((artifact) => artifact.id === id);
   }
 
   async createVariation(input: CreateVariationInput): Promise<string> {
     assertNoSecrets(input.body);
     assertNoSecrets(input.title ?? "");
-    throw new Error("GitHubArtifactRepository is not implemented yet.");
+    throw new Error("GitHubArtifactRepository is read-only. Creating or editing artifacts is outside the DATA-002 scope.");
+  }
+
+  private githubUrl(pathname: string) {
+    return `${githubApiBaseUrl}/repos/${encodeURIComponent(this.config.owner)}/${encodeURIComponent(this.config.repo)}${pathname}`;
+  }
+
+  private async githubJson<T>(url: string, fileContext?: string): Promise<T> {
+    const response = await this.fetchImpl(url, {
+      headers: {
+        accept: "application/vnd.github+json",
+        authorization: `Bearer ${this.config.token}`,
+        "user-agent": "artifact-dev-toolkit",
+        "x-github-api-version": "2022-11-28",
+      },
+    });
+
+    if (!response.ok) {
+      const context = fileContext ? `${fileContext}: ` : "";
+      throw new Error(`${context}GitHub artifact repository request failed with ${response.status} ${response.statusText}.`);
+    }
+
+    return response.json() as Promise<T>;
+  }
+
+  private async fetchTree() {
+    const tree = await this.githubJson<GitHubTreeResponse>(this.githubUrl(`/git/trees/${encodeURIComponent(this.branch)}?recursive=1`));
+    if (!Array.isArray(tree.tree)) throw new Error("GitHub artifact repository tree response was malformed.");
+    if (tree.truncated) throw new Error("GitHub artifact repository tree response was truncated; reduce repository size or artifact root scope.");
+    return tree.tree;
+  }
+
+  private async fetchBlob(sha: string, filePath: string) {
+    const blob = await this.githubJson<GitHubBlobResponse>(this.githubUrl(`/git/blobs/${encodeURIComponent(sha)}`), filePath);
+    if (typeof blob.size === "number" && blob.size > githubMaxBlobBytes) {
+      throw new Error(`${filePath}: Markdown artifact exceeds the ${githubMaxBlobBytes} byte size limit.`);
+    }
+    if (blob.encoding !== "base64" || typeof blob.content !== "string") {
+      throw new Error(`${filePath}: GitHub blob response used an unsupported encoding.`);
+    }
+    const normalized = blob.content.replace(/\s+/g, "");
+    return Buffer.from(normalized, "base64").toString("utf8");
   }
 }
 
