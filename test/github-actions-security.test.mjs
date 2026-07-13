@@ -108,3 +108,34 @@ test('repair package lock workflow rejects unsafe target refs', () => {
   assert.match(workflow, /git check-ref-format --branch "\$\{TARGET_BRANCH\}"/);
   assert.match(workflow, /Branch is not in the permitted repair scope/);
 });
+
+test('pull request lifecycle delegates package-lock repair to the existing repair workflow', () => {
+  const workflow = readFileSync('.github/workflows/pr-orchestrator.yml', 'utf8');
+  assert.match(workflow, /concurrency:[\s\S]*pr-lifecycle-\$\{\{ github\.event\.pull_request\.number \}\}/);
+  assert.match(workflow, /repair-package-lock:/);
+  assert.match(workflow, /has_lockfile_repair_changes == 'true'/);
+  assert.match(workflow, /github\.event\.pull_request\.head\.repo\.full_name == github\.repository/);
+  assert.match(workflow, /startsWith\(github\.event\.pull_request\.head\.ref, 'codex\/'\)/);
+  assert.match(workflow, /uses: \.\/\.github\/workflows\/repair-package-lock\.yml/);
+  assert.match(workflow, /permissions:[\s\S]*contents: write[\s\S]*pull-requests: write/);
+  assert.match(workflow, /target_branch: \${\{ github\.event\.pull_request\.head\.ref \}\}/);
+  assert.doesNotMatch(workflow, /Regenerate and validate canonical package lock/);
+  assert.doesNotMatch(workflow, /npm install -g/);
+});
+
+test('reusable package lock repair exposes whether it published a repair', () => {
+  const workflow = readFileSync('.github/workflows/repair-package-lock.yml', 'utf8');
+  assert.match(workflow, /workflow_call:/);
+  assert.match(workflow, /target_branch:[\s\S]*required: true[\s\S]*type: string/);
+  assert.match(workflow, /repair_published:[\s\S]*value: \$\{\{ jobs\.regenerate-package-lock\.outputs\.repair_published \}\}/);
+  assert.match(workflow, /PACKAGE_LOCK_REPAIR_PUBLISHED=false/);
+  assert.match(workflow, /PACKAGE_LOCK_REPAIR_PUBLISHED=true/);
+  assert.match(workflow, /id: outcome[\s\S]*repair_published=\$\{PACKAGE_LOCK_REPAIR_PUBLISHED:-false\}/);
+});
+
+test('pull request lifecycle skips obsolete pre-repair validation runs after reusable repair publishes', () => {
+  const workflow = readFileSync('.github/workflows/pr-orchestrator.yml', 'utf8');
+  assert.match(workflow, /needs\.repair-package-lock\.outputs\.repair_published != 'true'/);
+  assert.doesNotMatch(workflow, /continue_validation/);
+  assert.doesNotMatch(workflow, /\[skip lockfile-repair\]/);
+});

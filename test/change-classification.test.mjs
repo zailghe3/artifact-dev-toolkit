@@ -25,3 +25,21 @@ test('skips deployment only for narrow documentation and request-only changes', 
   assert.equal(result.documentation_request_only, true);
   assert.equal(result.deployable_changes, false);
 });
+
+test('detects lockfile repair relevant package and toolchain changes', () => {
+  const result = classifyChanges([
+    { filename: 'package.json' },
+    { filename: '.nvmrc' },
+    { filename: '.github/dependabot.yml' },
+  ]);
+  assert.equal(result.has_lockfile_repair_changes, true);
+  assert.match(result.lockfile_repair_files, /package\.json/);
+  assert.match(result.lockfile_repair_files, /\.nvmrc/);
+  assert.match(result.lockfile_repair_files, /\.github\/dependabot\.yml/);
+});
+
+test('does not require lockfile repair for unrelated source changes', () => {
+  const result = classifyChanges([{ filename: 'app/page.tsx' }]);
+  assert.equal(result.has_lockfile_repair_changes, false);
+  assert.equal(result.lockfile_repair_files, '');
+});

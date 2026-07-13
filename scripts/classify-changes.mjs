@@ -3,12 +3,17 @@ import { readFileSync, appendFileSync } from 'node:fs';
 
 const canonicalFeatureRe = /^requests\/features\/[^/]+\.json$/;
 const exactSensitive = new Set(['package.json', 'package-lock.json', 'wrangler.jsonc']);
+const exactLockfileRepairRelevant = new Set(['package.json', 'package-lock.json', '.nvmrc', '.node-version', '.npmrc', 'npm-shrinkwrap.json']);
 
 function normalize(path) { return String(path ?? '').replace(/^\.\//, ''); }
 export function isCanonicalFeaturePath(path) { return canonicalFeatureRe.test(normalize(path)); }
 export function isSensitivePath(path) {
   const p = normalize(path);
   return p.startsWith('.github/workflows/') || p.startsWith('.github/actions/') || p.startsWith('scripts/') || exactSensitive.has(p) || /^open-next\.config\..+$/.test(p);
+}
+export function isLockfileRepairRelevantPath(path) {
+  const p = normalize(path);
+  return exactLockfileRepairRelevant.has(p) || p === '.github/dependabot.yml' || p.startsWith('.github/dependabot/') || p.startsWith('.github/workflows/') || p.startsWith('.github/actions/');
 }
 export function isDocumentationOrRequestPath(path) {
   const p = normalize(path);
@@ -21,6 +26,7 @@ export function classifyChanges(files) {
   const allPaths = unique(normalized.flatMap((f) => [f.filename, f.previous_filename]));
   const canonicalFeatureFiles = unique(normalized.flatMap((f) => [f.filename, f.previous_filename]).filter(isCanonicalFeaturePath));
   const sensitiveFiles = unique(normalized.flatMap((f) => [f.filename, f.previous_filename]).filter(isSensitivePath));
+  const lockfileRepairFiles = unique(normalized.flatMap((f) => [f.filename, f.previous_filename]).filter(isLockfileRepairRelevantPath));
   const documentationRequestOnly = allPaths.length > 0 && allPaths.every(isDocumentationOrRequestPath);
   return {
     changed_files: allPaths.join('\n'),
@@ -29,6 +35,8 @@ export function classifyChanges(files) {
     has_changes: allPaths.length > 0,
     has_feature_request_changes: canonicalFeatureFiles.length > 0,
     has_sensitive_changes: sensitiveFiles.length > 0,
+    lockfile_repair_files: lockfileRepairFiles.join('\n'),
+    has_lockfile_repair_changes: lockfileRepairFiles.length > 0,
     documentation_request_only: documentationRequestOnly,
     deployable_changes: allPaths.length > 0 && !documentationRequestOnly,
   };

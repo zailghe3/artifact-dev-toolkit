@@ -26,6 +26,10 @@ on:
         value: ${{ jobs.classify.outputs.has_feature_request_changes }}
       has_sensitive_changes:
         value: ${{ jobs.classify.outputs.has_sensitive_changes }}
+      lockfile_repair_files:
+        value: ${{ jobs.classify.outputs.lockfile_repair_files }}
+      has_lockfile_repair_changes:
+        value: ${{ jobs.classify.outputs.has_lockfile_repair_changes }}
       documentation_request_only:
         value: ${{ jobs.classify.outputs.documentation_request_only }}
       deployable_changes:
@@ -45,6 +49,8 @@ jobs:
       sensitive_files: ${{ steps.classify.outputs.sensitive_files }}
       has_feature_request_changes: ${{ steps.classify.outputs.has_feature_request_changes }}
       has_sensitive_changes: ${{ steps.classify.outputs.has_sensitive_changes }}
+      lockfile_repair_files: ${{ steps.classify.outputs.lockfile_repair_files }}
+      has_lockfile_repair_changes: ${{ steps.classify.outputs.has_lockfile_repair_changes }}
       documentation_request_only: ${{ steps.classify.outputs.documentation_request_only }}
       deployable_changes: ${{ steps.classify.outputs.deployable_changes }}
     steps:
@@ -98,6 +104,7 @@ jobs:
             echo '## Change classification'
             echo '- Feature request changes: `${{ steps.classify.outputs.has_feature_request_changes }}`'
             echo '- Sensitive changes: `${{ steps.classify.outputs.has_sensitive_changes }}`'
+            echo '- Lockfile repair relevant changes: `${{ steps.classify.outputs.has_lockfile_repair_changes }}`'
             echo '- Documentation/request only: `${{ steps.classify.outputs.documentation_request_only }}`'
             echo '- Deployable changes: `${{ steps.classify.outputs.deployable_changes }}`'
             echo ''

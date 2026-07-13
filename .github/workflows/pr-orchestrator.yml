@@ -8,6 +8,10 @@ permissions:
   contents: read
   pull-requests: read
 
+concurrency:
+  group: pr-lifecycle-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   classify:
     name: classify-pr
@@ -16,17 +20,29 @@ jobs:
       mode: pr
       pr_number: ${{ github.event.pull_request.number }}
 
+  repair-package-lock:
+    name: repair-package-lock
+    needs: classify
+    if: needs.classify.outputs.has_lockfile_repair_changes == 'true' && github.event.pull_request.head.repo.full_name == github.repository && (startsWith(github.event.pull_request.head.ref, 'codex/') || startsWith(github.event.pull_request.head.ref, 'repair/') || startsWith(github.event.pull_request.head.ref, 'dependabot/'))
+    uses: ./.github/workflows/repair-package-lock.yml
+    permissions:
+      contents: write
+      pull-requests: write
+    with:
+      target_branch: ${{ github.event.pull_request.head.ref }}
+
   verify-pr:
     name: verify-pr
-    needs: classify
+    needs: [classify, repair-package-lock]
+    if: always() && needs.classify.result == 'success' && (needs.repair-package-lock.result == 'skipped' || needs.repair-package-lock.outputs.repair_published != 'true')
     uses: ./.github/workflows/reusable-verify.yml
     with:
       ref: ${{ github.event.pull_request.head.sha }}
 
   validate-feature-requests:
     name: validate-feature-requests
-    needs: classify
-    if: needs.classify.outputs.has_feature_request_changes == 'true'
+    needs: [classify, repair-package-lock]
+    if: always() && needs.classify.outputs.has_feature_request_changes == 'true' && (needs.repair-package-lock.result == 'skipped' || needs.repair-package-lock.outputs.repair_published != 'true')
     uses: ./.github/workflows/reusable-validate-feature-requests.yml
     with:
       ref: ${{ github.event.pull_request.head.sha }}
