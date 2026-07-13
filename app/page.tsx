@@ -2,12 +2,12 @@ import { ArtifactSearch } from "@/components/ArtifactSearch";
 import { SignOutButton } from "@/components/SignOutButton";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { getArtifacts } from "@/lib/artifacts";
-import { requireAuth } from "@/lib/auth";
+import { requireRepositoryAuthorization } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const session = await requireAuth("/");
+  const session = await requireRepositoryAuthorization("/");
   const artifacts = await getArtifacts();
   const productionCount = artifacts.filter((artifact) => artifact.status === "production").length;
 
