@@ -1,5 +1,6 @@
 import { noStoreHeaders, type SessionRecord } from "./auth-core.ts";
 import { createGitHubAppJwt, getConfiguredRepository, getRepositoryInstallation, mintInstallationToken, type GitHubAppConfig } from "./github-app.ts";
+import { AuthenticationConfigurationError } from "./auth-configuration.ts";
 
 export const authorizationFreshnessMs = 7 * 60 * 1000;
 export type RepositoryAuthorizationFailureReason = "configuration" | "allowlist" | "app_access" | "user_access" | "temporary_unavailable";
@@ -39,7 +40,7 @@ export function getRepositoryAuthorizationConfig(): GitHubAppConfig {
   const env = process.env;
   const required = ["GITHUB_APP_ID", "GITHUB_APP_CLIENT_ID", "GITHUB_APP_CLIENT_SECRET", "GITHUB_APP_PRIVATE_KEY", "GITHUB_TOKEN_ENCRYPTION_KEY", "GITHUB_ARTIFACT_REPOSITORY_OWNER", "GITHUB_ARTIFACT_REPOSITORY_NAME"] as const;
   const missing = required.filter((name) => !env[name]);
-  if (missing.length) throw new Error(`Missing GitHub App repository authorisation configuration: ${missing.join(", ")}`);
+  if (missing.length) throw new AuthenticationConfigurationError("missing_configuration", [...missing]);
   return { appId: env.GITHUB_APP_ID!, clientId: env.GITHUB_APP_CLIENT_ID!, clientSecret: env.GITHUB_APP_CLIENT_SECRET!, privateKey: env.GITHUB_APP_PRIVATE_KEY!, owner: env.GITHUB_ARTIFACT_REPOSITORY_OWNER!, repo: env.GITHUB_ARTIFACT_REPOSITORY_NAME!, branch: env.GITHUB_ARTIFACT_REPOSITORY_BRANCH ?? "main", rootPath: env.GITHUB_ARTIFACT_REPOSITORY_ROOT ?? "artifacts", allowedLogins: parseAllowedGitHubLogins() };
 }
 
