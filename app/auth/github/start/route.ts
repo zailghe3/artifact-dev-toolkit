@@ -1,9 +1,4 @@
-import { NextResponse } from "next/server";
 import { createOAuthStart } from "@/lib/auth";
-import { noStoreHeaders, safeReturnTo } from "@/lib/auth-core";
+import { createOAuthStartRouteHandler } from "@/lib/oauth-route-handlers";
 
-export async function GET(request: Request) {
-  const url = new URL(request.url);
-  const authorizeUrl = await createOAuthStart(safeReturnTo(url.searchParams.get("returnTo")));
-  return NextResponse.redirect(authorizeUrl, { headers: noStoreHeaders });
-}
+export const GET = createOAuthStartRouteHandler({ createOAuthStart });
