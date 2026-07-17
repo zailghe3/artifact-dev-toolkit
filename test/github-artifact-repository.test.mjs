@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { GitHubArtifactRepository, getArtifactRepositoryBackend } from '../lib/artifact-repository.ts';
+import { ArtifactRepositoryAccessError, ArtifactRepositoryContentError, ArtifactRepositoryUnavailableError, GitHubArtifactRepository, getArtifactRepositoryBackend } from '../lib/artifact-repository.ts';
 
 function markdown(frontMatter, body = 'Body') {
   return `---\n${frontMatter.trim()}\n---\n\n${body}\n`;
@@ -149,6 +149,16 @@ test('GitHubArtifactRepository surfaces GitHub API failures instead of returning
   const fetch = async () => new Response('nope', { status: 503, statusText: 'Service Unavailable' });
 
   await assert.rejects(repository(fetch).list(), /temporarily unavailable/);
+});
+
+test('repository API responses preserve access, content, and availability categories', async () => {
+  for (const status of [401, 403]) {
+    await assert.rejects(repository(async () => new Response('private response', { status })).list(), ArtifactRepositoryAccessError);
+  }
+  await assert.rejects(repository(async () => new Response('private response', { status: 404 })).list(), ArtifactRepositoryContentError);
+  for (const status of [429, 500, 502, 503]) {
+    await assert.rejects(repository(async () => new Response('private response', { status })).list(), ArtifactRepositoryUnavailableError);
+  }
 });
 
 test('backend selection is explicit and fails closed in production', () => {

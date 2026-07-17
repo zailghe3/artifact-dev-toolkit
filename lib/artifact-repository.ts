@@ -244,6 +244,7 @@ export class GitHubArtifactRepository implements ArtifactRepository {
 
     if (!response.ok) {
       if (response.status === 429 || response.status >= 500) throw new ArtifactRepositoryUnavailableError(response.status);
+      if (response.status === 401 || response.status === 403) throw new ArtifactRepositoryAccessError();
       throw new ArtifactRepositoryContentError();
     }
 
