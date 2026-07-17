@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { GitHubArtifactRepository } from '../lib/artifact-repository.ts';
+import { ArtifactRepositoryAccessError, ArtifactRepositoryContentError, ArtifactRepositoryUnavailableError, GitHubArtifactRepository, getArtifactRepositoryBackend } from '../lib/artifact-repository.ts';
 
 function markdown(frontMatter, body = 'Body') {
   return `---\n${frontMatter.trim()}\n---\n\n${body}\n`;
@@ -148,5 +148,46 @@ aliases: []
 test('GitHubArtifactRepository surfaces GitHub API failures instead of returning zero artifacts', async () => {
   const fetch = async () => new Response('nope', { status: 503, statusText: 'Service Unavailable' });
 
-  await assert.rejects(repository(fetch).list(), /GitHub artifact repository request failed with 503 Service Unavailable/);
+  await assert.rejects(repository(fetch).list(), /temporarily unavailable/);
+});
+
+test('repository API responses preserve access, content, and availability categories', async () => {
+  for (const status of [401, 403]) {
+    await assert.rejects(repository(async () => new Response('private response', { status })).list(), ArtifactRepositoryAccessError);
+  }
+  await assert.rejects(repository(async () => new Response('private response', { status: 404 })).list(), ArtifactRepositoryContentError);
+  for (const status of [429, 500, 502, 503]) {
+    await assert.rejects(repository(async () => new Response('private response', { status })).list(), ArtifactRepositoryUnavailableError);
+  }
+});
+
+test('backend selection is explicit and fails closed in production', () => {
+  assert.equal(getArtifactRepositoryBackend({ NODE_ENV: 'test' }), 'file');
+  assert.equal(getArtifactRepositoryBackend({ NODE_ENV: 'development', ARTIFACT_REPOSITORY: 'file' }), 'file');
+  assert.equal(getArtifactRepositoryBackend({ NODE_ENV: 'production', ARTIFACT_REPOSITORY: 'github' }), 'github');
+  assert.throws(() => getArtifactRepositoryBackend({ NODE_ENV: 'production', ARTIFACT_REPOSITORY: 'file' }), /not supported in production/);
+  assert.throws(() => getArtifactRepositoryBackend({ NODE_ENV: 'production' }), /required in production/);
+  assert.throws(() => getArtifactRepositoryBackend({ NODE_ENV: 'test', ARTIFACT_REPOSITORY: 'other' }), /Unsupported/);
+});
+
+test('installation credential failures preserve access and availability categories', async () => {
+  for (const status of [429, 500, 503]) {
+    await assert.rejects(repository(async () => { throw new Error('fetch must not run'); }, { credentialProvider: async () => { throw Object.assign(new Error('secret response'), { status }); } }).list(), /temporarily unavailable/);
+  }
+  for (const status of [401, 403, 404]) {
+    await assert.rejects(repository(async () => { throw new Error('fetch must not run'); }, { credentialProvider: async () => { throw Object.assign(new Error('secret response'), { status }); } }).list(), /access is denied/);
+  }
+});
+
+test('one installation credential is reused for the tree and every blob', async () => {
+  let credentials = 0;
+  const fetch = createFetch({
+    'artifacts/prompts/a.md': markdown('id: a\ntitle: A\ntype: prompt\nstatus: draft\ntags: []\naliases: []'),
+    'artifacts/agents/b.md': markdown('id: b\ntitle: B\ntype: agent\nstatus: draft\ntags: []\naliases: []'),
+  });
+  let tokenPromise;
+  const repo = repository(fetch, { credentialProvider: () => tokenPromise ??= Promise.resolve(`token-${++credentials}`) });
+  await repo.list();
+  assert.equal(credentials, 1);
+  assert.equal(fetch.calls.every(call => call.options.headers.authorization === 'Bearer token-1'), true);
 });

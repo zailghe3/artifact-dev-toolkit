@@ -295,12 +295,13 @@ selects `GitHubArtifactRepository` for runtime reads. The backend requires serve
 ```text
 GITHUB_ARTIFACT_REPOSITORY_OWNER=<repository-owner>
 GITHUB_ARTIFACT_REPOSITORY_NAME=<repository-name>
-GITHUB_ARTIFACT_REPOSITORY_TOKEN=<server-side-token>
 GITHUB_ARTIFACT_REPOSITORY_BRANCH=main      # optional; defaults to main
 GITHUB_ARTIFACT_REPOSITORY_ROOT=artifacts   # optional; defaults to artifacts
 ```
 
-The token is sent only from server-side repository code to the GitHub API and is never returned to browser JavaScript. The repository uses the Git Trees API with recursive traversal to discover Markdown blobs beneath the configured root path, then retrieves each blob through authenticated GitHub API calls. It parses each Markdown file with the canonical artifact schema, returns the same `Artifact` shape as `FileArtifactRepository`, sorts artifacts by title, supports nested Markdown files, returns an empty list when no Markdown artifacts exist beneath the configured root, rejects duplicate artifact IDs, and raises file-specific errors for malformed Markdown or frontmatter. GitHub API failures, truncated tree responses, unsupported blob encodings, and oversized Markdown blobs fail explicitly rather than being converted into an empty collection.
+`ARTIFACT_REPOSITORY` supports only `file` and `github`; deployed production requires an explicit value and never silently falls back to local files. The production repository is `zailghe3/fpo-artifacts`. Each GitHub read requires a freshly authorized, exact-repository access context and a lazy repository-restricted installation-token provider. Tokens are reused within the repository instance and are not persisted in D1. Authorization older than seven minutes is revalidated with the encrypted user token, the allowlist, user access, and current App installation; the resulting authorized or denied record is explicitly updated in D1 before any read.
+
+The repository uses the Git Trees and Blobs APIs and the canonical DATA-001 parser. A valid tree with no compatible Markdown returns the genuine empty state. Configuration errors, temporary GitHub failures, truncated trees, malformed content, duplicate IDs, unsupported encodings, and oversized blobs fail closed and produce safe browser/API responses rather than an empty library. Structured logs contain only repository identifiers, counts, timing/status categories, and stable event names—never credentials, sessions, bodies, or full GitHub payloads. DATA-003 caching remains deferred until this read path is operationally stable.
 
 The GitHub backend is read-only in the current implementation. `createVariation()` validates submitted content for secret-like values and then fails with an explicit read-only error because creating or editing artifacts in GitHub is outside DATA-002 scope.
 

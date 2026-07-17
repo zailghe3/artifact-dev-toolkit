@@ -3,6 +3,7 @@ import path from "node:path";
 import matter from "gray-matter";
 import { z } from "zod";
 import { DEFAULT_ARTIFACT_BRANCH, DEFAULT_ARTIFACT_ROOT, parseArtifactMarkdown, trimSlashes, validateArtifactPath, validateUniqueArtifactIds, type ArtifactModel } from "./artifact-contract.ts";
+import type { RepositoryAccessContext } from "./repository-authorization.ts";
 
 const artifactsDir = path.join(process.cwd(), "artifacts");
 const githubApiBaseUrl = "https://api.github.com";
@@ -150,25 +151,22 @@ export class FileArtifactRepository implements ArtifactRepository {
 }
 
 
-function getGitHubRepositoryConfig(): GitHubArtifactRepositoryConfig {
-  const owner = process.env.GITHUB_ARTIFACT_REPOSITORY_OWNER;
-  const repo = process.env.GITHUB_ARTIFACT_REPOSITORY_NAME;
-  const missing = [
-    ["GITHUB_ARTIFACT_REPOSITORY_OWNER", owner],
-    ["GITHUB_ARTIFACT_REPOSITORY_NAME", repo],
-  ].filter(([, value]) => !value);
+export type ArtifactRepositoryBackend = "file" | "github";
+export class ArtifactRepositoryConfigurationError extends Error {}
+export class ArtifactRepositoryUnavailableError extends Error {
+  readonly status?: number;
+  constructor(status?: number) { super("The artifact repository is temporarily unavailable."); this.status = status; }
+}
+export class ArtifactRepositoryAccessError extends Error { constructor() { super("Artifact repository access is denied."); } }
+export class ArtifactRepositoryContentError extends Error { constructor() { super("The artifact repository contains invalid content."); } }
 
-  if (missing.length) {
-    throw new Error(`Missing GitHub artifact repository configuration: ${missing.map(([name]) => name).join(", ")}`);
-  }
-
-  return {
-    owner: owner!,
-    repo: repo!,
-    credentialProvider: async () => { throw new Error("GitHubArtifactRepository requires an authorised installation-token provider."); },
-    branch: process.env.GITHUB_ARTIFACT_REPOSITORY_BRANCH ?? defaultGitHubArtifactBranch,
-    rootPath: process.env.GITHUB_ARTIFACT_REPOSITORY_ROOT ?? defaultGitHubArtifactRoot,
-  };
+export function getArtifactRepositoryBackend(env = process.env): ArtifactRepositoryBackend {
+  const value = env.ARTIFACT_REPOSITORY;
+  if (value === "github") return value;
+  if (value === "file" && env.NODE_ENV !== "production") return value;
+  if (value === "file") throw new ArtifactRepositoryConfigurationError("ARTIFACT_REPOSITORY=file is not supported in production.");
+  if (!value && env.NODE_ENV !== "production") return "file";
+  throw new ArtifactRepositoryConfigurationError(value ? `Unsupported ARTIFACT_REPOSITORY value: ${value}` : "ARTIFACT_REPOSITORY is required in production.");
 }
 
 export class GitHubArtifactRepository implements ArtifactRepository {
@@ -177,7 +175,7 @@ export class GitHubArtifactRepository implements ArtifactRepository {
   private readonly fetchImpl: typeof fetch;
   private readonly config: GitHubArtifactRepositoryConfig;
 
-  constructor(config: GitHubArtifactRepositoryConfig = getGitHubRepositoryConfig()) {
+  constructor(config: GitHubArtifactRepositoryConfig) {
     this.config = config;
     this.branch = config.branch ?? defaultGitHubArtifactBranch;
     this.rootPath = trimSlashes(config.rootPath ?? defaultGitHubArtifactRoot);
@@ -190,6 +188,7 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     const files = tree
       .filter((entry) => entry.type === "blob" && typeof entry.path === "string" && entry.path.startsWith(prefix) && entry.path.endsWith(".md"))
       .sort((a, b) => a.path!.localeCompare(b.path!));
+    console.info(JSON.stringify({ event: "github_artifact_tree_loaded", backend: "github", owner: this.config.owner, repository: this.config.repo, branch: this.branch, rootPath: this.rootPath, treeEntryCount: tree.length, markdownFileCount: files.length }));
 
     for (const file of files) {
       const pathError = validateArtifactPath(file.path!, this.rootPath);
@@ -205,6 +204,7 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     );
 
     validateUniqueArtifactIds(artifacts);
+    console.info(JSON.stringify({ event: "github_artifacts_loaded", backend: "github", owner: this.config.owner, repository: this.config.repo, parsedArtifactCount: artifacts.length }));
     return artifacts.sort((a, b) => a.title.localeCompare(b.title));
   }
 
@@ -223,19 +223,29 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     return `${githubApiBaseUrl}/repos/${encodeURIComponent(this.config.owner)}/${encodeURIComponent(this.config.repo)}${pathname}`;
   }
 
-  private async githubJson<T>(url: string, fileContext?: string): Promise<T> {
+  private async githubJson<T>(url: string): Promise<T> {
+    let credential: string;
+    try {
+      credential = await this.config.credentialProvider();
+    } catch (error) {
+      const status = (error as { status?: number }).status;
+      if (status === 429 || (typeof status === "number" && status >= 500) || status === undefined) throw new ArtifactRepositoryUnavailableError(status);
+      if (status === 401 || status === 403 || status === 404) throw new ArtifactRepositoryAccessError();
+      throw new ArtifactRepositoryConfigurationError("Installation credential could not be created.");
+    }
     const response = await this.fetchImpl(url, {
       headers: {
         accept: "application/vnd.github+json",
-        authorization: `Bearer ${await this.config.credentialProvider()}`,
+        authorization: `Bearer ${credential}`,
         "user-agent": "artifact-dev-toolkit",
         "x-github-api-version": "2022-11-28",
       },
     });
 
     if (!response.ok) {
-      const context = fileContext ? `${fileContext}: ` : "";
-      throw new Error(`${context}GitHub artifact repository request failed with ${response.status} ${response.statusText}.`);
+      if (response.status === 429 || response.status >= 500) throw new ArtifactRepositoryUnavailableError(response.status);
+      if (response.status === 401 || response.status === 403) throw new ArtifactRepositoryAccessError();
+      throw new ArtifactRepositoryContentError();
     }
 
     return response.json() as Promise<T>;
@@ -249,7 +259,7 @@ export class GitHubArtifactRepository implements ArtifactRepository {
   }
 
   private async fetchBlob(sha: string, filePath: string) {
-    const blob = await this.githubJson<GitHubBlobResponse>(this.githubUrl(`/git/blobs/${encodeURIComponent(sha)}`), filePath);
+    const blob = await this.githubJson<GitHubBlobResponse>(this.githubUrl(`/git/blobs/${encodeURIComponent(sha)}`));
     if (typeof blob.size === "number" && blob.size > githubMaxBlobBytes) {
       throw new Error(`${filePath}: Markdown artifact exceeds the ${githubMaxBlobBytes} byte size limit.`);
     }
@@ -261,10 +271,15 @@ export class GitHubArtifactRepository implements ArtifactRepository {
   }
 }
 
-export function createArtifactRepository(): ArtifactRepository {
-  if (process.env.ARTIFACT_REPOSITORY === "github") {
-    return new GitHubArtifactRepository();
-  }
-
-  return new FileArtifactRepository();
+export function createArtifactRepository(access: RepositoryAccessContext): ArtifactRepository {
+  const backend = getArtifactRepositoryBackend();
+  console.info(JSON.stringify({ event: "artifact_repository_selected", backend }));
+  if (backend === "file") return new FileArtifactRepository();
+  const owner = process.env.GITHUB_ARTIFACT_REPOSITORY_OWNER;
+  const repo = process.env.GITHUB_ARTIFACT_REPOSITORY_NAME;
+  const branch = process.env.GITHUB_ARTIFACT_REPOSITORY_BRANCH ?? defaultGitHubArtifactBranch;
+  const rootPath = trimSlashes(process.env.GITHUB_ARTIFACT_REPOSITORY_ROOT ?? defaultGitHubArtifactRoot);
+  if (!owner || !repo || !branch || !rootPath) throw new ArtifactRepositoryConfigurationError("GitHub artifact repository configuration is incomplete.");
+  if (access.owner.toLowerCase() !== owner.toLowerCase() || access.repo.toLowerCase() !== repo.toLowerCase() || !Number.isSafeInteger(access.repositoryId)) throw new ArtifactRepositoryConfigurationError("Repository access context does not match configuration.");
+  return new GitHubArtifactRepository({ owner: access.owner, repo: access.repo, branch, rootPath, credentialProvider: access.installationTokenProvider });
 }

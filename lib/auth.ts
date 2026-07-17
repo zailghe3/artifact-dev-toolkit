@@ -16,14 +16,17 @@ import {
   type SessionRecord,
 } from "@/lib/auth-core";
 
-import { findSession, insertSession, revokeSessionId, type D1DatabaseBinding } from "@/lib/auth-session-store";
+import { findSession, insertSession, revokeSessionId, updateSessionAuthorization, type D1DatabaseBinding } from "@/lib/auth-session-store";
 import {
   authorizationDeniedResponse,
+  authorizationRequiresRevalidation,
   createDeniedAuthorizationRecord,
   createRepositoryAuthorizationRecord,
   getRepositoryAuthorizationConfig,
   storedAuthorizationMatchesConfig,
+  shouldRetainUserToken,
   verifyRepositoryAuthorization,
+  type RepositoryAccessContext,
   type RepositoryAuthorizationStatus,
 } from "@/lib/repository-authorization";
 import { createPkceChallenge } from "@/lib/github-app";
@@ -55,6 +58,11 @@ async function loadSession(id: string) {
 async function revokeSession(id: string) {
   const database = await getSessionDatabase();
   await revokeSessionId(database, getAuthConfig().sessionSecret, id);
+}
+
+async function persistAuthorization(session: SessionRecord) {
+  const database = await getSessionDatabase();
+  await updateSessionAuthorization(database, getAuthConfig().sessionSecret, session);
 }
 
 export function getAuthConfig() {
@@ -148,9 +156,10 @@ export async function exchangeGitHubCode(code: string, pkceVerifier: string) {
 
 export async function createSession(user: GitHubUser, repositoryAuthorization: RepositoryAuthorizationStatus, userAccessToken?: string, userTokenExpiresAt = Date.now() + sessionTtlSeconds * 1000) {
   const config = getRepositoryAuthorizationConfig();
-  const tokenFields = repositoryAuthorization.ok && userAccessToken ? await encryptUserAccessToken(userAccessToken) : {};
+  const retainUserToken = shouldRetainUserToken(repositoryAuthorization);
+  const tokenFields = retainUserToken && userAccessToken ? await encryptUserAccessToken(userAccessToken) : {};
   const expiresAt = Math.min(Date.now() + sessionTtlSeconds * 1000, userTokenExpiresAt);
-  const session: SessionRecord = { id: randomToken(48), githubId: user.id, login: user.login, name: user.name, avatarUrl: user.avatar_url, createdAt: Date.now(), expiresAt, repositoryAuthorization: repositoryAuthorization.ok ? createRepositoryAuthorizationRecord(repositoryAuthorization) as SessionRecord["repositoryAuthorization"] : createDeniedAuthorizationRecord({ githubId: user.id, login: user.login }, repositoryAuthorization.reason, config), userAccessTokenExpiresAt: repositoryAuthorization.ok ? userTokenExpiresAt : undefined, ...tokenFields };
+  const session: SessionRecord = { id: randomToken(48), githubId: user.id, login: user.login, name: user.name, avatarUrl: user.avatar_url, createdAt: Date.now(), expiresAt, repositoryAuthorization: repositoryAuthorization.ok ? createRepositoryAuthorizationRecord(repositoryAuthorization) as SessionRecord["repositoryAuthorization"] : createDeniedAuthorizationRecord({ githubId: user.id, login: user.login }, repositoryAuthorization.reason, config), userAccessTokenExpiresAt: retainUserToken ? userTokenExpiresAt : undefined, ...tokenFields };
   await storeSession(session);
   const cookieStore = await cookies();
   cookieStore.set(cookieNames().session, session.id, cookieOptions(Math.floor((expiresAt - Date.now()) / 1000)));
@@ -174,21 +183,76 @@ export async function requireAuth(returnTo = "/") {
 }
 
 export async function requireRepositoryAuthorization(returnTo = "/") {
-  const session = await requireAuth(returnTo);
-  if (!storedAuthorizationMatchesConfig(session)) redirect("/access-denied");
-  if (session.repositoryAuthorization.state !== "authorized") redirect("/access-denied");
-  return session;
+  return (await requireRepositoryAccess(returnTo)).session;
 }
 
+async function resolveRepositoryAccess(session: SessionRecord, now = Date.now()): Promise<{ session: SessionRecord; access?: RepositoryAccessContext; failure?: RepositoryAuthorizationStatus & { ok: false }; reauthenticate?: boolean; refreshed: boolean }> {
+  const config = getRepositoryAuthorizationConfig();
+  const auth = session.repositoryAuthorization;
+  const matches = storedAuthorizationMatchesConfig(session, config);
+  const stale = authorizationRequiresRevalidation(auth, now);
+  if (!matches) {
+    const failure = { ok: false as const, reason: "configuration" as const, message: "Repository access is not authorised." };
+    try {
+      session.repositoryAuthorization = createDeniedAuthorizationRecord(session, "configuration", config, now);
+      await persistAuthorization(session);
+    } catch { return { session, failure: { ok: false, reason: "temporary_unavailable", message: "Repository authorisation is temporarily unavailable." }, refreshed: false }; }
+    return { session, failure, refreshed: false };
+  }
+  if (!stale && (auth.state !== "authorized" || !Number.isSafeInteger(auth.repositoryId) || !Number.isSafeInteger(auth.installationId))) {
+    return { session, failure: { ok: false, reason: auth.denialReason ?? "configuration", message: "Repository access is not authorised." }, refreshed: false };
+  }
+  let status: RepositoryAuthorizationStatus;
+  let refreshed = false;
+  if (stale) {
+    if (!session.encryptedUserAccessToken || !session.tokenIv || !session.userAccessTokenExpiresAt || session.userAccessTokenExpiresAt <= now) {
+      await revokeSession(session.id);
+      return { session, reauthenticate: true, refreshed: false };
+    }
+    let token: string;
+    try { token = await decryptUserAccessToken(session); } catch { await revokeSession(session.id); return { session, reauthenticate: true, refreshed: false }; }
+    status = await verifyRepositoryAuthorization({ id: session.githubId, login: session.login }, token, config, fetch, now);
+    refreshed = true;
+    session.repositoryAuthorization = status.ok ? createRepositoryAuthorizationRecord(status, now) : createDeniedAuthorizationRecord(session, status.reason, config, now);
+    try { await persistAuthorization(session); } catch { return { session, failure: { ok: false, reason: "temporary_unavailable", message: "Repository authorisation is temporarily unavailable." }, refreshed }; }
+    console.info(JSON.stringify({ event: "repository_authorization_refreshed", owner: config.owner, repository: config.repo, authorizationState: session.repositoryAuthorization.state, refreshed: true, reason: status.ok ? undefined : status.reason }));
+    if (!status.ok) return { session, failure: status, refreshed };
+  } else {
+    let tokenPromise: Promise<string> | undefined;
+    status = { ok: true, owner: auth.owner, repo: auth.repo, login: session.login.toLowerCase(), githubId: session.githubId, repositoryId: auth.repositoryId!, installationId: auth.installationId!, checkedAt: auth.checkedAt, installationTokenProvider: () => tokenPromise ??= (async () => {
+      const appJwt = await import("@/lib/github-app").then(({ createGitHubAppJwt }) => createGitHubAppJwt(config.appId, config.privateKey));
+      const minted = await import("@/lib/github-app").then(({ mintInstallationToken }) => mintInstallationToken(auth.installationId!, auth.repositoryId!, appJwt));
+      if (!minted.token) throw new Error("installation_token_unavailable");
+      return minted.token;
+    })() };
+  }
+  return { session, access: status as RepositoryAccessContext, refreshed };
+}
 
-export async function requireApiAuth(request: Request) {
+export async function requireRepositoryAccess(returnTo = "/") {
+  const session = await requireAuth(returnTo);
+  const result = await resolveRepositoryAccess(session);
+  if (result.reauthenticate) redirect(`/sign-in?returnTo=${encodeURIComponent(returnTo)}`);
+  if (!result.access) redirect("/access-denied");
+  return { session: result.session, access: result.access };
+}
+
+export async function requireApiRepositoryAccess(request: Request): Promise<{ access: RepositoryAccessContext; session: SessionRecord } | Response> {
   const session = await getSession();
-  if (session?.repositoryAuthorization.state === "authorized" && storedAuthorizationMatchesConfig(session)) return undefined;
-  if (session) return authorizationDeniedResponse(session.repositoryAuthorization.denialReason ?? "configuration");
+  if (session) {
+    const result = await resolveRepositoryAccess(session);
+    if (result.access) return { access: result.access, session: result.session };
+    if (!result.reauthenticate) return authorizationDeniedResponse(result.failure?.reason ?? "configuration");
+  }
   const signInUrl = new URL("/sign-in", request.url);
   const requestUrl = new URL(request.url);
   signInUrl.searchParams.set("returnTo", requestUrl.pathname + requestUrl.search);
   return NextResponse.json({ error: "Authentication required", signInUrl: signInUrl.toString() }, { status: 401, headers: noStoreHeaders });
+}
+
+export async function requireApiAuth(request: Request) {
+  const result = await requireApiRepositoryAccess(request);
+  return result instanceof Response ? result : undefined;
 }
 
 export async function destroySession() {

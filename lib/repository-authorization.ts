@@ -8,6 +8,23 @@ export type RepositoryAuthorizationStatus =
   | { ok: false; reason: RepositoryAuthorizationFailureReason; message: string; temporary?: boolean };
 export type RepositoryAccessContext = Extract<RepositoryAuthorizationStatus, { ok: true }>;
 
+export function authorizationRequiresRevalidation(authorization: SessionRecord["repositoryAuthorization"], now = Date.now()) {
+  return authorization.denialReason === "temporary_unavailable" || now - authorization.checkedAt >= authorizationFreshnessMs;
+}
+
+export function shouldRetainUserToken(status: RepositoryAuthorizationStatus) {
+  return status.ok || status.reason === "temporary_unavailable";
+}
+
+export class RepositoryAccessError extends Error {
+  readonly reason: RepositoryAuthorizationFailureReason;
+  constructor(reason: RepositoryAuthorizationFailureReason) {
+    super(repositoryAccessDeniedMessages[reason]);
+    this.reason = reason;
+    this.name = "RepositoryAccessError";
+  }
+}
+
 export const repositoryAccessDeniedMessages: Record<RepositoryAuthorizationFailureReason, string> = {
   configuration: "Artifact repository access is not configured. Contact an administrator.",
   allowlist: "Your GitHub account is not on the artifact library allowlist.",
@@ -43,7 +60,12 @@ export async function verifyRepositoryAuthorization(user: { id: number; login: s
     if (repo.name.toLowerCase() !== config.repo.toLowerCase() || repo.owner.login.toLowerCase() !== config.owner.toLowerCase()) return { ok: false, reason: "user_access", message: repositoryAccessDeniedMessages.user_access };
     const appJwt = await createGitHubAppJwt(config.appId, config.privateKey);
     const installation = await getRepositoryInstallation(config, appJwt, fetchImpl);
-    const provider = async () => (await mintInstallationToken(installation.id, repo.id, await createGitHubAppJwt(config.appId, config.privateKey), fetchImpl)).token!;
+    let tokenPromise: Promise<string> | undefined;
+    const provider = () => tokenPromise ??= (async () => {
+      const minted = await mintInstallationToken(installation.id, repo.id, await createGitHubAppJwt(config.appId, config.privateKey), fetchImpl);
+      if (!minted.token) throw new Error("installation_token_unavailable");
+      return minted.token;
+    })();
     return { ok: true, owner: config.owner, repo: config.repo, login: user.login, githubId: user.id, repositoryId: repo.id, installationId: installation.id, checkedAt: now, installationTokenProvider: provider };
   } catch (error) {
     const reason = classify(error);

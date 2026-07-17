@@ -57,17 +57,18 @@ npm run build
 
 The app reads and writes artifacts through an `ArtifactRepository` interface. Local development uses `FileArtifactRepository`, which stores Markdown files under `artifacts/` and writes variations under `artifacts/variations/`.
 
-A read-only `GitHubArtifactRepository` is available for deployments that need to load artifacts from a dedicated private GitHub repository. Do not commit GitHub tokens, API keys, or other credentials to this repository. GitHub-backed storage loads credentials only from environment variables, platform secrets, or a managed secrets service. The repository layer rejects variation content that looks like a private key, token, API key, password, or secret before any write attempt.
+A read-only `GitHubArtifactRepository` is available for deployments that load artifacts from a dedicated private GitHub repository. `ARTIFACT_REPOSITORY` supports exactly `file` and `github`. Production must set it explicitly and never falls back to the Worker filesystem; development and tests may default to `file`.
 
 To select the GitHub-backed repository, set `ARTIFACT_REPOSITORY=github` and configure these server-side variables:
 
-- `GITHUB_ARTIFACT_REPOSITORY_OWNER` — repository owner or organisation.
-- `GITHUB_ARTIFACT_REPOSITORY_NAME` — repository name.
-- `GITHUB_ARTIFACT_REPOSITORY_TOKEN` — server-side GitHub token with read access to the private artifact repository.
+- `GITHUB_ARTIFACT_REPOSITORY_OWNER=zailghe3` — repository owner or organisation.
+- `GITHUB_ARTIFACT_REPOSITORY_NAME=fpo-artifacts` — repository name.
 - `GITHUB_ARTIFACT_REPOSITORY_BRANCH` — optional branch or ref; defaults to `main`.
 - `GITHUB_ARTIFACT_REPOSITORY_ROOT` — optional artifact root; defaults to `artifacts`.
 
-The GitHub token is used only by server-side repository code. It is never sent to browser JavaScript.
+Every read first obtains a current repository-access context for the signed-in numeric GitHub user, normalized login, immutable repository ID, and GitHub App installation ID. Decisions older than seven minutes are revalidated and explicitly updated in D1. A lazy, request-local provider mints and reuses a repository-restricted installation token; installation tokens are never persisted or sent to browser JavaScript.
+
+Structured Worker events distinguish backend selection, authorization refresh, tree discovery, successful parsing, and safe failure categories without tokens, session IDs, private keys, response payloads, or artifact bodies. A valid repository with no compatible Markdown under the configured root displays a specific empty state; configuration, GitHub availability, and invalid-content failures display safe failure states instead. DATA-003 caching is intentionally unimplemented until this authorized read path is proven stable.
 
 ## Development workflow
 

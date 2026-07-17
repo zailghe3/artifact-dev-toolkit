@@ -1,6 +1,7 @@
 import { parseSession, serializeSession, type SessionRecord } from "./auth-core.ts";
 
-export type D1PreparedStatement = { bind(...values: unknown[]): D1PreparedStatement; first<T = unknown>(column?: string): Promise<T | null>; run(): Promise<unknown> };
+export type D1RunResult = { meta?: { changes?: number } };
+export type D1PreparedStatement = { bind(...values: unknown[]): D1PreparedStatement; first<T = unknown>(column?: string): Promise<T | null>; run(): Promise<D1RunResult> };
 export type D1DatabaseBinding = { prepare(query: string): D1PreparedStatement };
 
 export async function hashSessionId(id: string, sessionSecret: string) {
@@ -50,9 +51,10 @@ export async function insertSession(database: D1DatabaseBinding, sessionSecret: 
 export async function updateSessionAuthorization(database: D1DatabaseBinding, sessionSecret: string, session: SessionRecord) {
   const storedId = await hashSessionId(session.id, sessionSecret);
   const auth = session.repositoryAuthorization;
-  await database.prepare(`UPDATE auth_sessions SET authorization_state = ?, denial_reason = ?, repository_owner = ?, repository_name = ?, repository_id = ?, installation_id = ?, authorization_checked_at = ?, encrypted_user_access_token = ?, user_access_token_expires_at = ?, token_iv = ?, revoked_at = ? WHERE id = ?`)
-    .bind(auth.state, auth.denialReason ?? null, auth.owner, auth.repo, auth.repositoryId ?? null, auth.installationId ?? null, auth.checkedAt, session.encryptedUserAccessToken ?? null, session.userAccessTokenExpiresAt ?? null, session.tokenIv ?? null, session.revokedAt ?? null, storedId)
+  const result = await database.prepare(`UPDATE auth_sessions SET authorization_state = ?, denial_reason = ?, repository_owner = ?, repository_name = ?, repository_id = ?, installation_id = ?, authorization_checked_at = ?, encrypted_user_access_token = ?, user_access_token_expires_at = ?, token_iv = ? WHERE id = ? AND revoked_at IS NULL`)
+    .bind(auth.state, auth.denialReason ?? null, auth.owner, auth.repo, auth.repositoryId ?? null, auth.installationId ?? null, auth.checkedAt, session.encryptedUserAccessToken ?? null, session.userAccessTokenExpiresAt ?? null, session.tokenIv ?? null, storedId)
     .run();
+  if (result.meta?.changes !== 1) throw new Error("active_session_update_failed");
 }
 
 export async function findSession(database: D1DatabaseBinding, sessionSecret: string, id: string, now = Date.now()) {

@@ -155,17 +155,15 @@ test("GET sign-out route does not destroy session state while POST does", async 
 test("protected API routes authenticate before loading artifacts or creating variations", async () => {
   const fs = await import("node:fs/promises");
   const artifactsRoute = await fs.readFile(new URL("../app/api/artifacts/route.ts", import.meta.url), "utf8");
-  assert.match(artifactsRoute, /const authError = await requireApiAuth\(request\);\n  if \(authError\) return authError;\n  const \{ searchParams \}/);
-  assert.equal(artifactsRoute.indexOf("requireApiAuth(request)") < artifactsRoute.indexOf("getArtifacts()"), true);
+  assert.equal(artifactsRoute.indexOf("requireApiRepositoryAccess(request)") < artifactsRoute.indexOf("getArtifacts(authorization.access)"), true);
 
   const variationRoute = await fs.readFile(new URL("../app/api/artifacts/[id]/variation/route.ts", import.meta.url), "utf8");
-  assert.match(variationRoute, /const authError = await requireApiAuth\(request\);\n  if \(authError\) return authError;\n  const \{ id \}/);
-  assert.equal(variationRoute.indexOf("requireApiAuth(request)") < variationRoute.indexOf("getArtifact(id)"), true);
-  assert.equal(variationRoute.indexOf("requireApiAuth(request)") < variationRoute.indexOf("createVariation(source"), true);
+  assert.equal(variationRoute.indexOf("requireApiRepositoryAccess(request)") < variationRoute.indexOf("getArtifact(authorization.access, id)"), true);
+  assert.equal(variationRoute.indexOf("requireApiRepositoryAccess(request)") < variationRoute.indexOf("createVariation(authorization.access"), true);
 });
 
 const storeModuleUrl = pathToFileURL(new URL("../lib/auth-session-store.ts", import.meta.url).pathname).href;
-const { findSession, hashSessionId, insertSession, revokeSessionId } = await import(storeModuleUrl);
+const { findSession, hashSessionId, insertSession, revokeSessionId, updateSessionAuthorization } = await import(storeModuleUrl);
 
 function createFakeD1() {
   const rows = new Map();
@@ -203,11 +201,17 @@ function createFakeD1() {
               user_access_token_expires_at: this.values[15],
               token_iv: this.values[16],
             });
-          } else if (query.startsWith("UPDATE")) {
+          } else if (query.includes("SET revoked_at")) {
             const row = rows.get(this.values[1]);
-            if (row && row.revoked_at === null) row.revoked_at = this.values[0];
+            if (row && row.revoked_at === null) { row.revoked_at = this.values[0]; return { meta: { changes: 1 } }; }
+            return { meta: { changes: 0 } };
+          } else if (query.startsWith("UPDATE")) {
+            const row = rows.get(this.values[10]);
+            if (!row || row.revoked_at !== null) return { meta: { changes: 0 } };
+            Object.assign(row, { authorization_state: this.values[0], denial_reason: this.values[1], repository_owner: this.values[2], repository_name: this.values[3], repository_id: this.values[4], installation_id: this.values[5], authorization_checked_at: this.values[6] });
+            return { meta: { changes: 1 } };
           }
-          return {};
+          return { meta: { changes: 1 } };
         },
         async first() {
           return rows.get(this.values[0]) ?? null;
@@ -238,6 +242,21 @@ test("D1 session store persists an HMAC key, finds valid sessions, and rejects u
   assert.equal(database.calls.some((query) => query.includes("CREATE TABLE")), false);
 });
 
+test("authorization refresh cannot resurrect a concurrently revoked D1 session", async () => {
+  const database = createFakeD1();
+  const secret = "session-secret-that-is-at-least-32-bytes";
+  const now = Date.UTC(2026, 6, 13);
+  const session = { id: "concurrent-session", githubId: 123, login: "octocat", createdAt: now, expiresAt: now + 60_000, repositoryAuthorization: { state: "authorized", owner: "owner", repo: "repo", login: "octocat", githubId: 123, repositoryId: 1, installationId: 2, checkedAt: now } };
+  const storedId = await insertSession(database, secret, session, now);
+  await revokeSessionId(database, secret, session.id, now + 1);
+  session.repositoryAuthorization = { ...session.repositoryAuthorization, checkedAt: now + 2 };
+
+  await assert.rejects(updateSessionAuthorization(database, secret, session), /active_session_update_failed/);
+  assert.equal(database.rows.get(storedId).revoked_at, now + 1);
+  assert.equal(database.rows.get(storedId).authorization_checked_at, now);
+  assert.equal(database.calls.some(query => query.includes("WHERE id = ? AND revoked_at IS NULL")), true);
+});
+
 test("sign-in page renders only a local OAuth start URL and does not import cookie-mutating OAuth start helpers", async () => {
   const fs = await import("node:fs/promises");
   const page = await fs.readFile(new URL("../app/sign-in/page.tsx", import.meta.url), "utf8");
@@ -256,10 +275,25 @@ test("page-level session lookup does not delete or set stale cookies", async () 
 
 const repositoryAuthorizationModuleUrl = pathToFileURL(new URL("../lib/repository-authorization.ts", import.meta.url).pathname).href;
 const {
+  authorizationFreshnessMs,
+  authorizationRequiresRevalidation,
   createRepositoryAuthorizationRecord,
   repositoryAccessDeniedMessages,
+  shouldRetainUserToken,
   verifyRepositoryAuthorization,
 } = await import(repositoryAuthorizationModuleUrl);
+
+test("denied authorization retry policy recovers safely without retaining unnecessary credentials", () => {
+  const now = Date.UTC(2026, 6, 13);
+  const record = reason => ({ state: "denied", denialReason: reason, owner: "owner", repo: "repo", login: "octocat", githubId: 123, checkedAt: now });
+  assert.equal(authorizationRequiresRevalidation(record("temporary_unavailable"), now + 1), true, "transient outages retry immediately");
+  assert.equal(authorizationRequiresRevalidation(record("user_access"), now + authorizationFreshnessMs + 1), true, "removed user access is rechecked when stale");
+  assert.equal(authorizationRequiresRevalidation(record("app_access"), now + authorizationFreshnessMs + 1), true, "restored installation access is rechecked when stale");
+  assert.equal(authorizationRequiresRevalidation(record("allowlist"), now + 1), false, "fresh definitive denials remain closed");
+  assert.equal(shouldRetainUserToken({ ok: false, reason: "temporary_unavailable", message: "safe" }), true, "initial authorization API failures retain retry credentials");
+  assert.equal(shouldRetainUserToken({ ok: false, reason: "user_access", message: "safe" }), false);
+  assert.equal(shouldRetainUserToken({ ok: false, reason: "app_access", message: "safe" }), false);
+});
 
 async function testPrivateKeyPem() {
   const key = await crypto.subtle.generateKey({ name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1,0,1]), hash: "SHA-256" }, true, ["sign", "verify"]);
@@ -345,9 +379,9 @@ test("repository authorisation sessions and protected routes carry repository de
 
   const fs = await import("node:fs/promises");
   const homePage = await fs.readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
-  assert.equal(homePage.includes("requireRepositoryAuthorization"), true);
-  assert.equal(homePage.indexOf("requireRepositoryAuthorization") < homePage.indexOf("getArtifacts()"), true);
+  assert.equal(homePage.includes("requireRepositoryAccess"), true);
+  assert.equal(homePage.indexOf("requireRepositoryAccess") < homePage.indexOf("getArtifacts(access)"), true);
 
   const artifactsRoute = await fs.readFile(new URL("../app/api/artifacts/route.ts", import.meta.url), "utf8");
-  assert.equal(artifactsRoute.includes("requireApiAuth(request)"), true);
+  assert.equal(artifactsRoute.includes("requireApiRepositoryAccess(request)"), true);
 });
