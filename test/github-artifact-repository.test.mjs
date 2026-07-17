@@ -155,8 +155,18 @@ test('backend selection is explicit and fails closed in production', () => {
   assert.equal(getArtifactRepositoryBackend({ NODE_ENV: 'test' }), 'file');
   assert.equal(getArtifactRepositoryBackend({ NODE_ENV: 'development', ARTIFACT_REPOSITORY: 'file' }), 'file');
   assert.equal(getArtifactRepositoryBackend({ NODE_ENV: 'production', ARTIFACT_REPOSITORY: 'github' }), 'github');
+  assert.throws(() => getArtifactRepositoryBackend({ NODE_ENV: 'production', ARTIFACT_REPOSITORY: 'file' }), /not supported in production/);
   assert.throws(() => getArtifactRepositoryBackend({ NODE_ENV: 'production' }), /required in production/);
   assert.throws(() => getArtifactRepositoryBackend({ NODE_ENV: 'test', ARTIFACT_REPOSITORY: 'other' }), /Unsupported/);
+});
+
+test('installation credential failures preserve access and availability categories', async () => {
+  for (const status of [429, 500, 503]) {
+    await assert.rejects(repository(async () => { throw new Error('fetch must not run'); }, { credentialProvider: async () => { throw Object.assign(new Error('secret response'), { status }); } }).list(), /temporarily unavailable/);
+  }
+  for (const status of [401, 403, 404]) {
+    await assert.rejects(repository(async () => { throw new Error('fetch must not run'); }, { credentialProvider: async () => { throw Object.assign(new Error('secret response'), { status }); } }).list(), /access is denied/);
+  }
 });
 
 test('one installation credential is reused for the tree and every blob', async () => {

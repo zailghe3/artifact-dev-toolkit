@@ -8,6 +8,14 @@ export type RepositoryAuthorizationStatus =
   | { ok: false; reason: RepositoryAuthorizationFailureReason; message: string; temporary?: boolean };
 export type RepositoryAccessContext = Extract<RepositoryAuthorizationStatus, { ok: true }>;
 
+export function authorizationRequiresRevalidation(authorization: SessionRecord["repositoryAuthorization"], now = Date.now()) {
+  return authorization.denialReason === "temporary_unavailable" || now - authorization.checkedAt >= authorizationFreshnessMs;
+}
+
+export function shouldRetainUserToken(status: RepositoryAuthorizationStatus) {
+  return status.ok || status.reason === "temporary_unavailable";
+}
+
 export class RepositoryAccessError extends Error {
   readonly reason: RepositoryAuthorizationFailureReason;
   constructor(reason: RepositoryAuthorizationFailureReason) {

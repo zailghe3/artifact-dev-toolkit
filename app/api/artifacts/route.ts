@@ -13,7 +13,9 @@ export async function GET(request: Request) {
     const artifacts = searchArtifacts(await getArtifacts(authorization.access), query);
     return NextResponse.json({ artifacts }, { headers: noStoreHeaders });
   } catch (error) {
-    const unavailable = error instanceof (await import("@/lib/artifact-repository")).ArtifactRepositoryUnavailableError;
-    return NextResponse.json({ error: unavailable ? "Artifact repository temporarily unavailable" : "Artifact repository could not be read" }, { status: unavailable ? 503 : 500, headers: noStoreHeaders });
+    const errors = await import("@/lib/artifact-repository");
+    const unavailable = error instanceof errors.ArtifactRepositoryUnavailableError;
+    const denied = error instanceof errors.ArtifactRepositoryAccessError;
+    return NextResponse.json({ error: unavailable ? "Artifact repository temporarily unavailable" : denied ? "Repository access denied" : "Artifact repository could not be read" }, { status: unavailable ? 503 : denied ? 403 : 500, headers: noStoreHeaders });
   }
 }

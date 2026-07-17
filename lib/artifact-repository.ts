@@ -157,11 +157,14 @@ export class ArtifactRepositoryUnavailableError extends Error {
   readonly status?: number;
   constructor(status?: number) { super("The artifact repository is temporarily unavailable."); this.status = status; }
 }
+export class ArtifactRepositoryAccessError extends Error { constructor() { super("Artifact repository access is denied."); } }
 export class ArtifactRepositoryContentError extends Error { constructor() { super("The artifact repository contains invalid content."); } }
 
 export function getArtifactRepositoryBackend(env = process.env): ArtifactRepositoryBackend {
   const value = env.ARTIFACT_REPOSITORY;
-  if (value === "file" || value === "github") return value;
+  if (value === "github") return value;
+  if (value === "file" && env.NODE_ENV !== "production") return value;
+  if (value === "file") throw new ArtifactRepositoryConfigurationError("ARTIFACT_REPOSITORY=file is not supported in production.");
   if (!value && env.NODE_ENV !== "production") return "file";
   throw new ArtifactRepositoryConfigurationError(value ? `Unsupported ARTIFACT_REPOSITORY value: ${value}` : "ARTIFACT_REPOSITORY is required in production.");
 }
@@ -221,10 +224,19 @@ export class GitHubArtifactRepository implements ArtifactRepository {
   }
 
   private async githubJson<T>(url: string): Promise<T> {
+    let credential: string;
+    try {
+      credential = await this.config.credentialProvider();
+    } catch (error) {
+      const status = (error as { status?: number }).status;
+      if (status === 429 || (typeof status === "number" && status >= 500) || status === undefined) throw new ArtifactRepositoryUnavailableError(status);
+      if (status === 401 || status === 403 || status === 404) throw new ArtifactRepositoryAccessError();
+      throw new ArtifactRepositoryConfigurationError("Installation credential could not be created.");
+    }
     const response = await this.fetchImpl(url, {
       headers: {
         accept: "application/vnd.github+json",
-        authorization: `Bearer ${await this.config.credentialProvider()}`,
+        authorization: `Bearer ${credential}`,
         "user-agent": "artifact-dev-toolkit",
         "x-github-api-version": "2022-11-28",
       },
