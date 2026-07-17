@@ -60,7 +60,7 @@ export type CookieNames = {
   pkce: string;
 };
 
-export type OAuthErrorCode = "denied" | "invalid_state" | "missing_code" | "github_exchange_failed" | "github_identity_failed" | "session_creation_failed";
+export type OAuthErrorCode = "denied" | "invalid_state" | "missing_code" | "github_exchange_failed" | "github_identity_failed" | "session_creation_failed" | "configuration" | "oauth_start_failed";
 
 export const oauthErrorMessages: Record<OAuthErrorCode, string> = {
   denied: "GitHub authorization was denied or cancelled.",
@@ -69,6 +69,8 @@ export const oauthErrorMessages: Record<OAuthErrorCode, string> = {
   github_exchange_failed: "GitHub sign-in could not be completed. Please try again.",
   github_identity_failed: "GitHub identity could not be verified. Please try again.",
   session_creation_failed: "A server session could not be created. Please try again.",
+  configuration: "Sign-in is temporarily unavailable because the service is not correctly configured. Please contact an administrator.",
+  oauth_start_failed: "Sign-in is temporarily unavailable. Please try again later.",
 };
 
 export function cookieNames(nodeEnv = process.env.NODE_ENV): CookieNames {

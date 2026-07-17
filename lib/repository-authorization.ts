@@ -1,5 +1,6 @@
 import { noStoreHeaders, type SessionRecord } from "./auth-core.ts";
 import { createGitHubAppJwt, getConfiguredRepository, getRepositoryInstallation, mintInstallationToken, type GitHubAppConfig } from "./github-app.ts";
+import { AuthenticationConfigurationError, requireAuthenticationValues } from "./auth-configuration.ts";
 
 export const authorizationFreshnessMs = 7 * 60 * 1000;
 export type RepositoryAuthorizationFailureReason = "configuration" | "allowlist" | "app_access" | "user_access" | "temporary_unavailable";
@@ -36,11 +37,9 @@ export const repositoryAccessDeniedMessages: Record<RepositoryAuthorizationFailu
 export function parseAllowedGitHubLogins(value = process.env.GITHUB_ARTIFACT_ALLOWED_LOGINS ?? "") { return value.split(",").map((login) => login.trim().toLowerCase()).filter(Boolean); }
 
 export function getRepositoryAuthorizationConfig(): GitHubAppConfig {
-  const env = process.env;
   const required = ["GITHUB_APP_ID", "GITHUB_APP_CLIENT_ID", "GITHUB_APP_CLIENT_SECRET", "GITHUB_APP_PRIVATE_KEY", "GITHUB_TOKEN_ENCRYPTION_KEY", "GITHUB_ARTIFACT_REPOSITORY_OWNER", "GITHUB_ARTIFACT_REPOSITORY_NAME"] as const;
-  const missing = required.filter((name) => !env[name]);
-  if (missing.length) throw new Error(`Missing GitHub App repository authorisation configuration: ${missing.join(", ")}`);
-  return { appId: env.GITHUB_APP_ID!, clientId: env.GITHUB_APP_CLIENT_ID!, clientSecret: env.GITHUB_APP_CLIENT_SECRET!, privateKey: env.GITHUB_APP_PRIVATE_KEY!, owner: env.GITHUB_ARTIFACT_REPOSITORY_OWNER!, repo: env.GITHUB_ARTIFACT_REPOSITORY_NAME!, branch: env.GITHUB_ARTIFACT_REPOSITORY_BRANCH ?? "main", rootPath: env.GITHUB_ARTIFACT_REPOSITORY_ROOT ?? "artifacts", allowedLogins: parseAllowedGitHubLogins() };
+  const values = requireAuthenticationValues(required);
+  return { appId: values.GITHUB_APP_ID, clientId: values.GITHUB_APP_CLIENT_ID, clientSecret: values.GITHUB_APP_CLIENT_SECRET, privateKey: values.GITHUB_APP_PRIVATE_KEY, owner: values.GITHUB_ARTIFACT_REPOSITORY_OWNER, repo: values.GITHUB_ARTIFACT_REPOSITORY_NAME, branch: process.env.GITHUB_ARTIFACT_REPOSITORY_BRANCH?.trim() || "main", rootPath: process.env.GITHUB_ARTIFACT_REPOSITORY_ROOT?.trim() || "artifacts", allowedLogins: parseAllowedGitHubLogins() };
 }
 
 function classify(error: unknown): RepositoryAuthorizationFailureReason {
@@ -68,6 +67,7 @@ export async function verifyRepositoryAuthorization(user: { id: number; login: s
     })();
     return { ok: true, owner: config.owner, repo: config.repo, login: user.login, githubId: user.id, repositoryId: repo.id, installationId: installation.id, checkedAt: now, installationTokenProvider: provider };
   } catch (error) {
+    if (error instanceof AuthenticationConfigurationError) throw error;
     const reason = classify(error);
     return { ok: false, reason, message: repositoryAccessDeniedMessages[reason], temporary: reason === "temporary_unavailable" };
   }
