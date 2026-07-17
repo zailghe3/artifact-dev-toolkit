@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { GitHubArtifactRepository } from '../lib/artifact-repository.ts';
+import { GitHubArtifactRepository, getArtifactRepositoryBackend } from '../lib/artifact-repository.ts';
 
 function markdown(frontMatter, body = 'Body') {
   return `---\n${frontMatter.trim()}\n---\n\n${body}\n`;
@@ -148,5 +148,26 @@ aliases: []
 test('GitHubArtifactRepository surfaces GitHub API failures instead of returning zero artifacts', async () => {
   const fetch = async () => new Response('nope', { status: 503, statusText: 'Service Unavailable' });
 
-  await assert.rejects(repository(fetch).list(), /GitHub artifact repository request failed with 503 Service Unavailable/);
+  await assert.rejects(repository(fetch).list(), /temporarily unavailable/);
+});
+
+test('backend selection is explicit and fails closed in production', () => {
+  assert.equal(getArtifactRepositoryBackend({ NODE_ENV: 'test' }), 'file');
+  assert.equal(getArtifactRepositoryBackend({ NODE_ENV: 'development', ARTIFACT_REPOSITORY: 'file' }), 'file');
+  assert.equal(getArtifactRepositoryBackend({ NODE_ENV: 'production', ARTIFACT_REPOSITORY: 'github' }), 'github');
+  assert.throws(() => getArtifactRepositoryBackend({ NODE_ENV: 'production' }), /required in production/);
+  assert.throws(() => getArtifactRepositoryBackend({ NODE_ENV: 'test', ARTIFACT_REPOSITORY: 'other' }), /Unsupported/);
+});
+
+test('one installation credential is reused for the tree and every blob', async () => {
+  let credentials = 0;
+  const fetch = createFetch({
+    'artifacts/prompts/a.md': markdown('id: a\ntitle: A\ntype: prompt\nstatus: draft\ntags: []\naliases: []'),
+    'artifacts/agents/b.md': markdown('id: b\ntitle: B\ntype: agent\nstatus: draft\ntags: []\naliases: []'),
+  });
+  let tokenPromise;
+  const repo = repository(fetch, { credentialProvider: () => tokenPromise ??= Promise.resolve(`token-${++credentials}`) });
+  await repo.list();
+  assert.equal(credentials, 1);
+  assert.equal(fetch.calls.every(call => call.options.headers.authorization === 'Bearer token-1'), true);
 });

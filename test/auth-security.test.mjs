@@ -155,13 +155,11 @@ test("GET sign-out route does not destroy session state while POST does", async 
 test("protected API routes authenticate before loading artifacts or creating variations", async () => {
   const fs = await import("node:fs/promises");
   const artifactsRoute = await fs.readFile(new URL("../app/api/artifacts/route.ts", import.meta.url), "utf8");
-  assert.match(artifactsRoute, /const authError = await requireApiAuth\(request\);\n  if \(authError\) return authError;\n  const \{ searchParams \}/);
-  assert.equal(artifactsRoute.indexOf("requireApiAuth(request)") < artifactsRoute.indexOf("getArtifacts()"), true);
+  assert.equal(artifactsRoute.indexOf("requireApiRepositoryAccess(request)") < artifactsRoute.indexOf("getArtifacts(authorization.access)"), true);
 
   const variationRoute = await fs.readFile(new URL("../app/api/artifacts/[id]/variation/route.ts", import.meta.url), "utf8");
-  assert.match(variationRoute, /const authError = await requireApiAuth\(request\);\n  if \(authError\) return authError;\n  const \{ id \}/);
-  assert.equal(variationRoute.indexOf("requireApiAuth(request)") < variationRoute.indexOf("getArtifact(id)"), true);
-  assert.equal(variationRoute.indexOf("requireApiAuth(request)") < variationRoute.indexOf("createVariation(source"), true);
+  assert.equal(variationRoute.indexOf("requireApiRepositoryAccess(request)") < variationRoute.indexOf("getArtifact(authorization.access, id)"), true);
+  assert.equal(variationRoute.indexOf("requireApiRepositoryAccess(request)") < variationRoute.indexOf("createVariation(authorization.access"), true);
 });
 
 const storeModuleUrl = pathToFileURL(new URL("../lib/auth-session-store.ts", import.meta.url).pathname).href;
@@ -345,9 +343,9 @@ test("repository authorisation sessions and protected routes carry repository de
 
   const fs = await import("node:fs/promises");
   const homePage = await fs.readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
-  assert.equal(homePage.includes("requireRepositoryAuthorization"), true);
-  assert.equal(homePage.indexOf("requireRepositoryAuthorization") < homePage.indexOf("getArtifacts()"), true);
+  assert.equal(homePage.includes("requireRepositoryAccess"), true);
+  assert.equal(homePage.indexOf("requireRepositoryAccess") < homePage.indexOf("getArtifacts(access)"), true);
 
   const artifactsRoute = await fs.readFile(new URL("../app/api/artifacts/route.ts", import.meta.url), "utf8");
-  assert.equal(artifactsRoute.includes("requireApiAuth(request)"), true);
+  assert.equal(artifactsRoute.includes("requireApiRepositoryAccess(request)"), true);
 });

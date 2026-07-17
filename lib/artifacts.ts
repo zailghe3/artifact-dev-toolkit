@@ -1,20 +1,21 @@
 import { createArtifactRepository, type Artifact, type ArtifactStatus } from "@/lib/artifact-repository";
+import type { RepositoryAccessContext } from "@/lib/repository-authorization";
 
 export type { Artifact, ArtifactStatus };
 export { slugify } from "@/lib/artifact-repository";
 
-function getRepository() {
-  return createArtifactRepository();
+function getRepository(access: RepositoryAccessContext) {
+  return createArtifactRepository(access);
 }
 
-export async function getArtifacts(): Promise<Artifact[]> {
-  return getRepository().list();
+export async function getArtifacts(access: RepositoryAccessContext): Promise<Artifact[]> {
+  return getRepository(access).list();
 }
 
-export async function getArtifact(id: string) {
-  return getRepository().findById(id);
+export async function getArtifact(access: RepositoryAccessContext, id: string) {
+  return getRepository(access).findById(id);
 }
 
-export async function createVariation(source: Artifact, body: string, title?: string) {
-  return getRepository().createVariation({ source, body, title });
+export async function createVariation(access: RepositoryAccessContext, source: Artifact, body: string, title?: string) {
+  return getRepository(access).createVariation({ source, body, title });
 }

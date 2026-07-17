@@ -21,6 +21,7 @@ export function ArtifactSearch({ artifacts }: { artifacts: Artifact[] }) {
         />
       </div>
       <p className="text-sm font-medium text-slate-600 dark:text-slate-300">{results.length} artifacts found</p>
+      {artifacts.length === 0 ? <p className="rounded-3xl border border-slate-200 bg-white p-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">The configured repository contains no compatible Markdown artifacts under its configured root.</p> : null}
       <div className="grid gap-4">
         {results.map((artifact) => (
           <Link key={artifact.id} href={`/artifacts/${artifact.id}`} className="group rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-soft focus:outline-none focus:ring-4 focus:ring-sky-200 dark:border-slate-800 dark:bg-slate-900 dark:focus:ring-orange-500/35">
