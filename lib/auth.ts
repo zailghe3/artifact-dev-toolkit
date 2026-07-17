@@ -30,6 +30,7 @@ import {
   type RepositoryAuthorizationStatus,
 } from "@/lib/repository-authorization";
 import { createPkceChallenge } from "@/lib/github-app";
+import { getOAuthExchangeConfig, getSessionSecurityConfig, validateProductionAuthReadiness, validateTokenEncryptionKey } from "@/lib/auth-configuration";
 
 let testSessionDatabase: D1DatabaseBinding | undefined;
 
@@ -66,30 +67,14 @@ async function persistAuthorization(session: SessionRecord) {
 }
 
 export function getAuthConfig() {
-  const clientId = process.env.GITHUB_APP_CLIENT_ID;
-  const clientSecret = process.env.GITHUB_APP_CLIENT_SECRET;
-  const sessionSecret = process.env.SESSION_SECRET;
-  const tokenEncryptionKey = process.env.GITHUB_TOKEN_ENCRYPTION_KEY;
-  const missing = [["GITHUB_APP_CLIENT_ID", clientId], ["GITHUB_APP_CLIENT_SECRET", clientSecret], ["SESSION_SECRET", sessionSecret], ["GITHUB_TOKEN_ENCRYPTION_KEY", tokenEncryptionKey]].filter(([, value]) => !value);
-  if (missing.length) throw new Error(`Missing authentication configuration: ${missing.map(([name]) => name).join(", ")}`);
-  if (sessionSecret!.length < 32) throw new Error("SESSION_SECRET must be at least 32 characters long.");
-  validateTokenEncryptionKey(tokenEncryptionKey!);
-  return { clientId: clientId!, clientSecret: clientSecret!, sessionSecret: sessionSecret!, tokenEncryptionKey: tokenEncryptionKey! };
+  return { ...getOAuthExchangeConfig(), ...getSessionSecurityConfig() };
 }
 
-function decodeBase64Key(value: string) {
-  const binary = atob(value);
-  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
-}
-
-export function validateTokenEncryptionKey(value: string) {
-  const bytes = decodeBase64Key(value);
-  if (bytes.byteLength !== 32) throw new Error("GITHUB_TOKEN_ENCRYPTION_KEY must be base64-encoded 32-byte AES-GCM key material.");
-  return bytes;
-}
+export { validateTokenEncryptionKey } from "@/lib/auth-configuration";
 
 async function importTokenEncryptionKey() {
-  return crypto.subtle.importKey("raw", validateTokenEncryptionKey(getAuthConfig().tokenEncryptionKey), "AES-GCM", false, ["encrypt", "decrypt"]);
+  const bytes = validateTokenEncryptionKey(getAuthConfig().tokenEncryptionKey);
+  return crypto.subtle.importKey("raw", bytes.buffer as ArrayBuffer, "AES-GCM", false, ["encrypt", "decrypt"]);
 }
 
 export async function encryptUserAccessToken(token: string) {
@@ -108,7 +93,7 @@ export async function decryptUserAccessToken(session: SessionRecord) {
 
 
 export async function createOAuthStart(returnTo: string | null) {
-  const { clientId } = getAuthConfig();
+  const { clientId } = validateProductionAuthReadiness();
   const state = randomToken();
   const verifier = randomToken(48);
   const challenge = await createPkceChallenge(verifier);
@@ -142,13 +127,14 @@ export async function exchangeGitHubCode(code: string, pkceVerifier: string) {
   const { clientId, clientSecret } = getAuthConfig();
   const config = getRepositoryAuthorizationConfig();
   const tokenResponse = await fetch("https://github.com/login/oauth/access_token", { method: "POST", headers: { accept: "application/json", "content-type": "application/json" }, body: JSON.stringify({ client_id: clientId, client_secret: clientSecret, code, code_verifier: pkceVerifier }) });
-  if (!tokenResponse.ok) throw new Error("github_exchange_failed");
+  if (!tokenResponse.ok) throw Object.assign(new Error("oauth_flow_failed"), { category: "token_exchange" });
   const tokenPayload = (await tokenResponse.json()) as { access_token?: string; expires_in?: number; error_description?: string };
-  if (!tokenPayload.access_token) throw new Error("github_exchange_failed");
+  if (!tokenPayload.access_token) throw Object.assign(new Error("oauth_flow_failed"), { category: "token_exchange" });
   const userTokenExpiresAt = Date.now() + Math.max(1, tokenPayload.expires_in ?? 28_800) * 1000;
   const userResponse = await fetch("https://api.github.com/user", { headers: { authorization: `Bearer ${tokenPayload.access_token}`, accept: "application/vnd.github+json", "user-agent": "artifact-dev-toolkit" } });
-  if (!userResponse.ok) throw new Error("github_identity_failed");
-  const user = validateGitHubUser(await userResponse.json());
+  if (!userResponse.ok) throw Object.assign(new Error("oauth_flow_failed"), { category: "identity_lookup" });
+  let user: GitHubUser;
+  try { user = validateGitHubUser(await userResponse.json()); } catch { throw Object.assign(new Error("oauth_flow_failed"), { category: "identity_lookup" }); }
   const repositoryAuthorization = await verifyRepositoryAuthorization(user, tokenPayload.access_token, config);
   return { user, repositoryAuthorization, userAccessToken: tokenPayload.access_token, userTokenExpiresAt };
 }

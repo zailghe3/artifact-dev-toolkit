@@ -1,4 +1,5 @@
 const githubApiBaseUrl = "https://api.github.com";
+import { AuthenticationConfigurationError } from "./auth-configuration.ts";
 
 export type GitHubAppConfig = { appId: string; clientId: string; clientSecret: string; privateKey: string; owner: string; repo: string; branch: string; rootPath: string; allowedLogins: string[] };
 export type GitHubRepository = { id: number; name: string; owner: { login: string } };
@@ -11,12 +12,37 @@ export function base64Url(bytes: ArrayBuffer | Uint8Array) {
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
 
-function pemToArrayBuffer(pem: string) {
-  const base64 = pem.replace(/-----BEGIN [^-]+-----|-----END [^-]+-----|\s/g, "");
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-  return bytes.buffer;
+function derLength(length: number) {
+  if (length < 128) return Uint8Array.of(length);
+  const bytes: number[] = [];
+  for (let value = length; value > 0; value >>>= 8) bytes.unshift(value & 255);
+  return Uint8Array.of(0x80 | bytes.length, ...bytes);
+}
+
+function der(tag: number, content: Uint8Array) {
+  return Uint8Array.of(tag, ...derLength(content.length), ...content);
+}
+
+function pkcs1ToPkcs8(pkcs1: Uint8Array) {
+  // rsaEncryption OID + NULL, followed by the PKCS#1 key as an OCTET STRING.
+  const algorithm = Uint8Array.of(0x30, 0x0d, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01, 0x05, 0x00);
+  return der(0x30, Uint8Array.of(0x02, 0x01, 0x00, ...algorithm, ...der(0x04, pkcs1)));
+}
+
+function parsePrivateKeyPem(pem: string) {
+  const trimmed = pem.trim();
+  const match = /^-----BEGIN ([A-Z0-9 ]+)-----\r?\n([A-Za-z0-9+/=\r\n]+)\r?\n-----END \1-----$/.exec(trimmed);
+  if (!match || !["PRIVATE KEY", "RSA PRIVATE KEY"].includes(match[1])) throw new AuthenticationConfigurationError("invalid_private_key");
+  const payload = match[2].replace(/\s/g, "");
+  if (!payload || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(payload)) throw new AuthenticationConfigurationError("invalid_private_key");
+  try {
+    const binary = atob(payload);
+    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+    if (!bytes.length) throw new Error();
+    return match[1] === "RSA PRIVATE KEY" ? pkcs1ToPkcs8(bytes) : bytes;
+  } catch {
+    throw new AuthenticationConfigurationError("invalid_private_key");
+  }
 }
 
 export async function createPkceChallenge(verifier: string) {
@@ -24,7 +50,13 @@ export async function createPkceChallenge(verifier: string) {
 }
 
 export async function createGitHubAppJwt(appId: string, privateKeyPem: string, now = Math.floor(Date.now() / 1000)) {
-  const key = await crypto.subtle.importKey("pkcs8", pemToArrayBuffer(privateKeyPem), { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
+  let key: CryptoKey;
+  try {
+    key = await crypto.subtle.importKey("pkcs8", parsePrivateKeyPem(privateKeyPem), { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
+  } catch (error) {
+    if (error instanceof AuthenticationConfigurationError) throw error;
+    throw new AuthenticationConfigurationError("invalid_private_key");
+  }
   const header = base64Url(new TextEncoder().encode(JSON.stringify({ alg: "RS256", typ: "JWT" })));
   const payload = base64Url(new TextEncoder().encode(JSON.stringify({ iat: now - 60, exp: now + 540, iss: appId })));
   const input = `${header}.${payload}`;

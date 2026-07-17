@@ -31,6 +31,21 @@
   "observability": {
     "enabled": true
   },
+  "vars": {
+    "ARTIFACT_REPOSITORY": "github",
+    "GITHUB_ARTIFACT_REPOSITORY_OWNER": "zailghe3",
+    "GITHUB_ARTIFACT_REPOSITORY_NAME": "fpo-artifacts"
+  },
+  "secrets": {
+    "required": [
+      "GITHUB_APP_ID",
+      "GITHUB_APP_CLIENT_ID",
+      "GITHUB_APP_CLIENT_SECRET",
+      "GITHUB_APP_PRIVATE_KEY",
+      "GITHUB_TOKEN_ENCRYPTION_KEY",
+      "SESSION_SECRET"
+    ]
+  },
   "build": {
     "command": "opennextjs-cloudflare build"
   }
