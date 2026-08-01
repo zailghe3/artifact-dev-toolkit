@@ -8,6 +8,9 @@ import type { RepositoryAccessContext } from "./repository-authorization.ts";
 const artifactsDir = path.join(process.cwd(), "artifacts");
 const githubApiBaseUrl = "https://api.github.com";
 const githubMaxBlobBytes = 1024 * 1024;
+const githubBlobConcurrency = 4;
+const githubMaxAttempts = 3;
+const githubMaximumRetryDelayMs = 5_000;
 const defaultGitHubArtifactBranch = DEFAULT_ARTIFACT_BRANCH;
 const defaultGitHubArtifactRoot = DEFAULT_ARTIFACT_ROOT;
 
@@ -53,7 +56,22 @@ export type GitHubArtifactRepositoryConfig = {
   branch?: string;
   rootPath?: string;
   fetch?: typeof fetch;
+  sleep?: (milliseconds: number) => Promise<void>;
+  logger?: Pick<Console, "info" | "error">;
 };
+
+async function mapWithConcurrency<T, U>(values: readonly T[], concurrency: number, mapper: (value: T, index: number) => Promise<U>): Promise<U[]> {
+  const results = new Array<U>(values.length);
+  let nextIndex = 0;
+  async function worker() {
+    while (nextIndex < values.length) {
+      const index = nextIndex++;
+      results[index] = await mapper(values[index], index);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, values.length) }, worker));
+  return results;
+}
 
 const secretPatterns = [
   /-----BEGIN (?:RSA |DSA |EC |OPENSSH |PGP )?PRIVATE KEY-----/i,
@@ -173,6 +191,9 @@ export class GitHubArtifactRepository implements ArtifactRepository {
   private readonly branch: string;
   private readonly rootPath: string;
   private readonly fetchImpl: typeof fetch;
+  private readonly sleep: (milliseconds: number) => Promise<void>;
+  private readonly logger: Pick<Console, "info" | "error">;
+  private credentialPromise?: Promise<string>;
   private readonly config: GitHubArtifactRepositoryConfig;
 
   constructor(config: GitHubArtifactRepositoryConfig) {
@@ -180,6 +201,8 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     this.branch = config.branch ?? defaultGitHubArtifactBranch;
     this.rootPath = trimSlashes(config.rootPath ?? defaultGitHubArtifactRoot);
     this.fetchImpl = config.fetch ?? fetch;
+    this.sleep = config.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
+    this.logger = config.logger ?? console;
   }
 
   async list(): Promise<Artifact[]> {
@@ -188,23 +211,23 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     const files = tree
       .filter((entry) => entry.type === "blob" && typeof entry.path === "string" && entry.path.startsWith(prefix) && entry.path.endsWith(".md"))
       .sort((a, b) => a.path!.localeCompare(b.path!));
-    console.info(JSON.stringify({ event: "github_artifact_tree_loaded", backend: "github", owner: this.config.owner, repository: this.config.repo, branch: this.branch, rootPath: this.rootPath, treeEntryCount: tree.length, markdownFileCount: files.length }));
+    this.logger.info(JSON.stringify({ event: "github_artifact_tree_loaded", backend: "github", owner: this.config.owner, repository: this.config.repo, branch: this.branch, rootPath: this.rootPath, treeEntryCount: tree.length, markdownFileCount: files.length }));
 
     for (const file of files) {
       const pathError = validateArtifactPath(file.path!, this.rootPath);
       if (pathError) throw new Error(`${file.path}: ${pathError}`);
     }
 
-    const artifacts = await Promise.all(
-      files.map(async (file) => {
+    const artifacts = await mapWithConcurrency(files, githubBlobConcurrency,
+      async (file) => {
         if (!file.sha) throw new Error(`${file.path}: GitHub tree entry is missing a blob SHA.`);
         const raw = await this.fetchBlob(file.sha, file.path!);
         return parseArtifactMarkdown(raw, file.path!);
-      }),
+      },
     );
 
     validateUniqueArtifactIds(artifacts);
-    console.info(JSON.stringify({ event: "github_artifacts_loaded", backend: "github", owner: this.config.owner, repository: this.config.repo, parsedArtifactCount: artifacts.length }));
+    this.logger.info(JSON.stringify({ event: "github_artifacts_loaded", backend: "github", owner: this.config.owner, repository: this.config.repo, parsedArtifactCount: artifacts.length }));
     return artifacts.sort((a, b) => a.title.localeCompare(b.title));
   }
 
@@ -223,43 +246,88 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     return `${githubApiBaseUrl}/repos/${encodeURIComponent(this.config.owner)}/${encodeURIComponent(this.config.repo)}${pathname}`;
   }
 
-  private async githubJson<T>(url: string): Promise<T> {
+  private async credential(): Promise<string> {
+    this.credentialPromise ??= this.config.credentialProvider();
+    return this.credentialPromise;
+  }
+
+  private retryDelay(response: Response | undefined, attempt: number) {
+    const retryAfter = response?.headers.get("retry-after");
+    if (retryAfter) {
+      const seconds = Number(retryAfter);
+      const milliseconds = Number.isFinite(seconds) ? seconds * 1_000 : Date.parse(retryAfter) - Date.now();
+      if (Number.isFinite(milliseconds)) return Math.min(githubMaximumRetryDelayMs, Math.max(0, milliseconds));
+    }
+    return Math.min(githubMaximumRetryDelayMs, 100 * (2 ** (attempt - 1)));
+  }
+
+  private async githubJson<T>(url: string, operation: "tree" | "blob", filePath?: string): Promise<T> {
     let credential: string;
     try {
-      credential = await this.config.credentialProvider();
+      credential = await this.credential();
     } catch (error) {
       const status = (error as { status?: number }).status;
       if (status === 429 || (typeof status === "number" && status >= 500) || status === undefined) throw new ArtifactRepositoryUnavailableError(status);
       if (status === 401 || status === 403 || status === 404) throw new ArtifactRepositoryAccessError();
       throw new ArtifactRepositoryConfigurationError("Installation credential could not be created.");
     }
-    const response = await this.fetchImpl(url, {
-      headers: {
-        accept: "application/vnd.github+json",
-        authorization: `Bearer ${credential}`,
-        "user-agent": "artifact-dev-toolkit",
-        "x-github-api-version": "2022-11-28",
-      },
-    });
-
-    if (!response.ok) {
-      if (response.status === 429 || response.status >= 500) throw new ArtifactRepositoryUnavailableError(response.status);
-      if (response.status === 401 || response.status === 403) throw new ArtifactRepositoryAccessError();
-      throw new ArtifactRepositoryContentError();
+    for (let attempt = 1; attempt <= githubMaxAttempts; attempt++) {
+      let response: Response | undefined;
+      try {
+        response = await this.fetchImpl(url, {
+          headers: { accept: "application/vnd.github+json", authorization: `Bearer ${credential}`, "user-agent": "artifact-dev-toolkit", "x-github-api-version": "2022-11-28" },
+        });
+      } catch {
+        if (attempt < githubMaxAttempts) {
+          this.logRetry(operation, filePath, undefined, attempt + 1);
+          await this.sleep(this.retryDelay(undefined, attempt));
+          continue;
+        }
+        this.logFailure(operation, filePath, undefined, attempt);
+        throw new ArtifactRepositoryUnavailableError();
+      }
+      if (response.ok) {
+        try {
+          return await response.json() as T;
+        } catch {
+          throw new ArtifactRepositoryContentError();
+        }
+      }
+      const retryable = response.status === 429 || response.status >= 500 && response.status <= 599;
+      if (!retryable) {
+        if (response.status === 401 || response.status === 403) throw new ArtifactRepositoryAccessError();
+        throw new ArtifactRepositoryContentError();
+      }
+      const delay = this.retryDelay(response, attempt);
+      await response.body?.cancel().catch(() => undefined);
+      if (attempt < githubMaxAttempts) {
+        this.logRetry(operation, filePath, response.status, attempt + 1);
+        await this.sleep(delay);
+        continue;
+      }
+      this.logFailure(operation, filePath, response.status, attempt);
+      throw new ArtifactRepositoryUnavailableError(response.status);
     }
+    throw new ArtifactRepositoryUnavailableError();
+  }
 
-    return response.json() as Promise<T>;
+  private logRetry(operation: "tree" | "blob", filePath: string | undefined, status: number | undefined, attempt: number) {
+    this.logger.info(JSON.stringify({ event: "github_artifact_request_retry", operation, ...(filePath ? { path: filePath } : {}), ...(status === undefined ? {} : { status }), attempt, maxAttempts: githubMaxAttempts }));
+  }
+
+  private logFailure(operation: "tree" | "blob", filePath: string | undefined, status: number | undefined, attempts: number) {
+    this.logger.error(JSON.stringify({ event: "github_artifact_request_failed", operation, ...(filePath ? { path: filePath } : {}), category: "temporary_unavailable", ...(status === undefined ? {} : { status }), attempts }));
   }
 
   private async fetchTree() {
-    const tree = await this.githubJson<GitHubTreeResponse>(this.githubUrl(`/git/trees/${encodeURIComponent(this.branch)}?recursive=1`));
+    const tree = await this.githubJson<GitHubTreeResponse>(this.githubUrl(`/git/trees/${encodeURIComponent(this.branch)}?recursive=1`), "tree");
     if (!Array.isArray(tree.tree)) throw new Error("GitHub artifact repository tree response was malformed.");
     if (tree.truncated) throw new Error("GitHub artifact repository tree response was truncated; reduce repository size or artifact root scope.");
     return tree.tree;
   }
 
   private async fetchBlob(sha: string, filePath: string) {
-    const blob = await this.githubJson<GitHubBlobResponse>(this.githubUrl(`/git/blobs/${encodeURIComponent(sha)}`));
+    const blob = await this.githubJson<GitHubBlobResponse>(this.githubUrl(`/git/blobs/${encodeURIComponent(sha)}`), "blob", filePath);
     if (typeof blob.size === "number" && blob.size > githubMaxBlobBytes) {
       throw new Error(`${filePath}: Markdown artifact exceeds the ${githubMaxBlobBytes} byte size limit.`);
     }

@@ -52,7 +52,9 @@ export function validateArtifactPath(filePath: string, artifactRoot = DEFAULT_AR
 
 export function parseArtifactMarkdown(raw: string, filePath: string): ArtifactModel {
   let parsed: matter.GrayMatterFile<string>;
-  try { parsed = matter(raw); } catch (error) { throw new Error(formatArtifactDiagnostic(filePath, `Unable to parse Markdown front matter: ${(error as Error).message}`)); }
+  // Supplying options disables gray-matter's process-global cache. Repository reads
+  // must parse each response independently so repeated loads cannot share mutable state.
+  try { parsed = matter(raw, {}); } catch (error) { throw new Error(formatArtifactDiagnostic(filePath, `Unable to parse Markdown front matter: ${(error as Error).message}`)); }
   if (!String(parsed.matter ?? "").trim()) throw new Error(formatArtifactDiagnostic(filePath, "Missing YAML front matter."));
   try {
     const data = normalizeArtifactMetadata(parsed.data);
