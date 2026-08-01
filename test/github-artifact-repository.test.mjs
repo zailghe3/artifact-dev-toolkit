@@ -230,6 +230,77 @@ test('a temporary blob network failure recovers', async () => {
   assert.equal(attempts, 2);
 });
 
+test('a temporary blob response body failure retries safely and recovers', async () => {
+  const secret = 'body-read-secret-DISTINCTIVE';
+  const runtime = quietRuntime();
+  const baseFetch = createFetch({ 'artifacts/prompts/a.md': markdown('id: a\ntitle: A\ntype: prompt\nstatus: draft\ntags: []\naliases: []') });
+  let attempts = 0;
+  const fetch = async (url, options) => {
+    if (String(url).includes('/git/blobs/') && ++attempts === 1) {
+      return { ok: true, json: async () => { throw new TypeError(`network failure: ${secret}`); } };
+    }
+    return baseFetch(url, options);
+  };
+  assert.equal((await repository(fetch, runtime).list()).length, 1);
+  assert.equal(attempts, 2);
+  assert.deepEqual(runtime.entries.find(({ event }) => event === 'github_artifact_request_retry'), {
+    event: 'github_artifact_request_retry', operation: 'blob', path: 'artifacts/prompts/a.md', attempt: 2, maxAttempts: 3,
+  });
+  assert.equal(JSON.stringify(runtime.entries).includes(secret), false);
+});
+
+test('blob response body retry exhaustion is unavailable and returns no partial list', async () => {
+  const runtime = quietRuntime();
+  const baseFetch = createFetch({ 'artifacts/prompts/a.md': markdown('id: a\ntitle: A\ntype: prompt\nstatus: draft\ntags: []\naliases: []') });
+  let attempts = 0;
+  const fetch = async (url, options) => {
+    if (String(url).includes('/git/blobs/')) {
+      attempts++;
+      return { ok: true, json: async () => { throw new TypeError('private body failure detail'); } };
+    }
+    return baseFetch(url, options);
+  };
+  await assert.rejects(repository(fetch, runtime).list(), ArtifactRepositoryUnavailableError);
+  assert.equal(attempts, 3);
+  assert.deepEqual(runtime.entries.find(({ event }) => event === 'github_artifact_request_failed'), {
+    event: 'github_artifact_request_failed', operation: 'blob', path: 'artifacts/prompts/a.md', category: 'temporary_unavailable', attempts: 3,
+  });
+  assert.equal(JSON.stringify(runtime.entries).includes('private body failure detail'), false);
+});
+
+test('malformed successful response JSON remains non-retryable content', async () => {
+  const runtime = quietRuntime();
+  const baseFetch = createFetch({ 'artifacts/prompts/a.md': markdown('id: a\ntitle: A\ntype: prompt\nstatus: draft\ntags: []\naliases: []') });
+  let attempts = 0;
+  const fetch = async (url, options) => {
+    if (String(url).includes('/git/blobs/')) {
+      attempts++;
+      return { ok: true, json: async () => { throw new SyntaxError('malformed JSON'); } };
+    }
+    return baseFetch(url, options);
+  };
+  await assert.rejects(repository(fetch, runtime).list(), ArtifactRepositoryContentError);
+  assert.equal(attempts, 1);
+  assert.equal(runtime.entries.some(({ event }) => event === 'github_artifact_request_retry'), false);
+});
+
+test('a temporary tree response body failure retries without logging a path', async () => {
+  const runtime = quietRuntime();
+  const baseFetch = createFetch({});
+  let attempts = 0;
+  const fetch = async (url, options) => {
+    if (String(url).includes('/git/trees/') && ++attempts === 1) {
+      return { ok: true, json: async () => { throw new TypeError('temporary tree body failure'); } };
+    }
+    return baseFetch(url, options);
+  };
+  assert.deepEqual(await repository(fetch, runtime).list(), []);
+  assert.equal(attempts, 2);
+  assert.deepEqual(runtime.entries.find(({ event }) => event === 'github_artifact_request_retry'), {
+    event: 'github_artifact_request_retry', operation: 'tree', attempt: 2, maxAttempts: 3,
+  });
+});
+
 test('blob retry exhaustion returns no partial list and logs safe final classification', async () => {
   const runtime = quietRuntime();
   const baseFetch = createFetch({ 'artifacts/prompts/a.md': markdown('id: a\ntitle: A\ntype: prompt\nstatus: draft\ntags: []\naliases: []') });
