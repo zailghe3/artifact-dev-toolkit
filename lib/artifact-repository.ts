@@ -289,7 +289,16 @@ export class GitHubArtifactRepository implements ArtifactRepository {
       if (response.ok) {
         try {
           return await response.json() as T;
-        } catch {
+        } catch (error) {
+          if (error instanceof TypeError) {
+            if (attempt < githubMaxAttempts) {
+              this.logRetry(operation, filePath, undefined, attempt + 1);
+              await this.sleep(this.retryDelay(undefined, attempt));
+              continue;
+            }
+            this.logFailure(operation, filePath, undefined, attempt);
+            throw new ArtifactRepositoryUnavailableError();
+          }
           throw new ArtifactRepositoryContentError();
         }
       }
