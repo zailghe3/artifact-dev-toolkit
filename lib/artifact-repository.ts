@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { DEFAULT_ARTIFACT_BRANCH, DEFAULT_ARTIFACT_ROOT, MAX_SERIALIZED_ARTIFACT_BYTES, normalizeArtifactMetadata, parseArtifactMarkdown, serializeArtifactMarkdown, trimSlashes, validateArtifactPath, validateUniqueArtifactIds, type ArtifactMetadata, type ArtifactModel } from "./artifact-contract.ts";
 import type { RepositoryAccessContext } from "./repository-authorization.ts";
@@ -24,7 +25,9 @@ export type CreateVariationInput = {
 
 export type CreateArtifactInput = { metadata: ArtifactMetadata; body: string; actorLogin: string };
 export type UpdateArtifactInput = { id: string; metadata: ArtifactMetadata; body: string; currentFileSha: string; actorLogin: string };
+export type ProposeArtifactUpdateInput = UpdateArtifactInput;
 export type ArtifactWriteResult = { artifactId: string; path: string; fileSha: string; commitSha: string; commitUrl: string; repositoryRevision?: string };
+export type ArtifactProposalResult = { artifactId: string; path: string; branchName: string; commitSha: string; pullRequestNumber: number; pullRequestUrl: string };
 export type CreateVariationResult = { id: string; path: string; fileSha?: string; commitSha?: string; commitUrl?: string; repositoryRevision?: string };
 export type ArtifactWithRevision = { artifact: Artifact; currentFileSha: string };
 
@@ -34,6 +37,7 @@ export interface ArtifactRepository {
   findByIdWithRevision(id: string): Promise<ArtifactWithRevision | undefined>;
   create(input: CreateArtifactInput): Promise<ArtifactWriteResult>;
   update(input: UpdateArtifactInput): Promise<ArtifactWriteResult>;
+  proposeUpdate(input: ProposeArtifactUpdateInput): Promise<ArtifactProposalResult>;
   createVariation(input: CreateVariationInput): Promise<CreateVariationResult>;
 }
 
@@ -203,6 +207,7 @@ export class FileArtifactRepository implements ArtifactRepository {
 
   async create(): Promise<ArtifactWriteResult> { throw new ArtifactRepositoryConfigurationError("Direct artifact writes require the GitHub repository backend."); }
   async update(): Promise<ArtifactWriteResult> { throw new ArtifactRepositoryConfigurationError("Direct artifact writes require the GitHub repository backend."); }
+  async proposeUpdate(): Promise<ArtifactProposalResult> { throw new ArtifactRepositoryConfigurationError("Production proposals require the GitHub repository backend."); }
 
   async createVariation({ source, body, title }: CreateVariationInput): Promise<CreateVariationResult> {
     const { id, metadata } = prepareVariation(source, title);
@@ -234,6 +239,18 @@ export class ArtifactWritePermissionError extends Error { constructor() { super(
 export class ArtifactWriteAuthenticationError extends Error { constructor() { super("GitHub repository authentication failed."); } }
 export class ArtifactNotFoundError extends Error { constructor() { super("Artifact not found."); } }
 export class ArtifactWriteResponseError extends Error { constructor() { super("GitHub returned an invalid write response."); } }
+export class ArtifactProposalCollisionError extends Error { constructor() { super("A proposal branch already exists."); } }
+export class ArtifactProposalPermissionError extends Error { constructor() { super("The GitHub App does not have proposal permission."); } }
+export class ArtifactProposalIncompleteError extends Error {
+  readonly branchName: string;
+  readonly branchUrl: string;
+  constructor(branchName: string, branchUrl: string) { super("The proposal branch exists, but the pull request could not be completed."); this.branchName = branchName; this.branchUrl = branchUrl; }
+}
+
+export function proposalBranchName(artifactId: string, fileSha: string) {
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(artifactId) || artifactId.length > 80 || !/^[a-f0-9]{8,64}$/i.test(fileSha)) throw new ArtifactWriteValidationError();
+  return `artifact-change/${artifactId.toLowerCase()}-${fileSha.slice(0, 8).toLowerCase()}`;
+}
 
 export function getArtifactRepositoryBackend(env = process.env): ArtifactRepositoryBackend {
   const value = env.ARTIFACT_REPOSITORY;
@@ -333,6 +350,72 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     return { id, path: result.path, fileSha: result.fileSha, commitSha: result.commitSha, commitUrl: result.commitUrl, repositoryRevision: result.repositoryRevision };
   }
 
+  async proposeUpdate(input: ProposeArtifactUpdateInput): Promise<ArtifactProposalResult> {
+    if (!/^[A-Za-z0-9-]+$/.test(input.actorLogin)) throw new ArtifactWriteValidationError();
+    const { metadata, markdown } = prepareWrite(input.metadata, input.body);
+    if (metadata.id !== input.id || !input.currentFileSha.trim()) throw new ArtifactWriteValidationError();
+    const branchName = proposalBranchName(input.id, input.currentFileSha);
+
+    const baseRef = await this.githubGet<{ object?: { sha?: string } }>(`/git/ref/heads/${encodeURIComponent(this.branch)}`, "tree");
+    const baseCommitSha = baseRef.object?.sha;
+    if (!baseCommitSha) throw new ArtifactRepositoryContentError();
+    const baseCommit = await this.githubGet<{ tree?: { sha?: string } }>(`/git/commits/${encodeURIComponent(baseCommitSha)}`, "tree");
+    if (!baseCommit.tree?.sha) throw new ArtifactRepositoryContentError();
+    const treeResponse = await this.githubGet<GitHubTreeResponse>(`/git/trees/${encodeURIComponent(baseCommit.tree.sha)}?recursive=1`, "tree");
+    if (!Array.isArray(treeResponse.tree) || treeResponse.truncated) throw new ArtifactRepositoryContentError();
+    const artifacts = await this.artifactsFromTree(treeResponse.tree);
+    const artifact = artifacts.find((candidate) => candidate.id === input.id);
+    if (!artifact) throw new ArtifactNotFoundError();
+    if (validateArtifactPath(artifact.path, this.rootPath)) throw new ArtifactRepositoryContentError();
+    const entry = treeResponse.tree.find((candidate) => candidate.type === "blob" && candidate.path === artifact.path);
+    if (!entry?.sha) throw new ArtifactRepositoryContentError();
+    if (entry.sha !== input.currentFileSha) throw new ArtifactWriteConflictError();
+
+    const existingRef = await this.optionalGitHubGet<{ object?: { sha?: string } }>(`/git/ref/heads/${branchName.split("/").map(encodeURIComponent).join("/")}`);
+    if (existingRef) return this.resolveExistingProposal(input.id, branchName, artifact.path, markdown, existingRef.object?.sha);
+
+    const blob = await this.githubWrite<{ sha?: string }>("/git/blobs", { content: markdown, encoding: "utf-8" });
+    if (!blob.sha) throw new ArtifactWriteResponseError();
+    const tree = await this.githubWrite<{ sha?: string }>("/git/trees", { base_tree: baseCommit.tree.sha, tree: [{ path: artifact.path, mode: "100644", type: "blob", sha: blob.sha }] });
+    if (!tree.sha) throw new ArtifactWriteResponseError();
+    const commit = await this.githubWrite<{ sha?: string }>("/git/commits", { message: `Propose update to artifact ${input.id} (requested by @${input.actorLogin})`, tree: tree.sha, parents: [baseCommitSha] });
+    if (!commit.sha) throw new ArtifactWriteResponseError();
+    await this.githubWrite("/git/refs", { ref: `refs/heads/${branchName}`, sha: commit.sha });
+    try {
+      const pull = await this.createPullRequest(branchName, metadata.title, input, artifact.path);
+      return { artifactId: input.id, path: artifact.path, branchName, commitSha: commit.sha, pullRequestNumber: pull.number, pullRequestUrl: pull.html_url };
+    } catch (error) {
+      if (error instanceof ArtifactProposalPermissionError || error instanceof ArtifactRepositoryUnavailableError || error instanceof ArtifactWriteResponseError) {
+        throw new ArtifactProposalIncompleteError(branchName, this.branchHtmlUrl(branchName));
+      }
+      throw error;
+    }
+  }
+
+  private branchHtmlUrl(branchName: string) { return `https://github.com/${encodeURIComponent(this.config.owner)}/${encodeURIComponent(this.config.repo)}/tree/${branchName.split("/").map(encodeURIComponent).join("/")}`; }
+
+  private async resolveExistingProposal(artifactId: string, branchName: string, artifactPath: string, markdown: string, commitSha?: string): Promise<ArtifactProposalResult> {
+    if (!commitSha) throw new ArtifactProposalCollisionError();
+    const tree = await this.githubGet<GitHubTreeResponse>(`/git/trees/${encodeURIComponent(commitSha)}?recursive=1`, "tree");
+    const entry = tree.tree?.find((candidate) => candidate.type === "blob" && candidate.path === artifactPath);
+    if (!entry?.sha) throw new ArtifactProposalCollisionError();
+    const expectedSha = createHash("sha1").update(`blob ${Buffer.byteLength(markdown)}\0${markdown}`).digest("hex");
+    if (entry.sha !== expectedSha) throw new ArtifactProposalCollisionError();
+    const pulls = await this.githubGet<unknown[]>(`/pulls?state=open&head=${encodeURIComponent(`${this.config.owner}:${branchName}`)}&base=${encodeURIComponent(this.branch)}`, "tree");
+    const parsed = z.array(z.object({ number: z.number().int().positive(), html_url: z.string().url(), head: z.object({ ref: z.string() }), base: z.object({ ref: z.string() }) })).safeParse(pulls);
+    const pull = parsed.success ? parsed.data.find((candidate) => candidate.head.ref === branchName && candidate.base.ref === this.branch) : undefined;
+    if (!pull || !pull.html_url.startsWith("https://github.com/")) throw new ArtifactProposalCollisionError();
+    return { artifactId, path: artifactPath, branchName, commitSha, pullRequestNumber: pull.number, pullRequestUrl: pull.html_url };
+  }
+
+  private async createPullRequest(branchName: string, title: string, input: ProposeArtifactUpdateInput, artifactPath: string) {
+    const body = [`Artifact ID: ${input.id}`, `Artifact path: ${artifactPath}`, `Source file SHA: ${input.currentFileSha}`, `Requested by: @${input.actorLogin}`, "The source branch was generated by Artifact Library.", "Artifact Library will not merge this proposal automatically."].join("\n\n");
+    const value = await this.githubWrite<unknown>("/pulls", { title: `Update artifact: ${title}`, head: branchName, base: this.branch, body });
+    const parsed = z.object({ number: z.number().int().positive(), html_url: z.string().url() }).safeParse(value);
+    if (!parsed.success || !parsed.data.html_url.startsWith("https://github.com/")) throw new ArtifactWriteResponseError();
+    return parsed.data;
+  }
+
   private async createValidatedArtifactAtPath(input: { metadata: ArtifactMetadata; body: string; path: string; actorLogin: string; commitMessage: string }): Promise<ArtifactWriteResult> {
     const { metadata, markdown } = prepareWrite(input.metadata, input.body);
     if (validateArtifactPath(input.path, this.rootPath)) throw new ArtifactWriteValidationError();
@@ -345,6 +428,40 @@ export class GitHubArtifactRepository implements ArtifactRepository {
 
   private githubUrl(pathname: string) {
     return `${githubApiBaseUrl}/repos/${encodeURIComponent(this.config.owner)}/${encodeURIComponent(this.config.repo)}${pathname}`;
+  }
+
+  private githubGet<T>(pathname: string, operation: "tree" | "blob") { return this.githubJson<T>(this.githubUrl(pathname), operation); }
+
+  private async optionalGitHubGet<T>(pathname: string): Promise<T | undefined> {
+    let credential: string;
+    try { credential = await this.credential(); } catch { throw new ArtifactRepositoryUnavailableError(); }
+    let response: Response;
+    try { response = await this.fetchImpl(this.githubUrl(pathname), { headers: { accept: "application/vnd.github+json", authorization: `Bearer ${credential}`, "user-agent": "artifact-dev-toolkit", "x-github-api-version": "2022-11-28" } }); }
+    catch { throw new ArtifactRepositoryUnavailableError(); }
+    if (response.status === 404) { await response.body?.cancel().catch(() => undefined); return undefined; }
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined);
+      if (response.status === 401 || response.status === 403) throw new ArtifactProposalPermissionError();
+      if (response.status === 429 || response.status >= 500) throw new ArtifactRepositoryUnavailableError(response.status);
+      throw new ArtifactWriteResponseError();
+    }
+    try { return await response.json() as T; } catch { throw new ArtifactWriteResponseError(); }
+  }
+
+  private async githubWrite<T = unknown>(pathname: string, body: unknown): Promise<T> {
+    let credential: string;
+    try { credential = await this.credential(); } catch { throw new ArtifactRepositoryUnavailableError(); }
+    let response: Response;
+    try { response = await this.fetchImpl(this.githubUrl(pathname), { method: "POST", headers: { accept: "application/vnd.github+json", authorization: `Bearer ${credential}`, "content-type": "application/json", "user-agent": "artifact-dev-toolkit", "x-github-api-version": "2022-11-28" }, body: JSON.stringify(body) }); }
+    catch { throw new ArtifactRepositoryUnavailableError(); }
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined);
+      if (response.status === 401 || response.status === 403) throw new ArtifactProposalPermissionError();
+      if (response.status === 409 || response.status === 422) throw new ArtifactProposalCollisionError();
+      if (response.status === 429 || response.status >= 500) throw new ArtifactRepositoryUnavailableError(response.status);
+      throw new ArtifactWriteResponseError();
+    }
+    try { return await response.json() as T; } catch { throw new ArtifactWriteResponseError(); }
   }
 
   private artifactPath(metadata: ArtifactMetadata) {

@@ -1,4 +1,4 @@
-import { createArtifactRepository, type Artifact, type ArtifactStatus, type CreateArtifactInput, type UpdateArtifactInput } from "@/lib/artifact-repository";
+import { createArtifactRepository, type Artifact, type ArtifactStatus, type CreateArtifactInput, type UpdateArtifactInput, type ProposeArtifactUpdateInput } from "@/lib/artifact-repository";
 import type { RepositoryAccessContext } from "@/lib/repository-authorization";
 
 export type { Artifact, ArtifactStatus };
@@ -30,4 +30,8 @@ export async function createArtifact(access: RepositoryAccessContext, input: Cre
 
 export async function updateArtifact(access: RepositoryAccessContext, input: UpdateArtifactInput) {
   return getRepository(access).update(input);
+}
+
+export async function proposeArtifactUpdate(access: RepositoryAccessContext, input: ProposeArtifactUpdateInput) {
+  return getRepository(access).proposeUpdate(input);
 }

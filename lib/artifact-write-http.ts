@@ -4,11 +4,15 @@ import {
   ArtifactRepositoryUnavailableError, ArtifactSecretRejectedError, ArtifactWriteAuthenticationError,
   ArtifactWriteConflictError, ArtifactWritePermissionError, ArtifactWriteValidationError,
   ArtifactWriteTooLargeError,
+  ArtifactProposalCollisionError, ArtifactProposalIncompleteError, ArtifactProposalPermissionError,
 } from "./artifact-repository.ts";
 
 function json(body: unknown, status: number) { return Response.json(body, { status, headers: noStoreHeaders }); }
 
 export function artifactWriteErrorResponse(error: unknown) {
+  if (error instanceof ArtifactProposalPermissionError) return json({ error: "GitHub App proposal permission is required", code: "proposal_permission_required" }, 403);
+  if (error instanceof ArtifactProposalCollisionError) return json({ error: "A proposal branch already exists", code: "proposal_branch_collision" }, 409);
+  if (error instanceof ArtifactProposalIncompleteError) return json({ error: "The proposal branch exists but the pull request was not completed", code: "proposal_incomplete", branchName: error.branchName, branchUrl: error.branchUrl }, 502);
   if (error instanceof ArtifactWriteTooLargeError) return json({ error: "Artifact exceeds the maximum allowed size", code: "artifact_too_large" }, 413);
   if (error instanceof ArtifactWriteValidationError) return json({ error: "Artifact input is invalid", code: "validation_failed" }, 400);
   if (error instanceof ArtifactSecretRejectedError) return json({ error: "Artifact content failed the secret safety check", code: "secret_rejected" }, 400);
