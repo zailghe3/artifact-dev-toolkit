@@ -234,13 +234,15 @@ Protected artifact APIs return private, no-store `401` JSON responses for unauth
 
 ### 6.1 Repository abstraction
 
-All artifact reads and variation writes shall use the `ArtifactRepository` interface.
+All artifact reads and writes shall use the `ArtifactRepository` interface.
 
 The interface currently provides:
 
 ```ts
 list(): Promise<Artifact[]>
 findById(id: string): Promise<Artifact | undefined>
+create(input: CreateArtifactInput): Promise<ArtifactWriteResult>
+update(input: UpdateArtifactInput): Promise<ArtifactWriteResult>
 createVariation(input: CreateVariationInput): Promise<string>
 ```
 
@@ -290,7 +292,7 @@ Setting:
 ARTIFACT_REPOSITORY=github
 ```
 
-selects `GitHubArtifactRepository` for runtime reads. The backend requires server-side configuration only:
+selects `GitHubArtifactRepository` for runtime reads and direct artifact writes. The backend requires server-side configuration only:
 
 ```text
 GITHUB_ARTIFACT_REPOSITORY_OWNER=<repository-owner>
@@ -303,7 +305,9 @@ GITHUB_ARTIFACT_REPOSITORY_ROOT=artifacts   # optional; defaults to artifacts
 
 The repository uses the Git Trees and Blobs APIs and the canonical DATA-001 parser. A valid tree with no compatible Markdown returns the genuine empty state. Configuration errors, temporary GitHub failures, truncated trees, malformed content, duplicate IDs, unsupported encodings, and oversized blobs fail closed and produce safe browser/API responses rather than an empty library. Structured logs contain only repository identifiers, counts, timing/status categories, and stable event names—never credentials, sessions, bodies, or full GitHub payloads. DATA-003 caching remains deferred until this read path is operationally stable.
 
-The GitHub backend is read-only in the current implementation. `createVariation()` validates submitted content for secret-like values and then fails with an explicit read-only error because creating or editing artifacts in GitHub is outside DATA-002 scope.
+The GitHub backend supports canonical artifact creation and optimistic-concurrency updates through the Contents API. Creates reject duplicate paths and globally duplicate IDs; updates require the caller's current file SHA and reject stale revisions. Successful writes return the path, file SHA, commit SHA, commit URL, and latest known repository revision. Writes do not depend on a catalogue cache.
+
+`createVariation()` remains unsupported by the GitHub backend. The existing production variation form therefore remains unable to persist a variation until the variation workflow adopts the direct write primitives.
 
 ### 6.5 Hosted deployment limitation
 
@@ -440,7 +444,6 @@ The following capabilities are not part of the current application:
 - promoting a variation to production;
 - comparing or merging variations;
 - durable variation writes on Cloudflare Workers;
-- GitHub-backed artifact writes;
 - multiple users or collaboration;
 - favourites, recent items, or usage history;
 - filtering or sorting controls in the UI;
@@ -449,7 +452,6 @@ The following capabilities are not part of the current application:
 - artifact version history within the application;
 - agents that execute actions;
 - API integrations with Copilot, ChatGPT, Outlook, Teams, or PowerPoint;
-- GitHub-backed artifact writes;
 - automated tests beyond the currently included Node test suite, type checking, and production build validation.
 
 ## 13. Baseline acceptance criteria
@@ -488,7 +490,7 @@ Local development and builds without generated deployment metadata display `Deve
 
 ## Remediated AUTH-002/DATA-002 runtime contract
 
-Authentication is implemented with a GitHub App web application flow. The required server-side configuration is `GITHUB_APP_ID`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_TOKEN_ENCRYPTION_KEY`, `GITHUB_ARTIFACT_REPOSITORY_OWNER`, and `GITHUB_ARTIFACT_REPOSITORY_NAME`, with optional branch, root, and login allowlist variables. The callback URL is `/auth/github/callback`. The GitHub App is installed on the selected artifact repository and requires only Metadata read-only and Contents read-only permissions. The runtime does not use `GITHUB_ARTIFACT_REPOSITORY_TOKEN` or traditional OAuth App credentials.
+Authentication is implemented with a GitHub App web application flow. The required server-side configuration is `GITHUB_APP_ID`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_TOKEN_ENCRYPTION_KEY`, `GITHUB_ARTIFACT_REPOSITORY_OWNER`, and `GITHUB_ARTIFACT_REPOSITORY_NAME`, with optional branch, root, and login allowlist variables. The callback URL is `/auth/github/callback`. The GitHub App is installed on the selected artifact repository and requires Metadata read-only and Contents read and write permissions. Existing installations may require administrator approval after the Contents permission change. The runtime does not use `GITHUB_ARTIFACT_REPOSITORY_TOKEN` or traditional OAuth App credentials.
 
 OAuth state and S256 PKCE are validated for sign-in, no `repo` scope is requested, user access tokens are encrypted server-side with AES-GCM, and local sessions expire no later than the GitHub user token. The repository-authorisation decision is stored explicitly as `authorized` or `denied`, includes the configured owner/name, immutable repository ID, installation ID, and check time, and is refreshed after seven minutes. Stale, mismatched, revoked, unavailable, or denied repository access fails closed before any artifact repository method runs.
 

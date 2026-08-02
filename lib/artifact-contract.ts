@@ -30,6 +30,24 @@ export function normalizeArtifactMetadata(input: unknown): ArtifactMetadata {
   return { ...data, createdAt: data.createdAt instanceof Date ? data.createdAt.toISOString() : data.createdAt };
 }
 
+/** Serialize the complete, validated artifact in the repository's canonical format. */
+export function serializeArtifactMarkdown(metadata: unknown, body: string): string {
+  const data = normalizeArtifactMetadata(metadata);
+  const markdown = matter.stringify(`${body.trim()}\n`, {
+    id: data.id,
+    title: data.title,
+    type: data.type,
+    status: data.status,
+    tags: data.tags,
+    aliases: data.aliases,
+    ...(data.sourceId ? { sourceId: data.sourceId } : {}),
+    ...(data.createdAt ? { createdAt: data.createdAt } : {}),
+  });
+  // Parsing the serialized result keeps writes and repository reads on one contract.
+  parseArtifactMarkdown(markdown, "artifact.md");
+  return markdown;
+}
+
 export function formatZodIssue(issue: z.ZodIssue) {
   const field = issue.path.length > 0 ? issue.path.join(".") : "front matter";
   return `${field}: ${issue.message}`;
