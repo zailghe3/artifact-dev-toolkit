@@ -25,6 +25,7 @@ export type CreateVariationInput = {
 export type CreateArtifactInput = { metadata: ArtifactMetadata; body: string; actorLogin: string };
 export type UpdateArtifactInput = { id: string; metadata: ArtifactMetadata; body: string; currentFileSha: string; actorLogin: string };
 export type ArtifactWriteResult = { artifactId: string; path: string; fileSha: string; commitSha: string; commitUrl: string; repositoryRevision?: string };
+export type CreateVariationResult = { id: string; path: string; fileSha?: string; commitSha?: string; commitUrl?: string; repositoryRevision?: string };
 export type ArtifactWithRevision = { artifact: Artifact; currentFileSha: string };
 
 export interface ArtifactRepository {
@@ -33,7 +34,7 @@ export interface ArtifactRepository {
   findByIdWithRevision(id: string): Promise<ArtifactWithRevision | undefined>;
   create(input: CreateArtifactInput): Promise<ArtifactWriteResult>;
   update(input: UpdateArtifactInput): Promise<ArtifactWriteResult>;
-  createVariation(input: CreateVariationInput): Promise<string>;
+  createVariation(input: CreateVariationInput): Promise<CreateVariationResult>;
 }
 
 type GitHubTreeEntry = {
@@ -65,6 +66,8 @@ export type GitHubArtifactRepositoryConfig = {
   fetch?: typeof fetch;
   sleep?: (milliseconds: number) => Promise<void>;
   logger?: Pick<Console, "info" | "error">;
+  now?: () => Date;
+  randomBytes?: (length: number) => Uint8Array;
 };
 
 async function mapWithConcurrency<T, U>(values: readonly T[], concurrency: number, mapper: (value: T, index: number) => Promise<U>): Promise<U[]> {
@@ -139,23 +142,31 @@ export function slugify(value: string) {
     .slice(0, 80);
 }
 
-function prepareVariation(source: Artifact, body: string, title?: string) {
-  const timestamp = new Date().toISOString();
+type VariationGeneration = { now: () => Date; randomBytes: (length: number) => Uint8Array };
+
+function secureRandomBytes(length: number) {
+  return crypto.getRandomValues(new Uint8Array(length));
+}
+
+export function prepareVariation(source: Artifact, title: string | undefined, generation: VariationGeneration = { now: () => new Date(), randomBytes: secureRandomBytes }) {
+  const timestamp = generation.now().toISOString();
   const variationTitle = title?.trim() || `${source.title} Variation`;
-  const idBase = slugify(title || `${source.id} variation`);
+  const idBase = slugify(variationTitle) || slugify(`${source.id} variation`);
   if (!idBase) throw new ArtifactWriteValidationError();
-  const id = `${idBase}-${timestamp.slice(0, 10)}-${timestamp.slice(11, 19).replace(/:/g, "")}`;
+  const suffix = Array.from(generation.randomBytes(4), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  if (!/^[a-f0-9]{8}$/.test(suffix)) throw new ArtifactWriteValidationError();
+  const id = `${idBase}-${timestamp.slice(0, 10)}-${timestamp.slice(11, 19).replace(/:/g, "")}-${suffix}`;
   const metadata: ArtifactMetadata = {
     id,
     title: variationTitle,
     type: source.type,
     status: "draft",
     tags: Array.from(new Set([...source.tags, "variation"])),
-    aliases: source.aliases,
+    aliases: [...source.aliases],
     sourceId: source.id,
     createdAt: timestamp,
   };
-  return { id, metadata, markdown: prepareWrite(metadata, body).markdown };
+  return { id, metadata };
 }
 
 export class FileArtifactRepository implements ArtifactRepository {
@@ -193,12 +204,15 @@ export class FileArtifactRepository implements ArtifactRepository {
   async create(): Promise<ArtifactWriteResult> { throw new ArtifactRepositoryConfigurationError("Direct artifact writes require the GitHub repository backend."); }
   async update(): Promise<ArtifactWriteResult> { throw new ArtifactRepositoryConfigurationError("Direct artifact writes require the GitHub repository backend."); }
 
-  async createVariation({ source, body, title }: CreateVariationInput) {
-    const { id, markdown } = prepareVariation(source, body, title);
+  async createVariation({ source, body, title }: CreateVariationInput): Promise<CreateVariationResult> {
+    const { id, metadata } = prepareVariation(source, title);
+    const { markdown } = prepareWrite(metadata, body.trim());
     const filePath = path.join(this.rootDir, "variations", `${id}.md`);
+    if ((await this.list()).some((artifact) => artifact.id === id || path.resolve(artifact.path) === path.resolve(filePath))) throw new ArtifactDuplicateError();
     await fs.mkdir(path.dirname(filePath), { recursive: true });
-    await fs.writeFile(filePath, markdown, "utf8");
-    return id;
+    try { await fs.writeFile(filePath, markdown, { encoding: "utf8", flag: "wx" }); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new ArtifactDuplicateError(); throw error; }
+    return { id, path: filePath.split(path.sep).join("/") };
   }
 }
 
@@ -236,6 +250,7 @@ export class GitHubArtifactRepository implements ArtifactRepository {
   private readonly fetchImpl: typeof fetch;
   private readonly sleep: (milliseconds: number) => Promise<void>;
   private readonly logger: Pick<Console, "info" | "error">;
+  private readonly variationGeneration: VariationGeneration;
   private credentialPromise?: Promise<string>;
   private readonly config: GitHubArtifactRepositoryConfig;
 
@@ -246,6 +261,7 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     this.fetchImpl = config.fetch ?? fetch;
     this.sleep = config.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
     this.logger = config.logger ?? console;
+    this.variationGeneration = { now: config.now ?? (() => new Date()), randomBytes: config.randomBytes ?? secureRandomBytes };
   }
 
   async list(): Promise<Artifact[]> {
@@ -291,13 +307,7 @@ export class GitHubArtifactRepository implements ArtifactRepository {
 
   async create(input: CreateArtifactInput): Promise<ArtifactWriteResult> {
     if (!/^[A-Za-z0-9-]+$/.test(input.actorLogin)) throw new ArtifactWriteValidationError();
-    const { metadata, markdown } = prepareWrite(input.metadata, input.body);
-    const path = this.artifactPath(metadata);
-    const tree = await this.fetchTree();
-    if (tree.some((entry) => entry.type === "blob" && entry.path === path)) throw new ArtifactDuplicateError();
-    const artifacts = await this.artifactsFromTree(tree);
-    if (artifacts.some((artifact) => artifact.id === metadata.id)) throw new ArtifactDuplicateError();
-    return this.writeContents(path, metadata.id, markdown, input.actorLogin, undefined);
+    return this.createValidatedArtifactAtPath({ metadata: input.metadata, body: input.body, path: this.artifactPath(input.metadata), actorLogin: input.actorLogin, commitMessage: `Create artifact ${input.metadata.id} (requested by @${input.actorLogin})` });
   }
 
   async update(input: UpdateArtifactInput): Promise<ArtifactWriteResult> {
@@ -312,19 +322,25 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     if (!entry?.sha) throw new ArtifactWriteResponseError();
     if (entry.sha !== input.currentFileSha) throw new ArtifactWriteConflictError();
     if (validateArtifactPath(artifact.path, this.rootPath)) throw new ArtifactRepositoryContentError();
-    return this.writeContents(artifact.path, metadata.id, markdown, input.actorLogin, input.currentFileSha);
+    return this.writeContents(artifact.path, metadata.id, markdown, `Update artifact ${metadata.id} (requested by @${input.actorLogin})`, input.currentFileSha);
   }
 
-  async createVariation(input: CreateVariationInput): Promise<string> {
+  async createVariation(input: CreateVariationInput): Promise<CreateVariationResult> {
     if (!/^[A-Za-z0-9-]+$/.test(input.actorLogin)) throw new ArtifactWriteValidationError();
-    const { id, markdown } = prepareVariation(input.source, input.body, input.title);
+    const { id, metadata } = prepareVariation(input.source, input.title, this.variationGeneration);
     const path = `${this.rootPath}/variations/${id}.md`;
+    const result = await this.createValidatedArtifactAtPath({ metadata, body: input.body.trim(), path, actorLogin: input.actorLogin, commitMessage: `Create variation ${id} from ${input.source.id} (requested by @${input.actorLogin})` });
+    return { id, path: result.path, fileSha: result.fileSha, commitSha: result.commitSha, commitUrl: result.commitUrl, repositoryRevision: result.repositoryRevision };
+  }
+
+  private async createValidatedArtifactAtPath(input: { metadata: ArtifactMetadata; body: string; path: string; actorLogin: string; commitMessage: string }): Promise<ArtifactWriteResult> {
+    const { metadata, markdown } = prepareWrite(input.metadata, input.body);
+    if (validateArtifactPath(input.path, this.rootPath)) throw new ArtifactWriteValidationError();
     const tree = await this.fetchTree();
-    if (tree.some((entry) => entry.type === "blob" && entry.path === path)) throw new ArtifactDuplicateError();
+    if (tree.some((entry) => entry.type === "blob" && entry.path === input.path)) throw new ArtifactDuplicateError();
     const artifacts = await this.artifactsFromTree(tree);
-    if (artifacts.some((artifact) => artifact.id === id)) throw new ArtifactDuplicateError();
-    await this.writeContents(path, id, markdown, input.actorLogin, undefined);
-    return id;
+    if (artifacts.some((artifact) => artifact.id === metadata.id)) throw new ArtifactDuplicateError();
+    return this.writeContents(input.path, metadata.id, markdown, input.commitMessage, undefined);
   }
 
   private githubUrl(pathname: string) {
@@ -347,7 +363,7 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     return artifacts;
   }
 
-  private async writeContents(filePath: string, artifactId: string, markdown: string, actorLogin: string, sha?: string): Promise<ArtifactWriteResult> {
+  private async writeContents(filePath: string, artifactId: string, markdown: string, commitMessage: string, sha?: string): Promise<ArtifactWriteResult> {
     let credential: string;
     try { credential = await this.credential(); }
     catch (error) {
@@ -361,7 +377,7 @@ export class GitHubArtifactRepository implements ArtifactRepository {
       response = await this.fetchImpl(this.githubUrl(`/contents/${filePath.split("/").map(encodeURIComponent).join("/")}`), {
         method: "PUT",
         headers: { accept: "application/vnd.github+json", authorization: `Bearer ${credential}`, "content-type": "application/json", "user-agent": "artifact-dev-toolkit", "x-github-api-version": "2022-11-28" },
-        body: JSON.stringify({ message: `${sha ? "Update" : "Create"} artifact ${artifactId} (requested by @${actorLogin})`, content: Buffer.from(markdown).toString("base64"), branch: this.branch, ...(sha ? { sha } : {}) }),
+        body: JSON.stringify({ message: commitMessage, content: Buffer.from(markdown).toString("base64"), branch: this.branch, ...(sha ? { sha } : {}) }),
       });
     } catch { throw new ArtifactRepositoryUnavailableError(); }
     if (!response.ok) {

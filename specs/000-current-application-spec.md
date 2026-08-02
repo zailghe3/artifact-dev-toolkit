@@ -197,17 +197,17 @@ On save, the application shall:
 9. retain the source tags and add the `variation` tag;
 10. set `sourceId` to the original artifact ID;
 11. set `createdAt` to the current ISO-8601 timestamp;
-12. generate a unique ID from the title and timestamp;
+12. generate a unique ID from the title, timestamp, and a cryptographically random suffix;
 13. save the file under `artifacts/variations/`;
 14. redirect the user to the newly created artifact.
 
 A generated variation ID follows the current pattern:
 
 ```text
-{slugified-title}-{YYYY-MM-DD}-{HHMMSS}
+{slugified-title}-{YYYY-MM-DD}-{HHMMSS}-{8-hex-character-random-suffix}
 ```
 
-The title slug is lowercase, uses hyphens for non-alphanumeric sequences, and is limited to 80 characters before the timestamp is appended.
+The title slug is lowercase, uses hyphens for non-alphanumeric sequences, and is limited to 80 characters before the timestamp and collision-resistant suffix are appended.
 
 ### 5.6 Secret detection
 
@@ -244,7 +244,7 @@ findById(id: string): Promise<Artifact | undefined>
 findByIdWithRevision(id: string): Promise<{ artifact: Artifact; currentFileSha: string } | undefined>
 create(input: CreateArtifactInput): Promise<ArtifactWriteResult>
 update(input: UpdateArtifactInput): Promise<ArtifactWriteResult>
-createVariation(input: CreateVariationInput): Promise<string>
+createVariation(input: CreateVariationInput): Promise<CreateVariationResult>
 ```
 
 ### 6.2 File repository
@@ -310,7 +310,7 @@ The GitHub backend supports canonical artifact creation and optimistic-concurren
 
 Reads and writes share a 1 MiB maximum for the UTF-8 byte size of the complete serialized Markdown artifact. Writes validate the final canonical Markdown before issuing a Contents API request and return the stable `artifact_too_large` error when it exceeds that limit.
 
-`createVariation()` uses the shared direct-write foundation to persist a new draft beneath `artifacts/variations/` on the configured branch. The authenticated GitHub login is included in the commit message for request attribution. Broader branch, pull-request, and preview workflows tracked by issue #40 remain outside this direct-creation flow.
+`createVariation()` uses the shared canonical serialization, size validation, secret scanning, path validation, duplicate detection, installation credentials, and single-attempt Contents API write primitive to persist a new draft beneath `artifacts/variations/` on the configured branch. Variations preserve the source type, aliases, and `sourceId` without changing the source artifact. The authenticated GitHub login is included only in the safe commit message for request attribution. Successful API responses contain the generated ID and path plus safe file SHA, commit SHA, commit URL, and repository revision when provided by GitHub. Typed write failures are mapped to safe status/code responses and actionable form messages. Broader branch, pull-request, and preview workflows tracked by issue #40 remain outside this direct-creation flow.
 
 ### 6.5 Hosted variation persistence
 
@@ -442,7 +442,7 @@ The following capabilities are not part of the current application:
 - editing or deleting an existing artifact;
 - promoting a variation to production;
 - comparing or merging variations;
-- durable variation writes on Cloudflare Workers;
+- branch, pull-request, and preview-based production change proposals;
 - multiple users or collaboration;
 - favourites, recent items, or usage history;
 - filtering or sorting controls in the UI;
@@ -466,7 +466,7 @@ The current application is considered operational when:
 7. artifact cards open their detail pages;
 8. Markdown bodies render on detail pages;
 9. copy places the source Markdown body on the clipboard;
-10. local variation creation writes a valid Markdown file and opens the new artifact;
+10. variation creation writes a valid direct draft commit to `artifacts/variations/` and opens the new artifact;
 11. secret-like variation content is rejected;
 12. unauthenticated visitors are redirected away from protected pages and receive `401` responses from protected APIs;
 13. GitHub OAuth callbacks validate state before creating a session;

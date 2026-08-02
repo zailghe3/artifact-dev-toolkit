@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { unknownVariationErrorMessage, variationErrorMessage } from "@/lib/variation-errors";
 
 export function VariationForm({ artifactId, defaultBody, defaultTitle }: { artifactId: string; defaultBody: string; defaultTitle: string }) {
   const router = useRouter();
@@ -11,31 +12,41 @@ export function VariationForm({ artifactId, defaultBody, defaultTitle }: { artif
   const [message, setMessage] = useState("");
 
   async function saveVariation() {
+    if (saving) return;
     setSaving(true);
     setMessage("");
-    const response = await fetch(`/api/artifacts/${artifactId}/variation`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title, body }),
-    });
-    setSaving(false);
-
-    if (!response.ok) {
-      setMessage("Could not save variation. Check the body and try again.");
-      return;
+    try {
+      const response = await fetch(`/api/artifacts/${artifactId}/variation`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, body }),
+      });
+      let data: unknown;
+      try { data = await response.json(); } catch { data = undefined; }
+      if (!response.ok) {
+        setMessage(variationErrorMessage((data as { code?: unknown } | undefined)?.code));
+        return;
+      }
+      const id = (data as { id?: unknown } | undefined)?.id;
+      if (response.status !== 201 || typeof id !== "string" || !id) {
+        setMessage(unknownVariationErrorMessage);
+        return;
+      }
+      router.push(`/artifacts/${id}`);
+      router.refresh();
+    } catch {
+      setMessage(unknownVariationErrorMessage);
+    } finally {
+      setSaving(false);
     }
-
-    const data = (await response.json()) as { id: string };
-    setMessage("Variation saved under /artifacts/variations.");
-    router.refresh();
-    router.push(`/artifacts/${data.id}`);
   }
 
   return (
     <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-soft dark:border-slate-800 dark:bg-slate-900">
       <div className="mb-4">
         <p className="text-sm font-semibold uppercase tracking-[0.25em] text-sky-700 dark:text-orange-300">Create variation</p>
-        <h2 className="text-2xl font-bold text-slate-950 dark:text-slate-50">Fork this artifact locally</h2>
+        <h2 className="text-2xl font-bold text-slate-950 dark:text-slate-50">Create a draft variation</h2>
+        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Save a direct draft commit to the private artifact repository.</p>
       </div>
       <label className="mb-3 block text-sm font-semibold text-slate-700 dark:text-slate-200">
         Title
@@ -47,7 +58,7 @@ export function VariationForm({ artifactId, defaultBody, defaultTitle }: { artif
       </label>
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <button disabled={saving} onClick={saveVariation} className="rounded-xl bg-sky-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-700 focus:outline-none focus:ring-4 focus:ring-sky-200 disabled:opacity-60 dark:bg-orange-500 dark:text-slate-950 dark:hover:bg-orange-400 dark:focus:ring-orange-500/35">
-          {saving ? "Saving..." : "Save as new Markdown file"}
+          {saving ? "Saving..." : "Save draft variation"}
         </button>
         {message ? <p className="text-sm text-slate-600 dark:text-slate-300">{message}</p> : null}
       </div>
