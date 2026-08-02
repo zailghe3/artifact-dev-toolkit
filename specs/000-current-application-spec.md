@@ -241,6 +241,7 @@ The interface currently provides:
 ```ts
 list(): Promise<Artifact[]>
 findById(id: string): Promise<Artifact | undefined>
+findByIdWithRevision(id: string): Promise<{ artifact: Artifact; currentFileSha: string } | undefined>
 create(input: CreateArtifactInput): Promise<ArtifactWriteResult>
 update(input: UpdateArtifactInput): Promise<ArtifactWriteResult>
 createVariation(input: CreateVariationInput): Promise<string>
@@ -305,9 +306,11 @@ GITHUB_ARTIFACT_REPOSITORY_ROOT=artifacts   # optional; defaults to artifacts
 
 The repository uses the Git Trees and Blobs APIs and the canonical DATA-001 parser. A valid tree with no compatible Markdown returns the genuine empty state. Configuration errors, temporary GitHub failures, truncated trees, malformed content, duplicate IDs, unsupported encodings, and oversized blobs fail closed and produce safe browser/API responses rather than an empty library. Structured logs contain only repository identifiers, counts, timing/status categories, and stable event names—never credentials, sessions, bodies, or full GitHub payloads. DATA-003 caching remains deferred until this read path is operationally stable.
 
-The GitHub backend supports canonical artifact creation and optimistic-concurrency updates through the Contents API. Creates reject duplicate paths and globally duplicate IDs; updates require the caller's current file SHA and reject stale revisions. Successful writes return the path, file SHA, commit SHA, commit URL, and latest known repository revision. Writes do not depend on a catalogue cache.
+The GitHub backend supports canonical artifact creation and optimistic-concurrency updates through the Contents API. Creation uses the canonical `{root}/{type-directory}/{id}.md` path and rejects duplicate paths and globally duplicate IDs. Updates require the caller's current file SHA, reject stale revisions, and preserve the valid existing repository path, including nested paths; metadata changes never implicitly rename or move a file. The authenticated `GET /api/artifacts/{id}` detail endpoint returns the artifact together with its matching tree-entry SHA as `currentFileSha`, using private, no-store responses, so clients can safely submit an update. Successful writes return the path, file SHA, commit SHA, commit URL, and latest known repository revision. Writes do not depend on a catalogue cache.
 
-`createVariation()` remains unsupported by the GitHub backend. The existing production variation form therefore remains unable to persist a variation until the variation workflow adopts the direct write primitives.
+Reads and writes share a 1 MiB maximum for the UTF-8 byte size of the complete serialized Markdown artifact. Writes validate the final canonical Markdown before issuing a Contents API request and return the stable `artifact_too_large` error when it exceeds that limit.
+
+`createVariation()` remains unsupported by the GitHub backend. The existing production variation form therefore remains unable to persist a variation until the variation workflow in issue #40 adopts the direct write primitives.
 
 ### 6.5 Hosted deployment limitation
 

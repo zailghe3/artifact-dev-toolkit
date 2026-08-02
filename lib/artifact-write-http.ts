@@ -4,9 +4,11 @@ import {
   ArtifactDuplicateError, ArtifactNotFoundError, ArtifactRepositoryConfigurationError,
   ArtifactRepositoryUnavailableError, ArtifactSecretRejectedError, ArtifactWriteAuthenticationError,
   ArtifactWriteConflictError, ArtifactWritePermissionError, ArtifactWriteValidationError,
+  ArtifactWriteTooLargeError,
 } from "@/lib/artifact-repository";
 
 export function artifactWriteErrorResponse(error: unknown) {
+  if (error instanceof ArtifactWriteTooLargeError) return NextResponse.json({ error: "Artifact exceeds the maximum allowed size", code: "artifact_too_large" }, { status: 413, headers: noStoreHeaders });
   if (error instanceof ArtifactWriteValidationError) return NextResponse.json({ error: "Artifact input is invalid", code: "validation_failed" }, { status: 400, headers: noStoreHeaders });
   if (error instanceof ArtifactSecretRejectedError) return NextResponse.json({ error: "Artifact content failed the secret safety check", code: "secret_rejected" }, { status: 400, headers: noStoreHeaders });
   if (error instanceof ArtifactWriteAuthenticationError) return NextResponse.json({ error: "GitHub repository authentication failed", code: "repository_authentication_failed" }, { status: 401, headers: noStoreHeaders });

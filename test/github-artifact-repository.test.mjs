@@ -112,6 +112,31 @@ aliases: []
   assert.equal(artifact?.title, 'Wanted');
 });
 
+test('findByIdWithRevision returns the matching nested tree-entry SHA', async () => {
+  const fetch = createFetch({
+    'artifacts/prompts/client-a/custom.md': markdown(`
+id: wanted
+title: Wanted
+type: prompt
+status: production
+tags: []
+aliases: []
+`),
+  });
+  const result = await repository(fetch).findByIdWithRevision('wanted');
+  assert.equal(result?.artifact.path, 'artifacts/prompts/client-a/custom.md');
+  assert.equal(result?.currentFileSha, 'sha-1');
+  assert.equal(await repository(createFetch({})).findByIdWithRevision('missing'), undefined);
+});
+
+test('findByIdWithRevision fails closed when the matching tree SHA is missing', async () => {
+  const source = markdown(`id: wanted\ntitle: Wanted\ntype: prompt\nstatus: draft\ntags: []\naliases: []`);
+  const fetch = async (url) => new URL(String(url)).pathname.endsWith('/git/trees/main')
+    ? jsonResponse({ truncated: false, tree: [{ path: 'artifacts/prompts/a.md', type: 'blob' }] })
+    : jsonResponse({ encoding: 'base64', size: Buffer.byteLength(source), content: base64(source) });
+  await assert.rejects(repository(fetch).findByIdWithRevision('wanted'), ArtifactRepositoryContentError);
+});
+
 test('GitHubArtifactRepository preserves a genuine empty repository as an empty list', async () => {
   const fetch = createFetch({ 'README.md': '# ignored' });
 

@@ -1,10 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  ArtifactDuplicateError, ArtifactRepositoryUnavailableError, ArtifactSecretRejectedError,
+  ArtifactDuplicateError, ArtifactRepositoryContentError, ArtifactRepositoryUnavailableError, ArtifactSecretRejectedError,
   ArtifactWriteConflictError, ArtifactWritePermissionError, ArtifactWriteResponseError,
   ArtifactWriteValidationError, GitHubArtifactRepository,
+  ArtifactWriteTooLargeError,
 } from '../lib/artifact-repository.ts';
+import { MAX_SERIALIZED_ARTIFACT_BYTES, serializeArtifactMarkdown } from '../lib/artifact-contract.ts';
 
 const metadata = { id: 'new-prompt', title: 'New Prompt', type: 'prompt', status: 'draft', tags: ['writing'], aliases: [] };
 const existingMarkdown = `---\nid: new-prompt\ntitle: New Prompt\ntype: prompt\nstatus: draft\ntags: [writing]\naliases: []\n---\n\nOld body\n`;
@@ -22,7 +24,8 @@ function fake({ files = {}, writeStatus = 200, writeValue } = {}) {
       const content = entries[index][1];
       return json({ encoding: 'base64', size: Buffer.byteLength(content), content: Buffer.from(content).toString('base64') });
     }
-    return json(writeValue ?? { content: { path: 'artifacts/prompts/new-prompt.md', sha: 'new-blob' }, commit: { sha: 'commit-1', html_url: 'https://github.example/commit/1' } }, writeStatus);
+    const requestedPath = decodeURIComponent(pathname.split('/contents/')[1]);
+    return json(writeValue ?? { content: { path: requestedPath, sha: 'new-blob' }, commit: { sha: 'commit-1', html_url: 'https://github.example/commit/1' } }, writeStatus);
   };
   return { calls, repository: new GitHubArtifactRepository({ owner: 'owner', repo: 'repo', branch: 'main', rootPath: 'artifacts', credentialProvider: async () => 'installation-secret', fetch, sleep: async () => {}, logger: { info() {}, error() {} } }) };
 }
@@ -88,4 +91,57 @@ test('write failures preserve permission, conflict, and temporary classification
 test('malformed successful write responses fail closed', async () => {
   const runtime = fake({ writeValue: { content: {}, commit: {} } });
   await assert.rejects(runtime.repository.create({ metadata, body: 'Body', actorLogin: 'octocat' }), ArtifactWriteResponseError);
+});
+
+function bodyAtMost(limit, character = 'a') {
+  const overhead = Buffer.byteLength(serializeArtifactMarkdown(metadata, 'x')) - Buffer.byteLength('x');
+  return character.repeat(Math.floor((limit - overhead) / Buffer.byteLength(character)));
+}
+
+test('create and update enforce the shared serialized UTF-8 byte limit before writing', async () => {
+  const allowed = bodyAtMost(MAX_SERIALIZED_ARTIFACT_BYTES);
+  const createRuntime = fake();
+  await createRuntime.repository.create({ metadata, body: allowed, actorLogin: 'octocat' });
+  assert.equal(createRuntime.calls.filter((call) => call.options.method === 'PUT').length, 1);
+
+  for (const operation of ['create', 'update']) {
+    const runtime = fake({ files: operation === 'update' ? { 'artifacts/prompts/new-prompt.md': existingMarkdown } : {} });
+    const input = { metadata, body: `${allowed}é`, actorLogin: 'octocat', ...(operation === 'update' ? { id: metadata.id, currentFileSha: 'blob-0' } : {}) };
+    await assert.rejects(runtime.repository[operation](input), ArtifactWriteTooLargeError);
+    assert.equal(runtime.calls.some((call) => call.options.method === 'PUT'), false);
+  }
+});
+
+test('multibyte content is limited by UTF-8 bytes rather than JavaScript length', async () => {
+  const runtime = fake();
+  const body = bodyAtMost(MAX_SERIALIZED_ARTIFACT_BYTES, 'é') + 'é';
+  assert.ok(body.length < MAX_SERIALIZED_ARTIFACT_BYTES);
+  await assert.rejects(runtime.repository.create({ metadata, body, actorLogin: 'octocat' }), ArtifactWriteTooLargeError);
+  assert.equal(runtime.calls.length, 0);
+});
+
+test('update preserves a valid nested path and does not move it when metadata changes', async () => {
+  const nested = 'artifacts/prompts/client-a/custom.md';
+  const runtime = fake({ files: { [nested]: existingMarkdown } });
+  await runtime.repository.update({ id: metadata.id, metadata: { ...metadata, type: 'template', title: 'Changed' }, body: 'Updated', currentFileSha: 'blob-0', actorLogin: 'octocat' });
+  const write = runtime.calls.find((call) => call.options.method === 'PUT');
+  assert.ok(write.url.endsWith('/contents/artifacts/prompts/client-a/custom.md'));
+  assert.equal(write.url.includes('/templates/new-prompt.md'), false);
+  assert.equal(JSON.parse(write.options.body).sha, 'blob-0');
+});
+
+test('update rejects an artifact ID change before writing', async () => {
+  const runtime = fake({ files: { 'artifacts/prompts/client-a/custom.md': existingMarkdown } });
+  await assert.rejects(runtime.repository.update({ id: metadata.id, metadata: { ...metadata, id: 'renamed' }, body: 'Updated', currentFileSha: 'blob-0', actorLogin: 'octocat' }), ArtifactWriteValidationError);
+  assert.equal(runtime.calls.some((call) => call.options.method === 'PUT'), false);
+});
+
+test('nested update still rejects stale revisions and invalid existing paths before writing', async () => {
+  const nested = fake({ files: { 'artifacts/prompts/client-a/custom.md': existingMarkdown } });
+  await assert.rejects(nested.repository.update({ id: metadata.id, metadata, body: 'Updated', currentFileSha: 'stale', actorLogin: 'octocat' }), ArtifactWriteConflictError);
+  assert.equal(nested.calls.some((call) => call.options.method === 'PUT'), false);
+
+  const invalid = fake({ files: { 'artifacts/prompts/../custom.md': existingMarkdown } });
+  await assert.rejects(invalid.repository.update({ id: metadata.id, metadata, body: 'Updated', currentFileSha: 'blob-0', actorLogin: 'octocat' }), ArtifactRepositoryContentError);
+  assert.equal(invalid.calls.some((call) => call.options.method === 'PUT'), false);
 });

@@ -4,9 +4,24 @@ import { requireApiRepositoryAccess } from "@/lib/auth";
 import { noStoreHeaders } from "@/lib/auth-core";
 import { artifactFrontMatterSchema } from "@/lib/artifact-contract";
 import { artifactWriteErrorResponse } from "@/lib/artifact-write-http";
-import { updateArtifact } from "@/lib/artifacts";
+import { getArtifactWithRevision, updateArtifact } from "@/lib/artifacts";
+import { ArtifactRepositoryAccessError, ArtifactRepositoryUnavailableError } from "@/lib/artifact-repository";
 
 const payloadSchema = z.object({ metadata: artifactFrontMatterSchema, body: z.string().min(1), currentFileSha: z.string().min(1) });
+
+export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const authorization = await requireApiRepositoryAccess(request);
+  if (authorization instanceof Response) return authorization;
+  try {
+    const result = await getArtifactWithRevision(authorization.access, (await params).id);
+    if (!result) return NextResponse.json({ error: "Artifact not found", code: "artifact_not_found" }, { status: 404, headers: noStoreHeaders });
+    return NextResponse.json(result, { headers: noStoreHeaders });
+  } catch (error) {
+    if (error instanceof ArtifactRepositoryAccessError) return NextResponse.json({ error: "Repository access denied", code: "repository_access_denied" }, { status: 403, headers: noStoreHeaders });
+    if (error instanceof ArtifactRepositoryUnavailableError) return NextResponse.json({ error: "Artifact repository temporarily unavailable", code: "repository_unavailable" }, { status: 503, headers: noStoreHeaders });
+    return NextResponse.json({ error: "Artifact could not be read", code: "internal_error" }, { status: 500, headers: noStoreHeaders });
+  }
+}
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const authorization = await requireApiRepositoryAccess(request);

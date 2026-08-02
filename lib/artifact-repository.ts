@@ -2,12 +2,11 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import matter from "gray-matter";
 import { z } from "zod";
-import { DEFAULT_ARTIFACT_BRANCH, DEFAULT_ARTIFACT_ROOT, normalizeArtifactMetadata, parseArtifactMarkdown, serializeArtifactMarkdown, trimSlashes, validateArtifactPath, validateUniqueArtifactIds, type ArtifactMetadata, type ArtifactModel } from "./artifact-contract.ts";
+import { DEFAULT_ARTIFACT_BRANCH, DEFAULT_ARTIFACT_ROOT, MAX_SERIALIZED_ARTIFACT_BYTES, normalizeArtifactMetadata, parseArtifactMarkdown, serializeArtifactMarkdown, trimSlashes, validateArtifactPath, validateUniqueArtifactIds, type ArtifactMetadata, type ArtifactModel } from "./artifact-contract.ts";
 import type { RepositoryAccessContext } from "./repository-authorization.ts";
 
 const artifactsDir = path.join(process.cwd(), "artifacts");
 const githubApiBaseUrl = "https://api.github.com";
-const githubMaxBlobBytes = 1024 * 1024;
 const githubBlobConcurrency = 4;
 const githubMaxAttempts = 3;
 const githubMaximumRetryDelayMs = 5_000;
@@ -26,10 +25,12 @@ export type CreateVariationInput = {
 export type CreateArtifactInput = { metadata: ArtifactMetadata; body: string; actorLogin: string };
 export type UpdateArtifactInput = { id: string; metadata: ArtifactMetadata; body: string; currentFileSha: string; actorLogin: string };
 export type ArtifactWriteResult = { artifactId: string; path: string; fileSha: string; commitSha: string; commitUrl: string; repositoryRevision?: string };
+export type ArtifactWithRevision = { artifact: Artifact; currentFileSha: string };
 
 export interface ArtifactRepository {
   list(): Promise<Artifact[]>;
   findById(id: string): Promise<Artifact | undefined>;
+  findByIdWithRevision(id: string): Promise<ArtifactWithRevision | undefined>;
   create(input: CreateArtifactInput): Promise<ArtifactWriteResult>;
   update(input: UpdateArtifactInput): Promise<ArtifactWriteResult>;
   createVariation(input: CreateVariationInput): Promise<string>;
@@ -103,10 +104,11 @@ function prepareWrite(metadataInput: ArtifactMetadata, body: string) {
     if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(metadata.id)) throw new ArtifactWriteValidationError();
     if (!body.trim()) throw new ArtifactWriteValidationError();
     const markdown = serializeArtifactMarkdown(metadata, body);
+    if (Buffer.byteLength(markdown, "utf8") > MAX_SERIALIZED_ARTIFACT_BYTES) throw new ArtifactWriteTooLargeError();
     assertNoSecrets(markdown);
     return { metadata, markdown };
   } catch (error) {
-    if (error instanceof ArtifactSecretRejectedError || error instanceof ArtifactWriteValidationError) throw error;
+    if (error instanceof ArtifactSecretRejectedError || error instanceof ArtifactWriteValidationError || error instanceof ArtifactWriteTooLargeError) throw error;
     throw new ArtifactWriteValidationError();
   }
 }
@@ -165,6 +167,10 @@ export class FileArtifactRepository implements ArtifactRepository {
     return artifacts.find((artifact) => artifact.id === id);
   }
 
+  async findByIdWithRevision(): Promise<ArtifactWithRevision | undefined> {
+    throw new ArtifactRepositoryConfigurationError("File-backed artifacts do not expose GitHub revisions.");
+  }
+
   async create(): Promise<ArtifactWriteResult> { throw new ArtifactRepositoryConfigurationError("Direct artifact writes require the GitHub repository backend."); }
   async update(): Promise<ArtifactWriteResult> { throw new ArtifactRepositoryConfigurationError("Direct artifact writes require the GitHub repository backend."); }
 
@@ -205,6 +211,7 @@ export class ArtifactRepositoryUnavailableError extends Error {
 export class ArtifactRepositoryAccessError extends Error { constructor() { super("Artifact repository access is denied."); } }
 export class ArtifactRepositoryContentError extends Error { constructor() { super("The artifact repository contains invalid content."); } }
 export class ArtifactWriteValidationError extends Error { constructor() { super("Artifact metadata or content is invalid."); } }
+export class ArtifactWriteTooLargeError extends Error { constructor() { super("Artifact exceeds the maximum allowed size."); } }
 export class ArtifactSecretRejectedError extends Error { constructor() { super("Artifact content was rejected by the secret safety check."); } }
 export class ArtifactDuplicateError extends Error { constructor() { super("An artifact with this ID or path already exists."); } }
 export class ArtifactWriteConflictError extends Error { constructor() { super("The artifact changed since it was loaded."); } }
@@ -271,6 +278,16 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     return artifacts.find((artifact) => artifact.id === id);
   }
 
+  async findByIdWithRevision(id: string): Promise<ArtifactWithRevision | undefined> {
+    const tree = await this.fetchTree();
+    const artifacts = await this.artifactsFromTree(tree);
+    const artifact = artifacts.find((candidate) => candidate.id === id);
+    if (!artifact) return undefined;
+    const entry = tree.find((candidate) => candidate.type === "blob" && candidate.path === artifact.path);
+    if (typeof entry?.sha !== "string" || !entry.sha.trim()) throw new ArtifactRepositoryContentError();
+    return { artifact, currentFileSha: entry.sha };
+  }
+
   async create(input: CreateArtifactInput): Promise<ArtifactWriteResult> {
     if (!/^[A-Za-z0-9-]+$/.test(input.actorLogin)) throw new ArtifactWriteValidationError();
     const { metadata, markdown } = prepareWrite(input.metadata, input.body);
@@ -293,8 +310,7 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     const entry = tree.find((candidate) => candidate.type === "blob" && candidate.path === artifact.path);
     if (!entry?.sha) throw new ArtifactWriteResponseError();
     if (entry.sha !== input.currentFileSha) throw new ArtifactWriteConflictError();
-    // Renaming paths is intentionally unsupported; type changes which imply a move fail safely.
-    if (this.artifactPath(metadata) !== artifact.path) throw new ArtifactWriteValidationError();
+    if (validateArtifactPath(artifact.path, this.rootPath)) throw new ArtifactRepositoryContentError();
     return this.writeContents(artifact.path, metadata.id, markdown, input.actorLogin, input.currentFileSha);
   }
 
@@ -447,14 +463,16 @@ export class GitHubArtifactRepository implements ArtifactRepository {
 
   private async fetchBlob(sha: string, filePath: string) {
     const blob = await this.githubJson<GitHubBlobResponse>(this.githubUrl(`/git/blobs/${encodeURIComponent(sha)}`), "blob", filePath);
-    if (typeof blob.size === "number" && blob.size > githubMaxBlobBytes) {
-      throw new Error(`${filePath}: Markdown artifact exceeds the ${githubMaxBlobBytes} byte size limit.`);
+    if (typeof blob.size === "number" && blob.size > MAX_SERIALIZED_ARTIFACT_BYTES) {
+      throw new Error(`${filePath}: Markdown artifact exceeds the ${MAX_SERIALIZED_ARTIFACT_BYTES} byte size limit.`);
     }
     if (blob.encoding !== "base64" || typeof blob.content !== "string") {
       throw new Error(`${filePath}: GitHub blob response used an unsupported encoding.`);
     }
     const normalized = blob.content.replace(/\s+/g, "");
-    return Buffer.from(normalized, "base64").toString("utf8");
+    const decoded = Buffer.from(normalized, "base64");
+    if (decoded.byteLength > MAX_SERIALIZED_ARTIFACT_BYTES) throw new Error(`${filePath}: Markdown artifact exceeds the ${MAX_SERIALIZED_ARTIFACT_BYTES} byte size limit.`);
+    return decoded.toString("utf8");
   }
 }
 
