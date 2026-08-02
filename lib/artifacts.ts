@@ -1,4 +1,4 @@
-import { createArtifactRepository, type Artifact, type ArtifactStatus } from "@/lib/artifact-repository";
+import { createArtifactRepository, type Artifact, type ArtifactStatus, type CreateArtifactInput, type UpdateArtifactInput } from "@/lib/artifact-repository";
 import type { RepositoryAccessContext } from "@/lib/repository-authorization";
 
 export type { Artifact, ArtifactStatus };
@@ -18,4 +18,12 @@ export async function getArtifact(access: RepositoryAccessContext, id: string) {
 
 export async function createVariation(access: RepositoryAccessContext, source: Artifact, body: string, title?: string) {
   return getRepository(access).createVariation({ source, body, title });
+}
+
+export async function createArtifact(access: RepositoryAccessContext, input: CreateArtifactInput) {
+  return getRepository(access).create(input);
+}
+
+export async function updateArtifact(access: RepositoryAccessContext, input: UpdateArtifactInput) {
+  return getRepository(access).update(input);
 }

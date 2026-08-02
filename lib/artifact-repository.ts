@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import matter from "gray-matter";
 import { z } from "zod";
-import { DEFAULT_ARTIFACT_BRANCH, DEFAULT_ARTIFACT_ROOT, parseArtifactMarkdown, trimSlashes, validateArtifactPath, validateUniqueArtifactIds, type ArtifactModel } from "./artifact-contract.ts";
+import { DEFAULT_ARTIFACT_BRANCH, DEFAULT_ARTIFACT_ROOT, normalizeArtifactMetadata, parseArtifactMarkdown, serializeArtifactMarkdown, trimSlashes, validateArtifactPath, validateUniqueArtifactIds, type ArtifactMetadata, type ArtifactModel } from "./artifact-contract.ts";
 import type { RepositoryAccessContext } from "./repository-authorization.ts";
 
 const artifactsDir = path.join(process.cwd(), "artifacts");
@@ -23,9 +23,15 @@ export type CreateVariationInput = {
   title?: string;
 };
 
+export type CreateArtifactInput = { metadata: ArtifactMetadata; body: string; actorLogin: string };
+export type UpdateArtifactInput = { id: string; metadata: ArtifactMetadata; body: string; currentFileSha: string; actorLogin: string };
+export type ArtifactWriteResult = { artifactId: string; path: string; fileSha: string; commitSha: string; commitUrl: string; repositoryRevision?: string };
+
 export interface ArtifactRepository {
   list(): Promise<Artifact[]>;
   findById(id: string): Promise<Artifact | undefined>;
+  create(input: CreateArtifactInput): Promise<ArtifactWriteResult>;
+  update(input: UpdateArtifactInput): Promise<ArtifactWriteResult>;
   createVariation(input: CreateVariationInput): Promise<string>;
 }
 
@@ -83,7 +89,25 @@ const secretPatterns = [
 
 function assertNoSecrets(value: string) {
   if (secretPatterns.some((pattern) => pattern.test(value))) {
-    throw new Error("Refusing to persist content that looks like a secret or API key.");
+    throw new ArtifactSecretRejectedError();
+  }
+}
+
+const artifactTypeDirectories: Record<ArtifactMetadata["type"], string> = {
+  prompt: "prompts", agent: "agents", snippet: "snippets", template: "templates", "app-idea": "app-ideas",
+};
+
+function prepareWrite(metadataInput: ArtifactMetadata, body: string) {
+  try {
+    const metadata = normalizeArtifactMetadata(metadataInput);
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(metadata.id)) throw new ArtifactWriteValidationError();
+    if (!body.trim()) throw new ArtifactWriteValidationError();
+    const markdown = serializeArtifactMarkdown(metadata, body);
+    assertNoSecrets(markdown);
+    return { metadata, markdown };
+  } catch (error) {
+    if (error instanceof ArtifactSecretRejectedError || error instanceof ArtifactWriteValidationError) throw error;
+    throw new ArtifactWriteValidationError();
   }
 }
 
@@ -141,6 +165,9 @@ export class FileArtifactRepository implements ArtifactRepository {
     return artifacts.find((artifact) => artifact.id === id);
   }
 
+  async create(): Promise<ArtifactWriteResult> { throw new ArtifactRepositoryConfigurationError("Direct artifact writes require the GitHub repository backend."); }
+  async update(): Promise<ArtifactWriteResult> { throw new ArtifactRepositoryConfigurationError("Direct artifact writes require the GitHub repository backend."); }
+
   async createVariation({ source, body, title }: CreateVariationInput) {
     assertNoSecrets(body);
     assertNoSecrets(title ?? "");
@@ -177,6 +204,14 @@ export class ArtifactRepositoryUnavailableError extends Error {
 }
 export class ArtifactRepositoryAccessError extends Error { constructor() { super("Artifact repository access is denied."); } }
 export class ArtifactRepositoryContentError extends Error { constructor() { super("The artifact repository contains invalid content."); } }
+export class ArtifactWriteValidationError extends Error { constructor() { super("Artifact metadata or content is invalid."); } }
+export class ArtifactSecretRejectedError extends Error { constructor() { super("Artifact content was rejected by the secret safety check."); } }
+export class ArtifactDuplicateError extends Error { constructor() { super("An artifact with this ID or path already exists."); } }
+export class ArtifactWriteConflictError extends Error { constructor() { super("The artifact changed since it was loaded."); } }
+export class ArtifactWritePermissionError extends Error { constructor() { super("The GitHub App does not have artifact write permission."); } }
+export class ArtifactWriteAuthenticationError extends Error { constructor() { super("GitHub repository authentication failed."); } }
+export class ArtifactNotFoundError extends Error { constructor() { super("Artifact not found."); } }
+export class ArtifactWriteResponseError extends Error { constructor() { super("GitHub returned an invalid write response."); } }
 
 export function getArtifactRepositoryBackend(env = process.env): ArtifactRepositoryBackend {
   const value = env.ARTIFACT_REPOSITORY;
@@ -236,6 +271,33 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     return artifacts.find((artifact) => artifact.id === id);
   }
 
+  async create(input: CreateArtifactInput): Promise<ArtifactWriteResult> {
+    if (!/^[A-Za-z0-9-]+$/.test(input.actorLogin)) throw new ArtifactWriteValidationError();
+    const { metadata, markdown } = prepareWrite(input.metadata, input.body);
+    const path = this.artifactPath(metadata);
+    const tree = await this.fetchTree();
+    if (tree.some((entry) => entry.type === "blob" && entry.path === path)) throw new ArtifactDuplicateError();
+    const artifacts = await this.artifactsFromTree(tree);
+    if (artifacts.some((artifact) => artifact.id === metadata.id)) throw new ArtifactDuplicateError();
+    return this.writeContents(path, metadata.id, markdown, input.actorLogin, undefined);
+  }
+
+  async update(input: UpdateArtifactInput): Promise<ArtifactWriteResult> {
+    if (!/^[A-Za-z0-9-]+$/.test(input.actorLogin)) throw new ArtifactWriteValidationError();
+    const { metadata, markdown } = prepareWrite(input.metadata, input.body);
+    if (metadata.id !== input.id || !input.currentFileSha.trim()) throw new ArtifactWriteValidationError();
+    const tree = await this.fetchTree();
+    const artifacts = await this.artifactsFromTree(tree);
+    const artifact = artifacts.find((candidate) => candidate.id === input.id);
+    if (!artifact) throw new ArtifactNotFoundError();
+    const entry = tree.find((candidate) => candidate.type === "blob" && candidate.path === artifact.path);
+    if (!entry?.sha) throw new ArtifactWriteResponseError();
+    if (entry.sha !== input.currentFileSha) throw new ArtifactWriteConflictError();
+    // Renaming paths is intentionally unsupported; type changes which imply a move fail safely.
+    if (this.artifactPath(metadata) !== artifact.path) throw new ArtifactWriteValidationError();
+    return this.writeContents(artifact.path, metadata.id, markdown, input.actorLogin, input.currentFileSha);
+  }
+
   async createVariation(input: CreateVariationInput): Promise<string> {
     assertNoSecrets(input.body);
     assertNoSecrets(input.title ?? "");
@@ -244,6 +306,54 @@ export class GitHubArtifactRepository implements ArtifactRepository {
 
   private githubUrl(pathname: string) {
     return `${githubApiBaseUrl}/repos/${encodeURIComponent(this.config.owner)}/${encodeURIComponent(this.config.repo)}${pathname}`;
+  }
+
+  private artifactPath(metadata: ArtifactMetadata) {
+    return `${this.rootPath}/${artifactTypeDirectories[metadata.type]}/${metadata.id}.md`;
+  }
+
+  private async artifactsFromTree(tree: GitHubTreeEntry[]) {
+    const prefix = `${this.rootPath}/`;
+    const files = tree.filter((entry) => entry.type === "blob" && entry.path?.startsWith(prefix) && entry.path.endsWith(".md"));
+    const artifacts = await mapWithConcurrency(files, githubBlobConcurrency, async (file) => {
+      if (!file.path || !file.sha) throw new ArtifactRepositoryContentError();
+      if (validateArtifactPath(file.path, this.rootPath)) throw new ArtifactRepositoryContentError();
+      return parseArtifactMarkdown(await this.fetchBlob(file.sha, file.path), file.path);
+    });
+    validateUniqueArtifactIds(artifacts);
+    return artifacts;
+  }
+
+  private async writeContents(filePath: string, artifactId: string, markdown: string, actorLogin: string, sha?: string): Promise<ArtifactWriteResult> {
+    let credential: string;
+    try { credential = await this.credential(); }
+    catch (error) {
+      const status = (error as { status?: number }).status;
+      if (status === 401 || status === 403 || status === 404) throw new ArtifactWriteAuthenticationError();
+      if (status === 429 || status === undefined || status >= 500) throw new ArtifactRepositoryUnavailableError(status);
+      throw new ArtifactRepositoryConfigurationError("Installation credential could not be created.");
+    }
+    let response: Response;
+    try {
+      response = await this.fetchImpl(this.githubUrl(`/contents/${filePath.split("/").map(encodeURIComponent).join("/")}`), {
+        method: "PUT",
+        headers: { accept: "application/vnd.github+json", authorization: `Bearer ${credential}`, "content-type": "application/json", "user-agent": "artifact-dev-toolkit", "x-github-api-version": "2022-11-28" },
+        body: JSON.stringify({ message: `${sha ? "Update" : "Create"} artifact ${artifactId} (requested by @${actorLogin})`, content: Buffer.from(markdown).toString("base64"), branch: this.branch, ...(sha ? { sha } : {}) }),
+      });
+    } catch { throw new ArtifactRepositoryUnavailableError(); }
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined);
+      if (response.status === 401) throw new ArtifactWriteAuthenticationError();
+      if (response.status === 403) throw new ArtifactWritePermissionError();
+      if (response.status === 409 || response.status === 422) throw sha ? new ArtifactWriteConflictError() : new ArtifactDuplicateError();
+      if (response.status === 429 || response.status >= 500) throw new ArtifactRepositoryUnavailableError(response.status);
+      throw new ArtifactWriteResponseError();
+    }
+    let value: unknown;
+    try { value = await response.json(); } catch { throw new ArtifactWriteResponseError(); }
+    const parsed = z.object({ content: z.object({ path: z.string(), sha: z.string().min(1) }), commit: z.object({ sha: z.string().min(1), html_url: z.string().url() }) }).safeParse(value);
+    if (!parsed.success || parsed.data.content.path !== filePath) throw new ArtifactWriteResponseError();
+    return { artifactId, path: filePath, fileSha: parsed.data.content.sha, commitSha: parsed.data.commit.sha, commitUrl: parsed.data.commit.html_url, repositoryRevision: parsed.data.commit.sha };
   }
 
   private async credential(): Promise<string> {
