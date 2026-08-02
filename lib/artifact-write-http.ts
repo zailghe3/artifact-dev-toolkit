@@ -1,22 +1,23 @@
-import { NextResponse } from "next/server";
-import { noStoreHeaders } from "@/lib/auth-core";
+import { noStoreHeaders } from "./auth-core.ts";
 import {
-  ArtifactDuplicateError, ArtifactNotFoundError, ArtifactRepositoryConfigurationError,
+  ArtifactDuplicateError, ArtifactNotFoundError, ArtifactRepositoryAccessError, ArtifactRepositoryConfigurationError,
   ArtifactRepositoryUnavailableError, ArtifactSecretRejectedError, ArtifactWriteAuthenticationError,
   ArtifactWriteConflictError, ArtifactWritePermissionError, ArtifactWriteValidationError,
   ArtifactWriteTooLargeError,
-} from "@/lib/artifact-repository";
+} from "./artifact-repository.ts";
+
+function json(body: unknown, status: number) { return Response.json(body, { status, headers: noStoreHeaders }); }
 
 export function artifactWriteErrorResponse(error: unknown) {
-  if (error instanceof ArtifactWriteTooLargeError) return NextResponse.json({ error: "Artifact exceeds the maximum allowed size", code: "artifact_too_large" }, { status: 413, headers: noStoreHeaders });
-  if (error instanceof ArtifactWriteValidationError) return NextResponse.json({ error: "Artifact input is invalid", code: "validation_failed" }, { status: 400, headers: noStoreHeaders });
-  if (error instanceof ArtifactSecretRejectedError) return NextResponse.json({ error: "Artifact content failed the secret safety check", code: "secret_rejected" }, { status: 400, headers: noStoreHeaders });
-  if (error instanceof ArtifactWriteAuthenticationError) return NextResponse.json({ error: "GitHub repository authentication failed", code: "repository_authentication_failed" }, { status: 401, headers: noStoreHeaders });
-  if (error instanceof ArtifactWritePermissionError) return NextResponse.json({ error: "GitHub App write permission is required", code: "write_permission_required" }, { status: 403, headers: noStoreHeaders });
-  if (error instanceof ArtifactNotFoundError) return NextResponse.json({ error: "Artifact not found", code: "artifact_not_found" }, { status: 404, headers: noStoreHeaders });
-  if (error instanceof ArtifactDuplicateError) return NextResponse.json({ error: "Artifact ID or path already exists", code: "duplicate_artifact" }, { status: 409, headers: noStoreHeaders });
-  if (error instanceof ArtifactWriteConflictError) return NextResponse.json({ error: "Artifact changed since it was loaded", code: "write_conflict" }, { status: 409, headers: noStoreHeaders });
-  if (error instanceof ArtifactRepositoryUnavailableError) return NextResponse.json({ error: "Artifact repository temporarily unavailable", code: "repository_unavailable" }, { status: 503, headers: noStoreHeaders });
-  if (error instanceof ArtifactRepositoryConfigurationError) return NextResponse.json({ error: "Artifact repository is not configured for writes", code: "repository_configuration" }, { status: 500, headers: noStoreHeaders });
-  return NextResponse.json({ error: "Artifact could not be written", code: "internal_error" }, { status: 500, headers: noStoreHeaders });
+  if (error instanceof ArtifactWriteTooLargeError) return json({ error: "Artifact exceeds the maximum allowed size", code: "artifact_too_large" }, 413);
+  if (error instanceof ArtifactWriteValidationError) return json({ error: "Artifact input is invalid", code: "validation_failed" }, 400);
+  if (error instanceof ArtifactSecretRejectedError) return json({ error: "Artifact content failed the secret safety check", code: "secret_rejected" }, 400);
+  if (error instanceof ArtifactWriteAuthenticationError || error instanceof ArtifactRepositoryAccessError) return json({ error: "GitHub repository authentication failed", code: "repository_authentication_failed" }, 401);
+  if (error instanceof ArtifactWritePermissionError) return json({ error: "GitHub App write permission is required", code: "write_permission_required" }, 403);
+  if (error instanceof ArtifactNotFoundError) return json({ error: "Artifact not found", code: "artifact_not_found" }, 404);
+  if (error instanceof ArtifactDuplicateError) return json({ error: "Artifact ID or path already exists", code: "duplicate_artifact" }, 409);
+  if (error instanceof ArtifactWriteConflictError) return json({ error: "Artifact changed since it was loaded", code: "write_conflict" }, 409);
+  if (error instanceof ArtifactRepositoryUnavailableError) return json({ error: "Artifact repository temporarily unavailable", code: "repository_unavailable" }, 503);
+  if (error instanceof ArtifactRepositoryConfigurationError) return json({ error: "Artifact repository is not configured for writes", code: "repository_configuration" }, 500);
+  return json({ error: "Artifact could not be written", code: "internal_error" }, 500);
 }

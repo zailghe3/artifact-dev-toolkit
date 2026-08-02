@@ -158,8 +158,8 @@ test("protected API routes authenticate before loading artifacts or creating var
   assert.equal(artifactsRoute.indexOf("requireApiRepositoryAccess(request)") < artifactsRoute.indexOf("getArtifacts(authorization.access)"), true);
 
   const variationRoute = await fs.readFile(new URL("../app/api/artifacts/[id]/variation/route.ts", import.meta.url), "utf8");
-  assert.equal(variationRoute.indexOf("requireApiRepositoryAccess(request)") < variationRoute.indexOf("getArtifact(authorization.access, id)"), true);
-  assert.equal(variationRoute.indexOf("requireApiRepositoryAccess(request)") < variationRoute.indexOf("createVariation(authorization.access"), true);
+  assert.equal(variationRoute.indexOf("authorize: requireApiRepositoryAccess") < variationRoute.indexOf("loadArtifact: getArtifact"), true);
+  assert.equal(variationRoute.indexOf("authorize: requireApiRepositoryAccess") < variationRoute.indexOf("persistVariation: createVariation"), true);
 });
 
 const storeModuleUrl = pathToFileURL(new URL("../lib/auth-session-store.ts", import.meta.url).pathname).href;
