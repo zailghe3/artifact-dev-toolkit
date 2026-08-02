@@ -18,14 +18,14 @@ test('first load publishes a complete snapshot and a fresh repeat avoids GitHub'
   const cache = new MemoryCatalogueCache(); const repo = repository(); const now = { value: '2026-08-02T00:00:00.000Z' }; const catalogue = service(repo, cache, now);
   const first = await catalogue.list(); const repeat = await catalogue.list();
   assert.equal(first.cacheState, 'refreshed'); assert.equal(repeat.cacheState, 'fresh');
-  assert.deepEqual(repo.calls, { revisions: 1, catalogues: 1 });
+  assert.deepEqual(repo.calls, { revisions: 3, catalogues: 1 });
   assert.ok([...cache.values.keys()].some(key => key.endsWith(':current')));
 });
 
 test('stale unchanged revision refreshes metadata without a catalogue download', async () => {
   const cache = new MemoryCatalogueCache(); const repo = repository(); const now = { value: '2026-08-02T00:00:00.000Z' }; const catalogue = service(repo, cache, now);
   await catalogue.list(); now.value = '2026-08-02T00:06:00.000Z';
-  const result = await catalogue.list(); assert.equal(result.cacheState, 'refreshed'); assert.equal(result.refreshedAt, now.value); assert.equal(repo.calls.catalogues, 1); assert.equal(repo.calls.revisions, 2);
+  const result = await catalogue.list(); assert.equal(result.cacheState, 'refreshed'); assert.equal(result.refreshedAt, now.value); assert.equal(repo.calls.catalogues, 1); assert.equal(repo.calls.revisions, 6);
 });
 
 test('changed revision publishes a new snapshot and detail SHA belongs to it', async () => {
@@ -96,7 +96,7 @@ test('a queued full rebuild is not downgraded by an ordinary refresh', async () 
   const cache = new MemoryCatalogueCache(); const repo = repository(); const now = { value: '2026-08-02T00:00:00.000Z' }; let release; const gate = new Promise(resolve => { release = resolve; }); let checks = 0;
   repo.getBaseRevision = async () => { checks++; if (checks === 1) await gate; return 'aaaaaaaa'; };
   const catalogue = service(repo, cache, now); const ordinary = catalogue.list({ force: true }); await new Promise(resolve => setTimeout(resolve, 0)); const full = catalogue.list({ force: true, full: true, manual: true }); release(); await ordinary; await full;
-  assert.equal(repo.calls.catalogues, 2); assert.equal(checks, 2);
+  assert.equal(repo.calls.catalogues, 2); assert.equal(checks, 6);
 });
 
 test('duplicate full rebuilds share one full-strength flight', async () => {
@@ -104,10 +104,22 @@ test('duplicate full rebuilds share one full-strength flight', async () => {
   await Promise.all([catalogue.list({ force: true, full: true }), catalogue.list({ force: true, full: true })]); assert.equal(repo.calls.catalogues, 1);
 });
 
-test('a competing isolate publication of the same revision makes contention idempotent', async () => {
-  const cache = new MemoryCatalogueCache(); const now = { value: '2026-08-02T00:00:00.000Z' }; await service(repository(), cache, now).list();
-  const contended = { get: cache.get.bind(cache), delete: cache.delete.bind(cache), put: async key => { if (key.includes(':snapshot:')) throw new Error('KV rate limit'); return cache.put(key, '{}'); } };
-  const result = await service(repository(), contended, now).list({ force: true, full: true }); assert.equal(result.revision, 'aaaaaaaa'); assert.equal(result.cacheState, 'refreshed');
+test('an old same-revision pointer does not masquerade as a competing publication', async () => {
+  const cache = new MemoryCatalogueCache(); const now = { value: '2026-08-02T00:00:00.000Z' }; await service(repository(), cache, now).list(); const pointerKey = [...cache.values.keys()].find(key => key.endsWith(':current')); const oldPointer = cache.values.get(pointerKey);
+  now.value = '2026-08-02T00:06:00.000Z'; const contended = { get: cache.get.bind(cache), delete: cache.delete.bind(cache), put: async key => { if (key.includes(':snapshot:')) throw new Error('KV rate limit'); return cache.put(key, '{}'); } };
+  const result = await service(repository(), contended, now).list({ force: true, full: true }); assert.equal(result.cacheState, 'degraded'); assert.equal(cache.values.get(pointerKey), oldPointer);
+});
+
+test('a genuine newer competing publication for the current generation is accepted', async () => {
+  const cache = new MemoryCatalogueCache(); const competingNow = { value: '2026-08-02T00:02:00.000Z' }; await service(repository(), cache, competingNow).list();
+  const attemptedNow = { value: '2026-08-02T00:01:00.000Z' }; const contended = { get: cache.get.bind(cache), delete: cache.delete.bind(cache), put: async key => { if (key.includes(':snapshot:')) throw new Error('KV contention'); return cache.put(key, '{}'); } };
+  const result = await service(repository(), contended, attemptedNow).list({ force: true, full: true }); assert.equal(result.cacheState, 'refreshed');
+});
+
+test('a competing pointer with an obsolete generation is rejected', async () => {
+  const cache = new MemoryCatalogueCache(); const now = { value: '2026-08-02T00:00:00.000Z' }; await service(repository(), cache, now).list(); const generationKey = [...cache.values.keys()].find(key => key.endsWith(':generation')) ?? [...cache.values.keys()].find(key => key.endsWith(':current')).replace(':current', ':generation');
+  await cache.put(generationKey, JSON.stringify({ schemaVersion: 1, generation: 'new-generation' })); now.value = '2026-08-02T00:06:00.000Z'; const contended = { get: cache.get.bind(cache), delete: cache.delete.bind(cache), put: async key => { if (key.includes(':snapshot:')) throw new Error('KV contention'); return cache.put(key, '{}'); } };
+  const result = await service(repository(), contended, now).list({ force: true, full: true }); assert.equal(result.cacheState, 'degraded');
 });
 
 test('failed invalidation marks the isolate dirty so the old pointer is not reused', async () => {
@@ -115,4 +127,30 @@ test('failed invalidation marks the isolate dirty so the old pointer is not reus
   const failing = { get: cache.get.bind(cache), delete: cache.delete.bind(cache), put: async key => { if (key.endsWith(':generation')) throw new Error('KV unavailable'); return cache.put(key, '{}'); } };
   const invalidated = await new ArtifactCatalogueService({ repository: repository(), cache: failing, identity }).invalidate(); assert.equal(invalidated, false);
   const changed = repository('cccccccc'); const result = await service(changed, cache, now).list(); assert.equal(result.revision, 'cccccccc'); assert.equal(changed.calls.catalogues, 1);
+});
+
+test('chunk read outage is cache degradation rather than corruption', async () => {
+  const cache = new MemoryCatalogueCache(); const now = { value: '2026-08-02T00:00:00.000Z' }; await service(repository(), cache, now).list(); const logs = []; const wrapped = { put: cache.put.bind(cache), delete: cache.delete.bind(cache), get: async key => { if (key.includes(':chunk:')) throw new Error('secret cached value'); return cache.get(key); } };
+  const result = await service(repository(), wrapped, now, { info: value => logs.push(value), error: value => logs.push(value) }).list(); assert.equal(result.cacheState, 'degraded'); assert.ok(logs.some(value => value.includes('cache_read_failure') && value.includes('chunk_read'))); assert.ok(logs.every(value => !value.includes('cache_corruption') && !value.includes('secret cached value') && !value.includes('private body')));
+});
+
+test('malformed chunk is classified as corruption without logging cached content', async () => {
+  const cache = new MemoryCatalogueCache(); const now = { value: '2026-08-02T00:00:00.000Z' }; await service(repository(), cache, now).list(); const chunkKey = [...cache.values.keys()].find(key => key.includes(':chunk:')); cache.values.set(chunkKey, JSON.stringify({ body: 'private body secret' })); const logs = [];
+  await service(repository(), cache, now, { info: value => logs.push(value), error: value => logs.push(value) }).list(); assert.ok(logs.some(value => value.includes('cache_corruption'))); assert.ok(logs.every(value => !value.includes('private body secret')));
+});
+
+test('final base revision verification removes revision A after revision B appears', async () => {
+  class EventuallyConsistentCache extends MemoryCatalogueCache { staleGenerationReads = 2; async get(key) { if (key.endsWith(':generation') && this.staleGenerationReads-- > 0) return null; return super.get(key); } }
+  const cache = new EventuallyConsistentCache(); let revision = 'aaaaaaaa'; let release; const gate = new Promise(resolve => { release = resolve; }); const repo = repository(); repo.getBaseRevision = async () => revision; const original = repo.loadCatalogue; repo.loadCatalogue = async value => { const loaded = await original.call(repo, value); await gate; return loaded; };
+  const first = new ArtifactCatalogueService({ repository: repo, cache, identity }); const pending = first.list({ force: true, full: true }); await new Promise(resolve => setTimeout(resolve, 0)); revision = 'cccccccc'; await new ArtifactCatalogueService({ repository: repo, cache, identity }).invalidate(); release(); const result = await pending;
+  assert.equal(result.cacheState, 'degraded'); assert.equal([...cache.values.keys()].some(key => key.endsWith(':current')), false);
+});
+
+test('detail metadata and SHA come from one fresh resolved catalogue', async () => {
+  const cache = new MemoryCatalogueCache(); const now = { value: '2026-08-02T00:00:00.000Z' }; const detail = await service(repository(), cache, now).findByIdWithRevision('one'); assert.equal(detail.currentFileSha, 'bbbbbbbb'); assert.deepEqual(detail.catalogue, { revision: 'aaaaaaaa', refreshedAt: now.value, cacheState: 'refreshed', cacheEnabled: true });
+});
+
+test('detail metadata identifies stale and degraded results separately', async () => {
+  const now = { value: '2026-08-02T00:00:00.000Z' }; const staleCache = new MemoryCatalogueCache(); const staleRepo = repository(); const staleService = service(staleRepo, staleCache, now); await staleService.list(); now.value = '2026-08-02T00:06:00.000Z'; staleRepo.getBaseRevision = async () => { throw new ArtifactRepositoryUnavailableError(503); }; const stale = await staleService.findByIdWithRevision('one'); assert.equal(stale.catalogue.cacheState, 'stale');
+  const degradedCache = new MemoryCatalogueCache(); degradedCache.get = async () => { throw new Error('KV down'); }; const degraded = await service(repository(), degradedCache, now).findByIdWithRevision('one'); assert.equal(degraded.catalogue.cacheState, 'degraded');
 });

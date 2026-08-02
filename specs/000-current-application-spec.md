@@ -110,7 +110,7 @@ Freshness defaults to five minutes and can be configured from 30 seconds through
 
 The library displays cache state and last refresh time and offers protected revision-check and full-rebuild controls. Successful base-branch creates, updates, and direct draft variations invalidate the current pointer. Proposal creation does not invalidate it because the base branch is unchanged; merges are detected by normal revision checking or manual refresh.
 
-Invalidation advances a repository generation before pointer removal; publication is allowed only if the refresh generation is still current. KV failures degrade caching rather than successful GitHub reads or writes, and detail resolution retains artifact bodies and file SHAs from one in-memory resolved snapshot. Stronger refresh requests are never downgraded (`ordinary < forced < full`). File-backed local development bypasses KV and does not display refresh controls.
+Invalidation advances a repository generation before pointer removal. Generation comparison provides single-isolate race protection, not global KV atomicity; publication additionally verifies the lightweight GitHub base revision immediately before and after pointer publication. Eventual propagation can briefly expose a prior complete snapshot in another location, and manual refresh forces reconciliation. KV failures degrade caching rather than successful GitHub reads or writes, and detail resolution retains artifact bodies, file SHAs, revision, freshness time, and cache state from one in-memory resolved snapshot. Stronger refresh requests are never downgraded (`ordinary < forced < full`). File-backed local development bypasses KV and does not display refresh controls.
 
 ### 5.1 Library home page
 

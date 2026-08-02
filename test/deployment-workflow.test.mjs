@@ -42,3 +42,10 @@ test('manual deployment resolves immutable SHA and passes required reusable inpu
   assert.match(manualDeploy, /commit_sha: \$\{\{ needs\.resolve\.outputs\.commit_sha \}\}/);
   assert.match(manualDeploy, /pull_request_number: \$\{\{ inputs\.pull_request_number \}\}/);
 });
+
+test('production deployment refuses automatic KV provisioning before build and deploy', () => {
+  const validationIndex = reusableDeploy.indexOf('npm run deployment:validate-bindings');
+  assert.ok(validationIndex > 0);
+  assert.ok(validationIndex < reusableDeploy.indexOf('npm run build:worker'));
+  assert.ok(validationIndex < reusableDeploy.indexOf('npx wrangler deploy'));
+});

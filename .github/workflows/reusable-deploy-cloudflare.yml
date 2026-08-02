@@ -63,6 +63,8 @@ jobs:
           echo "NEXT_PUBLIC_DEPLOY_PULL_REQUEST_NUMBER=${{ inputs.pull_request_number }}" >> "$GITHUB_ENV"
           echo "NEXT_PUBLIC_DEPLOY_REPOSITORY=${{ github.repository }}" >> "$GITHUB_ENV"
           echo "Deployment metadata: ${DEPLOYED_AT} / ${{ inputs.commit_sha }} / PR ${{ inputs.pull_request_number }}" >> "$GITHUB_STEP_SUMMARY"
+      - name: Validate production resource bindings
+        run: npm run deployment:validate-bindings
       - name: Build OpenNext Cloudflare worker
         run: npm run build:worker
       - name: Validate Cloudflare deployment secrets

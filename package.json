@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "build:worker": "opennextjs-cloudflare build",
+    "deployment:validate-bindings": "node scripts/validate-production-bindings.mjs",
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",

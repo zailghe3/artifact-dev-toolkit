@@ -13,6 +13,8 @@ export type CatalogueIdentity = { repositoryId: number; owner: string; repositor
 export type CatalogueCacheState = "fresh" | "refreshed" | "stale" | "degraded";
 export type ArtifactCatalogueResult = { artifacts: Artifact[]; revision: string; refreshedAt: string; cacheState: CatalogueCacheState; staleReason?: "repository_unavailable" | "rate_limited"; cacheEnabled?: boolean };
 export type ResolvedCatalogue = ArtifactCatalogueResult & { fileShas: Record<string, string> };
+export type ArtifactCatalogueDetail = ArtifactWithRevision & { catalogue: Omit<ArtifactCatalogueResult, "artifacts"> & { cacheEnabled: true } };
+type CataloguePublicationResult = { state: "published" | "competing_publication" } | { state: "aborted"; reason: "generation_changed" | "revision_changed" } | { state: "degraded"; reason: "cache_unavailable" };
 type StoredArtifact = { artifact: Artifact; fileSha: string };
 type Snapshot = { revision: string; refreshedAt: string; entries: StoredArtifact[] };
 type RefreshOptions = { force?: boolean; full?: boolean; manual?: boolean };
@@ -40,7 +42,7 @@ export class ArtifactCatalogueService {
   constructor(options: { repository: ArtifactRepository; cache: CatalogueCacheBinding; identity: CatalogueIdentity; now?: () => Date; freshnessSeconds?: number; logger?: Pick<Console, "info" | "error"> }) { this.options = options; }
 
   async list(options: RefreshOptions = {}): Promise<ArtifactCatalogueResult> { const result = await this.resolve(options); return { artifacts: result.artifacts, revision: result.revision, refreshedAt: result.refreshedAt, cacheState: result.cacheState, ...(result.staleReason ? { staleReason: result.staleReason } : {}) }; }
-  async findByIdWithRevision(id: string): Promise<ArtifactWithRevision | undefined> { const result = await this.resolve(); const artifact = result.artifacts.find(candidate => candidate.id === id); const currentFileSha = result.fileShas[id]; return artifact && currentFileSha ? { artifact, currentFileSha } : undefined; }
+  async findByIdWithRevision(id: string): Promise<ArtifactCatalogueDetail | undefined> { const result = await this.resolve(); const artifact = result.artifacts.find(candidate => candidate.id === id); const currentFileSha = result.fileShas[id]; return artifact && currentFileSha ? { artifact, currentFileSha, catalogue: { revision: result.revision, refreshedAt: result.refreshedAt, cacheState: result.cacheState, ...(result.staleReason ? { staleReason: result.staleReason } : {}), cacheEnabled: true } } : undefined; }
 
   async invalidate(): Promise<boolean> {
     const key = scope(this.options.identity); localGenerations.set(key, (localGenerations.get(key) ?? 0) + 1); invalidatedScopes.add(key);
@@ -79,9 +81,9 @@ export class ArtifactCatalogueService {
       let snapshot: Snapshot;
       if (cached && !options.full && revision === cached.revision) { snapshot = { ...cached, refreshedAt: now.toISOString() }; safeLog(this.logger, "info", "artifact_catalogue_revision_unchanged", this.options.identity, { revision: revision.slice(0, 12), count: cached.entries.length }); }
       else { const loaded = await this.options.repository.loadCatalogue(revision); snapshot = { revision: loaded.revision, refreshedAt: now.toISOString(), entries: loaded.artifacts.map(artifact => ({ artifact, fileSha: loaded.fileShas[artifact.id] })) }; this.validateSnapshot(snapshot); }
-      const published = await this.publish(snapshot, generation.value, localGeneration);
-      degraded ||= !published;
-      safeLog(this.logger, "info", "artifact_catalogue_refresh_succeeded", this.options.identity, { revision: revision.slice(0, 12), count: snapshot.entries.length, durationMs: Date.now() - started, cache: degraded ? "degraded" : "persisted" });
+      const publication = await this.publish(snapshot, generation.value, localGeneration);
+      degraded ||= publication.state === "degraded" || publication.state === "aborted";
+      safeLog(this.logger, "info", "artifact_catalogue_refresh_succeeded", this.options.identity, { revision: revision.slice(0, 12), count: snapshot.entries.length, durationMs: Date.now() - started, cache: degraded ? "degraded" : publication.state });
       return this.result(snapshot, degraded ? "degraded" : "refreshed");
     } catch (error) {
       const temporary = error instanceof ArtifactRepositoryUnavailableError; safeLog(this.logger, "error", "artifact_catalogue_refresh_failure", this.options.identity, { category: temporary ? "temporary_unavailable" : "non_retryable", durationMs: Date.now() - started });
@@ -98,24 +100,32 @@ export class ArtifactCatalogueService {
     if (!raw) return { failed: false };
     try {
       const pointer = pointerSchema.parse(JSON.parse(raw)); const id = this.options.identity; if (pointer.repositoryId !== id.repositoryId || pointer.owner.toLowerCase() !== id.owner.toLowerCase() || pointer.repository.toLowerCase() !== id.repository.toLowerCase() || pointer.branch !== id.branch || pointer.root !== id.root) throw new Error("identity mismatch");
-      const chunks = await Promise.all(pointer.chunks.map(async (chunkKey, index) => { const value = await this.options.cache.get(chunkKey); if (!value) throw new Error("missing chunk"); const chunk = chunkSchema.parse(JSON.parse(value)); if (chunk.repositoryId !== id.repositoryId || chunk.owner.toLowerCase() !== id.owner.toLowerCase() || chunk.repository.toLowerCase() !== id.repository.toLowerCase() || chunk.branch !== id.branch || chunk.root !== id.root || chunk.revision !== pointer.revision || chunk.index !== index) throw new Error("chunk mismatch"); return chunk.entries; }));
+      const chunks = await Promise.all(pointer.chunks.map(async (chunkKey, index) => { let value: string | null; try { value = await this.options.cache.get(chunkKey); } catch { throw new CatalogueChunkReadError(); } if (!value) throw new Error("missing chunk"); const chunk = chunkSchema.parse(JSON.parse(value)); if (chunk.repositoryId !== id.repositoryId || chunk.owner.toLowerCase() !== id.owner.toLowerCase() || chunk.repository.toLowerCase() !== id.repository.toLowerCase() || chunk.branch !== id.branch || chunk.root !== id.root || chunk.revision !== pointer.revision || chunk.index !== index) throw new Error("chunk mismatch"); return chunk.entries; }));
       const snapshot = { revision: pointer.revision, refreshedAt: pointer.refreshedAt, entries: chunks.flat() }; this.validateSnapshot(snapshot); return { snapshot, generation: pointer.generation, failed: false };
-    } catch { safeLog(this.logger, "error", "artifact_catalogue_cache_corruption", this.options.identity, { category: "invalid_entry" }); return { failed: false }; }
+    } catch (error) { if (error instanceof CatalogueChunkReadError) { safeLog(this.logger, "error", "artifact_catalogue_cache_read_failure", this.options.identity, { category: "chunk_read" }); return { failed: true }; } safeLog(this.logger, "error", "artifact_catalogue_cache_corruption", this.options.identity, { category: "invalid_entry" }); return { failed: false }; }
   }
-  private async publish(snapshot: Snapshot, startingGeneration: string | undefined, startingLocalGeneration: number): Promise<boolean> {
+  private async publish(snapshot: Snapshot, startingGeneration: string | undefined, startingLocalGeneration: number): Promise<CataloguePublicationResult> {
     const groups: StoredArtifact[][] = []; let current: StoredArtifact[] = [];
     for (const entry of snapshot.entries) { const candidate = [...current, entry]; if (current.length && new TextEncoder().encode(JSON.stringify(candidate)).byteLength > maxChunkBytes) { groups.push(current); current = [entry]; } else current = candidate; } groups.push(current);
     const base = `${scope(this.options.identity)}:snapshot:${snapshot.revision}`; const keys = groups.map((_, index) => `${base}:chunk:${index}`);
     try {
       await Promise.all(groups.map((entries, index) => this.options.cache.put(keys[index], JSON.stringify({ schemaVersion, ...this.options.identity, revision: snapshot.revision, index, entries }))));
       const currentGeneration = await this.readGeneration(); const localGeneration = localGenerations.get(scope(this.options.identity)) ?? 0;
-      if (currentGeneration.failed || currentGeneration.value !== startingGeneration || localGeneration !== startingLocalGeneration) { safeLog(this.logger, "error", "artifact_catalogue_publish_aborted", this.options.identity, { category: "generation_changed", revision: snapshot.revision.slice(0, 12) }); return false; }
-      await this.options.cache.put(pointerKey(this.options.identity), JSON.stringify({ schemaVersion, ...this.options.identity, refreshedAt: snapshot.refreshedAt, revision: snapshot.revision, generation: startingGeneration, chunks: keys })); invalidatedScopes.delete(scope(this.options.identity)); return true;
+      if (currentGeneration.failed || currentGeneration.value !== startingGeneration || localGeneration !== startingLocalGeneration) { safeLog(this.logger, "error", "artifact_catalogue_publish_aborted", this.options.identity, { category: "generation_changed", revision: snapshot.revision.slice(0, 12) }); return { state: "aborted", reason: "generation_changed" }; }
+      if (await this.options.repository.getBaseRevision() !== snapshot.revision) { safeLog(this.logger, "error", "artifact_catalogue_publish_aborted", this.options.identity, { category: "revision_changed", revision: snapshot.revision.slice(0, 12) }); return { state: "aborted", reason: "revision_changed" }; }
+      await this.options.cache.put(pointerKey(this.options.identity), JSON.stringify({ schemaVersion, ...this.options.identity, refreshedAt: snapshot.refreshedAt, revision: snapshot.revision, generation: startingGeneration, chunks: keys }));
+      if (await this.options.repository.getBaseRevision() !== snapshot.revision) { await this.deleteAttemptedPointer(snapshot, startingGeneration); safeLog(this.logger, "error", "artifact_catalogue_publish_aborted", this.options.identity, { category: "revision_changed", revision: snapshot.revision.slice(0, 12) }); return { state: "aborted", reason: "revision_changed" }; }
+      invalidatedScopes.delete(scope(this.options.identity)); return { state: "published" };
     } catch {
       safeLog(this.logger, "error", "artifact_catalogue_cache_publication_failure", this.options.identity, { category: "cache_unavailable", revision: snapshot.revision.slice(0, 12) });
-      const competing = await this.readSnapshot(); return competing.snapshot?.revision === snapshot.revision;
+      const competing = await this.readSnapshot();
+      if (competing.snapshot?.revision === snapshot.revision && competing.generation === startingGeneration && Date.parse(competing.snapshot.refreshedAt) >= Date.parse(snapshot.refreshedAt)) return { state: "competing_publication" };
+      return { state: "degraded", reason: "cache_unavailable" };
     }
   }
+  private async deleteAttemptedPointer(snapshot: Snapshot, generation: string | undefined) { try { const current = await this.readSnapshot(); if (current.snapshot?.revision === snapshot.revision && current.snapshot.refreshedAt === snapshot.refreshedAt && current.generation === generation) await this.options.cache.delete(pointerKey(this.options.identity)); } catch { safeLog(this.logger, "error", "artifact_catalogue_cache_invalidation_failure", this.options.identity, { category: "cache_unavailable" }); } }
 }
+
+class CatalogueChunkReadError extends Error {}
 
 export class MemoryCatalogueCache implements CatalogueCacheBinding { readonly values = new Map<string, string>(); reads = 0; async get(key: string) { this.reads++; return this.values.get(key) ?? null; } async put(key: string, value: string) { this.values.set(key, value); } async delete(key: string) { this.values.delete(key); } }

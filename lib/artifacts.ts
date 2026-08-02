@@ -3,6 +3,7 @@ import { ArtifactCatalogueService, type ArtifactCatalogueResult, type CatalogueC
 import { createArtifactRepository, getArtifactRepositoryBackend, type Artifact, type ArtifactStatus, type CreateArtifactInput, type UpdateArtifactInput, type ProposeArtifactUpdateInput } from "@/lib/artifact-repository";
 import type { RepositoryAccessContext } from "@/lib/repository-authorization";
 import { completeWriteWithInvalidation } from "@/lib/artifact-cache-invalidation";
+import { localArtifactDetail } from "@/lib/catalogue-presentation";
 export { completeWriteWithInvalidation } from "@/lib/artifact-cache-invalidation";
 
 export type { Artifact, ArtifactStatus, ArtifactCatalogueResult };
@@ -33,7 +34,10 @@ export async function getArtifactCatalogue(access: RepositoryAccessContext): Pro
 export async function refreshArtifactCatalogue(access: RepositoryAccessContext, full = false) { if (getArtifactRepositoryBackend() === "file") return undefined; return (await getService(access)).list({ force: true, full, manual: true }); }
 export async function getArtifacts(access: RepositoryAccessContext): Promise<Artifact[]> { return (await getArtifactCatalogue(access)).artifacts; }
 export async function getArtifact(access: RepositoryAccessContext, id: string) { return getArtifactRepositoryBackend() === "file" ? getRepository(access).findById(id) : (await getService(access)).findByIdWithRevision(id).then((value) => value?.artifact); }
-export async function getArtifactWithRevision(access: RepositoryAccessContext, id: string) { return getArtifactRepositoryBackend() === "file" ? getRepository(access).findByIdWithRevision(id) : (await getService(access)).findByIdWithRevision(id); }
+export async function getArtifactWithRevision(access: RepositoryAccessContext, id: string) {
+  if (getArtifactRepositoryBackend() === "file") { const artifact = await getRepository(access).findById(id); return artifact ? localArtifactDetail(artifact, new Date().toISOString()) : undefined; }
+  return (await getService(access)).findByIdWithRevision(id);
+}
 async function invalidate(access: RepositoryAccessContext) {
   if (getArtifactRepositoryBackend() !== "github") return;
   try { await (await getService(access)).invalidate(); }
