@@ -310,15 +310,11 @@ The GitHub backend supports canonical artifact creation and optimistic-concurren
 
 Reads and writes share a 1 MiB maximum for the UTF-8 byte size of the complete serialized Markdown artifact. Writes validate the final canonical Markdown before issuing a Contents API request and return the stable `artifact_too_large` error when it exceeds that limit.
 
-`createVariation()` remains unsupported by the GitHub backend. The existing production variation form therefore remains unable to persist a variation until the variation workflow in issue #40 adopts the direct write primitives.
+`createVariation()` uses the shared direct-write foundation to persist a new draft beneath `artifacts/variations/` on the configured branch. The authenticated GitHub login is included in the commit message for request attribution. Broader branch, pull-request, and preview workflows tracked by issue #40 remain outside this direct-creation flow.
 
-### 6.5 Hosted deployment limitation
+### 6.5 Hosted variation persistence
 
-Variation creation is fully functional when the application runs in an environment with a persistent, writable project filesystem.
-
-On Cloudflare Workers or similar hosted serverless environments, runtime filesystem writes may be unavailable, read-only, or ephemeral. Therefore, variations created through the deployed application are not currently guaranteed to persist.
-
-Persistent hosted variation storage is outside the scope of the current implementation.
+The local file backend supports variation creation when the application runs with a writable project filesystem. Because serverless runtime filesystems may be unavailable, read-only, or ephemeral, hosted deployments use the GitHub repository backend for persistent variation storage through the GitHub Contents API.
 
 ## 7. Seed content
 

@@ -20,8 +20,8 @@ export async function getArtifactWithRevision(access: RepositoryAccessContext, i
   return getRepository(access).findByIdWithRevision(id);
 }
 
-export async function createVariation(access: RepositoryAccessContext, source: Artifact, body: string, title?: string) {
-  return getRepository(access).createVariation({ source, body, title });
+export async function createVariation(access: RepositoryAccessContext, source: Artifact, body: string, actorLogin: string, title?: string) {
+  return getRepository(access).createVariation({ source, body, title, actorLogin });
 }
 
 export async function createArtifact(access: RepositoryAccessContext, input: CreateArtifactInput) {

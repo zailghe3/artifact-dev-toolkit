@@ -1,6 +1,5 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import matter from "gray-matter";
 import { z } from "zod";
 import { DEFAULT_ARTIFACT_BRANCH, DEFAULT_ARTIFACT_ROOT, MAX_SERIALIZED_ARTIFACT_BYTES, normalizeArtifactMetadata, parseArtifactMarkdown, serializeArtifactMarkdown, trimSlashes, validateArtifactPath, validateUniqueArtifactIds, type ArtifactMetadata, type ArtifactModel } from "./artifact-contract.ts";
 import type { RepositoryAccessContext } from "./repository-authorization.ts";
@@ -20,6 +19,7 @@ export type CreateVariationInput = {
   source: Artifact;
   body: string;
   title?: string;
+  actorLogin: string;
 };
 
 export type CreateArtifactInput = { metadata: ArtifactMetadata; body: string; actorLogin: string };
@@ -139,6 +139,25 @@ export function slugify(value: string) {
     .slice(0, 80);
 }
 
+function prepareVariation(source: Artifact, body: string, title?: string) {
+  const timestamp = new Date().toISOString();
+  const variationTitle = title?.trim() || `${source.title} Variation`;
+  const idBase = slugify(title || `${source.id} variation`);
+  if (!idBase) throw new ArtifactWriteValidationError();
+  const id = `${idBase}-${timestamp.slice(0, 10)}-${timestamp.slice(11, 19).replace(/:/g, "")}`;
+  const metadata: ArtifactMetadata = {
+    id,
+    title: variationTitle,
+    type: source.type,
+    status: "draft",
+    tags: Array.from(new Set([...source.tags, "variation"])),
+    aliases: source.aliases,
+    sourceId: source.id,
+    createdAt: timestamp,
+  };
+  return { id, metadata, markdown: prepareWrite(metadata, body).markdown };
+}
+
 export class FileArtifactRepository implements ArtifactRepository {
   private readonly rootDir: string;
 
@@ -175,27 +194,9 @@ export class FileArtifactRepository implements ArtifactRepository {
   async update(): Promise<ArtifactWriteResult> { throw new ArtifactRepositoryConfigurationError("Direct artifact writes require the GitHub repository backend."); }
 
   async createVariation({ source, body, title }: CreateVariationInput) {
-    assertNoSecrets(body);
-    assertNoSecrets(title ?? "");
-
-    const timestamp = new Date().toISOString();
-    const idBase = slugify(title || `${source.id} variation`);
-    const id = `${idBase}-${timestamp.slice(0, 10)}-${timestamp.slice(11, 19).replace(/:/g, "")}`;
+    const { id, markdown } = prepareVariation(source, body, title);
     const filePath = path.join(this.rootDir, "variations", `${id}.md`);
     await fs.mkdir(path.dirname(filePath), { recursive: true });
-
-    const markdown = matter.stringify(`${body.trim()}\n`, {
-      id,
-      title: title?.trim() || `${source.title} Variation`,
-      type: source.type,
-      status: "draft",
-      tags: Array.from(new Set([...source.tags, "variation"])),
-      aliases: source.aliases,
-      sourceId: source.id,
-      createdAt: timestamp,
-    });
-
-    assertNoSecrets(markdown);
     await fs.writeFile(filePath, markdown, "utf8");
     return id;
   }
@@ -315,9 +316,15 @@ export class GitHubArtifactRepository implements ArtifactRepository {
   }
 
   async createVariation(input: CreateVariationInput): Promise<string> {
-    assertNoSecrets(input.body);
-    assertNoSecrets(input.title ?? "");
-    throw new Error("GitHubArtifactRepository is read-only. Creating or editing artifacts is outside the DATA-002 scope.");
+    if (!/^[A-Za-z0-9-]+$/.test(input.actorLogin)) throw new ArtifactWriteValidationError();
+    const { id, markdown } = prepareVariation(input.source, input.body, input.title);
+    const path = `${this.rootPath}/variations/${id}.md`;
+    const tree = await this.fetchTree();
+    if (tree.some((entry) => entry.type === "blob" && entry.path === path)) throw new ArtifactDuplicateError();
+    const artifacts = await this.artifactsFromTree(tree);
+    if (artifacts.some((artifact) => artifact.id === id)) throw new ArtifactDuplicateError();
+    await this.writeContents(path, id, markdown, input.actorLogin, undefined);
+    return id;
   }
 
   private githubUrl(pathname: string) {

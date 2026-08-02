@@ -10,6 +10,7 @@ import { MAX_SERIALIZED_ARTIFACT_BYTES, serializeArtifactMarkdown } from '../lib
 
 const metadata = { id: 'new-prompt', title: 'New Prompt', type: 'prompt', status: 'draft', tags: ['writing'], aliases: [] };
 const existingMarkdown = `---\nid: new-prompt\ntitle: New Prompt\ntype: prompt\nstatus: draft\ntags: [writing]\naliases: []\n---\n\nOld body\n`;
+const source = { ...metadata, id: 'source-prompt', title: 'Source Prompt', status: 'production', aliases: ['starter'], body: 'Source body', excerpt: 'Source body', path: 'artifacts/prompts/source-prompt.md' };
 const json = (value, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
 
 function fake({ files = {}, writeStatus = 200, writeValue } = {}) {
@@ -41,6 +42,40 @@ test('create serializes canonical Markdown, sends one Contents API write, and re
   assert.deepEqual(result, { artifactId: 'new-prompt', path: 'artifacts/prompts/new-prompt.md', fileSha: 'new-blob', commitSha: 'commit-1', commitUrl: 'https://github.example/commit/1', repositoryRevision: 'commit-1' });
   assert.equal(JSON.stringify(result).includes('installation-secret'), false);
   assert.equal(payload.message.includes('installation-secret'), false);
+});
+
+test('createVariation persists canonical draft Markdown under variations with source metadata and attribution', async () => {
+  const runtime = fake();
+  const id = await runtime.repository.createVariation({ source, title: 'Focused Draft', body: '  Revised body  ', actorLogin: 'octocat' });
+  assert.match(id, /^focused-draft-\d{4}-\d{2}-\d{2}-\d{6}$/);
+  const write = runtime.calls.find((call) => call.options.method === 'PUT');
+  assert.ok(write.url.endsWith(`/repos/owner/repo/contents/artifacts/variations/${id}.md`));
+  const payload = JSON.parse(write.options.body);
+  assert.equal(payload.message, `Create artifact ${id} (requested by @octocat)`);
+  assert.equal(payload.branch, 'main');
+  const markdown = Buffer.from(payload.content, 'base64').toString();
+  assert.match(markdown, new RegExp(`id: ${id}`));
+  assert.match(markdown, /title: Focused Draft\ntype: prompt\nstatus: draft/);
+  assert.match(markdown, /tags:\n  - writing\n  - variation\naliases:\n  - starter\nsourceId: source-prompt\ncreatedAt:/);
+  assert.ok(markdown.endsWith('Revised body\n'));
+});
+
+test('createVariation uses typed write safeguards before issuing a Contents API write', async () => {
+  const duplicateRuntime = fake({ files: { 'artifacts/prompts/existing.md': existingMarkdown.replaceAll('new-prompt', 'focused-draft-2026-08-02-120000') } });
+  const originalDate = Date;
+  globalThis.Date = class extends Date { constructor(...args) { super(...(args.length ? args : ['2026-08-02T12:00:00.000Z'])); } };
+  try {
+    await assert.rejects(duplicateRuntime.repository.createVariation({ source, title: 'Focused Draft', body: 'Body', actorLogin: 'octocat' }), ArtifactDuplicateError);
+  } finally { globalThis.Date = originalDate; }
+  assert.equal(duplicateRuntime.calls.some((call) => call.options.method === 'PUT'), false);
+
+  const invalidRuntime = fake();
+  await assert.rejects(invalidRuntime.repository.createVariation({ source, title: '!!!', body: 'Body', actorLogin: 'octocat' }), ArtifactWriteValidationError);
+  assert.equal(invalidRuntime.calls.length, 0);
+
+  const secretRuntime = fake();
+  await assert.rejects(secretRuntime.repository.createVariation({ source, body: 'token=abcdefghijklmnopqrstuvwxyz123456', actorLogin: 'octocat' }), ArtifactSecretRejectedError);
+  assert.equal(secretRuntime.calls.length, 0);
 });
 
 test('create rejects an occupied target path without writing', async () => {
