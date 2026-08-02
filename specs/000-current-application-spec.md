@@ -182,7 +182,7 @@ The detail page shall provide a variation form pre-populated with:
 - a title formed from the source title followed by `Variation`;
 - the complete body of the source artifact.
 
-The user may edit both values before saving.
+The user may edit both values before saving. A protected, private/no-store preview renders the unsaved body through the same Markdown renderer used by artifact details and shows the resulting draft title, status, source relationship, normalized tags, and aliases. Previewing performs no repository write. The renderer preserves the application's characterized raw-HTML behavior: raw HTML is escaped and user-supplied scripts and event handlers are never executed.
 
 On save, the application shall:
 
@@ -199,7 +199,15 @@ On save, the application shall:
 11. set `createdAt` to the current ISO-8601 timestamp;
 12. generate a unique ID from the title, timestamp, and a cryptographically random suffix;
 13. save the file under `artifacts/variations/`;
-14. redirect the user to the newly created artifact.
+14. keep the source page visible and display `Variation saved`, a local link to the new artifact, and the validated HTTPS GitHub commit link.
+
+### 5.6 Propose a production change
+
+Production artifact details provide a separate editor, pre-populated from the artifact and its revision-aware `currentFileSha`. Preview uses the shared Markdown renderer. Submission creates a branch and GitHub pull request; it never invokes the direct update primitive, changes the configured base branch, merges the pull request, or implies that the live artifact has changed. Draft and archived artifacts do not expose this action.
+
+The proposal API validates complete metadata, canonical serialization, the shared UTF-8 limit, secret patterns, stable ID, valid existing path, and the blob SHA observed in the same base revision before any write. A stale SHA returns `409 write_conflict`. The deterministic, bounded branch is `artifact-change/{lowercase-artifact-id}-{first-8-file-sha}`. An existing unrelated branch returns `409 proposal_branch_collision`; an identical open proposal may be returned idempotently. There is no random fallback, reset, force-push, branch deletion, or automatic merge.
+
+The Git Data workflow reads the base ref and commit/tree, creates one blob, one tree based on that exact base tree, and one commit with that base commit as its sole parent, then creates the branch ref and pull request targeting the configured base branch. The commit title is `Propose update to artifact {id} (requested by @{login})`. The pull-request title is `Update artifact: {title}` and its body contains only the artifact ID, repository-relative path, source SHA, requesting login, generated-branch attribution, and no-auto-merge statement—not artifact content or secrets. Writes are single-attempt. If a branch exists but pull-request creation fails, `502 proposal_incomplete` returns only safe branch recovery details; a repeat can inspect the deterministic branch rather than blindly repeating writes.
 
 A generated variation ID follows the current pattern:
 
@@ -209,7 +217,7 @@ A generated variation ID follows the current pattern:
 
 The title slug is lowercase, uses hyphens for non-alphanumeric sequences, and is limited to 80 characters before the timestamp and collision-resistant suffix are appended.
 
-### 5.6 Secret detection
+### 5.7 Secret detection
 
 Before writing a variation, the application shall refuse content that appears to contain certain secrets, including supported patterns for:
 
@@ -220,7 +228,7 @@ Before writing a variation, the application shall refuse content that appears to
 
 This is a safety check, not a complete secret-scanning or data-loss-prevention system.
 
-### 5.7 Authentication
+### 5.8 Authentication
 
 The sign-in page at `/sign-in` explains that GitHub authentication is required and links to `/auth/github/start`, which creates OAuth state cookies in a Route Handler before redirecting to GitHub. It supports a relative `returnTo` URL so successful authentication returns users to their intended protected page.
 
@@ -310,7 +318,11 @@ The GitHub backend supports canonical artifact creation and optimistic-concurren
 
 Reads and writes share a 1 MiB maximum for the UTF-8 byte size of the complete serialized Markdown artifact. Writes validate the final canonical Markdown before issuing a Contents API request and return the stable `artifact_too_large` error when it exceeds that limit.
 
-`createVariation()` uses the shared canonical serialization, size validation, secret scanning, path validation, duplicate detection, installation credentials, and single-attempt Contents API write primitive to persist a new draft beneath `artifacts/variations/` on the configured branch. Variations preserve the source type, aliases, and `sourceId` without changing the source artifact. The authenticated GitHub login is included only in the safe commit message for request attribution. Successful API responses contain the generated ID and path plus safe file SHA, commit SHA, commit URL, and repository revision when provided by GitHub. Typed write failures are mapped to safe status/code responses and actionable form messages. Broader branch, pull-request, and preview workflows tracked by issue #40 remain outside this direct-creation flow.
+`createVariation()` uses the shared canonical serialization, size validation, secret scanning, path validation, duplicate detection, installation credentials, and single-attempt Contents API write primitive to persist a new draft beneath `artifacts/variations/` on the configured branch. Variations preserve the source type, aliases, and `sourceId` without changing the source artifact. The authenticated GitHub login is included only in the safe commit message for request attribution. Successful API responses contain the generated ID and path plus safe file SHA, commit SHA, commit URL, and repository revision when provided by GitHub. Typed write failures are mapped to safe status/code responses and actionable form messages.
+
+Production proposals require the GitHub App's repository **Metadata: read**, **Contents: read and write** (repository/ref and Git Data reads and creation), and **Pull requests: read and write** (collision lookup and pull-request creation) permissions. These are the least privileges required by the GitHub REST endpoints used. Updating permissions does not happen automatically and may require an organization or repository administrator to approve the changed permissions on an existing installation.
+
+No catalogue cache is implemented. Reads and writes remain correct without KV, Cache API, or D1 catalogue state. DATA-003 issue #38 remains responsible for caching, stale fallback, persistent invalidation, and manual refresh.
 
 ### 6.5 Hosted variation persistence
 
@@ -439,10 +451,9 @@ The repository may also be deployed through Cloudflare's Git integration, but on
 The following capabilities are not part of the current application:
 
 - creating a brand-new base artifact through the UI;
-- editing or deleting an existing artifact;
+- deleting an existing artifact or directly overwriting production through the UI;
 - promoting a variation to production;
 - comparing or merging variations;
-- branch, pull-request, and preview-based production change proposals;
 - multiple users or collaboration;
 - favourites, recent items, or usage history;
 - filtering or sorting controls in the UI;

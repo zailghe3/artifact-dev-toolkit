@@ -4,7 +4,8 @@ import { CopyButton } from "@/components/CopyButton";
 import { SignOutButton } from "@/components/SignOutButton";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { VariationForm } from "@/components/VariationForm";
-import { getArtifact } from "@/lib/artifacts";
+import { ProposalForm } from "@/components/ProposalForm";
+import { getArtifactWithRevision } from "@/lib/artifacts";
 import { requireRepositoryAccess } from "@/lib/auth";
 import { markdownToHtml } from "@/lib/markdown";
 
@@ -14,8 +15,9 @@ export const dynamic = "force-dynamic";
 export default async function ArtifactPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const { session, access } = await requireRepositoryAccess(`/artifacts/${encodeURIComponent(id)}`);
-  const artifact = await getArtifact(access, id);
-  if (!artifact) notFound();
+  const result = await getArtifactWithRevision(access, id);
+  if (!result) notFound();
+  const { artifact, currentFileSha } = result;
   const html = await markdownToHtml(artifact.body);
 
   return (
@@ -40,6 +42,7 @@ export default async function ArtifactPage({ params }: { params: Promise<{ id: s
         <div className="mt-8 max-w-none space-y-4 leading-7 text-slate-700 dark:text-slate-300 [&_h1]:text-3xl [&_h1]:font-bold [&_h2]:text-2xl [&_h2]:font-bold [&_ol]:list-decimal [&_ol]:pl-6 [&_ul]:list-disc [&_ul]:pl-6 [&_strong]:text-slate-950 dark:[&_strong]:text-slate-50" dangerouslySetInnerHTML={{ __html: html }} />
       </article>
       <VariationForm artifactId={artifact.id} defaultBody={artifact.body} defaultTitle={artifact.title} />
+      {artifact.status === "production" ? <ProposalForm artifact={artifact} currentFileSha={currentFileSha} /> : null}
     </main>
   );
 }
