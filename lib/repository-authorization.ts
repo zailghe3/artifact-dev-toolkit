@@ -1,11 +1,11 @@
 import { noStoreHeaders, type SessionRecord } from "./auth-core.ts";
-import { createGitHubAppJwt, getConfiguredRepository, getRepositoryInstallation, mintInstallationToken, type GitHubAppConfig } from "./github-app.ts";
+import { createGitHubAppJwt, getConfiguredRepository, getRepositoryInstallation, mintInstallationToken, type GitHubAppConfig, type RepositoryCredential, type RepositoryCredentialCapability } from "./github-app.ts";
 import { AuthenticationConfigurationError, requireAuthenticationValues } from "./auth-configuration.ts";
 
 export const authorizationFreshnessMs = 7 * 60 * 1000;
 export type RepositoryAuthorizationFailureReason = "configuration" | "allowlist" | "app_access" | "user_access" | "temporary_unavailable";
 export type RepositoryAuthorizationStatus =
-  | { ok: true; owner: string; repo: string; login: string; githubId: number; repositoryId: number; installationId: number; checkedAt: number; installationTokenProvider: () => Promise<string> }
+  | { ok: true; owner: string; repo: string; login: string; githubId: number; repositoryId: number; installationId: number; checkedAt: number; installationCredentialProvider: (capability: RepositoryCredentialCapability) => Promise<RepositoryCredential> }
   | { ok: false; reason: RepositoryAuthorizationFailureReason; message: string; temporary?: boolean };
 export type RepositoryAccessContext = Extract<RepositoryAuthorizationStatus, { ok: true }>;
 
@@ -59,13 +59,19 @@ export async function verifyRepositoryAuthorization(user: { id: number; login: s
     if (repo.name.toLowerCase() !== config.repo.toLowerCase() || repo.owner.login.toLowerCase() !== config.owner.toLowerCase()) return { ok: false, reason: "user_access", message: repositoryAccessDeniedMessages.user_access };
     const appJwt = await createGitHubAppJwt(config.appId, config.privateKey);
     const installation = await getRepositoryInstallation(config, appJwt, fetchImpl);
-    let tokenPromise: Promise<string> | undefined;
-    const provider = () => tokenPromise ??= (async () => {
-      const minted = await mintInstallationToken(installation.id, repo.id, await createGitHubAppJwt(config.appId, config.privateKey), fetchImpl);
-      if (!minted.token) throw new Error("installation_token_unavailable");
-      return minted.token;
-    })();
-    return { ok: true, owner: config.owner, repo: config.repo, login: user.login, githubId: user.id, repositoryId: repo.id, installationId: installation.id, checkedAt: now, installationTokenProvider: provider };
+    const tokenPromises = new Map<RepositoryCredentialCapability, Promise<RepositoryCredential>>();
+    const provider = (capability: RepositoryCredentialCapability) => {
+      let credential = tokenPromises.get(capability);
+      if (!credential) {
+        credential = (async () => {
+          const capabilityJwt = await createGitHubAppJwt(config.appId, config.privateKey);
+          return mintInstallationToken(installation.id, repo.id, capabilityJwt, capability, fetchImpl);
+        })();
+        tokenPromises.set(capability, credential);
+      }
+      return credential;
+    };
+    return { ok: true, owner: config.owner, repo: config.repo, login: user.login, githubId: user.id, repositoryId: repo.id, installationId: installation.id, checkedAt: now, installationCredentialProvider: provider };
   } catch (error) {
     if (error instanceof AuthenticationConfigurationError) throw error;
     const reason = classify(error);

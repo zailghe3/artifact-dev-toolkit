@@ -4,6 +4,12 @@ import { AuthenticationConfigurationError } from "./auth-configuration.ts";
 export type GitHubAppConfig = { appId: string; clientId: string; clientSecret: string; privateKey: string; owner: string; repo: string; branch: string; rootPath: string; allowedLogins: string[] };
 export type GitHubRepository = { id: number; name: string; owner: { login: string } };
 export type GitHubInstallation = { id: number; repository_selection?: string };
+export type RepositoryCredentialCapability = "read" | "write" | "proposal";
+export type RepositoryCredential = {
+  token: string;
+  permissions: { contents?: string; pullRequests?: string };
+  expiresAt?: string;
+};
 
 export function base64Url(bytes: ArrayBuffer | Uint8Array) {
   const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
@@ -85,14 +91,26 @@ export async function getRepositoryInstallation(config: Pick<GitHubAppConfig, "o
   return githubJson<GitHubInstallation>(fetchImpl, `${githubApiBaseUrl}/repos/${encodeURIComponent(config.owner)}/${encodeURIComponent(config.repo)}/installation`, { headers: githubHeaders(appJwt) });
 }
 
-export async function mintInstallationToken(installationId: number, repositoryId: number, appJwt: string, fetchImpl: typeof fetch = fetch) {
+export async function mintInstallationToken(installationId: number, repositoryId: number, appJwt: string, capability: RepositoryCredentialCapability, fetchImpl: typeof fetch = fetch): Promise<RepositoryCredential> {
+  const permissions = capability === "read"
+    ? { contents: "read" }
+    : capability === "write"
+      ? { contents: "write" }
+      : { contents: "write", pull_requests: "write" };
   const response = await fetchImpl(`${githubApiBaseUrl}/app/installations/${installationId}/access_tokens`, {
     method: "POST",
     headers: { ...githubHeaders(appJwt), "content-type": "application/json" },
-    body: JSON.stringify({ repository_ids: [repositoryId], permissions: { contents: "read" } }),
+    body: JSON.stringify({ repository_ids: [repositoryId], permissions }),
   });
   if (!response.ok) throw Object.assign(new Error(`GitHub installation token request failed with ${response.status}`), { status: response.status });
-  const payload = await response.json() as { token?: string; expires_at?: string; permissions?: { contents?: string }; repositories?: { id?: number }[] };
+  const payload = await response.json() as { token?: string; expires_at?: string; permissions?: { contents?: string; pull_requests?: string }; repositories?: { id?: number }[] };
   if (!payload.token) throw new Error("GitHub installation token response was malformed.");
-  return payload;
+  return {
+    token: payload.token,
+    permissions: {
+      ...(payload.permissions?.contents ? { contents: payload.permissions.contents } : {}),
+      ...(payload.permissions?.pull_requests ? { pullRequests: payload.permissions.pull_requests } : {}),
+    },
+    ...(payload.expires_at ? { expiresAt: payload.expires_at } : {}),
+  };
 }

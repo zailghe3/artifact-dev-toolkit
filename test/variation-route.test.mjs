@@ -6,7 +6,7 @@ import {
 } from '../lib/artifact-repository.ts';
 import { handleVariationPost } from '../lib/variation-route-handler.ts';
 
-const access = { owner: 'owner', repo: 'repo', repositoryId: 1, installationId: 2, installationTokenProvider: async () => 'credential' };
+const access = { owner: 'owner', repo: 'repo', repositoryId: 1, installationId: 2, installationCredentialProvider: async (capability) => ({ token: 'credential', permissions: capability === 'read' ? { contents: 'read' } : capability === 'write' ? { contents: 'write' } : { contents: 'write', pullRequests: 'write' } }) };
 const session = { login: 'octocat' };
 const source = { id: 'source', title: 'Source', type: 'prompt', status: 'production', tags: [], aliases: [], body: 'Body', excerpt: 'Body', path: 'artifacts/prompts/source.md' };
 const request = (body) => new Request('https://example.test/api/artifacts/source/variation', { method: 'POST', headers: { 'content-type': 'application/json' }, body });
