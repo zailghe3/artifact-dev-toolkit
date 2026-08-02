@@ -5,6 +5,8 @@ import { artifactStatusSchema, artifactTypeSchema } from "./artifact-schemas.ts"
 export const ALLOWED_ARTIFACT_DIRECTORIES = ["prompts", "agents", "snippets", "templates", "app-ideas", "variations"] as const;
 export const DEFAULT_ARTIFACT_BRANCH = "main";
 export const DEFAULT_ARTIFACT_ROOT = "artifacts";
+/** Maximum UTF-8 size of a complete serialized Markdown artifact (1 MiB). */
+export const MAX_SERIALIZED_ARTIFACT_BYTES = 1024 * 1024;
 
 export const artifactFrontMatterSchema = z.object({
   id: z.string().trim().min(1),
@@ -61,6 +63,9 @@ export function validateArtifactPath(filePath: string, artifactRoot = DEFAULT_AR
   const prefix = root ? `${root}/` : "";
   if (!normalized.startsWith(prefix)) return `Markdown artifacts must be stored under ${root || "the configured artifact root"}.`;
   const relative = normalized.slice(prefix.length);
+  if (!relative || relative.split("/").some((segment) => !segment || segment === "." || segment === "..")) {
+    return "Markdown artifact paths must not contain empty or traversal segments.";
+  }
   const [topLevel] = relative.split("/");
   if (!ALLOWED_ARTIFACT_DIRECTORIES.includes(topLevel as (typeof ALLOWED_ARTIFACT_DIRECTORIES)[number])) {
     return `Markdown artifacts must be stored under one of: ${ALLOWED_ARTIFACT_DIRECTORIES.join(", ")}.`;
