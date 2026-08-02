@@ -2,6 +2,8 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { ArtifactCatalogueService, type ArtifactCatalogueResult, type CatalogueCacheBinding } from "@/lib/artifact-catalogue";
 import { createArtifactRepository, getArtifactRepositoryBackend, type Artifact, type ArtifactStatus, type CreateArtifactInput, type UpdateArtifactInput, type ProposeArtifactUpdateInput } from "@/lib/artifact-repository";
 import type { RepositoryAccessContext } from "@/lib/repository-authorization";
+import { completeWriteWithInvalidation } from "@/lib/artifact-cache-invalidation";
+export { completeWriteWithInvalidation } from "@/lib/artifact-cache-invalidation";
 
 export type { Artifact, ArtifactStatus, ArtifactCatalogueResult };
 export { slugify } from "@/lib/artifact-repository";
@@ -25,16 +27,20 @@ async function getService(access: RepositoryAccessContext) {
 }
 
 export async function getArtifactCatalogue(access: RepositoryAccessContext): Promise<ArtifactCatalogueResult> {
-  if (getArtifactRepositoryBackend() === "file") { const artifacts = await getRepository(access).list(); return { artifacts, revision: "local", refreshedAt: new Date().toISOString(), cacheState: "refreshed" }; }
-  return (await getService(access)).list();
+  if (getArtifactRepositoryBackend() === "file") { const artifacts = await getRepository(access).list(); return { artifacts, revision: "local", refreshedAt: new Date().toISOString(), cacheState: "refreshed", cacheEnabled: false }; }
+  return { ...await (await getService(access)).list(), cacheEnabled: true };
 }
-export async function refreshArtifactCatalogue(access: RepositoryAccessContext, full = false) { return (await getService(access)).list({ force: true, full, manual: true }); }
+export async function refreshArtifactCatalogue(access: RepositoryAccessContext, full = false) { if (getArtifactRepositoryBackend() === "file") return undefined; return (await getService(access)).list({ force: true, full, manual: true }); }
 export async function getArtifacts(access: RepositoryAccessContext): Promise<Artifact[]> { return (await getArtifactCatalogue(access)).artifacts; }
 export async function getArtifact(access: RepositoryAccessContext, id: string) { return getArtifactRepositoryBackend() === "file" ? getRepository(access).findById(id) : (await getService(access)).findByIdWithRevision(id).then((value) => value?.artifact); }
 export async function getArtifactWithRevision(access: RepositoryAccessContext, id: string) { return getArtifactRepositoryBackend() === "file" ? getRepository(access).findByIdWithRevision(id) : (await getService(access)).findByIdWithRevision(id); }
-async function invalidate(access: RepositoryAccessContext) { if (getArtifactRepositoryBackend() === "github") await (await getService(access)).invalidate(); }
+async function invalidate(access: RepositoryAccessContext) {
+  if (getArtifactRepositoryBackend() !== "github") return;
+  try { await (await getService(access)).invalidate(); }
+  catch { console.error(JSON.stringify({ event: "artifact_catalogue_cache_invalidation_failure", repositoryId: access.repositoryId, owner: access.owner, repository: access.repo, category: "cache_unavailable" })); }
+}
 
-export async function createVariation(access: RepositoryAccessContext, source: Artifact, body: string, actorLogin: string, title?: string) { const result = await getRepository(access).createVariation({ source, body, title, actorLogin }); await invalidate(access); return result; }
-export async function createArtifact(access: RepositoryAccessContext, input: CreateArtifactInput) { const result = await getRepository(access).create(input); await invalidate(access); return result; }
-export async function updateArtifact(access: RepositoryAccessContext, input: UpdateArtifactInput) { const result = await getRepository(access).update(input); await invalidate(access); return result; }
+export async function createVariation(access: RepositoryAccessContext, source: Artifact, body: string, actorLogin: string, title?: string) { const repository = getRepository(access); return completeWriteWithInvalidation(() => repository.createVariation({ source, body, title, actorLogin }), () => invalidate(access), access); }
+export async function createArtifact(access: RepositoryAccessContext, input: CreateArtifactInput) { const repository = getRepository(access); return completeWriteWithInvalidation(() => repository.create(input), () => invalidate(access), access); }
+export async function updateArtifact(access: RepositoryAccessContext, input: UpdateArtifactInput) { const repository = getRepository(access); return completeWriteWithInvalidation(() => repository.update(input), () => invalidate(access), access); }
 export async function proposeArtifactUpdate(access: RepositoryAccessContext, input: ProposeArtifactUpdateInput) { return getRepository(access).proposeUpdate(input); }

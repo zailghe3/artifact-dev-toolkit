@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-export function CatalogueRefresh({ refreshedAt, cacheState }: { refreshedAt: string; cacheState: "fresh" | "refreshed" | "stale" }) {
+export function CatalogueRefresh({ refreshedAt, cacheState }: { refreshedAt: string; cacheState: "fresh" | "refreshed" | "stale" | "degraded" }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const router = useRouter();
@@ -23,6 +23,7 @@ export function CatalogueRefresh({ refreshedAt, cacheState }: { refreshedAt: str
       <div className="flex gap-2"><button disabled={pending} onClick={() => refresh()} className="rounded-lg bg-sky-700 px-3 py-2 font-semibold text-white disabled:opacity-50">{pending ? "Refreshing…" : "Refresh"}</button><button disabled={pending} onClick={() => refresh(true)} className="rounded-lg border border-slate-300 px-3 py-2 font-semibold disabled:opacity-50">Full rebuild</button></div>
     </div>
     {cacheState === "stale" ? <p role="alert" className="mt-2 font-semibold text-amber-700 dark:text-amber-300">GitHub is temporarily unavailable. Stale catalogue content is being served.</p> : null}
+    {cacheState === "degraded" ? <p role="status" className="mt-2 font-semibold text-amber-700 dark:text-amber-300">Content is fresh from GitHub, but catalogue caching is temporarily unavailable.</p> : null}
     {error ? <p role="alert" className="mt-2 text-red-700">{error}</p> : null}
   </div>;
 }

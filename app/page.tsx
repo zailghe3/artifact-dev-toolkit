@@ -32,7 +32,7 @@ export default async function Home() {
           </div>
         </div>
       </section>
-      <CatalogueRefresh refreshedAt={catalogue.refreshedAt} cacheState={catalogue.cacheState} />
+      {catalogue.cacheEnabled === false ? null : <CatalogueRefresh refreshedAt={catalogue.refreshedAt} cacheState={catalogue.cacheState} />}
       <ArtifactSearch artifacts={artifacts} />
     </main>
   );
