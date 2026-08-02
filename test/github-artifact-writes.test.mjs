@@ -29,7 +29,7 @@ function fake({ files = {}, writeStatus = 200, writeValue, now, randomBytes } = 
     const requestedPath = decodeURIComponent(pathname.split('/contents/')[1]);
     return json(writeValue ?? { content: { path: requestedPath, sha: 'new-blob' }, commit: { sha: 'commit-1', html_url: 'https://github.example/commit/1' } }, writeStatus);
   };
-  return { calls, diagnostics, repository: new GitHubArtifactRepository({ owner: 'owner', repo: 'repo', branch: 'main', rootPath: 'artifacts', credentialProvider: async () => 'installation-secret', fetch, sleep: async () => {}, logger: { info(value) { diagnostics.push(value); }, error(value) { diagnostics.push(value); } }, now, randomBytes }) };
+  return { calls, diagnostics, repository: new GitHubArtifactRepository({ owner: 'owner', repo: 'repo', branch: 'main', rootPath: 'artifacts', credentialProvider: async (capability) => ({ token: 'installation-secret', permissions: capability === 'read' ? { contents: 'read' } : capability === 'write' ? { contents: 'write' } : { contents: 'write', pullRequests: 'write' } }), fetch, sleep: async () => {}, logger: { info(value) { diagnostics.push(value); }, error(value) { diagnostics.push(value); } }, now, randomBytes }) };
 }
 
 test('create serializes canonical Markdown, sends one Contents API write, and returns commit metadata', async () => {

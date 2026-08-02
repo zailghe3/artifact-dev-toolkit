@@ -204,13 +204,19 @@ async function resolveRepositoryAccess(session: SessionRecord, now = Date.now())
     console.info(JSON.stringify({ event: "repository_authorization_refreshed", owner: config.owner, repository: config.repo, authorizationState: session.repositoryAuthorization.state, refreshed: true, reason: status.ok ? undefined : status.reason }));
     if (!status.ok) return { session, failure: status, refreshed };
   } else {
-    let tokenPromise: Promise<string> | undefined;
-    status = { ok: true, owner: auth.owner, repo: auth.repo, login: session.login.toLowerCase(), githubId: session.githubId, repositoryId: auth.repositoryId!, installationId: auth.installationId!, checkedAt: auth.checkedAt, installationTokenProvider: () => tokenPromise ??= (async () => {
+    const credentialPromises = new Map<import("@/lib/github-app").RepositoryCredentialCapability, Promise<import("@/lib/github-app").RepositoryCredential>>();
+    status = { ok: true, owner: auth.owner, repo: auth.repo, login: session.login.toLowerCase(), githubId: session.githubId, repositoryId: auth.repositoryId!, installationId: auth.installationId!, checkedAt: auth.checkedAt, installationCredentialProvider: (capability) => {
+      let credential = credentialPromises.get(capability);
+      if (credential) return credential;
+      credential = (async () => {
       const appJwt = await import("@/lib/github-app").then(({ createGitHubAppJwt }) => createGitHubAppJwt(config.appId, config.privateKey));
-      const minted = await import("@/lib/github-app").then(({ mintInstallationToken }) => mintInstallationToken(auth.installationId!, auth.repositoryId!, appJwt));
+      const minted = await import("@/lib/github-app").then(({ mintInstallationToken }) => mintInstallationToken(auth.installationId!, auth.repositoryId!, appJwt, capability));
       if (!minted.token) throw new Error("installation_token_unavailable");
-      return minted.token;
-    })() };
+      return minted;
+      })();
+      credentialPromises.set(capability, credential);
+      return credential;
+    } };
   }
   return { session, access: status as RepositoryAccessContext, refreshed };
 }

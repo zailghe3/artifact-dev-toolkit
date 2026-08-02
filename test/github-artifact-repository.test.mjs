@@ -44,7 +44,7 @@ function repository(fetch, overrides = {}) {
   return new GitHubArtifactRepository({
     owner: 'example-owner',
     repo: 'artifact-store',
-    credentialProvider: async () => 'installation-token',
+    credentialProvider: async (capability) => ({ token: 'installation-token', permissions: capability === 'read' ? { contents: 'read' } : capability === 'write' ? { contents: 'write' } : { contents: 'write', pullRequests: 'write' } }),
     branch: 'main',
     rootPath: 'artifacts',
     fetch,
@@ -233,7 +233,7 @@ test('a temporary blob HTTP failure retries only that blob with secret-free diag
     if (String(url).endsWith('/git/blobs/sha-1') && ++failedBlobAttempts === 1) return new Response(responseSecret, { status: 503 });
     return baseFetch(url, options);
   };
-  const artifacts = await repository(fetch, { ...runtime, credentialProvider: async () => secretToken }).list();
+  const artifacts = await repository(fetch, { ...runtime, credentialProvider: async () => ({ token: secretToken, permissions: { contents: 'read' } }) }).list();
   assert.deepEqual(artifacts.map(({ id }) => id), ['a', 'b']);
   assert.equal(failedBlobAttempts, 2);
   const retry = runtime.entries.find(({ event }) => event === 'github_artifact_request_retry');
@@ -409,7 +409,7 @@ test('one installation credential is reused for the tree and every blob', async 
     'artifacts/agents/b.md': markdown('id: b\ntitle: B\ntype: agent\nstatus: draft\ntags: []\naliases: []'),
   });
   let tokenPromise;
-  const repo = repository(fetch, { credentialProvider: () => tokenPromise ??= Promise.resolve(`token-${++credentials}`) });
+  const repo = repository(fetch, { credentialProvider: (capability) => tokenPromise ??= Promise.resolve({ token: `token-${++credentials}`, permissions: capability === 'read' ? { contents: 'read' } : capability === 'write' ? { contents: 'write' } : { contents: 'write', pullRequests: 'write' } }) });
   await repo.list();
   assert.equal(credentials, 1);
   assert.equal(fetch.calls.every(call => call.options.headers.authorization === 'Bearer token-1'), true);

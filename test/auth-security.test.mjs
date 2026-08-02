@@ -327,10 +327,14 @@ test("repository authorisation requires app and signed-in user access to the exa
     "user-token",
     appConfig({ privateKey, repo: "private-artifacts", allowedLogins: ["octocat"] }),
     async (url, init) => {
-      calls.push({ url: String(url), authorization: init?.headers.authorization });
+      calls.push({ url: String(url), authorization: init?.headers.authorization, body: init?.body });
       const path = new URL(String(url)).pathname;
       if (path === "/repos/owner/private-artifacts") return new Response(JSON.stringify({ id: 99, name: "private-artifacts", owner: { login: "owner" } }), { status: 200 });
       if (path === "/repos/owner/private-artifacts/installation") return new Response(JSON.stringify({ id: 77 }), { status: 200 });
+      if (path === "/app/installations/77/access_tokens") {
+        const request = JSON.parse(init.body);
+        return new Response(JSON.stringify({ token: `installation-${request.permissions.contents}-${request.permissions.pull_requests ?? "none"}`, permissions: request.permissions }), { status: 200 });
+      }
       return new Response("{}", { status: 404 });
     },
   );
@@ -342,6 +346,18 @@ test("repository authorisation requires app and signed-in user access to the exa
   assert.deepEqual(calls.map((call) => call.url), [
     "https://api.github.com/repos/owner/private-artifacts",
     "https://api.github.com/repos/owner/private-artifacts/installation",
+  ]);
+  const readOne = okStatus.installationCredentialProvider("read");
+  const readTwo = okStatus.installationCredentialProvider("read");
+  const [readCredential, repeatedReadCredential, writeCredential, proposalCredential] = await Promise.all([readOne, readTwo, okStatus.installationCredentialProvider("write"), okStatus.installationCredentialProvider("proposal")]);
+  assert.equal(readOne, readTwo);
+  assert.equal(readCredential, repeatedReadCredential);
+  assert.deepEqual([readCredential.permissions, writeCredential.permissions, proposalCredential.permissions], [{ contents: "read" }, { contents: "write" }, { contents: "write", pullRequests: "write" }]);
+  const tokenRequests = calls.slice(2).map(call => JSON.parse(call.body));
+  assert.deepEqual(tokenRequests, [
+    { repository_ids: [99], permissions: { contents: "read" } },
+    { repository_ids: [99], permissions: { contents: "write" } },
+    { repository_ids: [99], permissions: { contents: "write", pull_requests: "write" } },
   ]);
   assert.deepEqual(createRepositoryAuthorizationRecord(okStatus, 1234), { state: "authorized", owner: "owner", repo: "private-artifacts", login: "OctoCat", githubId: 123, repositoryId: 99, installationId: 77, checkedAt: 1234 });
 });
