@@ -396,7 +396,7 @@ test("repository authorisation sessions and protected routes carry repository de
   const fs = await import("node:fs/promises");
   const homePage = await fs.readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   assert.equal(homePage.includes("requireRepositoryAccess"), true);
-  assert.equal(homePage.indexOf("requireRepositoryAccess") < homePage.indexOf("getArtifacts(access)"), true);
+  assert.equal(homePage.indexOf("requireRepositoryAccess") < homePage.indexOf("getArtifactCatalogue(access)"), true);
 
   const artifactsRoute = await fs.readFile(new URL("../app/api/artifacts/route.ts", import.meta.url), "utf8");
   assert.equal(artifactsRoute.includes("requireApiRepositoryAccess(request)"), true);

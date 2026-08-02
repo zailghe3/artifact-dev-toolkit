@@ -128,4 +128,5 @@ test("Wrangler structurally declares exactly the intended secrets and production
   const wrangler = JSON.parse(readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8"));
   assert.deepEqual(wrangler.secrets.required, ["GITHUB_APP_ID", "GITHUB_APP_CLIENT_ID", "GITHUB_APP_CLIENT_SECRET", "GITHUB_APP_PRIVATE_KEY", "GITHUB_TOKEN_ENCRYPTION_KEY", "SESSION_SECRET"]);
   assert.deepEqual(wrangler.vars, { ARTIFACT_REPOSITORY: "github", GITHUB_ARTIFACT_REPOSITORY_OWNER: "zailghe3", GITHUB_ARTIFACT_REPOSITORY_NAME: "fpo-artifacts" });
+  assert.deepEqual(wrangler.kv_namespaces, [{ binding: "ARTIFACT_CATALOGUE_CACHE" }]);
 });

@@ -20,6 +20,11 @@
   "images": {
     "binding": "IMAGES"
   },
+  "kv_namespaces": [
+    {
+      "binding": "ARTIFACT_CATALOGUE_CACHE"
+    }
+  ],
   "d1_databases": [
     {
       "binding": "AUTH_SESSIONS_DB",
