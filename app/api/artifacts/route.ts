@@ -6,6 +6,7 @@ import { searchArtifacts } from "@/lib/search";
 import { artifactFrontMatterSchema } from "@/lib/artifact-contract";
 import { artifactWriteErrorResponse } from "@/lib/artifact-write-http";
 import { z } from "zod";
+import { mapOperationalError } from "@/lib/operational-errors";
 
 const writePayloadSchema = z.object({ metadata: artifactFrontMatterSchema, body: z.string().min(1) });
 
@@ -31,9 +32,7 @@ export async function GET(request: Request) {
     const artifacts = searchArtifacts(await getArtifacts(authorization.access), query);
     return NextResponse.json({ artifacts }, { headers: noStoreHeaders });
   } catch (error) {
-    const errors = await import("@/lib/artifact-repository");
-    const unavailable = error instanceof errors.ArtifactRepositoryUnavailableError;
-    const denied = error instanceof errors.ArtifactRepositoryAccessError;
-    return NextResponse.json({ error: unavailable ? "Artifact repository temporarily unavailable" : denied ? "Repository access denied" : "Artifact repository could not be read" }, { status: unavailable ? 503 : denied ? 403 : 500, headers: noStoreHeaders });
+    const state = mapOperationalError(error);
+    return NextResponse.json({ error: state.title, code: state.category, guidance: state.guidance, retry: state.retry }, { status: state.status, headers: noStoreHeaders });
   }
 }

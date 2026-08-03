@@ -4,12 +4,15 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { CatalogueRefresh } from "@/components/CatalogueRefresh";
 import { getArtifactCatalogue } from "@/lib/artifacts";
 import { requireRepositoryAccess } from "@/lib/auth";
+import Link from "next/link";
+import { OperationalState } from "@/components/OperationalState";
+import { isExpectedOperationalError, mapOperationalError } from "@/lib/operational-errors";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
   const { session, access } = await requireRepositoryAccess("/");
-  const catalogue = await getArtifactCatalogue(access);
+  let catalogue; try { catalogue = await getArtifactCatalogue(access); } catch (error) { if (!isExpectedOperationalError(error)) throw error; return <main className="mx-auto min-h-screen max-w-5xl px-4 py-8"><OperationalState state={mapOperationalError(error)} /></main>; }
   const artifacts = catalogue.artifacts;
   const productionCount = artifacts.filter((artifact) => artifact.status === "production").length;
 
@@ -17,7 +20,7 @@ export default async function Home() {
     <main className="mx-auto min-h-screen max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
       <div className="mb-4 flex items-center justify-between gap-4">
         <SignOutButton login={session.login} />
-        <ThemeToggle />
+        <div className="flex items-center gap-4"><Link href="/diagnostics" className="text-sm font-semibold text-sky-700 dark:text-orange-300">Diagnostics</Link><ThemeToggle /></div>
       </div>
       <section className="mb-8 rounded-[2rem] bg-ink p-6 text-white dark:border dark:border-orange-500/20 dark:bg-slate-950 shadow-soft sm:p-10">
         <p className="text-sm font-semibold uppercase tracking-[0.35em] text-sky-200 dark:text-orange-300">Artifact Library</p>
