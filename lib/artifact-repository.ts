@@ -32,6 +32,8 @@ export type ArtifactProposalResult = { artifactId: string; path: string; branchN
 export type CreateVariationResult = { id: string; path: string; fileSha?: string; commitSha?: string; commitUrl?: string; repositoryRevision?: string };
 export type ArtifactWithRevision = { artifact: Artifact; currentFileSha: string };
 export type RepositoryCatalogue = { artifacts: Artifact[]; revision: string; fileShas: Record<string, string> };
+export type ArtifactValidationDiagnostic = { path: string; code: "invalid_path" | "unsupported_encoding" | "blob_too_large" | "missing_blob_sha" | "blob_unavailable" | "invalid_front_matter" | "invalid_metadata" | "invalid_body" | "duplicate_id"; message: string };
+export type RepositoryValidationReport = { revision: string; validCount: number; invalidCount: number; errors: ArtifactValidationDiagnostic[]; omittedErrorCount: number };
 
 export interface ArtifactRepository {
   list(): Promise<Artifact[]>;
@@ -39,6 +41,7 @@ export interface ArtifactRepository {
   findByIdWithRevision(id: string): Promise<ArtifactWithRevision | undefined>;
   getBaseRevision(): Promise<string>;
   loadCatalogue(revision?: string): Promise<RepositoryCatalogue>;
+  diagnoseCatalogue?(revision?: string): Promise<RepositoryValidationReport>;
   create(input: CreateArtifactInput): Promise<ArtifactWriteResult>;
   update(input: UpdateArtifactInput): Promise<ArtifactWriteResult>;
   proposeUpdate(input: ProposeArtifactUpdateInput): Promise<ArtifactProposalResult>;
@@ -345,6 +348,32 @@ export class GitHubArtifactRepository implements ArtifactRepository {
       fileShas[artifact.id] = sha;
     }
     return { artifacts: artifacts.sort((a, b) => a.title.localeCompare(b.title)), revision: resolvedRevision, fileShas };
+  }
+
+  async diagnoseCatalogue(revision?: string): Promise<RepositoryValidationReport> {
+    const resolvedRevision = revision ?? await this.getBaseRevision();
+    const tree = await this.fetchTree("read", resolvedRevision);
+    const prefix = this.rootPath ? `${this.rootPath}/` : "";
+    const files = tree.filter((entry) => entry.type === "blob" && typeof entry.path === "string" && entry.path.startsWith(prefix) && entry.path.endsWith(".md"));
+    const results = await mapWithConcurrency(files, githubBlobConcurrency, async (file) => {
+      const safePath = typeof file.path === "string" && !validateArtifactPath(file.path, this.rootPath) ? file.path : "[unsafe repository path]";
+      if (safePath.startsWith("[")) return { error: { path: safePath, code: "invalid_path", message: "Artifact path is not a safe repository-relative path under the configured root." } as ArtifactValidationDiagnostic };
+      if (!file.sha || !/^[a-f0-9]{7,64}$/i.test(file.sha)) return { error: { path: safePath, code: "missing_blob_sha", message: "GitHub did not provide a valid blob revision." } as ArtifactValidationDiagnostic };
+      try { return { artifact: parseArtifactMarkdown(await this.fetchBlob(file.sha, safePath, "read"), safePath) }; }
+      catch (error) {
+        if (error instanceof ArtifactRepositoryUnavailableError || error instanceof ArtifactRepositoryAccessError) return { error: { path: safePath, code: "blob_unavailable", message: "Artifact content could not be read from GitHub." } as ArtifactValidationDiagnostic };
+        const message = error instanceof Error ? error.message.toLowerCase() : "";
+        const code: ArtifactValidationDiagnostic["code"] = message.includes("front matter") ? "invalid_front_matter" : message.includes("body") ? "invalid_body" : "invalid_metadata";
+        return { error: { path: safePath, code, message: code === "invalid_body" ? "Artifact body is invalid." : code === "invalid_front_matter" ? "Artifact front matter is invalid." : "Artifact metadata is invalid." } as ArtifactValidationDiagnostic };
+      }
+    });
+    const valid = results.flatMap((result) => result.artifact ? [result.artifact] : []);
+    const diagnostics = results.flatMap((result) => result.error ? [result.error] : []);
+    const byId = new Map<string, Artifact[]>(); for (const artifact of valid) byId.set(artifact.id, [...(byId.get(artifact.id) ?? []), artifact]);
+    for (const duplicates of byId.values()) if (duplicates.length > 1) for (const artifact of duplicates) diagnostics.push({ path: artifact.path, code: "duplicate_id", message: "Artifact ID is duplicated by another valid file." });
+    const invalidPaths = new Set(diagnostics.map((item) => item.path));
+    const errors = diagnostics.slice(0, 50);
+    return { revision: resolvedRevision, validCount: valid.filter((artifact) => !invalidPaths.has(artifact.path)).length, invalidCount: invalidPaths.size, errors, omittedErrorCount: Math.max(0, diagnostics.length - errors.length) };
   }
 
   async create(input: CreateArtifactInput): Promise<ArtifactWriteResult> {

@@ -32,6 +32,9 @@ export async function getArtifactCatalogue(access: RepositoryAccessContext): Pro
   return { ...await (await getService(access)).list(), cacheEnabled: true };
 }
 export async function refreshArtifactCatalogue(access: RepositoryAccessContext, full = false) { if (getArtifactRepositoryBackend() === "file") return undefined; return (await getService(access)).list({ force: true, full, manual: true }); }
+export async function inspectArtifactCatalogueCache(access: RepositoryAccessContext, revision?: string) { if (getArtifactRepositoryBackend() === "file") return { configured: false as const, state: "missing" as const }; try { return await (await getService(access)).inspect(revision); } catch { return { configured: false as const, state: "unavailable" as const, reason: "cache_binding_missing" }; } }
+export async function getArtifactRepositoryDiagnostics(access: RepositoryAccessContext, revision?: string) { const repository = getRepository(access); if (!repository.diagnoseCatalogue) return undefined; return repository.diagnoseCatalogue(revision); }
+export async function getArtifactBaseRevision(access: RepositoryAccessContext) { return getRepository(access).getBaseRevision(); }
 export async function getArtifacts(access: RepositoryAccessContext): Promise<Artifact[]> { return (await getArtifactCatalogue(access)).artifacts; }
 export async function getArtifact(access: RepositoryAccessContext, id: string) { return getArtifactRepositoryBackend() === "file" ? getRepository(access).findById(id) : (await getService(access)).findByIdWithRevision(id).then((value) => value?.artifact); }
 export async function getArtifactWithRevision(access: RepositoryAccessContext, id: string) {

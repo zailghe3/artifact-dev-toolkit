@@ -12,6 +12,7 @@ export interface CatalogueCacheBinding { get(key: string): Promise<string | null
 export type CatalogueIdentity = { repositoryId: number; owner: string; repository: string; branch: string; root: string };
 export type CatalogueCacheState = "fresh" | "refreshed" | "stale" | "degraded";
 export type ArtifactCatalogueResult = { artifacts: Artifact[]; revision: string; refreshedAt: string; cacheState: CatalogueCacheState; staleReason?: "repository_unavailable" | "rate_limited"; cacheEnabled?: boolean };
+export type CatalogueCacheDiagnostic = { configured: true; state: "fresh" | "stale" | "missing" | "degraded" | "corrupt"; revision?: string; refreshedAt?: string; ageSeconds?: number; artifactCount?: number; currentRevisionMatches?: boolean | "unknown"; reason?: string };
 export type ResolvedCatalogue = ArtifactCatalogueResult & { fileShas: Record<string, string> };
 export type ArtifactCatalogueDetail = ArtifactWithRevision & { catalogue: Omit<ArtifactCatalogueResult, "artifacts"> & { cacheEnabled: true } };
 type CataloguePublicationResult = { state: "published" | "competing_publication" } | { state: "aborted"; reason: "generation_changed" | "revision_changed" } | { state: "degraded"; reason: "cache_unavailable" };
@@ -43,6 +44,32 @@ export class ArtifactCatalogueService {
 
   async list(options: RefreshOptions = {}): Promise<ArtifactCatalogueResult> { const result = await this.resolve(options); return { artifacts: result.artifacts, revision: result.revision, refreshedAt: result.refreshedAt, cacheState: result.cacheState, ...(result.staleReason ? { staleReason: result.staleReason } : {}) }; }
   async findByIdWithRevision(id: string): Promise<ArtifactCatalogueDetail | undefined> { const result = await this.resolve(); const artifact = result.artifacts.find(candidate => candidate.id === id); const currentFileSha = result.fileShas[id]; return artifact && currentFileSha ? { artifact, currentFileSha, catalogue: { revision: result.revision, refreshedAt: result.refreshedAt, cacheState: result.cacheState, ...(result.staleReason ? { staleReason: result.staleReason } : {}), cacheEnabled: true } } : undefined; }
+
+  /** Read-only DATA-003 inspection. It deliberately returns no keys or cached entries. */
+  async inspect(currentRevision?: string): Promise<CatalogueCacheDiagnostic> {
+    let raw: string | null;
+    try { raw = await this.options.cache.get(pointerKey(this.options.identity)); }
+    catch { return { configured: true, state: "degraded", reason: "cache_read_unavailable" }; }
+    if (!raw) return { configured: true, state: "missing" };
+    try {
+      const pointer = pointerSchema.parse(JSON.parse(raw)); const id = this.options.identity;
+      if (pointer.repositoryId !== id.repositoryId || pointer.owner.toLowerCase() !== id.owner.toLowerCase() || pointer.repository.toLowerCase() !== id.repository.toLowerCase() || pointer.branch !== id.branch || pointer.root !== id.root) throw new Error("identity");
+      let artifactCount = 0;
+      for (let index = 0; index < pointer.chunks.length; index++) {
+        let value: string | null; try { value = await this.options.cache.get(pointer.chunks[index]); } catch { throw new CatalogueChunkReadError(); } if (!value) throw new Error("chunk");
+        const chunk = chunkSchema.parse(JSON.parse(value));
+        if (chunk.repositoryId !== id.repositoryId || chunk.revision !== pointer.revision || chunk.index !== index || chunk.owner.toLowerCase() !== id.owner.toLowerCase() || chunk.repository.toLowerCase() !== id.repository.toLowerCase() || chunk.branch !== id.branch || chunk.root !== id.root) throw new Error("chunk");
+        artifactCount += chunk.entries.length;
+      }
+      const ageSeconds = Math.max(0, Math.floor(((this.options.now ?? (() => new Date()))().getTime() - Date.parse(pointer.refreshedAt)) / 1000));
+      const matches = currentRevision ? currentRevision === pointer.revision : "unknown";
+      const fresh = ageSeconds < (this.options.freshnessSeconds ?? catalogueFreshnessSeconds()) && matches !== false;
+      return { configured: true, state: fresh ? "fresh" : "stale", revision: pointer.revision, refreshedAt: pointer.refreshedAt, ageSeconds, artifactCount, currentRevisionMatches: matches, ...(!fresh ? { reason: matches === false ? "revision_mismatch" : "age" } : {}) };
+    } catch (error) {
+      if (error instanceof CatalogueChunkReadError) return { configured: true, state: "degraded", reason: "cache_read_unavailable" };
+      return { configured: true, state: "corrupt", reason: "invalid_cache_snapshot" };
+    }
+  }
 
   async invalidate(): Promise<boolean> {
     const key = scope(this.options.identity); localGenerations.set(key, (localGenerations.get(key) ?? 0) + 1); invalidatedScopes.add(key);

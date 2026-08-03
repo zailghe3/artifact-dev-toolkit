@@ -9,6 +9,8 @@ import { CatalogueStatus } from "@/components/CatalogueStatus";
 import { getArtifactWithRevision } from "@/lib/artifacts";
 import { requireRepositoryAccess } from "@/lib/auth";
 import { markdownToHtml } from "@/lib/markdown";
+import { OperationalState } from "@/components/OperationalState";
+import { isExpectedOperationalError, mapOperationalError } from "@/lib/operational-errors";
 
 
 export const dynamic = "force-dynamic";
@@ -16,7 +18,7 @@ export const dynamic = "force-dynamic";
 export default async function ArtifactPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const { session, access } = await requireRepositoryAccess(`/artifacts/${encodeURIComponent(id)}`);
-  const result = await getArtifactWithRevision(access, id);
+  let result; try { result = await getArtifactWithRevision(access, id); } catch (error) { if (!isExpectedOperationalError(error)) throw error; return <main className="mx-auto min-h-screen max-w-4xl px-4 py-8"><OperationalState state={mapOperationalError(error)} /></main>; }
   if (!result) notFound();
   const { artifact, currentFileSha, catalogue } = result;
   const html = await markdownToHtml(artifact.body);
