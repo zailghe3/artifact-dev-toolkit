@@ -1,14 +1,16 @@
 import { ArtifactSearch } from "@/components/ArtifactSearch";
 import { SignOutButton } from "@/components/SignOutButton";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { getArtifacts } from "@/lib/artifacts";
+import { CatalogueRefresh } from "@/components/CatalogueRefresh";
+import { getArtifactCatalogue } from "@/lib/artifacts";
 import { requireRepositoryAccess } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
   const { session, access } = await requireRepositoryAccess("/");
-  const artifacts = await getArtifacts(access);
+  const catalogue = await getArtifactCatalogue(access);
+  const artifacts = catalogue.artifacts;
   const productionCount = artifacts.filter((artifact) => artifact.status === "production").length;
 
   return (
@@ -30,6 +32,7 @@ export default async function Home() {
           </div>
         </div>
       </section>
+      {catalogue.cacheEnabled === false ? null : <CatalogueRefresh refreshedAt={catalogue.refreshedAt} cacheState={catalogue.cacheState} />}
       <ArtifactSearch artifacts={artifacts} />
     </main>
   );

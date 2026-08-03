@@ -5,6 +5,7 @@ import { SignOutButton } from "@/components/SignOutButton";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { VariationForm } from "@/components/VariationForm";
 import { ProposalForm } from "@/components/ProposalForm";
+import { CatalogueStatus } from "@/components/CatalogueStatus";
 import { getArtifactWithRevision } from "@/lib/artifacts";
 import { requireRepositoryAccess } from "@/lib/auth";
 import { markdownToHtml } from "@/lib/markdown";
@@ -17,7 +18,7 @@ export default async function ArtifactPage({ params }: { params: Promise<{ id: s
   const { session, access } = await requireRepositoryAccess(`/artifacts/${encodeURIComponent(id)}`);
   const result = await getArtifactWithRevision(access, id);
   if (!result) notFound();
-  const { artifact, currentFileSha } = result;
+  const { artifact, currentFileSha, catalogue } = result;
   const html = await markdownToHtml(artifact.body);
 
   return (
@@ -26,6 +27,7 @@ export default async function ArtifactPage({ params }: { params: Promise<{ id: s
         <Link href="/" className="rounded-lg text-sm font-semibold text-sky-700 transition hover:text-sky-900 focus:outline-none focus:ring-4 focus:ring-sky-200 dark:text-orange-300 dark:hover:text-orange-200 dark:focus:ring-orange-500/35">← Back to library</Link>
         <div className="flex items-center gap-4"><SignOutButton login={session.login} /><ThemeToggle /></div>
       </div>
+      <CatalogueStatus refreshedAt={catalogue.refreshedAt} cacheState={catalogue.cacheState} />
       <article className="my-6 rounded-[2rem] border border-slate-200 bg-white p-6 shadow-soft dark:border-slate-800 dark:bg-slate-900 sm:p-8">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -42,7 +44,7 @@ export default async function ArtifactPage({ params }: { params: Promise<{ id: s
         <div className="mt-8 max-w-none space-y-4 leading-7 text-slate-700 dark:text-slate-300 [&_h1]:text-3xl [&_h1]:font-bold [&_h2]:text-2xl [&_h2]:font-bold [&_ol]:list-decimal [&_ol]:pl-6 [&_ul]:list-disc [&_ul]:pl-6 [&_strong]:text-slate-950 dark:[&_strong]:text-slate-50" dangerouslySetInnerHTML={{ __html: html }} />
       </article>
       <VariationForm artifactId={artifact.id} defaultBody={artifact.body} defaultTitle={artifact.title} />
-      {artifact.status === "production" ? <ProposalForm artifact={artifact} currentFileSha={currentFileSha} /> : null}
+      {artifact.status === "production" && currentFileSha ? <ProposalForm artifact={artifact} currentFileSha={currentFileSha} /> : null}
     </main>
   );
 }
