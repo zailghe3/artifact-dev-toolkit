@@ -238,6 +238,8 @@ export class ArtifactRepositoryUnavailableError extends Error {
   constructor(status?: number) { super("The artifact repository is temporarily unavailable."); this.status = status; }
 }
 export class ArtifactRepositoryAccessError extends Error { constructor() { super("Artifact repository access is denied."); } }
+export class ArtifactRepositoryNotFoundError extends Error { constructor() { super("The configured artifact repository was not found."); } }
+export class ArtifactBranchNotFoundError extends Error { constructor() { super("The configured artifact repository branch was not found."); } }
 export class ArtifactRepositoryContentError extends Error { constructor() { super("The artifact repository contains invalid content."); } }
 export class ArtifactWriteValidationError extends Error { constructor() { super("Artifact metadata or content is invalid."); } }
 export class ArtifactWriteTooLargeError extends Error { constructor() { super("Artifact exceeds the maximum allowed size."); } }
@@ -359,9 +361,11 @@ export class GitHubArtifactRepository implements ArtifactRepository {
       const safePath = typeof file.path === "string" && !validateArtifactPath(file.path, this.rootPath) ? file.path : "[unsafe repository path]";
       if (safePath.startsWith("[")) return { error: { path: safePath, code: "invalid_path", message: "Artifact path is not a safe repository-relative path under the configured root." } as ArtifactValidationDiagnostic };
       if (!file.sha || !/^[a-f0-9]{7,64}$/i.test(file.sha)) return { error: { path: safePath, code: "missing_blob_sha", message: "GitHub did not provide a valid blob revision." } as ArtifactValidationDiagnostic };
+      if (typeof file.size === "number" && file.size > MAX_SERIALIZED_ARTIFACT_BYTES) return { error: { path: safePath, code: "blob_too_large", message: "Artifact exceeds the maximum allowed size." } as ArtifactValidationDiagnostic };
       try { return { artifact: parseArtifactMarkdown(await this.fetchBlob(file.sha, safePath, "read"), safePath) }; }
       catch (error) {
-        if (error instanceof ArtifactRepositoryUnavailableError || error instanceof ArtifactRepositoryAccessError) return { error: { path: safePath, code: "blob_unavailable", message: "Artifact content could not be read from GitHub." } as ArtifactValidationDiagnostic };
+        if (error instanceof ArtifactRepositoryUnavailableError || error instanceof ArtifactRepositoryAccessError) throw error;
+        if (error instanceof ArtifactBlobDiagnosticError) return { error: { path: safePath, code: error.code, message: error.code === "unsupported_encoding" ? "Artifact blob encoding is unsupported." : "Artifact exceeds the maximum allowed size." } as ArtifactValidationDiagnostic };
         const message = error instanceof Error ? error.message.toLowerCase() : "";
         const code: ArtifactValidationDiagnostic["code"] = message.includes("front matter") ? "invalid_front_matter" : message.includes("body") ? "invalid_body" : "invalid_metadata";
         return { error: { path: safePath, code, message: code === "invalid_body" ? "Artifact body is invalid." : code === "invalid_front_matter" ? "Artifact front matter is invalid." : "Artifact metadata is invalid." } as ArtifactValidationDiagnostic };
@@ -642,6 +646,8 @@ export class GitHubArtifactRepository implements ArtifactRepository {
       const retryable = response.status === 429 || response.status >= 500 && response.status <= 599;
       if (!retryable) {
         if (response.status === 401 || response.status === 403) throw new ArtifactRepositoryAccessError();
+        if (response.status === 404 && url.includes("/git/ref/heads/")) throw new ArtifactBranchNotFoundError();
+        if (response.status === 404 && operation === "tree" && !filePath) throw new ArtifactRepositoryNotFoundError();
         throw new ArtifactRepositoryContentError();
       }
       const delay = this.retryDelay(response, attempt);
@@ -675,17 +681,20 @@ export class GitHubArtifactRepository implements ArtifactRepository {
   private async fetchBlob(sha: string, filePath: string, capability: RepositoryCredentialCapability) {
     const blob = await this.githubJson<GitHubBlobResponse>(this.githubUrl(`/git/blobs/${encodeURIComponent(sha)}`), "blob", filePath, capability);
     if (typeof blob.size === "number" && blob.size > MAX_SERIALIZED_ARTIFACT_BYTES) {
-      throw new Error(`${filePath}: Markdown artifact exceeds the ${MAX_SERIALIZED_ARTIFACT_BYTES} byte size limit.`);
+      throw new ArtifactBlobDiagnosticError("blob_too_large");
     }
     if (blob.encoding !== "base64" || typeof blob.content !== "string") {
-      throw new Error(`${filePath}: GitHub blob response used an unsupported encoding.`);
+      throw new ArtifactBlobDiagnosticError("unsupported_encoding");
     }
     const normalized = blob.content.replace(/\s+/g, "");
     const decoded = Buffer.from(normalized, "base64");
-    if (decoded.byteLength > MAX_SERIALIZED_ARTIFACT_BYTES) throw new Error(`${filePath}: Markdown artifact exceeds the ${MAX_SERIALIZED_ARTIFACT_BYTES} byte size limit.`);
+    if (decoded.byteLength > MAX_SERIALIZED_ARTIFACT_BYTES) throw new ArtifactBlobDiagnosticError("blob_too_large");
     return decoded.toString("utf8");
   }
 }
+
+class ArtifactBlobDiagnosticError extends Error { readonly code: "unsupported_encoding" | "blob_too_large"; constructor(code: "unsupported_encoding" | "blob_too_large") { super(code); this.code = code; } }
+
 
 export function createArtifactRepository(access: RepositoryAccessContext): ArtifactRepository {
   const backend = getArtifactRepositoryBackend();

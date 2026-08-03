@@ -1,5 +1,5 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { ArtifactCatalogueService, type ArtifactCatalogueResult, type CatalogueCacheBinding } from "@/lib/artifact-catalogue";
+import { ArtifactCatalogueService, CatalogueCacheUnavailableError, type ArtifactCatalogueResult, type CatalogueCacheBinding } from "@/lib/artifact-catalogue";
 import { createArtifactRepository, getArtifactRepositoryBackend, type Artifact, type ArtifactStatus, type CreateArtifactInput, type UpdateArtifactInput, type ProposeArtifactUpdateInput } from "@/lib/artifact-repository";
 import type { RepositoryAccessContext } from "@/lib/repository-authorization";
 import { completeWriteWithInvalidation } from "@/lib/artifact-cache-invalidation";
@@ -17,7 +17,7 @@ async function getCache() {
   if (testCache) return testCache;
   const { env } = await getCloudflareContext({ async: true });
   const cache = (env as CloudflareEnv & { ARTIFACT_CATALOGUE_CACHE?: CatalogueCacheBinding }).ARTIFACT_CATALOGUE_CACHE;
-  if (!cache) throw new Error("Missing Cloudflare KV binding: ARTIFACT_CATALOGUE_CACHE");
+  if (!cache) throw new CatalogueCacheUnavailableError();
   return cache;
 }
 async function getService(access: RepositoryAccessContext) {
