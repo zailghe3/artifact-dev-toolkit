@@ -1,7 +1,8 @@
 import {
   ArtifactProposalPermissionError, ArtifactRepositoryAccessError, ArtifactRepositoryConfigurationError,
-  ArtifactRepositoryContentError, ArtifactRepositoryUnavailableError, ArtifactWritePermissionError,
+  ArtifactRepositoryContentError, ArtifactRepositoryUnavailableError, ArtifactWritePermissionError, ArtifactRepositoryNotFoundError, ArtifactBranchNotFoundError,
 } from "./artifact-repository.ts";
+import { CatalogueCacheUnavailableError, CatalogueSnapshotCorruptError } from "./artifact-catalogue.ts";
 
 export type OperationalCategory = "authentication_required" | "repository_authorization_denied" | "github_app_not_installed" | "repository_configuration_invalid" | "repository_not_found" | "branch_not_found" | "repository_read_permission_required" | "repository_write_permission_required" | "proposal_permission_required" | "github_rate_limited" | "github_temporarily_unavailable" | "artifact_repository_invalid" | "catalogue_cache_unavailable" | "catalogue_cache_corrupt" | "unexpected_error";
 export type OperationalState = { category: OperationalCategory; title: string; explanation: string; guidance: string; retry: boolean; status: number };
@@ -26,6 +27,10 @@ const states: Record<OperationalCategory, Omit<OperationalState, "category">> = 
 
 export function operationalState(category: OperationalCategory): OperationalState { return { category, ...states[category] }; }
 export function mapOperationalError(error: unknown): OperationalState {
+  if (error instanceof CatalogueCacheUnavailableError) return operationalState("catalogue_cache_unavailable");
+  if (error instanceof CatalogueSnapshotCorruptError) return operationalState("catalogue_cache_corrupt");
+  if (error instanceof ArtifactBranchNotFoundError) return operationalState("branch_not_found");
+  if (error instanceof ArtifactRepositoryNotFoundError) return operationalState("repository_not_found");
   if (error instanceof ArtifactRepositoryUnavailableError) return operationalState(error.status === 429 ? "github_rate_limited" : "github_temporarily_unavailable");
   if (error instanceof ArtifactRepositoryAccessError) return operationalState("repository_read_permission_required");
   if (error instanceof ArtifactRepositoryConfigurationError) return operationalState("repository_configuration_invalid");

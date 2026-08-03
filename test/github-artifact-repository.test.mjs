@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { ArtifactRepositoryAccessError, ArtifactRepositoryContentError, ArtifactRepositoryUnavailableError, GitHubArtifactRepository, getArtifactRepositoryBackend } from '../lib/artifact-repository.ts';
+import { ArtifactRepositoryAccessError, ArtifactRepositoryContentError, ArtifactRepositoryNotFoundError, ArtifactRepositoryUnavailableError, GitHubArtifactRepository, getArtifactRepositoryBackend } from '../lib/artifact-repository.ts';
 
 function markdown(frontMatter, body = 'Body') {
   return `---\n${frontMatter.trim()}\n---\n\n${body}\n`;
@@ -193,7 +193,7 @@ test('repository API responses preserve access, content, and availability catego
   for (const status of [401, 403]) {
     await assert.rejects(repository(async () => new Response('private response', { status }), runtime).list(), ArtifactRepositoryAccessError);
   }
-  await assert.rejects(repository(async () => new Response('private response', { status: 404 }), runtime).list(), ArtifactRepositoryContentError);
+  await assert.rejects(repository(async () => new Response('private response', { status: 404 }), runtime).list(), ArtifactRepositoryNotFoundError);
   for (const status of [429, 500, 502, 503]) {
     await assert.rejects(repository(async () => new Response('private response', { status }), runtime).list(), ArtifactRepositoryUnavailableError);
   }

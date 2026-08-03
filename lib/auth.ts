@@ -31,6 +31,7 @@ import {
 } from "@/lib/repository-authorization";
 import { createPkceChallenge } from "@/lib/github-app";
 import { getOAuthExchangeConfig, getSessionSecurityConfig, validateProductionAuthReadiness, validateTokenEncryptionKey } from "@/lib/auth-configuration";
+import { getPublicRepositoryConfiguration, storedRepositoryMatchesPublicConfiguration } from "@/lib/public-repository-configuration";
 
 let testSessionDatabase: D1DatabaseBinding | undefined;
 
@@ -232,9 +233,8 @@ export async function requireRepositoryAccess(returnTo = "/") {
 /** Stored-authorisation-only gate for observational diagnostics. No refresh, persistence, or revocation. */
 export async function requireDiagnosticsAccess(returnTo = "/diagnostics") {
   const session = await requireAuth(returnTo); const auth = session.repositoryAuthorization;
-  let publicConfig: { owner: string; repo: string } | undefined;
-  try { const config = getRepositoryAuthorizationConfig(); publicConfig = { owner: config.owner, repo: config.repo }; } catch { /* malformed configuration remains diagnosable */ }
-  const valid = auth.state === "authorized" && Number.isSafeInteger(auth.repositoryId) && auth.repositoryId! > 0 && Number.isSafeInteger(auth.installationId) && auth.installationId! > 0 && auth.githubId === session.githubId && auth.login.toLowerCase() === session.login.toLowerCase() && (!publicConfig || (auth.owner.toLowerCase() === publicConfig.owner.toLowerCase() && auth.repo.toLowerCase() === publicConfig.repo.toLowerCase()));
+  const match = storedRepositoryMatchesPublicConfiguration(auth, getPublicRepositoryConfiguration());
+  const valid = auth.state === "authorized" && Number.isSafeInteger(auth.repositoryId) && auth.repositoryId! > 0 && Number.isSafeInteger(auth.installationId) && auth.installationId! > 0 && auth.githubId === session.githubId && auth.login.toLowerCase() === session.login.toLowerCase() && match !== false;
   if (!valid) redirect("/access-denied");
   return session;
 }
@@ -242,9 +242,9 @@ export async function requireDiagnosticsAccess(returnTo = "/diagnostics") {
 export async function requireApiDiagnosticsAccess(request: Request): Promise<SessionRecord | Response> {
   const session = await getSession();
   if (!session) { const signInUrl = new URL("/sign-in", request.url); signInUrl.searchParams.set("returnTo", "/diagnostics"); return NextResponse.json({ error: "Authentication required", code: "authentication_required", signInUrl: signInUrl.toString() }, { status: 401, headers: noStoreHeaders }); }
-  const auth = session.repositoryAuthorization; let matches = true;
-  try { matches = storedAuthorizationMatchesConfig(session, getRepositoryAuthorizationConfig()); } catch { /* retain access to safe configuration diagnostics */ }
-  if (auth.state !== "authorized" || !Number.isSafeInteger(auth.repositoryId) || auth.repositoryId! <= 0 || !Number.isSafeInteger(auth.installationId) || auth.installationId! <= 0 || auth.githubId !== session.githubId || auth.login.toLowerCase() !== session.login.toLowerCase() || !matches) return NextResponse.json({ error: "Repository authorisation required", code: "repository_authorization_denied" }, { status: 403, headers: noStoreHeaders });
+  const auth = session.repositoryAuthorization;
+  const match = storedRepositoryMatchesPublicConfiguration(auth, getPublicRepositoryConfiguration());
+  if (auth.state !== "authorized" || !Number.isSafeInteger(auth.repositoryId) || auth.repositoryId! <= 0 || !Number.isSafeInteger(auth.installationId) || auth.installationId! <= 0 || auth.githubId !== session.githubId || auth.login.toLowerCase() !== session.login.toLowerCase() || match === false) return NextResponse.json({ error: "Repository authorisation required", code: "repository_authorization_denied" }, { status: 403, headers: noStoreHeaders });
   return session;
 }
 

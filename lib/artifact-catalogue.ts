@@ -13,6 +13,8 @@ export type CatalogueIdentity = { repositoryId: number; owner: string; repositor
 export type CatalogueCacheState = "fresh" | "refreshed" | "stale" | "degraded";
 export type ArtifactCatalogueResult = { artifacts: Artifact[]; revision: string; refreshedAt: string; cacheState: CatalogueCacheState; staleReason?: "repository_unavailable" | "rate_limited"; cacheEnabled?: boolean };
 export type CatalogueCacheDiagnostic = { configured: true; state: "fresh" | "stale" | "missing" | "degraded" | "corrupt"; revision?: string; refreshedAt?: string; ageSeconds?: number; artifactCount?: number; currentRevisionMatches?: boolean | "unknown"; reason?: string };
+export class CatalogueCacheUnavailableError extends Error { constructor() { super("The catalogue KV binding is unavailable."); } }
+export class CatalogueSnapshotCorruptError extends Error { constructor() { super("The catalogue snapshot is corrupt."); } }
 export type ResolvedCatalogue = ArtifactCatalogueResult & { fileShas: Record<string, string> };
 export type ArtifactCatalogueDetail = ArtifactWithRevision & { catalogue: Omit<ArtifactCatalogueResult, "artifacts"> & { cacheEnabled: true } };
 type CataloguePublicationResult = { state: "published" | "competing_publication" } | { state: "aborted"; reason: "generation_changed" | "revision_changed" } | { state: "degraded"; reason: "cache_unavailable" };
@@ -47,28 +49,18 @@ export class ArtifactCatalogueService {
 
   /** Read-only DATA-003 inspection. It deliberately returns no keys or cached entries. */
   async inspect(currentRevision?: string): Promise<CatalogueCacheDiagnostic> {
-    let raw: string | null;
-    try { raw = await this.options.cache.get(pointerKey(this.options.identity)); }
-    catch { return { configured: true, state: "degraded", reason: "cache_read_unavailable" }; }
-    if (!raw) return { configured: true, state: "missing" };
-    try {
-      const pointer = pointerSchema.parse(JSON.parse(raw)); const id = this.options.identity;
-      if (pointer.repositoryId !== id.repositoryId || pointer.owner.toLowerCase() !== id.owner.toLowerCase() || pointer.repository.toLowerCase() !== id.repository.toLowerCase() || pointer.branch !== id.branch || pointer.root !== id.root) throw new Error("identity");
-      let artifactCount = 0;
-      for (let index = 0; index < pointer.chunks.length; index++) {
-        let value: string | null; try { value = await this.options.cache.get(pointer.chunks[index]); } catch { throw new CatalogueChunkReadError(); } if (!value) throw new Error("chunk");
-        const chunk = chunkSchema.parse(JSON.parse(value));
-        if (chunk.repositoryId !== id.repositoryId || chunk.revision !== pointer.revision || chunk.index !== index || chunk.owner.toLowerCase() !== id.owner.toLowerCase() || chunk.repository.toLowerCase() !== id.repository.toLowerCase() || chunk.branch !== id.branch || chunk.root !== id.root) throw new Error("chunk");
-        artifactCount += chunk.entries.length;
-      }
-      const ageSeconds = Math.max(0, Math.floor(((this.options.now ?? (() => new Date()))().getTime() - Date.parse(pointer.refreshedAt)) / 1000));
-      const matches = currentRevision ? currentRevision === pointer.revision : "unknown";
-      const fresh = ageSeconds < (this.options.freshnessSeconds ?? catalogueFreshnessSeconds()) && matches !== false;
-      return { configured: true, state: fresh ? "fresh" : "stale", revision: pointer.revision, refreshedAt: pointer.refreshedAt, ageSeconds, artifactCount, currentRevisionMatches: matches, ...(!fresh ? { reason: matches === false ? "revision_mismatch" : "age" } : {}) };
-    } catch (error) {
-      if (error instanceof CatalogueChunkReadError) return { configured: true, state: "degraded", reason: "cache_read_unavailable" };
-      return { configured: true, state: "corrupt", reason: "invalid_cache_snapshot" };
-    }
+    const key = scope(this.options.identity);
+    const generation = await this.readGeneration();
+    const cached = await this.readSnapshot();
+    if (generation.failed || cached.failed) return { configured: true, state: "degraded", reason: "cache_read_unavailable" };
+    if (cached.corrupt) return { configured: true, state: "corrupt", reason: "invalid_cache_snapshot" };
+    if (!cached.snapshot) return { configured: true, state: "missing" };
+    if (invalidatedScopes.has(key) || cached.generation !== generation.value) return { configured: true, state: "corrupt", reason: invalidatedScopes.has(key) ? "locally_invalidated" : "generation_mismatch" };
+    const snapshot = cached.snapshot;
+    const ageSeconds = Math.max(0, Math.floor(((this.options.now ?? (() => new Date()))().getTime() - Date.parse(snapshot.refreshedAt)) / 1000));
+    const matches = currentRevision ? currentRevision === snapshot.revision : "unknown";
+    const fresh = ageSeconds < (this.options.freshnessSeconds ?? catalogueFreshnessSeconds()) && matches !== false;
+    return { configured: true, state: fresh ? "fresh" : "stale", revision: snapshot.revision, refreshedAt: snapshot.refreshedAt, ageSeconds, artifactCount: snapshot.entries.length, currentRevisionMatches: matches, ...(!fresh ? { reason: matches === false ? "revision_mismatch" : "age" } : {}) };
   }
 
   async invalidate(): Promise<boolean> {
@@ -122,14 +114,14 @@ export class ArtifactCatalogueService {
   private result(snapshot: Snapshot, cacheState: CatalogueCacheState): ResolvedCatalogue { return { artifacts: snapshot.entries.map(entry => entry.artifact), fileShas: Object.fromEntries(snapshot.entries.map(entry => [entry.artifact.id, entry.fileSha])), revision: snapshot.revision, refreshedAt: snapshot.refreshedAt, cacheState }; }
   private validateSnapshot(snapshot: Snapshot) { shaSchema.parse(snapshot.revision); for (const entry of snapshot.entries) { artifactSchema.parse(entry.artifact); shaSchema.parse(entry.fileSha); if (validateArtifactPath(entry.artifact.path, this.options.identity.root)) throw new Error("Invalid cached artifact path."); } validateUniqueArtifactIds(snapshot.entries.map(entry => entry.artifact)); }
   private async readGeneration(): Promise<{ value?: string; failed: boolean }> { try { const raw = await this.options.cache.get(generationKey(this.options.identity)); if (!raw) return { failed: false }; return { value: generationSchema.parse(JSON.parse(raw)).generation, failed: false }; } catch { safeLog(this.logger, "error", "artifact_catalogue_cache_read_failure", this.options.identity, { category: "generation_read" }); return { failed: true }; } }
-  private async readSnapshot(): Promise<{ snapshot?: Snapshot; generation?: string; publicationId?: string; failed: boolean }> {
+  private async readSnapshot(): Promise<{ snapshot?: Snapshot; generation?: string; publicationId?: string; failed: boolean; corrupt?: boolean }> {
     let raw: string | null; try { raw = await this.options.cache.get(pointerKey(this.options.identity)); } catch { safeLog(this.logger, "error", "artifact_catalogue_cache_read_failure", this.options.identity, { category: "pointer_read" }); return { failed: true }; }
     if (!raw) return { failed: false };
     try {
       const pointer = pointerSchema.parse(JSON.parse(raw)); const id = this.options.identity; if (pointer.repositoryId !== id.repositoryId || pointer.owner.toLowerCase() !== id.owner.toLowerCase() || pointer.repository.toLowerCase() !== id.repository.toLowerCase() || pointer.branch !== id.branch || pointer.root !== id.root) throw new Error("identity mismatch");
       const chunks = await Promise.all(pointer.chunks.map(async (chunkKey, index) => { let value: string | null; try { value = await this.options.cache.get(chunkKey); } catch { throw new CatalogueChunkReadError(); } if (!value) throw new Error("missing chunk"); const chunk = chunkSchema.parse(JSON.parse(value)); if (chunk.repositoryId !== id.repositoryId || chunk.owner.toLowerCase() !== id.owner.toLowerCase() || chunk.repository.toLowerCase() !== id.repository.toLowerCase() || chunk.branch !== id.branch || chunk.root !== id.root || chunk.revision !== pointer.revision || chunk.index !== index) throw new Error("chunk mismatch"); return chunk.entries; }));
       const snapshot = { revision: pointer.revision, refreshedAt: pointer.refreshedAt, entries: chunks.flat() }; this.validateSnapshot(snapshot); return { snapshot, generation: pointer.generation, publicationId: pointer.publicationId, failed: false };
-    } catch (error) { if (error instanceof CatalogueChunkReadError) { safeLog(this.logger, "error", "artifact_catalogue_cache_read_failure", this.options.identity, { category: "chunk_read" }); return { failed: true }; } safeLog(this.logger, "error", "artifact_catalogue_cache_corruption", this.options.identity, { category: "invalid_entry" }); return { failed: false }; }
+    } catch (error) { if (error instanceof CatalogueChunkReadError) { safeLog(this.logger, "error", "artifact_catalogue_cache_read_failure", this.options.identity, { category: "chunk_read" }); return { failed: true }; } safeLog(this.logger, "error", "artifact_catalogue_cache_corruption", this.options.identity, { category: "invalid_entry" }); return { failed: false, corrupt: true }; }
   }
   private async publish(snapshot: Snapshot, startingGeneration: string | undefined, startingLocalGeneration: number): Promise<CataloguePublicationResult> {
     const groups: StoredArtifact[][] = []; let current: StoredArtifact[] = [];

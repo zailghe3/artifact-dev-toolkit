@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { GitHubArtifactRepository, ArtifactRepositoryAccessError, ArtifactRepositoryContentError, ArtifactRepositoryUnavailableError } from '../lib/artifact-repository.ts';
+import { GitHubArtifactRepository, ArtifactRepositoryAccessError, ArtifactRepositoryContentError, ArtifactRepositoryUnavailableError, ArtifactBranchNotFoundError, ArtifactRepositoryNotFoundError } from '../lib/artifact-repository.ts';
 import { mapOperationalError } from '../lib/operational-errors.ts';
+import { classifyCapabilityResult } from '../lib/diagnostics-model.ts';
+import { getPublicRepositoryConfiguration, storedRepositoryMatchesPublicConfiguration } from '../lib/public-repository-configuration.ts';
+import { CatalogueCacheUnavailableError, CatalogueSnapshotCorruptError } from '../lib/artifact-catalogue.ts';
 
 const response = (value, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
 const valid = `---\nid: valid-one\ntitle: Valid one\ntype: prompt\nstatus: draft\ntags: []\naliases: []\n---\n\nSafe body`;
@@ -29,4 +32,39 @@ test('operational failures map to stable safe categories while unknown errors st
   assert.equal(mapOperationalError(new ArtifactRepositoryContentError()).category, 'artifact_repository_invalid');
   assert.equal(mapOperationalError(new Error('private upstream detail')).category, 'unexpected_error');
   assert.doesNotMatch(JSON.stringify(mapOperationalError(new Error('private upstream detail'))), /private upstream detail/);
+});
+
+test('public repository identity remains enforceable when unrelated secrets are malformed', () => {
+  const before = { ...process.env };
+  Object.assign(process.env, { ARTIFACT_REPOSITORY: 'github', NODE_ENV: 'test', GITHUB_ARTIFACT_REPOSITORY_OWNER: 'Owner', GITHUB_ARTIFACT_REPOSITORY_NAME: 'Repo', GITHUB_APP_PRIVATE_KEY: 'not-a-key', SESSION_SECRET: 'short' });
+  try {
+    const config = getPublicRepositoryConfiguration();
+    assert.equal(config.identityValid, true);
+    assert.equal(storedRepositoryMatchesPublicConfiguration({ owner: 'owner', repo: 'repo' }, config), true);
+    assert.equal(storedRepositoryMatchesPublicConfiguration({ owner: 'owner', repo: 'other' }, config), false);
+  } finally { process.env = before; }
+});
+
+test('capability outcomes retain effective permission and safe reason', () => {
+  const required = [['contents', ['read', 'write', 'admin']]];
+  assert.deepEqual(classifyCapabilityResult({ status: 'fulfilled', value: { permissions: { contents: 'read' } } }, required), { effective: true, reason: 'granted' });
+  assert.deepEqual(classifyCapabilityResult({ status: 'fulfilled', value: { permissions: { contents: 'none' } } }, required), { effective: false, reason: 'permission_missing' });
+  assert.equal(classifyCapabilityResult({ status: 'rejected', reason: { status: 403 } }, required).reason, 'installation_missing');
+  assert.equal(classifyCapabilityResult({ status: 'rejected', reason: { status: 429 } }, required).reason, 'rate_limited');
+  assert.equal(classifyCapabilityResult({ status: 'rejected', reason: { status: 503 } }, required).reason, 'temporarily_unavailable');
+  assert.equal(classifyCapabilityResult({ status: 'fulfilled', value: {} }, required).reason, 'malformed_response');
+});
+
+for (const status of [403, 429, 503]) test(`repository-wide ${status} remains a systemic diagnostics failure`, async () => {
+  let calls = 0;
+  const repository = new GitHubArtifactRepository({ owner: 'owner', repo: 'repo', fetch: async () => { calls++; return response({}, status); }, credentialProvider: async () => ({ token: 'never-visible', permissions: { contents: 'read' } }), sleep: async () => {}, logger: { info() {}, error() {} } });
+  await assert.rejects(repository.diagnoseCatalogue('a'.repeat(40)), status === 403 ? ArtifactRepositoryAccessError : ArtifactRepositoryUnavailableError);
+  assert.ok(calls >= 1);
+});
+
+test('all declared read operational categories are reachable without leaking source errors', () => {
+  assert.equal(mapOperationalError(new ArtifactBranchNotFoundError()).category, 'branch_not_found');
+  assert.equal(mapOperationalError(new ArtifactRepositoryNotFoundError()).category, 'repository_not_found');
+  assert.equal(mapOperationalError(new CatalogueCacheUnavailableError()).category, 'catalogue_cache_unavailable');
+  assert.equal(mapOperationalError(new CatalogueSnapshotCorruptError()).category, 'catalogue_cache_corrupt');
 });
