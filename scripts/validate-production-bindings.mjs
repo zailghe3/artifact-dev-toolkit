@@ -9,5 +9,5 @@ export async function validateProductionBindings(configPath = 'wrangler.jsonc') 
 }
 
 if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
-  validateProductionBindings(process.argv[2]).then(id => console.log(`Production KV binding validated: ${id}`)).catch(error => { console.error(error.message); process.exitCode = 1; });
+  validateProductionBindings(process.argv[2]).then(() => console.log('Production KV binding validated.')).catch(error => { console.error(error.message); process.exitCode = 1; });
 }
