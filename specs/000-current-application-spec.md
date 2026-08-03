@@ -3,7 +3,7 @@
 **Document status:** Baseline specification of the implemented application  
 **Application version:** 0.1.0  
 **Scope:** Current behaviour only; this document is not a roadmap  
-**Last updated:** 2026-07-13
+**Last updated:** 2026-08-02
 
 ## 1. Purpose
 
@@ -101,6 +101,16 @@ An artifact is valid only when:
 Invalid artifact metadata causes artifact loading to fail rather than being silently ignored.
 
 ## 5. Functional requirements
+
+### 5.0 Production catalogue cache
+
+After authentication and exact-repository authorization, production reads use the dedicated `ARTIFACT_CATALOGUE_CACHE` Workers KV binding. Complete validated snapshots are scoped by repository identity, configured base branch and artifact root, and immutable revision. Deterministic artifact-boundary chunks contain each artifact with the file SHA from that same revision; a publish-last pointer prevents partial snapshots becoming current.
+
+Freshness defaults to five minutes and can be configured from 30 seconds through one hour. A fresh hit performs no GitHub catalogue download. An expired hit first checks the lightweight base ref, refreshes metadata when unchanged, and rebuilds all validated content only when changed. Temporary network, rate-limit, and GitHub server failures may return a clearly marked last-known-good snapshot; authorization, configuration, repository content, path, encoding, and duplicate-ID failures may not. Cache corruption is a miss rather than trusted content.
+
+The library displays cache state and last refresh time and offers protected revision-check and full-rebuild controls. Successful base-branch creates, updates, and direct draft variations invalidate the current pointer. Proposal creation does not invalidate it because the base branch is unchanged; merges are detected by normal revision checking or manual refresh.
+
+Invalidation advances a repository generation before pointer removal. Generation comparison provides single-isolate race protection, not global KV atomicity; publication additionally verifies the lightweight GitHub base revision immediately before and after pointer publication. Private attempt identifiers distinguish an uncertain request-owned pointer from an independent competing publication. Failed final verification advances generation and best-effort deletes the attempt without deleting a demonstrably newer validated pointer; cleanup and pointer visibility remain eventually consistent. Repository verification errors retain repository classifications rather than becoming cache errors. Eventual propagation can briefly expose a prior complete snapshot in another location, and manual refresh forces reconciliation. KV failures degrade caching rather than successful GitHub reads or writes, and detail resolution retains artifact bodies, file SHAs, revision, freshness time, and cache state from one in-memory resolved snapshot. Stronger refresh requests are never downgraded (`ordinary < forced < full`). File-backed local development bypasses KV and does not display refresh controls.
 
 ### 5.1 Library home page
 

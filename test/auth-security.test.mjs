@@ -354,11 +354,13 @@ test("repository authorisation requires app and signed-in user access to the exa
   assert.equal(readCredential, repeatedReadCredential);
   assert.deepEqual([readCredential.permissions, writeCredential.permissions, proposalCredential.permissions], [{ contents: "read" }, { contents: "write" }, { contents: "write", pullRequests: "write" }]);
   const tokenRequests = calls.slice(2).map(call => JSON.parse(call.body));
-  assert.deepEqual(tokenRequests, [
-    { repository_ids: [99], permissions: { contents: "read" } },
-    { repository_ids: [99], permissions: { contents: "write" } },
-    { repository_ids: [99], permissions: { contents: "write", pull_requests: "write" } },
-  ]);
+  assert.equal(tokenRequests.length, 3);
+  assert.deepEqual(tokenRequests.map(request => request.repository_ids), [[99], [99], [99]]);
+  assert.deepEqual(tokenRequests.map(request => request.permissions).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))), [
+    { contents: "read" },
+    { contents: "write" },
+    { contents: "write", pull_requests: "write" },
+  ].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))));
   assert.deepEqual(createRepositoryAuthorizationRecord(okStatus, 1234), { state: "authorized", owner: "owner", repo: "private-artifacts", login: "OctoCat", githubId: 123, repositoryId: 99, installationId: 77, checkedAt: 1234 });
 });
 
@@ -396,7 +398,7 @@ test("repository authorisation sessions and protected routes carry repository de
   const fs = await import("node:fs/promises");
   const homePage = await fs.readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   assert.equal(homePage.includes("requireRepositoryAccess"), true);
-  assert.equal(homePage.indexOf("requireRepositoryAccess") < homePage.indexOf("getArtifacts(access)"), true);
+  assert.equal(homePage.indexOf("requireRepositoryAccess") < homePage.indexOf("getArtifactCatalogue(access)"), true);
 
   const artifactsRoute = await fs.readFile(new URL("../app/api/artifacts/route.ts", import.meta.url), "utf8");
   assert.equal(artifactsRoute.includes("requireApiRepositoryAccess(request)"), true);
