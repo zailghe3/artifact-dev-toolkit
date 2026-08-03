@@ -31,11 +31,14 @@ export type ArtifactWriteResult = { artifactId: string; path: string; fileSha: s
 export type ArtifactProposalResult = { artifactId: string; path: string; branchName: string; commitSha: string; pullRequestNumber: number; pullRequestUrl: string };
 export type CreateVariationResult = { id: string; path: string; fileSha?: string; commitSha?: string; commitUrl?: string; repositoryRevision?: string };
 export type ArtifactWithRevision = { artifact: Artifact; currentFileSha: string };
+export type RepositoryCatalogue = { artifacts: Artifact[]; revision: string; fileShas: Record<string, string> };
 
 export interface ArtifactRepository {
   list(): Promise<Artifact[]>;
   findById(id: string): Promise<Artifact | undefined>;
   findByIdWithRevision(id: string): Promise<ArtifactWithRevision | undefined>;
+  getBaseRevision(): Promise<string>;
+  loadCatalogue(revision?: string): Promise<RepositoryCatalogue>;
   create(input: CreateArtifactInput): Promise<ArtifactWriteResult>;
   update(input: UpdateArtifactInput): Promise<ArtifactWriteResult>;
   proposeUpdate(input: ProposeArtifactUpdateInput): Promise<ArtifactProposalResult>;
@@ -205,6 +208,8 @@ export class FileArtifactRepository implements ArtifactRepository {
   async findByIdWithRevision(): Promise<ArtifactWithRevision | undefined> {
     throw new ArtifactRepositoryConfigurationError("File-backed artifacts do not expose GitHub revisions.");
   }
+  async getBaseRevision(): Promise<string> { throw new ArtifactRepositoryConfigurationError("File-backed artifacts do not expose GitHub revisions."); }
+  async loadCatalogue(): Promise<RepositoryCatalogue> { throw new ArtifactRepositoryConfigurationError("File-backed artifacts do not expose GitHub revisions."); }
 
   async create(): Promise<ArtifactWriteResult> { throw new ArtifactRepositoryConfigurationError("Direct artifact writes require the GitHub repository backend."); }
   async update(): Promise<ArtifactWriteResult> { throw new ArtifactRepositoryConfigurationError("Direct artifact writes require the GitHub repository backend."); }
@@ -321,6 +326,25 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     const entry = tree.find((candidate) => candidate.type === "blob" && candidate.path === artifact.path);
     if (typeof entry?.sha !== "string" || !entry.sha.trim()) throw new ArtifactRepositoryContentError();
     return { artifact, currentFileSha: entry.sha };
+  }
+
+  async getBaseRevision(): Promise<string> {
+    const ref = await this.githubJson<{ object?: { sha?: string } }>(this.githubUrl(`/git/ref/heads/${encodeURIComponent(this.branch)}`), "tree", undefined, "read");
+    if (typeof ref.object?.sha !== "string" || !/^[a-f0-9]{7,64}$/i.test(ref.object.sha)) throw new ArtifactRepositoryContentError();
+    return ref.object.sha;
+  }
+
+  async loadCatalogue(revision?: string): Promise<RepositoryCatalogue> {
+    const resolvedRevision = revision ?? await this.getBaseRevision();
+    const tree = await this.fetchTree("read", resolvedRevision);
+    const artifacts = await this.artifactsFromTree(tree, "read");
+    const fileShas: Record<string, string> = {};
+    for (const artifact of artifacts) {
+      const sha = tree.find((entry) => entry.type === "blob" && entry.path === artifact.path)?.sha;
+      if (!sha || !/^[a-f0-9]{7,64}$/i.test(sha)) throw new ArtifactRepositoryContentError();
+      fileShas[artifact.id] = sha;
+    }
+    return { artifacts: artifacts.sort((a, b) => a.title.localeCompare(b.title)), revision: resolvedRevision, fileShas };
   }
 
   async create(input: CreateArtifactInput): Promise<ArtifactWriteResult> {
@@ -612,8 +636,8 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     this.logger.error(JSON.stringify({ event: "github_artifact_request_failed", operation, ...(filePath ? { path: filePath } : {}), category: "temporary_unavailable", ...(status === undefined ? {} : { status }), attempts }));
   }
 
-  private async fetchTree(capability: RepositoryCredentialCapability) {
-    const tree = await this.githubJson<GitHubTreeResponse>(this.githubUrl(`/git/trees/${encodeURIComponent(this.branch)}?recursive=1`), "tree", undefined, capability);
+  private async fetchTree(capability: RepositoryCredentialCapability, revision = this.branch) {
+    const tree = await this.githubJson<GitHubTreeResponse>(this.githubUrl(`/git/trees/${encodeURIComponent(revision)}?recursive=1`), "tree", undefined, capability);
     if (!Array.isArray(tree.tree)) throw new Error("GitHub artifact repository tree response was malformed.");
     if (tree.truncated) throw new Error("GitHub artifact repository tree response was truncated; reduce repository size or artifact root scope.");
     return tree.tree;
