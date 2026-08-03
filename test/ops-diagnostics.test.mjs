@@ -25,6 +25,23 @@ test('diagnostics scan collects invalid files and duplicate IDs without returnin
   assert.doesNotMatch(JSON.stringify(report), /Safe body|test-token/);
 });
 
+test('diagnostics counts distinct unsafe entries without exposing their repository paths', async () => {
+  const unsafe = ['artifacts/../secret-one.md', 'artifacts/prompts/../../secret-two.md', 'artifacts//secret-three.md'];
+  const logs = [];
+  const repository = new GitHubArtifactRepository({ owner: 'owner', repo: 'repo', rootPath: 'artifacts', fetch: async (url) => String(url).includes('/git/trees/') ? response({ tree: unsafe.map((path, index) => ({ path, type: 'blob', sha: String(index + 1).repeat(40) })) }) : response({}), credentialProvider: async () => ({ token: 'hidden', permissions: { contents: 'read' } }), logger: { info(value) { logs.push(value); }, error(value) { logs.push(value); } } });
+  const report = await repository.diagnoseCatalogue('a'.repeat(40));
+  assert.equal(report.invalidCount, 3);
+  assert.deepEqual(report.errors.map(({ path }) => path), unsafe.map(() => '[unsafe repository path]'));
+  assert.doesNotMatch(JSON.stringify({ report, logs }), /secret-one|secret-two|secret-three/);
+});
+
+test('diagnostics classifies isolated blob failures explicitly', async () => {
+  for (const [blob, code] of [[new Response('', { status: 404 }), 'blob_unavailable'], [response({ encoding: 'utf-8', content: 'hidden' }), 'unsupported_encoding'], [response({ encoding: 'base64', size: 2_000_000, content: '' }), 'blob_too_large']]) {
+    const repository = new GitHubArtifactRepository({ owner: 'owner', repo: 'repo', rootPath: 'artifacts', fetch: async (url) => String(url).includes('/git/trees/') ? response({ tree: [{ path: 'artifacts/prompts/a.md', type: 'blob', sha: 'a'.repeat(40) }] }) : blob, credentialProvider: async () => ({ token: 'hidden', permissions: { contents: 'read' } }), logger: { info() {}, error() {} } });
+    assert.equal((await repository.diagnoseCatalogue('b'.repeat(40))).errors[0].code, code);
+  }
+});
+
 test('operational failures map to stable safe categories while unknown errors stay unexpected', () => {
   assert.equal(mapOperationalError(new ArtifactRepositoryAccessError()).category, 'repository_read_permission_required');
   assert.equal(mapOperationalError(new ArtifactRepositoryUnavailableError(429)).category, 'github_rate_limited');

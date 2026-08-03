@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { DEFAULT_ARTIFACT_BRANCH, DEFAULT_ARTIFACT_ROOT, MAX_SERIALIZED_ARTIFACT_BYTES, normalizeArtifactMetadata, parseArtifactMarkdown, serializeArtifactMarkdown, trimSlashes, validateArtifactPath, validateUniqueArtifactIds, type ArtifactMetadata, type ArtifactModel } from "./artifact-contract.ts";
+import { ArtifactMarkdownParseError, DEFAULT_ARTIFACT_BRANCH, DEFAULT_ARTIFACT_ROOT, MAX_SERIALIZED_ARTIFACT_BYTES, normalizeArtifactMetadata, parseArtifactMarkdown, serializeArtifactMarkdown, trimSlashes, validateArtifactPath, validateUniqueArtifactIds, type ArtifactMetadata, type ArtifactModel } from "./artifact-contract.ts";
 import type { RepositoryAccessContext } from "./repository-authorization.ts";
 import type { RepositoryCredential, RepositoryCredentialCapability } from "./github-app.ts";
 
@@ -309,7 +309,7 @@ export class GitHubArtifactRepository implements ArtifactRepository {
       async (file) => {
         if (!file.sha) throw new Error(`${file.path}: GitHub tree entry is missing a blob SHA.`);
         const raw = await this.fetchBlob(file.sha, file.path!, "read");
-        return parseArtifactMarkdown(raw, file.path!);
+        try { return parseArtifactMarkdown(raw, file.path!); } catch (error) { if (error instanceof ArtifactMarkdownParseError) throw new ArtifactRepositoryContentError(); throw error; }
       },
     );
 
@@ -334,7 +334,11 @@ export class GitHubArtifactRepository implements ArtifactRepository {
   }
 
   async getBaseRevision(): Promise<string> {
-    const ref = await this.githubJson<{ object?: { sha?: string } }>(this.githubUrl(`/git/ref/heads/${encodeURIComponent(this.branch)}`), "tree", undefined, "read");
+    return this.resolveBranch("read");
+  }
+
+  private async resolveBranch(capability: RepositoryCredentialCapability): Promise<string> {
+    const ref = await this.githubJson<{ object?: { sha?: string } }>(this.githubUrl(`/git/ref/heads/${encodeURIComponent(this.branch)}`), "tree", undefined, capability);
     if (typeof ref.object?.sha !== "string" || !/^[a-f0-9]{7,64}$/i.test(ref.object.sha)) throw new ArtifactRepositoryContentError();
     return ref.object.sha;
   }
@@ -357,27 +361,26 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     const tree = await this.fetchTree("read", resolvedRevision);
     const prefix = this.rootPath ? `${this.rootPath}/` : "";
     const files = tree.filter((entry) => entry.type === "blob" && typeof entry.path === "string" && entry.path.startsWith(prefix) && entry.path.endsWith(".md"));
-    const results = await mapWithConcurrency(files, githubBlobConcurrency, async (file) => {
+    const results = await mapWithConcurrency(files, githubBlobConcurrency, async (file, entryIndex) => {
       const safePath = typeof file.path === "string" && !validateArtifactPath(file.path, this.rootPath) ? file.path : "[unsafe repository path]";
-      if (safePath.startsWith("[")) return { error: { path: safePath, code: "invalid_path", message: "Artifact path is not a safe repository-relative path under the configured root." } as ArtifactValidationDiagnostic };
-      if (!file.sha || !/^[a-f0-9]{7,64}$/i.test(file.sha)) return { error: { path: safePath, code: "missing_blob_sha", message: "GitHub did not provide a valid blob revision." } as ArtifactValidationDiagnostic };
-      if (typeof file.size === "number" && file.size > MAX_SERIALIZED_ARTIFACT_BYTES) return { error: { path: safePath, code: "blob_too_large", message: "Artifact exceeds the maximum allowed size." } as ArtifactValidationDiagnostic };
-      try { return { artifact: parseArtifactMarkdown(await this.fetchBlob(file.sha, safePath, "read"), safePath) }; }
+      if (safePath.startsWith("[")) return { entryIndex, error: { path: safePath, code: "invalid_path", message: "Artifact path is not a safe repository-relative path under the configured root." } as ArtifactValidationDiagnostic };
+      if (!file.sha || !/^[a-f0-9]{7,64}$/i.test(file.sha)) return { entryIndex, error: { path: safePath, code: "missing_blob_sha", message: "GitHub did not provide a valid blob revision." } as ArtifactValidationDiagnostic };
+      if (typeof file.size === "number" && file.size > MAX_SERIALIZED_ARTIFACT_BYTES) return { entryIndex, error: { path: safePath, code: "blob_too_large", message: "Artifact exceeds the maximum allowed size." } as ArtifactValidationDiagnostic };
+      try { return { entryIndex, artifact: parseArtifactMarkdown(await this.fetchBlob(file.sha, safePath, "read"), safePath) }; }
       catch (error) {
         if (error instanceof ArtifactRepositoryUnavailableError || error instanceof ArtifactRepositoryAccessError) throw error;
-        if (error instanceof ArtifactBlobDiagnosticError) return { error: { path: safePath, code: error.code, message: error.code === "unsupported_encoding" ? "Artifact blob encoding is unsupported." : "Artifact exceeds the maximum allowed size." } as ArtifactValidationDiagnostic };
-        const message = error instanceof Error ? error.message.toLowerCase() : "";
-        const code: ArtifactValidationDiagnostic["code"] = message.includes("front matter") ? "invalid_front_matter" : message.includes("body") ? "invalid_body" : "invalid_metadata";
-        return { error: { path: safePath, code, message: code === "invalid_body" ? "Artifact body is invalid." : code === "invalid_front_matter" ? "Artifact front matter is invalid." : "Artifact metadata is invalid." } as ArtifactValidationDiagnostic };
+        if (error instanceof ArtifactBlobDiagnosticError) return { entryIndex, error: { path: safePath, code: error.code, message: error.code === "unsupported_encoding" ? "Artifact blob encoding is unsupported." : error.code === "blob_unavailable" ? "Artifact blob is unavailable." : "Artifact exceeds the maximum allowed size." } as ArtifactValidationDiagnostic };
+        const code: ArtifactValidationDiagnostic["code"] = error instanceof ArtifactMarkdownParseError ? error.code : "invalid_metadata";
+        return { entryIndex, error: { path: safePath, code, message: code === "invalid_body" ? "Artifact body is invalid." : code === "invalid_front_matter" ? "Artifact front matter is invalid." : "Artifact metadata is invalid." } as ArtifactValidationDiagnostic };
       }
     });
     const valid = results.flatMap((result) => result.artifact ? [result.artifact] : []);
-    const diagnostics = results.flatMap((result) => result.error ? [result.error] : []);
-    const byId = new Map<string, Artifact[]>(); for (const artifact of valid) byId.set(artifact.id, [...(byId.get(artifact.id) ?? []), artifact]);
-    for (const duplicates of byId.values()) if (duplicates.length > 1) for (const artifact of duplicates) diagnostics.push({ path: artifact.path, code: "duplicate_id", message: "Artifact ID is duplicated by another valid file." });
-    const invalidPaths = new Set(diagnostics.map((item) => item.path));
-    const errors = diagnostics.slice(0, 50);
-    return { revision: resolvedRevision, validCount: valid.filter((artifact) => !invalidPaths.has(artifact.path)).length, invalidCount: invalidPaths.size, errors, omittedErrorCount: Math.max(0, diagnostics.length - errors.length) };
+    const diagnostics = results.flatMap((result) => result.error ? [{ entryIndex: result.entryIndex, error: result.error }] : []);
+    const byId = new Map<string, typeof results>(); for (const result of results) if (result.artifact) byId.set(result.artifact.id, [...(byId.get(result.artifact.id) ?? []), result]);
+    for (const duplicates of byId.values()) if (duplicates.length > 1) for (const result of duplicates) diagnostics.push({ entryIndex: result.entryIndex, error: { path: result.artifact!.path, code: "duplicate_id", message: "Artifact ID is duplicated by another valid file." } });
+    const invalidEntries = new Set(diagnostics.map((item) => item.entryIndex));
+    const errors = diagnostics.slice(0, 50).map((item) => item.error);
+    return { revision: resolvedRevision, validCount: valid.length - results.filter((result) => result.artifact && invalidEntries.has(result.entryIndex)).length, invalidCount: invalidEntries.size, errors, omittedErrorCount: Math.max(0, diagnostics.length - errors.length) };
   }
 
   async create(input: CreateArtifactInput): Promise<ArtifactWriteResult> {
@@ -532,7 +535,7 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     const artifacts = await mapWithConcurrency(files, githubBlobConcurrency, async (file) => {
       if (!file.path || !file.sha) throw new ArtifactRepositoryContentError();
       if (validateArtifactPath(file.path, this.rootPath)) throw new ArtifactRepositoryContentError();
-      return parseArtifactMarkdown(await this.fetchBlob(file.sha, file.path, capability), file.path);
+      try { return parseArtifactMarkdown(await this.fetchBlob(file.sha, file.path, capability), file.path); } catch (error) { if (error instanceof ArtifactMarkdownParseError) throw new ArtifactRepositoryContentError(); throw error; }
     });
     validateUniqueArtifactIds(artifacts);
     return artifacts;
@@ -601,7 +604,7 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     return Math.min(githubMaximumRetryDelayMs, 100 * (2 ** (attempt - 1)));
   }
 
-  private async githubJson<T>(url: string, operation: "tree" | "blob", filePath?: string, capability: RepositoryCredentialCapability = "read"): Promise<T> {
+  private async githubJson<T>(url: string, operation: "tree" | "blob", filePath?: string, capability: RepositoryCredentialCapability = "read", notFound: "branch" | "content" | "repository" = "content"): Promise<T> {
     let credential: string;
     try {
       credential = await this.credential(capability);
@@ -647,7 +650,9 @@ export class GitHubArtifactRepository implements ArtifactRepository {
       if (!retryable) {
         if (response.status === 401 || response.status === 403) throw new ArtifactRepositoryAccessError();
         if (response.status === 404 && url.includes("/git/ref/heads/")) throw new ArtifactBranchNotFoundError();
-        if (response.status === 404 && operation === "tree" && !filePath) throw new ArtifactRepositoryNotFoundError();
+        if (response.status === 404 && operation === "blob" && filePath) throw new ArtifactBlobDiagnosticError("blob_unavailable");
+        if (response.status === 404 && notFound === "branch") throw new ArtifactBranchNotFoundError();
+        if (response.status === 404 && notFound === "repository") throw new ArtifactRepositoryNotFoundError();
         throw new ArtifactRepositoryContentError();
       }
       const delay = this.retryDelay(response, attempt);
@@ -672,7 +677,7 @@ export class GitHubArtifactRepository implements ArtifactRepository {
   }
 
   private async fetchTree(capability: RepositoryCredentialCapability, revision = this.branch) {
-    const tree = await this.githubJson<GitHubTreeResponse>(this.githubUrl(`/git/trees/${encodeURIComponent(revision)}?recursive=1`), "tree", undefined, capability);
+    const tree = await this.githubJson<GitHubTreeResponse>(this.githubUrl(`/git/trees/${encodeURIComponent(revision)}?recursive=1`), "tree", undefined, capability, revision === this.branch ? "branch" : "content");
     if (!Array.isArray(tree.tree)) throw new Error("GitHub artifact repository tree response was malformed.");
     if (tree.truncated) throw new Error("GitHub artifact repository tree response was truncated; reduce repository size or artifact root scope.");
     return tree.tree;
@@ -693,7 +698,7 @@ export class GitHubArtifactRepository implements ArtifactRepository {
   }
 }
 
-class ArtifactBlobDiagnosticError extends Error { readonly code: "unsupported_encoding" | "blob_too_large"; constructor(code: "unsupported_encoding" | "blob_too_large") { super(code); this.code = code; } }
+class ArtifactBlobDiagnosticError extends ArtifactRepositoryContentError { readonly code: "unsupported_encoding" | "blob_too_large" | "blob_unavailable"; constructor(code: "unsupported_encoding" | "blob_too_large" | "blob_unavailable") { super(); this.code = code; } }
 
 
 export function createArtifactRepository(access: RepositoryAccessContext): ArtifactRepository {

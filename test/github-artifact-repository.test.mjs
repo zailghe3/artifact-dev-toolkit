@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { ArtifactRepositoryAccessError, ArtifactRepositoryContentError, ArtifactRepositoryNotFoundError, ArtifactRepositoryUnavailableError, GitHubArtifactRepository, getArtifactRepositoryBackend } from '../lib/artifact-repository.ts';
+import { ArtifactRepositoryAccessError, ArtifactRepositoryContentError, ArtifactRepositoryUnavailableError, GitHubArtifactRepository, getArtifactRepositoryBackend } from '../lib/artifact-repository.ts';
 
 function markdown(frontMatter, body = 'Body') {
   return `---\n${frontMatter.trim()}\n---\n\n${body}\n`;
@@ -179,7 +179,7 @@ aliases: []
 `),
   });
 
-  await assert.rejects(repository(fetch).list(), /artifacts\/prompts\/bad\.md: title:/);
+  await assert.rejects(repository(fetch).list(), ArtifactRepositoryContentError);
 });
 
 test('GitHubArtifactRepository surfaces GitHub API failures instead of returning zero artifacts', async () => {
@@ -193,7 +193,7 @@ test('repository API responses preserve access, content, and availability catego
   for (const status of [401, 403]) {
     await assert.rejects(repository(async () => new Response('private response', { status }), runtime).list(), ArtifactRepositoryAccessError);
   }
-  await assert.rejects(repository(async () => new Response('private response', { status: 404 }), runtime).list(), ArtifactRepositoryNotFoundError);
+  await assert.rejects(repository(async () => new Response('private response', { status: 404 }), runtime).list(), /branch was not found/);
   for (const status of [429, 500, 502, 503]) {
     await assert.rejects(repository(async () => new Response('private response', { status }), runtime).list(), ArtifactRepositoryUnavailableError);
   }
