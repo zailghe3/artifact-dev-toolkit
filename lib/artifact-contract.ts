@@ -23,6 +23,10 @@ export type ArtifactMetadata = z.infer<typeof artifactFrontMatterSchema>;
 export type ArtifactModel = ArtifactMetadata & { body: string; excerpt: string; path: string };
 export type ArtifactRepositoryValidationError = { file: string; reason: string };
 export type ArtifactRepositoryValidationResult = { valid: boolean; artifactCount: number; errors: ArtifactRepositoryValidationError[] };
+export class ArtifactMarkdownParseError extends Error {
+  readonly code: "invalid_front_matter" | "invalid_metadata" | "invalid_body";
+  constructor(code: "invalid_front_matter" | "invalid_metadata" | "invalid_body") { super("Artifact Markdown is invalid."); this.code = code; }
+}
 
 export function toExcerpt(body: string) { return body.replace(/\s+/g, " ").trim().slice(0, 180); }
 export function trimSlashes(value: string) { return value.replace(/^\/+|\/+$/g, ""); }
@@ -77,13 +81,13 @@ export function parseArtifactMarkdown(raw: string, filePath: string): ArtifactMo
   let parsed: matter.GrayMatterFile<string>;
   // Supplying options disables gray-matter's process-global cache. Repository reads
   // must parse each response independently so repeated loads cannot share mutable state.
-  try { parsed = matter(raw, {}); } catch (error) { throw new Error(formatArtifactDiagnostic(filePath, `Unable to parse Markdown front matter: ${(error as Error).message}`)); }
-  if (!String(parsed.matter ?? "").trim()) throw new Error(formatArtifactDiagnostic(filePath, "Missing YAML front matter."));
+  try { parsed = matter(raw, {}); } catch { throw new ArtifactMarkdownParseError("invalid_front_matter"); }
+  if (!String(parsed.matter ?? "").trim()) throw new ArtifactMarkdownParseError("invalid_front_matter");
   try {
     const data = normalizeArtifactMetadata(parsed.data);
     return { ...data, body: parsed.content.trim(), excerpt: toExcerpt(parsed.content), path: filePath };
   } catch (error) {
-    if (error instanceof z.ZodError) throw new Error(error.issues.map((issue) => formatArtifactDiagnostic(filePath, formatZodIssue(issue))).join("; "));
+    if (error instanceof z.ZodError) throw new ArtifactMarkdownParseError("invalid_metadata");
     throw error;
   }
 }

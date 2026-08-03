@@ -20,6 +20,14 @@ async function getCache() {
   if (!cache) throw new CatalogueCacheUnavailableError();
   return cache;
 }
+export async function inspectCatalogueCacheBinding(): Promise<"configured" | "missing" | "invalid"> {
+  if (testCache) return "configured";
+  try {
+    const context = await getCloudflareContext({ async: true });
+    if (!context || typeof context !== "object" || !("env" in context) || !context.env || typeof context.env !== "object") return "invalid";
+    return (context.env as CloudflareEnv & { ARTIFACT_CATALOGUE_CACHE?: unknown }).ARTIFACT_CATALOGUE_CACHE ? "configured" : "missing";
+  } catch { return "invalid"; }
+}
 async function getService(access: RepositoryAccessContext) {
   const repository = getRepository(access);
   const branch = process.env.GITHUB_ARTIFACT_REPOSITORY_BRANCH ?? "main";
@@ -32,7 +40,7 @@ export async function getArtifactCatalogue(access: RepositoryAccessContext): Pro
   return { ...await (await getService(access)).list(), cacheEnabled: true };
 }
 export async function refreshArtifactCatalogue(access: RepositoryAccessContext, full = false) { if (getArtifactRepositoryBackend() === "file") return undefined; return (await getService(access)).list({ force: true, full, manual: true }); }
-export async function inspectArtifactCatalogueCache(access: RepositoryAccessContext, revision?: string) { if (getArtifactRepositoryBackend() === "file") return { configured: false as const, state: "missing" as const }; try { return await (await getService(access)).inspect(revision); } catch { return { configured: false as const, state: "unavailable" as const, reason: "cache_binding_missing" }; } }
+export async function inspectArtifactCatalogueCache(access: RepositoryAccessContext, revision?: string) { if (getArtifactRepositoryBackend() === "file") return { configured: false as const, state: "missing" as const }; try { return await (await getService(access)).inspect(revision); } catch (error) { if (error instanceof CatalogueCacheUnavailableError) return { configured: false as const, state: "unavailable" as const, reason: "cache_binding_missing" }; throw error; } }
 export async function getArtifactRepositoryDiagnostics(access: RepositoryAccessContext, revision?: string) { const repository = getRepository(access); if (!repository.diagnoseCatalogue) return undefined; return repository.diagnoseCatalogue(revision); }
 export async function getArtifactBaseRevision(access: RepositoryAccessContext) { return getRepository(access).getBaseRevision(); }
 export async function getArtifacts(access: RepositoryAccessContext): Promise<Artifact[]> { return (await getArtifactCatalogue(access)).artifacts; }
