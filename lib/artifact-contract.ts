@@ -33,7 +33,8 @@ export function trimSlashes(value: string) { return value.replace(/^\/+|\/+$/g, 
 
 export function normalizeArtifactMetadata(input: unknown): ArtifactMetadata {
   const data = artifactFrontMatterSchema.parse(input);
-  return { ...data, createdAt: data.createdAt instanceof Date ? data.createdAt.toISOString() : data.createdAt };
+  const normalizeList = (values: string[]) => Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+  return { ...data, tags: normalizeList(data.tags), aliases: normalizeList(data.aliases), createdAt: data.createdAt instanceof Date ? data.createdAt.toISOString() : data.createdAt };
 }
 
 /** Serialize the complete, validated artifact in the repository's canonical format. */

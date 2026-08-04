@@ -4,7 +4,8 @@ import { requireApiRepositoryAccess } from "@/lib/auth";
 import { noStoreHeaders } from "@/lib/auth-core";
 import { artifactFrontMatterSchema } from "@/lib/artifact-contract";
 import { artifactWriteErrorResponse } from "@/lib/artifact-write-http";
-import { getArtifactWithRevision, updateArtifact } from "@/lib/artifacts";
+import { deleteArtifact, getArtifactWithRevision, updateArtifact } from "@/lib/artifacts";
+import { handleDirectDeletion } from "@/lib/deletion-route-handler";
 import { ArtifactRepositoryAccessError, ArtifactRepositoryUnavailableError } from "@/lib/artifact-repository";
 
 const payloadSchema = z.object({ metadata: artifactFrontMatterSchema, body: z.string().min(1), currentFileSha: z.string().min(1) });
@@ -34,4 +35,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     const result = await updateArtifact(authorization.access, { id: (await params).id, ...payload.data, actorLogin: authorization.session.login });
     return NextResponse.json(result, { headers: noStoreHeaders });
   } catch (error) { return artifactWriteErrorResponse(error); }
+}
+
+export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  return handleDirectDeletion(request, (await params).id, { authorize: requireApiRepositoryAccess, load: getArtifactWithRevision, remove: deleteArtifact });
 }

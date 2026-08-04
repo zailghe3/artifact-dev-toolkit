@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  ArtifactDuplicateError, ArtifactRepositoryContentError, ArtifactRepositoryUnavailableError, ArtifactSecretRejectedError,
-  ArtifactWriteConflictError, ArtifactWritePermissionError, ArtifactWriteResponseError,
+  ArtifactDuplicateError, ArtifactRepositoryAccessError, ArtifactRepositoryConfigurationError, ArtifactRepositoryContentError, ArtifactRepositoryUnavailableError, ArtifactSecretRejectedError,
+  ArtifactProductionDeleteRequiresProposalError, ArtifactWriteAuthenticationError, ArtifactWriteConflictError, ArtifactWritePermissionError, ArtifactWriteResponseError,
   ArtifactWriteValidationError, GitHubArtifactRepository,
   ArtifactWriteTooLargeError,
 } from '../lib/artifact-repository.ts';
@@ -13,7 +13,7 @@ const existingMarkdown = `---\nid: new-prompt\ntitle: New Prompt\ntype: prompt\n
 const source = { ...metadata, id: 'source-prompt', title: 'Source Prompt', status: 'production', aliases: ['starter'], body: 'Source body', excerpt: 'Source body', path: 'artifacts/prompts/source-prompt.md' };
 const json = (value, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
 
-function fake({ files = {}, writeStatus = 200, writeValue, now, randomBytes } = {}) {
+function fake({ files = {}, writeStatus = 200, writeValue, now, randomBytes, credentialProvider } = {}) {
   const calls = [];
   const diagnostics = [];
   const entries = Object.entries(files);
@@ -29,7 +29,7 @@ function fake({ files = {}, writeStatus = 200, writeValue, now, randomBytes } = 
     const requestedPath = decodeURIComponent(pathname.split('/contents/')[1]);
     return json(writeValue ?? { content: { path: requestedPath, sha: 'new-blob' }, commit: { sha: 'commit-1', html_url: 'https://github.example/commit/1' } }, writeStatus);
   };
-  return { calls, diagnostics, repository: new GitHubArtifactRepository({ owner: 'owner', repo: 'repo', branch: 'main', rootPath: 'artifacts', credentialProvider: async (capability) => ({ token: 'installation-secret', permissions: capability === 'read' ? { contents: 'read' } : capability === 'write' ? { contents: 'write' } : { contents: 'write', pullRequests: 'write' } }), fetch, sleep: async () => {}, logger: { info(value) { diagnostics.push(value); }, error(value) { diagnostics.push(value); } }, now, randomBytes }) };
+  return { calls, diagnostics, repository: new GitHubArtifactRepository({ owner: 'owner', repo: 'repo', branch: 'main', rootPath: 'artifacts', credentialProvider: credentialProvider ?? (async (capability) => ({ token: 'installation-secret', permissions: capability === 'read' ? { contents: 'read' } : capability === 'write' ? { contents: 'write' } : { contents: 'write', pullRequests: 'write' } })), fetch, sleep: async () => {}, logger: { info(value) { diagnostics.push(value); }, error(value) { diagnostics.push(value); } }, now, randomBytes }) };
 }
 
 test('create serializes canonical Markdown, sends one Contents API write, and returns commit metadata', async () => {
@@ -188,10 +188,10 @@ test('multibyte content is limited by UTF-8 bytes rather than JavaScript length'
   assert.equal(runtime.calls.length, 0);
 });
 
-test('update preserves a valid nested path and does not move it when metadata changes', async () => {
+test('update preserves a valid nested path and does not move it when editable metadata changes', async () => {
   const nested = 'artifacts/prompts/client-a/custom.md';
   const runtime = fake({ files: { [nested]: existingMarkdown } });
-  await runtime.repository.update({ id: metadata.id, metadata: { ...metadata, type: 'template', title: 'Changed' }, body: 'Updated', currentFileSha: 'blob-0', actorLogin: 'octocat' });
+  await runtime.repository.update({ id: metadata.id, metadata: { ...metadata, title: 'Changed' }, body: 'Updated', currentFileSha: 'blob-0', actorLogin: 'octocat' });
   const write = runtime.calls.find((call) => call.options.method === 'PUT');
   assert.ok(write.url.endsWith('/contents/artifacts/prompts/client-a/custom.md'));
   assert.equal(write.url.includes('/templates/new-prompt.md'), false);
@@ -212,4 +212,58 @@ test('nested update still rejects stale revisions and invalid existing paths bef
   const invalid = fake({ files: { 'artifacts/prompts/../custom.md': existingMarkdown } });
   await assert.rejects(invalid.repository.update({ id: metadata.id, metadata, body: 'Updated', currentFileSha: 'blob-0', actorLogin: 'octocat' }), ArtifactRepositoryContentError);
   assert.equal(invalid.calls.some((call) => call.options.method === 'PUT'), false);
+});
+
+test('creation is draft-only and normalizes before deriving its canonical path', async () => {
+  const runtime = fake();
+  const result = await runtime.repository.create({ metadata: { ...metadata, id: ' new-prompt ', title: ' Trimmed ', tags: [' one ', 'one'] }, body: 'Body', actorLogin: 'octocat' });
+  const write = runtime.calls.find((call) => call.options.method === 'PUT'); const payload = JSON.parse(write.options.body); const markdown = Buffer.from(payload.content, 'base64').toString();
+  assert.ok(write.url.endsWith('/artifacts/prompts/new-prompt.md')); assert.equal(result.artifactId, 'new-prompt'); assert.match(markdown, /id: new-prompt/); assert.match(markdown, /title: Trimmed/);
+  const rejected = fake(); await assert.rejects(rejected.repository.create({ metadata: { ...metadata, status: 'production' }, body: 'Body', actorLogin: 'octocat' }), ArtifactWriteValidationError); assert.equal(rejected.calls.length, 0);
+});
+
+test('updates enforce immutable type, status, source relationship, and creation timestamp', async () => {
+  const stored = serializeArtifactMarkdown({ ...metadata, sourceId: 'source', createdAt: '2026-01-01T00:00:00.000Z' }, 'old');
+  for (const change of [{ type: 'agent' }, { status: 'archived' }, { sourceId: 'other' }, { createdAt: '2026-01-02T00:00:00.000Z' }]) {
+    const runtime = fake({ files: { 'artifacts/prompts/nested/item.md': stored } });
+    await assert.rejects(runtime.repository.update({ id: metadata.id, metadata: { ...metadata, sourceId: 'source', createdAt: '2026-01-01T00:00:00.000Z', ...change }, body: 'new', currentFileSha: 'blob-0', actorLogin: 'octocat' }), ArtifactWriteValidationError);
+    assert.equal(runtime.calls.some((call) => call.options.method === 'PUT'), false);
+  }
+});
+
+test('direct deletion uses exact nested path, SHA, branch and attributable single DELETE', async () => {
+  const runtime = fake({ files: { 'artifacts/prompts/nested/item.md': existingMarkdown }, writeValue: { content: null, commit: { sha: 'deleted-commit', html_url: 'https://github.com/owner/repo/commit/deleted' } } });
+  const result = await runtime.repository.delete({ id: metadata.id, currentFileSha: 'blob-0', actorLogin: 'octocat' });
+  const writes = runtime.calls.filter((call) => call.options.method === 'DELETE'); assert.equal(writes.length, 1); assert.ok(writes[0].url.endsWith('/contents/artifacts/prompts/nested/item.md'));
+  assert.deepEqual(JSON.parse(writes[0].options.body), { message: 'Delete artifact new-prompt (requested by @octocat)', sha: 'blob-0', branch: 'main' });
+  assert.deepEqual(result, { artifactId: 'new-prompt', path: 'artifacts/prompts/nested/item.md', commitSha: 'deleted-commit', commitUrl: 'https://github.com/owner/repo/commit/deleted', repositoryRevision: 'deleted-commit' });
+});
+
+test('deletion rejects stale SHA and production status before mutation', async () => {
+  const draft = fake({ files: { 'artifacts/prompts/item.md': existingMarkdown } }); await assert.rejects(draft.repository.delete({ id: metadata.id, currentFileSha: 'stale', actorLogin: 'octocat' }), ArtifactWriteConflictError);
+  const production = fake({ files: { 'artifacts/prompts/item.md': existingMarkdown.replace('status: draft', 'status: production') } }); await assert.rejects(production.repository.delete({ id: metadata.id, currentFileSha: 'blob-0', actorLogin: 'octocat' }), ArtifactProductionDeleteRequiresProposalError);
+  assert.equal(draft.calls.some((call) => call.options.method === 'DELETE'), false); assert.equal(production.calls.some((call) => call.options.method === 'DELETE'), false);
+});
+
+test('direct deletion maps changed state, authentication, permission and availability without retrying', async () => {
+  for (const [status, ErrorType] of [[401, ArtifactWriteAuthenticationError], [403, ArtifactWritePermissionError], [404, ArtifactWriteConflictError], [409, ArtifactWriteConflictError], [422, ArtifactWriteConflictError], [429, ArtifactRepositoryUnavailableError], [503, ArtifactRepositoryUnavailableError]]) {
+    const runtime = fake({ files: { 'artifacts/prompts/item.md': existingMarkdown }, writeStatus: status, writeValue: { private: 'upstream-body' } });
+    await assert.rejects(runtime.repository.delete({ id: metadata.id, currentFileSha: 'blob-0', actorLogin: 'octocat' }), ErrorType);
+    assert.equal(runtime.calls.filter((call) => call.options.method === 'DELETE').length, 1);
+  }
+});
+
+test('direct deletion rejects malformed success metadata and unsafe commit URLs', async () => {
+  for (const value of [{ content: null }, { content: null, commit: { sha: 'c', html_url: 'https://evil.test/o/r/commit/c' } }]) {
+    const runtime = fake({ files: { 'artifacts/prompts/item.md': existingMarkdown }, writeValue: value });
+    await assert.rejects(runtime.repository.delete({ id: metadata.id, currentFileSha: 'blob-0', actorLogin: 'octocat' }), ArtifactWriteResponseError);
+  }
+});
+
+test('direct deletion classifies credential-provider failures before DELETE', async () => {
+  for (const [error, ErrorType] of [[new ArtifactWritePermissionError(), ArtifactWritePermissionError], [Object.assign(new Error(), { status: 401 }), ArtifactRepositoryAccessError], [Object.assign(new Error(), { status: 429 }), ArtifactRepositoryUnavailableError], [Object.assign(new Error(), { status: 503 }), ArtifactRepositoryUnavailableError], [new Error(), ArtifactRepositoryUnavailableError], [Object.assign(new Error(), { status: 400 }), ArtifactRepositoryConfigurationError]]) {
+    const runtime = fake({ files: { 'artifacts/prompts/item.md': existingMarkdown }, credentialProvider: async (capability) => capability === 'write' ? Promise.reject(error) : ({ token: 'read', permissions: { contents: 'read' } }) });
+    await assert.rejects(runtime.repository.delete({ id: metadata.id, currentFileSha: 'blob-0', actorLogin: 'octocat' }), ErrorType);
+    assert.equal(runtime.calls.some((call) => call.options.method === 'DELETE'), false);
+  }
 });
