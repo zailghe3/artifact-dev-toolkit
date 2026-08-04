@@ -68,6 +68,13 @@ type GitHubTreeResponse = {
   truncated?: boolean;
 };
 
+function treeLeafSignatures(entries: GitHubTreeEntry[], excludedPath: string) {
+  return entries
+    .filter((entry) => entry.type !== "tree" && entry.path !== excludedPath)
+    .map((entry) => `${entry.path}\0${entry.mode}\0${entry.type}\0${entry.sha}`)
+    .sort();
+}
+
 type GitHubBlobResponse = {
   content?: string;
   encoding?: string;
@@ -533,10 +540,9 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     const proposalTree = await this.githubGet<GitHubTreeResponse>(`/git/trees/${encodeURIComponent(commit.tree.sha)}?recursive=1`, "tree");
     if (!Array.isArray(baseTree.tree) || !Array.isArray(proposalTree.tree) || baseTree.truncated || proposalTree.truncated) throw new ArtifactProposalCollisionError();
     const source = baseTree.tree.find((entry) => entry.type === "blob" && entry.path === artifactPath);
-    const target = proposalTree.tree.find((entry) => entry.type === "blob" && entry.path === artifactPath);
-    if (source?.sha !== sourceFileSha || target?.sha !== expectedBlobSha) throw new ArtifactProposalCollisionError();
-    const withoutTarget = (entries: GitHubTreeEntry[]) => entries.filter((entry) => entry.type !== "tree" && entry.path !== artifactPath).map((entry) => `${entry.path}\0${entry.mode}\0${entry.type}\0${entry.sha}`).sort();
-    if (JSON.stringify(withoutTarget(baseTree.tree)) !== JSON.stringify(withoutTarget(proposalTree.tree))) throw new ArtifactProposalCollisionError();
+    const target = proposalTree.tree.find((entry) => entry.path === artifactPath);
+    if (source?.sha !== sourceFileSha || target?.mode !== "100644" || target.type !== "blob" || target.sha !== expectedBlobSha) throw new ArtifactProposalCollisionError();
+    if (JSON.stringify(treeLeafSignatures(baseTree.tree, artifactPath)) !== JSON.stringify(treeLeafSignatures(proposalTree.tree, artifactPath))) throw new ArtifactProposalCollisionError();
     const pulls = await this.githubGet<unknown[]>(`/pulls?state=open&head=${encodeURIComponent(`${this.config.owner}:${branchName}`)}&base=${encodeURIComponent(this.branch)}`, "tree");
     const parsed = z.array(z.object({ number: z.number().int().positive(), html_url: z.string().url(), head: z.object({ ref: z.string() }), base: z.object({ ref: z.string() }) })).safeParse(pulls);
     const pull = parsed.success ? parsed.data.find((candidate) => candidate.head.ref === branchName && candidate.base.ref === this.branch) : undefined;
@@ -553,8 +559,7 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     if (!Array.isArray(baseTree.tree) || !Array.isArray(proposalTree.tree) || baseTree.truncated || proposalTree.truncated) throw new ArtifactProposalCollisionError();
     const source = baseTree.tree.find((entry) => entry.type === "blob" && entry.path === artifactPath);
     if (source?.sha !== sourceFileSha) throw new ArtifactProposalCollisionError();
-    const withoutTarget = (entries: GitHubTreeEntry[]) => entries.filter((entry) => entry.type !== "tree" && entry.path !== artifactPath).map((entry) => `${entry.path}\0${entry.mode}\0${entry.type}\0${entry.sha}`).sort();
-    if (proposalTree.tree.some((entry) => entry.path === artifactPath) || JSON.stringify(withoutTarget(baseTree.tree)) !== JSON.stringify(withoutTarget(proposalTree.tree))) throw new ArtifactProposalCollisionError();
+    if (proposalTree.tree.some((entry) => entry.path === artifactPath) || JSON.stringify(treeLeafSignatures(baseTree.tree, artifactPath)) !== JSON.stringify(treeLeafSignatures(proposalTree.tree, artifactPath))) throw new ArtifactProposalCollisionError();
     const pulls = await this.githubGet<unknown[]>(`/pulls?state=open&head=${encodeURIComponent(`${this.config.owner}:${branchName}`)}&base=${encodeURIComponent(this.branch)}`, "tree");
     const parsed = z.array(z.object({ number: z.number().int().positive(), html_url: z.string().url(), head: z.object({ ref: z.string() }), base: z.object({ ref: z.string() }) })).safeParse(pulls);
     const pull = parsed.success ? parsed.data.find((candidate) => candidate.head.ref === branchName && candidate.base.ref === this.branch) : undefined;
