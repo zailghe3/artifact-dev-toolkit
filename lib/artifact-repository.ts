@@ -497,8 +497,9 @@ export class GitHubArtifactRepository implements ArtifactRepository {
 
     validateImmutableLifecycleMetadata(artifact, metadata);
 
+    const expectedBlobSha = createHash("sha1").update(`blob ${Buffer.byteLength(markdown)}\0${markdown}`).digest("hex");
     const existingRef = await this.optionalGitHubGet<{ object?: { sha?: string } }>(`/git/ref/heads/${branchName.split("/").map(encodeURIComponent).join("/")}`);
-    if (existingRef) return this.resolveExistingProposal(input.id, branchName, artifact.path, markdown, existingRef.object?.sha);
+    if (existingRef) return this.resolveExistingProposal(input.id, branchName, artifact.path, input.currentFileSha, expectedBlobSha, baseCommitSha, baseCommit.tree.sha, existingRef.object?.sha);
 
     const blob = await this.githubWrite<{ sha?: string }>("/git/blobs", { content: markdown, encoding: "utf-8" });
     if (!blob.sha) throw new ArtifactWriteResponseError();
@@ -511,8 +512,12 @@ export class GitHubArtifactRepository implements ArtifactRepository {
       const pull = await this.createPullRequest(branchName, metadata.title, input, artifact.path);
       return { artifactId: input.id, path: artifact.path, branchName, commitSha: commit.sha, pullRequestNumber: pull.number, pullRequestUrl: pull.html_url };
     } catch (error) {
-      if (error instanceof ArtifactProposalPermissionError || error instanceof ArtifactRepositoryUnavailableError || error instanceof ArtifactWriteResponseError) {
-        throw new ArtifactProposalIncompleteError(branchName, this.branchHtmlUrl(branchName));
+      if (error instanceof ArtifactProposalPermissionError || error instanceof ArtifactRepositoryUnavailableError || error instanceof ArtifactWriteResponseError || error instanceof ArtifactProposalCollisionError || error instanceof z.ZodError) {
+        try { return await this.resolveExistingProposal(input.id, branchName, artifact.path, input.currentFileSha, expectedBlobSha, baseCommitSha, baseCommit.tree.sha, commit.sha); }
+        catch (recoveryError) {
+          if (recoveryError instanceof ArtifactProposalPermissionError || recoveryError instanceof ArtifactRepositoryUnavailableError || recoveryError instanceof ArtifactWriteResponseError || recoveryError instanceof ArtifactProposalCollisionError) throw new ArtifactProposalIncompleteError(branchName, this.branchHtmlUrl(branchName));
+          throw recoveryError;
+        }
       }
       throw error;
     }
@@ -520,13 +525,18 @@ export class GitHubArtifactRepository implements ArtifactRepository {
 
   private branchHtmlUrl(branchName: string) { return `https://github.com/${encodeURIComponent(this.config.owner)}/${encodeURIComponent(this.config.repo)}/tree/${branchName.split("/").map(encodeURIComponent).join("/")}`; }
 
-  private async resolveExistingProposal(artifactId: string, branchName: string, artifactPath: string, markdown: string, commitSha?: string): Promise<ArtifactProposalResult> {
+  private async resolveExistingProposal(artifactId: string, branchName: string, artifactPath: string, sourceFileSha: string, expectedBlobSha: string, baseCommitSha: string, baseTreeSha: string, commitSha?: string): Promise<ArtifactProposalResult> {
     if (!commitSha) throw new ArtifactProposalCollisionError();
-    const tree = await this.githubGet<GitHubTreeResponse>(`/git/trees/${encodeURIComponent(commitSha)}?recursive=1`, "tree");
-    const entry = tree.tree?.find((candidate) => candidate.type === "blob" && candidate.path === artifactPath);
-    if (!entry?.sha) throw new ArtifactProposalCollisionError();
-    const expectedSha = createHash("sha1").update(`blob ${Buffer.byteLength(markdown)}\0${markdown}`).digest("hex");
-    if (entry.sha !== expectedSha) throw new ArtifactProposalCollisionError();
+    const commit = await this.githubGet<{ tree?: { sha?: string }; parents?: { sha?: string }[] }>(`/git/commits/${encodeURIComponent(commitSha)}`, "tree");
+    if (commit.parents?.length !== 1 || commit.parents[0]?.sha !== baseCommitSha || !commit.tree?.sha) throw new ArtifactProposalCollisionError();
+    const baseTree = await this.githubGet<GitHubTreeResponse>(`/git/trees/${encodeURIComponent(baseTreeSha)}?recursive=1`, "tree");
+    const proposalTree = await this.githubGet<GitHubTreeResponse>(`/git/trees/${encodeURIComponent(commit.tree.sha)}?recursive=1`, "tree");
+    if (!Array.isArray(baseTree.tree) || !Array.isArray(proposalTree.tree) || baseTree.truncated || proposalTree.truncated) throw new ArtifactProposalCollisionError();
+    const source = baseTree.tree.find((entry) => entry.type === "blob" && entry.path === artifactPath);
+    const target = proposalTree.tree.find((entry) => entry.type === "blob" && entry.path === artifactPath);
+    if (source?.sha !== sourceFileSha || target?.sha !== expectedBlobSha) throw new ArtifactProposalCollisionError();
+    const withoutTarget = (entries: GitHubTreeEntry[]) => entries.filter((entry) => entry.type !== "tree" && entry.path !== artifactPath).map((entry) => `${entry.path}\0${entry.mode}\0${entry.type}\0${entry.sha}`).sort();
+    if (JSON.stringify(withoutTarget(baseTree.tree)) !== JSON.stringify(withoutTarget(proposalTree.tree))) throw new ArtifactProposalCollisionError();
     const pulls = await this.githubGet<unknown[]>(`/pulls?state=open&head=${encodeURIComponent(`${this.config.owner}:${branchName}`)}&base=${encodeURIComponent(this.branch)}`, "tree");
     const parsed = z.array(z.object({ number: z.number().int().positive(), html_url: z.string().url(), head: z.object({ ref: z.string() }), base: z.object({ ref: z.string() }) })).safeParse(pulls);
     const pull = parsed.success ? parsed.data.find((candidate) => candidate.head.ref === branchName && candidate.base.ref === this.branch) : undefined;

@@ -1,12 +1,11 @@
 # Artifact Library
 
-Artifact Library helps authorised users search a collection of reusable artifacts, read their rendered content, copy their Markdown bodies, create draft variations, preview proposed content, and propose changes to production artifacts. These tasks can be completed in the application without manually editing files in the artifact repository.
+Artifact Library helps authorised users search reusable artifacts, read and copy them, create new drafts, edit their content and metadata, and safely delete them. Draft and archived changes can be applied directly, while production changes are proposed for review.
 
 The library brings prompts, agents, snippets, templates, and app ideas into one searchable interface. It also lets users refresh the catalogue and view safe operational diagnostics when repository access or content needs attention.
 
 **Important links**
 
-- **Application:** _Deployment URL requires maintainer input._
 - **Current behaviour:** [Current application specification](specs/000-current-application-spec.md)
 - **Artifact format:** [External artifact repository contract](docs/external-artifact-repository-contract.md)
 - **Operations:** [GitHub artifact deployment](docs/github-artifact-deployment.md)
@@ -25,6 +24,14 @@ Open an artifact to see its metadata and rendered Markdown. **Copy body** places
 
 Start from any artifact, edit a prefilled title and body, and preview the rendered variation before saving. A saved variation is a new draft linked to its source; it does not alter the source artifact.
 
+### Create and edit artifacts
+
+Create a draft artifact from scratch with a suggested, editable stable ID. After it is saved, its ID and type are locked. Draft and archived artifacts can be edited directly, including adding or removing tags and aliases; production edits create a pull request instead.
+
+### Delete artifacts safely
+
+Deletion always requires explicit confirmation. Draft and archived artifacts are deleted directly, while deleting a production artifact creates a reviewable pull request and leaves the live artifact unchanged. Completed operations provide validated artifact, commit, pull-request, or recovery-branch links as appropriate.
+
 ### Propose production changes
 
 For a production artifact, edit its title, tags, aliases, and Markdown body, then preview the result. Submitting opens a reviewable pull request while leaving the production artifact unchanged. If someone has changed the artifact since it was opened, the stale proposal is rejected rather than overwriting the newer version.
@@ -42,9 +49,10 @@ The protected diagnostics view reports safe information about the signed-in iden
 1. Sign in with GitHub and open the library.
 2. Search by words, type, status, tag, alias, or body content.
 3. Open a result to read the rendered artifact or copy its Markdown body.
-4. Create and preview a draft variation when exploring an alternative.
-5. For a production artifact, preview an edit and open a pull request for review.
-6. Refresh the catalogue after repository changes, or use diagnostics when an operational message appears.
+4. Create a new draft, edit a draft or archived artifact directly, or create a variation.
+5. Preview production edits or deletions and open their pull requests for review.
+6. Follow the validated result link; if pull-request creation was interrupted, open the recovery branch.
+7. Refresh the catalogue after repository changes, or use diagnostics when an operational message appears.
 
 ## How artifacts are stored
 
@@ -85,7 +93,10 @@ See the [external artifact repository contract](docs/external-artifact-repositor
 
 - Draft variations are saved separately from production changes and retain a link to their source.
 - Stale revisions are rejected instead of replacing newer content.
-- Production updates are proposed through reviewable pull requests.
+- Stable IDs and artifact types become immutable after creation.
+- Direct deletion requires confirmation; production updates and deletions use reviewable pull requests.
+- Existing deterministic proposal branches are accepted only when their commit, exact tree change, and open pull request match.
+- Validated result and recovery links never expose arbitrary response URLs.
 - Artifact Library never merges proposals automatically.
 - Credentials and tokens remain server-side and are not exposed to browser JavaScript.
 - Protected pages and API responses are private and require authorised access.
@@ -93,6 +104,8 @@ See the [external artifact repository contract](docs/external-artifact-repositor
 ## Application architecture
 
 Artifact Library is a Next.js application deployed as a Cloudflare Worker. GitHub sign-in identifies users, and a GitHub App provides repository access. D1 stores server-side sessions, KV stores catalogue snapshots, and GitHub remains the artifact source of truth.
+
+The maintained toolchain uses Node.js 24 and npm 11.
 
 See [GitHub artifact deployment](docs/github-artifact-deployment.md) for deployment and operational details.
 
@@ -105,11 +118,3 @@ See [GitHub artifact deployment](docs/github-artifact-deployment.md) for deploym
 | [GitHub artifact deployment](docs/github-artifact-deployment.md) | Production architecture, configuration, and operations |
 | [Development workflow](docs/development-workflow.md) | Maintainer workflow and delivery process |
 | [Dependency and toolchain maintenance](docs/dependency-toolchain-maintenance.md) | Runtime baseline and dependency maintenance policy |
-
-## Security
-
-Access is limited to authenticated users who are authorised for the configured artifact repository. Report security concerns through the repository owner's private security channel; a public security contact has not yet been documented.
-
-## Licence
-
-_No licence has been documented. Maintainer input is required before reuse or redistribution._
