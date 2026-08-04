@@ -17,12 +17,13 @@ const leaf = (entryPath, sha, type = 'blob', mode = type === 'commit' ? '160000'
 const baseLeaves = [leaf(path, sourceSha), leaf('README.md', 'readme-sha'), leaf('vendor/tool', 'gitlink-sha', 'commit')];
 const json = (value, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
 
-function runtime({ operation = 'update', existing = false, proposalLeaves, commit = {}, pulls, pullFailure, baseLeaves: configuredBase = baseLeaves, credentialProvider } = {}) {
+function runtime({ operation = 'update', existing = false, proposalLeaves, commit = {}, pulls, pullFailure, baseLeaves: configuredBase = baseLeaves, credentialProvider, baseTreeResponse, recoveryBaseTreeResponse, proposalTreeResponse } = {}) {
   const calls = [];
   const branch = operation === 'update' ? proposalBranchName('production', sourceSha) : deletionProposalBranchName('production', sourceSha);
   const targetLeaves = proposalLeaves ?? (operation === 'update'
     ? configuredBase.map((entry) => entry.path === path ? leaf(path, updateSha) : entry)
     : configuredBase.filter((entry) => entry.path !== path));
+  let baseTreeReads = 0;
   const fetch = async (url, options = {}) => {
     const parsed = new URL(String(url)); const endpoint = parsed.pathname.replace('/repos/owner/repo', '');
     const body = options.body ? JSON.parse(options.body) : undefined;
@@ -38,8 +39,8 @@ function runtime({ operation = 'update', existing = false, proposalLeaves, commi
     if (endpoint === `/git/ref/heads/${branch}`) return existing ? json({ object: { sha: 'proposal-commit' } }) : json({}, 404);
     if (endpoint === '/git/commits/base-commit') return json({ tree: { sha: 'base-tree' } });
     if (endpoint === '/git/commits/proposal-commit') return json({ tree: { sha: 'proposal-tree' }, parents: [{ sha: 'base-commit' }], ...commit });
-    if (endpoint === '/git/trees/base-tree') return json({ tree: configuredBase, truncated: false });
-    if (endpoint === '/git/trees/proposal-tree') return json({ tree: targetLeaves, truncated: false });
+    if (endpoint === '/git/trees/base-tree') { baseTreeReads += 1; return json(baseTreeReads > 1 && recoveryBaseTreeResponse ? recoveryBaseTreeResponse : baseTreeResponse ?? { tree: configuredBase, truncated: false }); }
+    if (endpoint === '/git/trees/proposal-tree') return json(proposalTreeResponse ?? { tree: targetLeaves, truncated: false });
     if (endpoint === '/pulls') return json(pulls ?? [{ number: 17, html_url: 'https://github.com/owner/repo/pull/17', head: { ref: branch }, base: { ref: 'main' } }]);
     if (endpoint === `/git/blobs/${sourceSha}`) return json({ encoding: 'base64', size: Buffer.byteLength(sourceMarkdown), content: Buffer.from(sourceMarkdown).toString('base64') });
     return json({}, 404);
@@ -118,4 +119,28 @@ test('a concurrent matching pull request is recovered after PR conflict', async 
   const r = runtime({ operation: 'update', pullFailure: 422 });
   const result = await r.repository.proposeUpdate(updateInput);
   assert.equal(result.pullRequestNumber, 17); assert.equal(r.calls.filter((c) => c.endpoint === '/pulls' && c.method === 'POST').length, 1);
+});
+
+const deletionCollisionCases = [
+  ['wrong parent', { commit: { parents: [{ sha: 'other' }] } }],
+  ['multiple parents', { commit: { parents: [{ sha: 'base-commit' }, { sha: 'other' }] } }],
+  ['unrelated added blob', { proposalLeaves: [...baseLeaves.filter((e) => e.path !== path), leaf('extra.md', 'extra')] }],
+  ['unrelated deleted blob', { proposalLeaves: baseLeaves.filter((e) => e.path !== path && e.path !== 'README.md') }],
+  ['unrelated changed blob', { proposalLeaves: baseLeaves.filter((e) => e.path !== path).map((e) => e.path === 'README.md' ? leaf(e.path, 'changed') : e) }],
+  ['changed gitlink', { proposalLeaves: baseLeaves.filter((e) => e.path !== path).map((e) => e.type === 'commit' ? leaf(e.path, 'changed', 'commit') : e) }],
+  ['target still present', { proposalLeaves: baseLeaves }],
+  ['source SHA mismatch', { recoveryBaseTreeResponse: { tree: baseLeaves.map((e) => e.path === path ? leaf(path, 'different-source') : e), truncated: false } }],
+  ['missing matching open PR', { pulls: [] }],
+  ['wrong PR head', { pulls: [{ number: 17, html_url: 'https://github.com/owner/repo/pull/17', head: { ref: 'wrong' }, base: { ref: 'main' } }] }],
+  ['wrong PR base', { pulls: [{ number: 17, html_url: 'https://github.com/owner/repo/pull/17', head: { ref: deletionProposalBranchName('production', sourceSha) }, base: { ref: 'other' } }] }],
+  ['unsafe PR URL', { pulls: [{ number: 17, html_url: 'https://evil.example/pull/17', head: { ref: deletionProposalBranchName('production', sourceSha) }, base: { ref: 'main' } }] }],
+  ['truncated base tree', { recoveryBaseTreeResponse: { tree: baseLeaves, truncated: true } }],
+  ['truncated proposal tree', { proposalTreeResponse: { tree: baseLeaves.filter((e) => e.path !== path), truncated: true } }],
+  ['malformed base tree', { recoveryBaseTreeResponse: { tree: null, truncated: false } }],
+  ['malformed proposal tree', { proposalTreeResponse: { tree: null, truncated: false } }],
+];
+for (const [name, options] of deletionCollisionCases) test(`deletion recovery rejects ${name} without mutation`, async () => {
+  const r = runtime({ operation: 'delete', existing: true, ...options });
+  await assert.rejects(r.repository.proposeDelete(deleteInput), ArtifactProposalCollisionError);
+  assert.equal(r.calls.some((call) => ['POST', 'PATCH', 'PUT', 'DELETE'].includes(call.method)), false);
 });
