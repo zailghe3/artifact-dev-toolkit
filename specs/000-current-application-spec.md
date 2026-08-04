@@ -215,7 +215,7 @@ The deterministic branch format is:
 
 ### 5.6 Proposal collision, deletion, and recovery handling
 
-* Production deletion uses a deterministic `artifact-delete/{artifact-id}-{revision}` branch; direct draft and archived deletion uses the exact loaded revision and requires explicit confirmation.
+* Production deletion uses a deterministic `artifact-delete/{artifact-id}-{revision}` branch; direct draft and archived deletion uses the exact loaded revision and requires explicit confirmation. Confirmation identifies the artifact title persisted at that active revision and explicitly excludes unsaved editor changes and unmerged proposal edits.
 * An existing branch is inspected before further mutation. Its single base parent, actual recursive tree, exact target result, every unrelated blob or gitlink, and matching open pull request are verified.
 * An identical existing proposal can return its existing pull request.
 * A conflicting branch returns a proposal-collision error.
