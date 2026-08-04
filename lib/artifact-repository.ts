@@ -455,7 +455,13 @@ export class GitHubArtifactRepository implements ArtifactRepository {
       if (!pull.html_url.startsWith("https://github.com/")) throw new ArtifactWriteResponseError();
       return { artifactId: input.id, path: artifact.path, branchName, commitSha: commit.sha, pullRequestNumber: pull.number, pullRequestUrl: pull.html_url };
     } catch (error) {
-      if (error instanceof ArtifactProposalPermissionError || error instanceof ArtifactRepositoryUnavailableError || error instanceof ArtifactWriteResponseError || error instanceof z.ZodError) throw new ArtifactProposalIncompleteError(branchName, this.branchHtmlUrl(branchName));
+      if (error instanceof ArtifactProposalPermissionError || error instanceof ArtifactRepositoryUnavailableError || error instanceof ArtifactWriteResponseError || error instanceof ArtifactProposalCollisionError || error instanceof z.ZodError) {
+        try { return await this.resolveExistingDeletionProposal(input.id, branchName, artifact.path, input.currentFileSha, baseCommitSha, baseCommit.tree.sha, commit.sha); }
+        catch (recoveryError) {
+          if (recoveryError instanceof ArtifactProposalPermissionError || recoveryError instanceof ArtifactRepositoryUnavailableError || recoveryError instanceof ArtifactWriteResponseError || recoveryError instanceof ArtifactProposalCollisionError) throw new ArtifactProposalIncompleteError(branchName, this.branchHtmlUrl(branchName));
+          throw recoveryError;
+        }
+      }
       throw error;
     }
   }
@@ -560,8 +566,7 @@ export class GitHubArtifactRepository implements ArtifactRepository {
   }
 
   private async deleteContents(filePath: string, input: DeleteArtifactInput): Promise<ArtifactDeleteResult> {
-    let credential: string;
-    try { credential = await this.credential("write"); } catch (error) { if (error instanceof ArtifactWritePermissionError) throw error; throw new ArtifactWriteAuthenticationError(); }
+    const credential = await this.writeCredential();
     let response: Response;
     try { response = await this.fetchImpl(this.githubUrl(`/contents/${filePath.split("/").map(encodeURIComponent).join("/")}`), { method: "DELETE", headers: { accept: "application/vnd.github+json", authorization: `Bearer ${credential}`, "content-type": "application/json", "user-agent": "artifact-dev-toolkit", "x-github-api-version": "2022-11-28" }, body: JSON.stringify({ message: `Delete artifact ${input.id} (requested by @${input.actorLogin})`, sha: input.currentFileSha, branch: this.branch }) }); }
     catch { throw new ArtifactRepositoryUnavailableError(); }
@@ -652,36 +657,20 @@ export class GitHubArtifactRepository implements ArtifactRepository {
   }
 
   private async writeContents(filePath: string, artifactId: string, markdown: string, commitMessage: string, sha?: string): Promise<ArtifactWriteResult> {
-    let credential: string;
-    try { credential = await this.credential("write"); }
-    catch (error) {
-      if (error instanceof ArtifactWritePermissionError) throw error;
-      const status = (error as { status?: number }).status;
-      if (status === 401 || status === 403 || status === 404) throw new ArtifactWriteAuthenticationError();
-      if (status === 429 || status === undefined || status >= 500) throw new ArtifactRepositoryUnavailableError(status);
-      throw new ArtifactRepositoryConfigurationError("Installation credential could not be created.");
-    }
+    const credential = await this.writeCredential();
     let response: Response;
-    try {
-      response = await this.fetchImpl(this.githubUrl(`/contents/${filePath.split("/").map(encodeURIComponent).join("/")}`), {
-        method: "PUT",
-        headers: { accept: "application/vnd.github+json", authorization: `Bearer ${credential}`, "content-type": "application/json", "user-agent": "artifact-dev-toolkit", "x-github-api-version": "2022-11-28" },
-        body: JSON.stringify({ message: commitMessage, content: Buffer.from(markdown).toString("base64"), branch: this.branch, ...(sha ? { sha } : {}) }),
-      });
-    } catch { throw new ArtifactRepositoryUnavailableError(); }
-    if (!response.ok) {
-      await response.body?.cancel().catch(() => undefined);
-      if (response.status === 401) throw new ArtifactWriteAuthenticationError();
-      if (response.status === 403) throw new ArtifactWritePermissionError();
-      if (response.status === 409 || response.status === 422) throw sha ? new ArtifactWriteConflictError() : new ArtifactDuplicateError();
-      if (response.status === 429 || response.status >= 500) throw new ArtifactRepositoryUnavailableError(response.status);
-      throw new ArtifactWriteResponseError();
-    }
-    let value: unknown;
-    try { value = await response.json(); } catch { throw new ArtifactWriteResponseError(); }
+    try { response = await this.fetchImpl(this.githubUrl(`/contents/${filePath.split("/").map(encodeURIComponent).join("/")}`), { method: "PUT", headers: { accept: "application/vnd.github+json", authorization: `Bearer ${credential}`, "content-type": "application/json", "user-agent": "artifact-dev-toolkit", "x-github-api-version": "2022-11-28" }, body: JSON.stringify({ message: commitMessage, content: Buffer.from(markdown).toString("base64"), branch: this.branch, ...(sha ? { sha } : {}) }) }); }
+    catch { throw new ArtifactRepositoryUnavailableError(); }
+    if (!response.ok) { await response.body?.cancel().catch(() => undefined); if (response.status === 401) throw new ArtifactWriteAuthenticationError(); if (response.status === 403) throw new ArtifactWritePermissionError(); if (response.status === 409 || response.status === 422) throw sha ? new ArtifactWriteConflictError() : new ArtifactDuplicateError(); if (response.status === 429 || response.status >= 500) throw new ArtifactRepositoryUnavailableError(response.status); throw new ArtifactWriteResponseError(); }
+    let value: unknown; try { value = await response.json(); } catch { throw new ArtifactWriteResponseError(); }
     const parsed = z.object({ content: z.object({ path: z.string(), sha: z.string().min(1) }), commit: z.object({ sha: z.string().min(1), html_url: z.string().url() }) }).safeParse(value);
     if (!parsed.success || parsed.data.content.path !== filePath) throw new ArtifactWriteResponseError();
     return { artifactId, path: filePath, fileSha: parsed.data.content.sha, commitSha: parsed.data.commit.sha, commitUrl: parsed.data.commit.html_url, repositoryRevision: parsed.data.commit.sha };
+  }
+
+  private async writeCredential() {
+    try { return await this.credential("write"); }
+    catch (error) { if (error instanceof ArtifactWritePermissionError) throw error; const status = (error as { status?: number }).status; if (status === 401 || status === 403 || status === 404) throw new ArtifactWriteAuthenticationError(); if (status === 429 || status === undefined || status >= 500) throw new ArtifactRepositoryUnavailableError(status); throw new ArtifactRepositoryConfigurationError("Installation credential could not be created."); }
   }
 
   private async credential(capability: RepositoryCredentialCapability): Promise<string> {

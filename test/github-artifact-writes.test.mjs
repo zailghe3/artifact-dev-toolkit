@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  ArtifactDuplicateError, ArtifactRepositoryContentError, ArtifactRepositoryUnavailableError, ArtifactSecretRejectedError,
+  ArtifactDuplicateError, ArtifactRepositoryAccessError, ArtifactRepositoryConfigurationError, ArtifactRepositoryContentError, ArtifactRepositoryUnavailableError, ArtifactSecretRejectedError,
   ArtifactProductionDeleteRequiresProposalError, ArtifactWriteAuthenticationError, ArtifactWriteConflictError, ArtifactWritePermissionError, ArtifactWriteResponseError,
   ArtifactWriteValidationError, GitHubArtifactRepository,
   ArtifactWriteTooLargeError,
@@ -13,7 +13,7 @@ const existingMarkdown = `---\nid: new-prompt\ntitle: New Prompt\ntype: prompt\n
 const source = { ...metadata, id: 'source-prompt', title: 'Source Prompt', status: 'production', aliases: ['starter'], body: 'Source body', excerpt: 'Source body', path: 'artifacts/prompts/source-prompt.md' };
 const json = (value, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
 
-function fake({ files = {}, writeStatus = 200, writeValue, now, randomBytes } = {}) {
+function fake({ files = {}, writeStatus = 200, writeValue, now, randomBytes, credentialProvider } = {}) {
   const calls = [];
   const diagnostics = [];
   const entries = Object.entries(files);
@@ -29,7 +29,7 @@ function fake({ files = {}, writeStatus = 200, writeValue, now, randomBytes } = 
     const requestedPath = decodeURIComponent(pathname.split('/contents/')[1]);
     return json(writeValue ?? { content: { path: requestedPath, sha: 'new-blob' }, commit: { sha: 'commit-1', html_url: 'https://github.example/commit/1' } }, writeStatus);
   };
-  return { calls, diagnostics, repository: new GitHubArtifactRepository({ owner: 'owner', repo: 'repo', branch: 'main', rootPath: 'artifacts', credentialProvider: async (capability) => ({ token: 'installation-secret', permissions: capability === 'read' ? { contents: 'read' } : capability === 'write' ? { contents: 'write' } : { contents: 'write', pullRequests: 'write' } }), fetch, sleep: async () => {}, logger: { info(value) { diagnostics.push(value); }, error(value) { diagnostics.push(value); } }, now, randomBytes }) };
+  return { calls, diagnostics, repository: new GitHubArtifactRepository({ owner: 'owner', repo: 'repo', branch: 'main', rootPath: 'artifacts', credentialProvider: credentialProvider ?? (async (capability) => ({ token: 'installation-secret', permissions: capability === 'read' ? { contents: 'read' } : capability === 'write' ? { contents: 'write' } : { contents: 'write', pullRequests: 'write' } })), fetch, sleep: async () => {}, logger: { info(value) { diagnostics.push(value); }, error(value) { diagnostics.push(value); } }, now, randomBytes }) };
 }
 
 test('create serializes canonical Markdown, sends one Contents API write, and returns commit metadata', async () => {
@@ -257,5 +257,13 @@ test('direct deletion rejects malformed success metadata and unsafe commit URLs'
   for (const value of [{ content: null }, { content: null, commit: { sha: 'c', html_url: 'https://evil.test/o/r/commit/c' } }]) {
     const runtime = fake({ files: { 'artifacts/prompts/item.md': existingMarkdown }, writeValue: value });
     await assert.rejects(runtime.repository.delete({ id: metadata.id, currentFileSha: 'blob-0', actorLogin: 'octocat' }), ArtifactWriteResponseError);
+  }
+});
+
+test('direct deletion classifies credential-provider failures before DELETE', async () => {
+  for (const [error, ErrorType] of [[new ArtifactWritePermissionError(), ArtifactWritePermissionError], [Object.assign(new Error(), { status: 401 }), ArtifactRepositoryAccessError], [Object.assign(new Error(), { status: 429 }), ArtifactRepositoryUnavailableError], [Object.assign(new Error(), { status: 503 }), ArtifactRepositoryUnavailableError], [new Error(), ArtifactRepositoryUnavailableError], [Object.assign(new Error(), { status: 400 }), ArtifactRepositoryConfigurationError]]) {
+    const runtime = fake({ files: { 'artifacts/prompts/item.md': existingMarkdown }, credentialProvider: async (capability) => capability === 'write' ? Promise.reject(error) : ({ token: 'read', permissions: { contents: 'read' } }) });
+    await assert.rejects(runtime.repository.delete({ id: metadata.id, currentFileSha: 'blob-0', actorLogin: 'octocat' }), ErrorType);
+    assert.equal(runtime.calls.some((call) => call.options.method === 'DELETE'), false);
   }
 });

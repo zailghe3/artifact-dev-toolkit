@@ -2,17 +2,22 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import type { Artifact } from "@/lib/artifacts";
 import { searchArtifacts } from "@/lib/search";
 import { ArtifactDeleteButton } from "@/components/ArtifactDeleteButton";
-import { applyDeletionResult, type DeletionResult } from "@/lib/deletion-ui";
+import { reconcileTombstones, tombstonesAfterResult, visibleArtifacts, type DeletionResult } from "@/lib/deletion-ui";
 
 export function ArtifactSearch({ artifacts }: { artifacts: Artifact[] }) {
   const [query, setQuery] = useState("");
-  const [currentArtifacts, setCurrentArtifacts] = useState(artifacts);
+  const router = useRouter();
+  const [previousArtifacts, setPreviousArtifacts] = useState(artifacts);
+  const [tombstones, setTombstones] = useState<Set<string>>(() => new Set());
   const [operationResult, setOperationResult] = useState<DeletionResult>();
+  const currentArtifacts = useMemo(() => visibleArtifacts(artifacts, tombstones), [artifacts, tombstones]);
   const results = useMemo(() => searchArtifacts(currentArtifacts, query), [currentArtifacts, query]);
-  function handleDeletion(result: DeletionResult) { setOperationResult(result); setCurrentArtifacts((values) => applyDeletionResult(values, result)); }
+  if (previousArtifacts !== artifacts) { setPreviousArtifacts(artifacts); setTombstones((current) => reconcileTombstones(artifacts, current)); }
+  function handleDeletion(result: DeletionResult) { setOperationResult(result); setTombstones((current) => tombstonesAfterResult(current, result)); if (result.kind === "deleted") router.refresh(); }
 
   return (
     <div className="space-y-5">
