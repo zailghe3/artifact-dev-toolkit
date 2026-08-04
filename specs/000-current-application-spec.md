@@ -5,8 +5,6 @@
 **Scope:** Current features only; this document is not a roadmap  
 **Last updated:** 2026-08-04
 
-# Artifact Library — Existing Feature Hierarchy
-
 ## 1. Authentication and repository access
 
 ### 1.1 GitHub sign-in
@@ -68,6 +66,8 @@ Each artifact card displays:
 * tags.
 
 Selecting a card opens its artifact detail page.
+
+Cards also provide revision-aware delete controls. Confirmation deletes draft and archived artifacts directly or creates a production deletion proposal; incomplete proposals retain the card and expose a validated recovery-branch link.
 
 ### 2.3 Search
 
@@ -164,9 +164,16 @@ The generated ID contains:
 * The result includes a link to the new artifact and a validated GitHub commit link.
 * Local file-backed operation can write variation Markdown to the local variations directory.
 
-## 5. Production artifact change proposals
+## 5. Artifact lifecycle editing and proposals
 
-### 5.1 Proposal editor
+### 5.1 Creation and shared editor
+
+* The library provides a **Create artifact** action at `/artifacts/new` and a protected editor at `/artifacts/{id}/edit`.
+* New base artifacts are drafts. Their suggested stable ID remains editable until the first successful save, after which ID and type are immutable and duplicate creation is prevented.
+* The shared preview covers creation and editing without writing. Title, tags, aliases, and body are editable; ID, type, status, source relationship, and creation timestamp are immutable for stored artifacts.
+* Draft and archived updates are direct writes. The editor validates and adopts each returned file SHA, so subsequent previews, saves, and deletion use the exact active revision.
+
+### 5.2 Proposal editor
 
 * Production artifact detail pages provide a change-proposal editor.
 * The editor is populated with the current:
@@ -178,19 +185,19 @@ The generated ID contains:
   * repository file SHA.
 * The user can modify the title, tags, aliases, and body.
 
-### 5.2 Proposal preview
+### 5.3 Proposal preview
 
 * The proposed metadata and rendered body can be previewed before submission.
 * Preview requires an authenticated and authorised request.
 * The source artifact must currently have production status.
 
-### 5.3 Revision protection
+### 5.4 Revision protection
 
 * Proposal submission includes the file SHA observed when the artifact was loaded.
 * The server reloads the current artifact and compares its SHA with the submitted SHA.
 * A changed revision is returned as a write conflict.
 
-### 5.4 GitHub proposal workflow
+### 5.5 GitHub proposal workflow
 
 A proposal:
 
@@ -206,13 +213,15 @@ The deterministic branch format is:
 
 `artifact-change/{artifact-id}-{first-eight-file-sha-characters}`
 
-### 5.5 Proposal collision and recovery handling
+### 5.6 Proposal collision, deletion, and recovery handling
 
-* An existing branch is inspected before further mutation.
+* Production deletion uses a deterministic `artifact-delete/{artifact-id}-{revision}` branch; direct draft and archived deletion uses the exact loaded revision and requires explicit confirmation.
+* An existing branch is inspected before further mutation. Its single base parent, actual recursive tree, exact target result, every unrelated blob or gitlink, and matching open pull request are verified.
 * An identical existing proposal can return its existing pull request.
 * A conflicting branch returns a proposal-collision error.
 * When the proposal branch exists but pull-request creation is incomplete, the response provides a validated branch recovery link.
 * Proposal creation leaves the configured base branch unchanged until the pull request is merged outside the application.
+* A successful direct deletion disables further editing and retains the deleted ID, validated commit link, and library navigation.
 
 ## 6. Artifact model and repository operations
 
@@ -285,6 +294,8 @@ The repository abstraction provides:
 * artifact updating;
 * variation creation;
 * production update proposals.
+* direct artifact deletion;
+* production deletion proposals.
 
 The file backend supports local artifact reading and local variation persistence.
 
@@ -296,6 +307,7 @@ The GitHub backend supports:
 * optimistic-concurrency updates;
 * variation commits;
 * production proposal branches and pull requests.
+* exact deterministic-branch verification and incomplete-proposal recovery.
 
 ### 6.5 Protected artifact API
 
@@ -305,6 +317,9 @@ The artifact API provides:
 * artifact detail with `currentFileSha`;
 * artifact creation;
 * artifact updating.
+* lifecycle preview;
+* direct deletion;
+* production update and deletion proposals.
 
 Direct creation:
 
@@ -389,8 +404,11 @@ Successful direct operations invalidate the current catalogue pointer:
 * artifact creation;
 * artifact update;
 * draft variation creation.
+* artifact deletion.
 
-Production proposal creation operates on a separate branch and retains the current base-branch catalogue.
+Production update and deletion proposals operate on separate branches and do not invalidate the current base-branch catalogue.
+
+API failures use typed, safe codes for validation, conflicts, permissions, availability, collisions, and incomplete proposals. The interface renders only validated local artifact paths and HTTPS GitHub commit, pull-request, and deterministic branch URLs.
 
 ## 8. Diagnostics and operational handling
 
