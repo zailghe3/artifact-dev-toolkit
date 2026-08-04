@@ -1,172 +1,115 @@
 # Artifact Library
 
-A fast, local-first Next.js app for reusable consulting and development artifacts: prompts, agents, snippets, templates, and app ideas.
+Artifact Library helps authorised users search a collection of reusable artifacts, read their rendered content, copy their Markdown bodies, create draft variations, preview proposed content, and propose changes to production artifacts. These tasks can be completed in the application without manually editing files in the artifact repository.
 
-Artifacts are Markdown files with YAML frontmatter under `artifacts/`. Variations are saved as new Markdown files under `artifacts/variations/`.
+The library brings prompts, agents, snippets, templates, and app ideas into one searchable interface. It also lets users refresh the catalogue and view safe operational diagnostics when repository access or content needs attention.
 
-## Features
+**Important links**
 
-- Home page search across title, type, status, tags, aliases, and body.
-- Artifact cards showing title, type, tags, and status.
-- Detail pages with rendered Markdown.
-- One-click copy for the artifact body.
-- Local variation editor that writes a new Markdown file.
-- Seed prompt examples for board updates, slide narratives, Copilot coding, and meeting summaries.
+- **Application:** _Deployment URL requires maintainer input._
+- **Current behaviour:** [Current application specification](specs/000-current-application-spec.md)
+- **Artifact format:** [External artifact repository contract](docs/external-artifact-repository-contract.md)
+- **Operations:** [GitHub artifact deployment](docs/github-artifact-deployment.md)
 
-## Artifact format
+## What users can do
 
-```md
+### Find artifacts
+
+Search across titles, types, statuses, tags, aliases, and Markdown bodies. Multiple terms narrow the results, while an empty search shows the complete catalogue. Result cards summarize each artifact and link to its detail page.
+
+### Read and copy
+
+Open an artifact to see its metadata and rendered Markdown. **Copy body** places the source Markdown body on the clipboard without its YAML frontmatter or rendered HTML.
+
+### Create draft variations
+
+Start from any artifact, edit a prefilled title and body, and preview the rendered variation before saving. A saved variation is a new draft linked to its source; it does not alter the source artifact.
+
+### Propose production changes
+
+For a production artifact, edit its title, tags, aliases, and Markdown body, then preview the result. Submitting opens a reviewable pull request while leaving the production artifact unchanged. If someone has changed the artifact since it was opened, the stale proposal is rejected rather than overwriting the newer version.
+
+### Refresh the library
+
+When catalogue caching is available, use **Refresh** to check for repository changes or **Full rebuild** to reload and validate the catalogue. If a refresh fails, the current catalogue remains in place.
+
+### Inspect operational status
+
+The protected diagnostics view reports safe information about the signed-in identity, repository configuration and access, required permissions, current revision, catalogue state, and artifact validation. It provides recovery guidance without exposing artifact bodies or secrets.
+
+## Typical workflow
+
+1. Sign in with GitHub and open the library.
+2. Search by words, type, status, tag, alias, or body content.
+3. Open a result to read the rendered artifact or copy its Markdown body.
+4. Create and preview a draft variation when exploring an alternative.
+5. For a production artifact, preview an edit and open a pull request for review.
+6. Refresh the catalogue after repository changes, or use diagnostics when an operational message appears.
+
+## How artifacts are stored
+
+GitHub is the source of truth for artifacts. Each artifact is a Markdown file with YAML frontmatter followed by its reusable body. This is the canonical shape:
+
+```markdown
 ---
-id: slide-narrative-builder
-title: Slide Narrative Builder
+id: discovery-prompt
+title: Discovery Prompt
 type: prompt
 status: production
-tags: [consulting, slides, narrative]
-aliases: [deck, storyline, slide story]
+tags: [discovery]
+aliases: [intake]
 ---
 
-Prompt body here.
+Run a focused discovery interview.
 ```
 
-Supported `type` values: `prompt`, `agent`, `snippet`, `template`, `app-idea`.
+Required metadata:
 
-Supported `status` values: `production`, `draft`, `archived`.
+- `id`
+- `title`
+- `type`
+- `status`
+- `tags`
+- `aliases`
 
-## Setup
+Optional metadata:
 
-Use Node.js 24 LTS (`.nvmrc` / `.node-version`) with npm 11.4.2 (`package.json` `packageManager`) and install dependencies reproducibly. The framework/deployment compatibility set is Next.js 16.2.10, React/React DOM 19.2.7, TypeScript 5.9.3, ESLint 9.39.5 with `typescript-eslint` 8.63.0, Node 24-aligned `@types/node`, `@opennextjs/cloudflare` 1.20.1, and Wrangler 4.110.0.
+- `sourceId`
+- `createdAt`
 
-```bash
-npm ci
-npm run dev
-```
+Supported artifact types are `prompt`, `agent`, `snippet`, `template`, and `app-idea`. Supported statuses are `production`, `draft`, and `archived`.
 
-Open [http://localhost:3000](http://localhost:3000).
+See the [external artifact repository contract](docs/external-artifact-repository-contract.md) for the complete layout, schema, and validation rules.
 
-## Checks
+## Safety model
 
-```bash
-npm run toolchain:validate
-npm run lint
-npm run typecheck
-npm run build
-```
+- Draft variations are saved separately from production changes and retain a link to their source.
+- Stale revisions are rejected instead of replacing newer content.
+- Production updates are proposed through reviewable pull requests.
+- Artifact Library never merges proposals automatically.
+- Credentials and tokens remain server-side and are not exposed to browser JavaScript.
+- Protected pages and API responses are private and require authorised access.
 
+## Application architecture
 
-## Artifact storage
+Artifact Library is a Next.js application deployed as a Cloudflare Worker. GitHub sign-in identifies users, and a GitHub App provides repository access. D1 stores server-side sessions, KV stores catalogue snapshots, and GitHub remains the artifact source of truth.
 
-The app reads and writes artifacts through an `ArtifactRepository` interface. Local development uses `FileArtifactRepository`, which stores Markdown files under `artifacts/` and writes variations under `artifacts/variations/`.
+See [GitHub artifact deployment](docs/github-artifact-deployment.md) for deployment and operational details.
 
-A read-only `GitHubArtifactRepository` is available for deployments that load artifacts from a dedicated private GitHub repository. `ARTIFACT_REPOSITORY` supports exactly `file` and `github`. Production must set it explicitly and never falls back to the Worker filesystem; development and tests may default to `file`.
+## Documentation
 
-To select the GitHub-backed repository, set `ARTIFACT_REPOSITORY=github` and configure these server-side variables:
+| Document | Purpose |
+| --- | --- |
+| [Current application specification](specs/000-current-application-spec.md) | Implemented user behaviour and system capabilities |
+| [External artifact repository contract](docs/external-artifact-repository-contract.md) | Artifact layout, metadata, and validation rules |
+| [GitHub artifact deployment](docs/github-artifact-deployment.md) | Production architecture, configuration, and operations |
+| [Development workflow](docs/development-workflow.md) | Maintainer workflow and delivery process |
+| [Dependency and toolchain maintenance](docs/dependency-toolchain-maintenance.md) | Runtime baseline and dependency maintenance policy |
 
-- `GITHUB_ARTIFACT_REPOSITORY_OWNER=zailghe3` — repository owner or organisation.
-- `GITHUB_ARTIFACT_REPOSITORY_NAME=fpo-artifacts` — repository name.
-- `GITHUB_ARTIFACT_REPOSITORY_BRANCH` — optional branch or ref; defaults to `main`.
-- `GITHUB_ARTIFACT_REPOSITORY_ROOT` — optional artifact root; defaults to `artifacts`.
+## Security
 
-Every read first obtains a current repository-access context for the signed-in numeric GitHub user, normalized login, immutable repository ID, and GitHub App installation ID. Decisions older than seven minutes are revalidated and explicitly updated in D1. A lazy, request-local provider mints and reuses a repository-restricted installation token; installation tokens are never persisted or sent to browser JavaScript.
+Access is limited to authenticated users who are authorised for the configured artifact repository. Report security concerns through the repository owner's private security channel; a public security contact has not yet been documented.
 
-Structured Worker events distinguish backend selection, authorization refresh, tree discovery, successful parsing, and safe failure categories without tokens, session IDs, private keys, response payloads, or artifact bodies. A valid repository with no compatible Markdown under the configured root displays a specific empty state; configuration, GitHub availability, and invalid-content failures display safe failure states instead. DATA-003 caching is intentionally unimplemented until this authorized read path is proven stable.
+## Licence
 
-## Development workflow
-
-Feature work uses a stable Feature ID convention documented in `docs/development-workflow.md`. A Feature ID such as `DEV-001` identifies the product capability independently from the GitHub issue number, while the GitHub issue remains the canonical work-item tracker.
-
-For programmatic feature requests, discuss and agree the product definition with ChatGPT, have ChatGPT produce one complete Codex prompt, and paste that prompt into Codex. Codex should follow `docs/codex-create-feature-request.md`: create `feature-request/<request-id>`, write `requests/features/pending/<request-id>.json`, validate and dry-run render the request, open a non-draft pull request, and stop without implementing the feature or creating the issue directly. The post-merge workflow creates the canonical GitHub issue after the request reaches `main`. A reusable ChatGPT-populated prompt template is available at `docs/templates/codex-create-feature-request-prompt.md`.
-
-## GitHub automation
-
-This repository includes GitHub Actions for pull request validation, optional auto-merge, explicit post-merge deployment dispatch, and Cloudflare publication.
-
-### Pull request checks
-
-`CI` runs on pull requests and pushes to `main`:
-
-```bash
-npm ci
-npm test
-npm run toolchain:validate
-npm run lint
-npm run typecheck
-npm run build
-npm run build:worker
-```
-
-### Auto-merge
-
-To let GitHub merge a pull request after required checks pass:
-
-1. Enable **Allow auto-merge** in the repository settings.
-2. Configure branch protection on `main` so the `verify-main / verify` and `verify-pr / verify` checks are required.
-3. Open a non-draft pull request from the same repository as the repository owner reported by `github.repository_owner`. Codex-created pull requests qualify when Codex acts through that GitHub identity.
-
-The `Trusted auto-merge` workflow calls `gh pr merge --auto --squash --delete-branch`, so GitHub performs the merge only after required checks and branch protection rules are satisfied. The workflow does not trust labels supplied by a pull request author as authorization: it first confirms that the pull request author matches `github.repository_owner`, that the branch comes from this repository rather than a fork, and that the complete changed-file list contains no sensitive CI/CD or execution-sensitive paths. Sensitive changes under `.github/workflows/**`, `.github/actions/**`, `scripts/**`, `package.json`, `package-lock.json`, `wrangler.jsonc`, or `open-next.config.*` are skipped for manual review and manual merging. It intentionally uses the repository-provided `GITHUB_TOKEN` because that token is ephemeral and repository-scoped; the workflow grants `contents: write` because enabling or completing a merge updates the target branch, and it does not request issue permissions because no informational label is applied. `AUTO_MERGE_TOKEN` or other personal access token secrets are no longer required for auto-merge; after this change is merged, any unused `AUTO_MERGE_TOKEN` repository secret can be deleted manually from **Settings → Secrets and variables → Actions**.
-
-After GitHub successfully merges a pull request into `main`, `Dispatch Cloudflare deployment` explicitly starts the deployment workflow on `main` with `gh workflow run deploy-cloudflare.yml --ref main`. This replaces reliance on token-generated push events to cascade into deployment. The sequence is:
-
-```text
-PR opened
-→ auto-merge enabled with GITHUB_TOKEN
-→ checks pass
-→ PR merges into main
-→ post-merge dispatcher explicitly starts Cloudflare deployment
-→ deployment workflow builds and publishes current main
-```
-
-### Cloudflare publication
-
-`Publish to Cloudflare` is the single source of truth for the Cloudflare build and deployment. It is started automatically by the post-merge dispatcher after a pull request is merged into `main`, and it can also be started manually from the Actions tab with `workflow_dispatch`. Its direct `push` trigger is intentionally disabled to avoid duplicate deployments from both a merge push and an explicit dispatch.
-
-Direct commits to `main` should not be the normal path because repository rules require pull requests. If an exceptional direct commit reaches `main`, start `Publish to Cloudflare` manually from the Actions tab to deploy that commit. Do not weaken branch protection or enable direct pushes for deployment.
-
-`Publish to Cloudflare` builds the OpenNext Cloudflare worker and publishes it with Wrangler. Wrangler reads Cloudflare credentials from environment variables, so do not hard-code API tokens, account IDs, or other credentials in workflow files, `wrangler.jsonc`, package scripts, or source code.
-
-#### GitHub Actions secrets
-
-Before enabling the GitHub Actions production deployment, add these repository or environment secrets in GitHub:
-
-1. Open the repository on GitHub.
-2. Go to **Settings → Secrets and variables → Actions**.
-3. Add a secret named `CLOUDFLARE_API_TOKEN` with a Cloudflare API token that can deploy the configured worker.
-4. Add a secret named `CLOUDFLARE_ACCOUNT_ID` with the target Cloudflare account ID.
-
-The deployment workflow passes those secrets to Wrangler as environment variables only for the publish step:
-
-```yaml
-env:
-  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-```
-
-#### Cloudflare Pages variables
-
-If you deploy through Cloudflare Pages instead of GitHub Actions, configure the same values in Cloudflare rather than committing them to the repository:
-
-1. Open the project in the Cloudflare dashboard.
-2. Go to **Workers & Pages → your Pages project → Settings → Environment variables**.
-3. Add `CLOUDFLARE_API_TOKEN` as a secret environment variable for the environments that run Wrangler deployments.
-4. Add `CLOUDFLARE_ACCOUNT_ID` as an environment variable for the same environments.
-
-The deployed worker is configured in `wrangler.jsonc`, which intentionally contains no API token.
-
-Local file writes for variation creation work in local development. On hosted deployments, runtime filesystem writes are ephemeral/read-only depending on the execution environment, so persist variations by committing generated Markdown files or later adding durable storage.
-
-### Artifact lifecycle
-
-Authorised users can create draft artifacts from the library and edit title, tags, aliases, and Markdown from a protected editor. Draft and archived changes use exact-file-SHA direct commits; production changes always create a reviewable pull request. Deletion requires explicit confirmation: draft and archived files are deleted directly with optimistic concurrency and catalogue invalidation, while production deletion creates a deterministic proposal and leaves the base branch unchanged.
-
-## GitHub App authentication and artifact repository access
-
-The production Worker uses a GitHub App web application flow, not a traditional OAuth App or broad personal access token. Set `ARTIFACT_REPOSITORY=github`, `GITHUB_APP_ID`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_TOKEN_ENCRYPTION_KEY`, `GITHUB_ARTIFACT_REPOSITORY_OWNER=zailghe3`, `GITHUB_ARTIFACT_REPOSITORY_NAME=fpo-artifacts`, and `SESSION_SECRET`. The exact callback is `https://fpo-adt.florian-pouchet.workers.dev/auth/github/callback`. Give the App Metadata read-only, Contents read/write, and Pull requests read/write permissions and install it only on `zailghe3/fpo-artifacts`. An administrator must manually approve the installation permission upgrade before write features are deployed. GitHub PKCS#1 and PKCS#8 private keys are supported. Generate separate secrets with `openssl rand -base64 32` for encryption and `openssl rand -base64 48` for sessions, then set them in the Cloudflare dashboard or with `wrangler secret put`. Never commit `.env`, `.dev.vars`, PEM keys, or secret values. See [the complete deployment guide](docs/github-artifact-deployment.md).
-
-User sign-in uses OAuth state plus S256 PKCE without requesting `repo` or other OAuth scopes. User access tokens are encrypted at rest with AES-GCM using the dedicated `GITHUB_TOKEN_ENCRYPTION_KEY`; capability-scoped installation tokens are minted on demand for the exact repository and are not stored as long-lived secrets. Repository authorisation is refreshed after a short seven-minute freshness window so removed user access, removed app installation access, changed owner/name/repository ID, or allowlist changes fail closed before artifact reads.
-
-The initial `auth_sessions` schema persists the complete authenticated and repository-authorisation state. Because no real user has ever successfully logged in, no session data migration or compatibility backfill is required.
-
-The DATA-001 artifact contract is centralized in `lib/artifact-contract.ts`. Local validation, local runtime reads, and GitHub runtime reads share the same allowed types, statuses, directories, metadata normalization, path checks, duplicate-ID checks, and diagnostics. Allowed top-level directories are allowed locations, not mandatory empty directories.
-
-### D1 auth session migration history
-
-`migrations/0001_create_auth_sessions.sql` is the original AUTH-001 table and must remain immutable after being applied. AUTH-002 is represented by `migrations/0002_rebuild_auth_sessions.sql`, which intentionally drops and recreates `auth_sessions`. This destructive reset is safe only for the current production state because no real user has successfully logged in and no production session data must be retained.
+_No licence has been documented. Maintainer input is required before reuse or redistribution._
