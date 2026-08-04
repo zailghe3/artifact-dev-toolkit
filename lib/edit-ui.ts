@@ -5,7 +5,7 @@ export function safeGitHubUrl(value: unknown, kind: "commit" | "pull" | "branch"
   try {
     const url = new URL(value);
     if (url.protocol !== "https:" || url.hostname !== "github.com") return undefined;
-    const pattern = kind === "commit" ? /^\/[^/]+\/[^/]+\/commit\/[A-Za-z0-9]+$/ : kind === "pull" ? /^\/[^/]+\/[^/]+\/pull\/\d+$/ : /^\/[^/]+\/[^/]+\/tree\/artifact-change\/[^/]+$/;
+    const pattern = kind === "commit" ? /^\/[^/]+\/[^/]+\/commit\/[A-Za-z0-9]+$/ : kind === "pull" ? /^\/[^/]+\/[^/]+\/pull\/\d+$/ : /^\/[^/]+\/[^/]+\/tree\/artifact-(?:change|delete)\/[^/]+$/;
     return pattern.test(url.pathname) && !url.search && !url.hash ? url.href : undefined;
   } catch { return undefined; }
 }

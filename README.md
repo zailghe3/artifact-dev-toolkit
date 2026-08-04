@@ -153,6 +153,10 @@ The deployed worker is configured in `wrangler.jsonc`, which intentionally conta
 
 Local file writes for variation creation work in local development. On hosted deployments, runtime filesystem writes are ephemeral/read-only depending on the execution environment, so persist variations by committing generated Markdown files or later adding durable storage.
 
+### Artifact lifecycle
+
+Authorised users can create draft artifacts from the library and edit title, tags, aliases, and Markdown from a protected editor. Draft and archived changes use exact-file-SHA direct commits; production changes always create a reviewable pull request. Deletion requires explicit confirmation: draft and archived files are deleted directly with optimistic concurrency and catalogue invalidation, while production deletion creates a deterministic proposal and leaves the base branch unchanged.
+
 ## GitHub App authentication and artifact repository access
 
 The production Worker uses a GitHub App web application flow, not a traditional OAuth App or broad personal access token. Set `ARTIFACT_REPOSITORY=github`, `GITHUB_APP_ID`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_TOKEN_ENCRYPTION_KEY`, `GITHUB_ARTIFACT_REPOSITORY_OWNER=zailghe3`, `GITHUB_ARTIFACT_REPOSITORY_NAME=fpo-artifacts`, and `SESSION_SECRET`. The exact callback is `https://fpo-adt.florian-pouchet.workers.dev/auth/github/callback`. Give the App Metadata read-only, Contents read/write, and Pull requests read/write permissions and install it only on `zailghe3/fpo-artifacts`. An administrator must manually approve the installation permission upgrade before write features are deployed. GitHub PKCS#1 and PKCS#8 private keys are supported. Generate separate secrets with `openssl rand -base64 32` for encryption and `openssl rand -base64 48` for sessions, then set them in the Cloudflare dashboard or with `wrangler secret put`. Never commit `.env`, `.dev.vars`, PEM keys, or secret values. See [the complete deployment guide](docs/github-artifact-deployment.md).

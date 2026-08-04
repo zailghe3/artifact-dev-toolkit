@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import type { Artifact } from "@/lib/artifacts";
 import { searchArtifacts } from "@/lib/search";
+import { ArtifactDeleteButton } from "@/components/ArtifactDeleteButton";
 
 export function ArtifactSearch({ artifacts }: { artifacts: Artifact[] }) {
   const [query, setQuery] = useState("");
@@ -24,7 +25,7 @@ export function ArtifactSearch({ artifacts }: { artifacts: Artifact[] }) {
       {artifacts.length === 0 ? <p className="rounded-3xl border border-slate-200 bg-white p-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">The configured repository contains no compatible Markdown artifacts under its configured root.</p> : null}
       <div className="grid gap-4">
         {results.map((artifact) => (
-          <Link key={artifact.id} href={`/artifacts/${artifact.id}`} className="group rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-soft focus:outline-none focus:ring-4 focus:ring-sky-200 dark:border-slate-800 dark:bg-slate-900 dark:focus:ring-orange-500/35">
+          <article key={artifact.id} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900"><Link href={`/artifacts/${artifact.id}`} className="group block transition hover:-translate-y-0.5 focus:outline-none focus:ring-4 focus:ring-sky-200 dark:focus:ring-orange-500/35">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h2 className="text-xl font-bold text-slate-950 group-hover:text-sky-700 dark:text-slate-50 dark:group-hover:text-orange-300">{artifact.title}</h2>
@@ -38,7 +39,7 @@ export function ArtifactSearch({ artifacts }: { artifacts: Artifact[] }) {
                 <span key={tag} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">#{tag}</span>
               ))}
             </div>
-          </Link>
+          </Link><ArtifactDeleteButton artifact={artifact} /></article>
         ))}
       </div>
     </div>

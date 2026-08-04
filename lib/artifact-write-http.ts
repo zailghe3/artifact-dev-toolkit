@@ -5,11 +5,14 @@ import {
   ArtifactWriteConflictError, ArtifactWritePermissionError, ArtifactWriteValidationError,
   ArtifactWriteTooLargeError,
   ArtifactProposalCollisionError, ArtifactProposalIncompleteError, ArtifactProposalPermissionError,
+  ArtifactProductionUpdateRequiresProposalError, ArtifactProductionDeleteRequiresProposalError,
 } from "./artifact-repository.ts";
 
 function json(body: unknown, status: number) { return Response.json(body, { status, headers: noStoreHeaders }); }
 
 export function artifactWriteErrorResponse(error: unknown) {
+  if (error instanceof ArtifactProductionUpdateRequiresProposalError) return json({ error: "Production updates require the proposal workflow", code: "production_update_requires_proposal" }, 409);
+  if (error instanceof ArtifactProductionDeleteRequiresProposalError) return json({ error: "Production deletion requires the proposal workflow", code: "production_delete_requires_proposal" }, 409);
   if (error instanceof ArtifactProposalPermissionError) return json({ error: "GitHub App proposal permission is required", code: "proposal_permission_required" }, 403);
   if (error instanceof ArtifactProposalCollisionError) return json({ error: "A proposal branch already exists", code: "proposal_branch_collision" }, 409);
   if (error instanceof ArtifactProposalIncompleteError) return json({ error: "The proposal branch exists but the pull request was not completed", code: "proposal_incomplete", branchName: error.branchName, branchUrl: error.branchUrl }, 502);

@@ -27,6 +27,8 @@ export type CreateVariationInput = {
 export type CreateArtifactInput = { metadata: ArtifactMetadata; body: string; actorLogin: string };
 export type UpdateArtifactInput = { id: string; metadata: ArtifactMetadata; body: string; currentFileSha: string; actorLogin: string };
 export type ProposeArtifactUpdateInput = UpdateArtifactInput;
+export type DeleteArtifactInput = { id: string; currentFileSha: string; actorLogin: string };
+export type ArtifactDeleteResult = { artifactId: string; path: string; commitSha: string; commitUrl: string; repositoryRevision: string };
 export type ArtifactWriteResult = { artifactId: string; path: string; fileSha: string; commitSha: string; commitUrl: string; repositoryRevision?: string };
 export type ArtifactProposalResult = { artifactId: string; path: string; branchName: string; commitSha: string; pullRequestNumber: number; pullRequestUrl: string };
 export type CreateVariationResult = { id: string; path: string; fileSha?: string; commitSha?: string; commitUrl?: string; repositoryRevision?: string };
@@ -45,6 +47,8 @@ export interface ArtifactRepository {
   create(input: CreateArtifactInput): Promise<ArtifactWriteResult>;
   update(input: UpdateArtifactInput): Promise<ArtifactWriteResult>;
   proposeUpdate(input: ProposeArtifactUpdateInput): Promise<ArtifactProposalResult>;
+  delete(input: DeleteArtifactInput): Promise<ArtifactDeleteResult>;
+  proposeDelete(input: DeleteArtifactInput): Promise<ArtifactProposalResult>;
   createVariation(input: CreateVariationInput): Promise<CreateVariationResult>;
 }
 
@@ -217,6 +221,8 @@ export class FileArtifactRepository implements ArtifactRepository {
   async create(): Promise<ArtifactWriteResult> { throw new ArtifactRepositoryConfigurationError("Direct artifact writes require the GitHub repository backend."); }
   async update(): Promise<ArtifactWriteResult> { throw new ArtifactRepositoryConfigurationError("Direct artifact writes require the GitHub repository backend."); }
   async proposeUpdate(): Promise<ArtifactProposalResult> { throw new ArtifactRepositoryConfigurationError("Production proposals require the GitHub repository backend."); }
+  async delete(): Promise<ArtifactDeleteResult> { throw new ArtifactRepositoryConfigurationError("Direct artifact deletion requires the GitHub repository backend."); }
+  async proposeDelete(): Promise<ArtifactProposalResult> { throw new ArtifactRepositoryConfigurationError("Deletion proposals require the GitHub repository backend."); }
 
   async createVariation({ source, body, title }: CreateVariationInput): Promise<CreateVariationResult> {
     const { id, metadata } = prepareVariation(source, title);
@@ -252,6 +258,8 @@ export class ArtifactNotFoundError extends Error { constructor() { super("Artifa
 export class ArtifactWriteResponseError extends Error { constructor() { super("GitHub returned an invalid write response."); } }
 export class ArtifactProposalCollisionError extends Error { constructor() { super("A proposal branch already exists."); } }
 export class ArtifactProposalPermissionError extends Error { constructor() { super("The GitHub App does not have proposal permission."); } }
+export class ArtifactProductionUpdateRequiresProposalError extends Error { constructor() { super("Production updates require a proposal."); } }
+export class ArtifactProductionDeleteRequiresProposalError extends Error { constructor() { super("Production deletion requires a proposal."); } }
 export class ArtifactProposalIncompleteError extends Error {
   readonly branchName: string;
   readonly branchUrl: string;
@@ -261,6 +269,10 @@ export class ArtifactProposalIncompleteError extends Error {
 export function proposalBranchName(artifactId: string, fileSha: string) {
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(artifactId) || artifactId.length > 80 || !/^[a-f0-9]{8,64}$/i.test(fileSha)) throw new ArtifactWriteValidationError();
   return `artifact-change/${artifactId.toLowerCase()}-${fileSha.slice(0, 8).toLowerCase()}`;
+}
+export function deletionProposalBranchName(artifactId: string, fileSha: string) {
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(artifactId) || artifactId.length > 80 || !/^[a-f0-9]{8,64}$/i.test(fileSha)) throw new ArtifactWriteValidationError();
+  return `artifact-delete/${artifactId.toLowerCase()}-${fileSha.slice(0, 8).toLowerCase()}`;
 }
 
 export function getArtifactRepositoryBackend(env = process.env): ArtifactRepositoryBackend {
@@ -385,6 +397,7 @@ export class GitHubArtifactRepository implements ArtifactRepository {
 
   async create(input: CreateArtifactInput): Promise<ArtifactWriteResult> {
     if (!/^[A-Za-z0-9-]+$/.test(input.actorLogin)) throw new ArtifactWriteValidationError();
+    if (input.metadata.status !== "draft") throw new ArtifactWriteValidationError();
     return this.createValidatedArtifactAtPath({ metadata: input.metadata, body: input.body, path: this.artifactPath(input.metadata), actorLogin: input.actorLogin, commitMessage: `Create artifact ${input.metadata.id} (requested by @${input.actorLogin})` });
   }
 
@@ -400,7 +413,50 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     if (!entry?.sha) throw new ArtifactWriteResponseError();
     if (entry.sha !== input.currentFileSha) throw new ArtifactWriteConflictError();
     if (validateArtifactPath(artifact.path, this.rootPath)) throw new ArtifactRepositoryContentError();
+    if (artifact.status === "production") throw new ArtifactProductionUpdateRequiresProposalError();
+    if (metadata.status !== artifact.status || metadata.sourceId !== artifact.sourceId || String(metadata.createdAt ?? "") !== String(artifact.createdAt ?? "")) throw new ArtifactWriteValidationError();
     return this.writeContents(artifact.path, metadata.id, markdown, `Update artifact ${metadata.id} (requested by @${input.actorLogin})`, input.currentFileSha);
+  }
+
+  async delete(input: DeleteArtifactInput): Promise<ArtifactDeleteResult> {
+    const { artifact, path: artifactPath } = await this.resolveDeletion(input, "write");
+    if (artifact.status === "production") throw new ArtifactProductionDeleteRequiresProposalError();
+    return this.deleteContents(artifactPath, input);
+  }
+
+  async proposeDelete(input: DeleteArtifactInput): Promise<ArtifactProposalResult> {
+    if (!/^[A-Za-z0-9-]+$/.test(input.actorLogin)) throw new ArtifactWriteValidationError();
+    const branchName = deletionProposalBranchName(input.id, input.currentFileSha);
+    const baseRef = await this.githubGet<{ object?: { sha?: string } }>(`/git/ref/heads/${encodeURIComponent(this.branch)}`, "tree");
+    const baseCommitSha = baseRef.object?.sha;
+    if (!baseCommitSha) throw new ArtifactRepositoryContentError();
+    const baseCommit = await this.githubGet<{ tree?: { sha?: string } }>(`/git/commits/${encodeURIComponent(baseCommitSha)}`, "tree");
+    if (!baseCommit.tree?.sha) throw new ArtifactRepositoryContentError();
+    const treeResponse = await this.githubGet<GitHubTreeResponse>(`/git/trees/${encodeURIComponent(baseCommit.tree.sha)}?recursive=1`, "tree");
+    if (!Array.isArray(treeResponse.tree) || treeResponse.truncated) throw new ArtifactRepositoryContentError();
+    const artifacts = await this.artifactsFromTree(treeResponse.tree, "proposal");
+    const artifact = artifacts.find((candidate) => candidate.id === input.id);
+    if (!artifact) throw new ArtifactNotFoundError();
+    const entry = treeResponse.tree.find((candidate) => candidate.type === "blob" && candidate.path === artifact.path);
+    if (!entry?.sha || entry.sha !== input.currentFileSha) throw new ArtifactWriteConflictError();
+    if (artifact.status !== "production") throw new ArtifactWriteValidationError();
+    const existingRef = await this.optionalGitHubGet<{ object?: { sha?: string } }>(`/git/ref/heads/${branchName.split("/").map(encodeURIComponent).join("/")}`);
+    if (existingRef) return this.resolveExistingDeletionProposal(input.id, branchName, artifact.path, existingRef.object?.sha);
+    const tree = await this.githubWrite<{ sha?: string }>("/git/trees", { base_tree: baseCommit.tree.sha, tree: [{ path: artifact.path, mode: "100644", type: "blob", sha: null }] });
+    if (!tree.sha) throw new ArtifactWriteResponseError();
+    const commit = await this.githubWrite<{ sha?: string }>("/git/commits", { message: `Propose deletion of artifact ${input.id} (requested by @${input.actorLogin})`, tree: tree.sha, parents: [baseCommitSha] });
+    if (!commit.sha) throw new ArtifactWriteResponseError();
+    await this.githubWrite("/git/refs", { ref: `refs/heads/${branchName}`, sha: commit.sha });
+    try {
+      const body = [`Artifact ID: ${input.id}`, `Artifact path: ${artifact.path}`, `Source file SHA: ${input.currentFileSha}`, `Requested by: @${input.actorLogin}`, "The source branch was generated by Artifact Library.", "Artifact Library will not merge this proposal automatically."].join("\n\n");
+      const value = await this.githubWrite<unknown>("/pulls", { title: `Delete artifact: ${artifact.title}`, head: branchName, base: this.branch, body });
+      const pull = z.object({ number: z.number().int().positive(), html_url: z.string().url() }).parse(value);
+      if (!pull.html_url.startsWith("https://github.com/")) throw new ArtifactWriteResponseError();
+      return { artifactId: input.id, path: artifact.path, branchName, commitSha: commit.sha, pullRequestNumber: pull.number, pullRequestUrl: pull.html_url };
+    } catch (error) {
+      if (error instanceof ArtifactProposalPermissionError || error instanceof ArtifactRepositoryUnavailableError || error instanceof ArtifactWriteResponseError || error instanceof z.ZodError) throw new ArtifactProposalIncompleteError(branchName, this.branchHtmlUrl(branchName));
+      throw error;
+    }
   }
 
   async createVariation(input: CreateVariationInput): Promise<CreateVariationResult> {
@@ -467,6 +523,50 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     const pull = parsed.success ? parsed.data.find((candidate) => candidate.head.ref === branchName && candidate.base.ref === this.branch) : undefined;
     if (!pull || !pull.html_url.startsWith("https://github.com/")) throw new ArtifactProposalCollisionError();
     return { artifactId, path: artifactPath, branchName, commitSha, pullRequestNumber: pull.number, pullRequestUrl: pull.html_url };
+  }
+
+  private async resolveExistingDeletionProposal(artifactId: string, branchName: string, artifactPath: string, commitSha?: string): Promise<ArtifactProposalResult> {
+    if (!commitSha) throw new ArtifactProposalCollisionError();
+    const tree = await this.githubGet<GitHubTreeResponse>(`/git/trees/${encodeURIComponent(commitSha)}?recursive=1`, "tree");
+    if (!Array.isArray(tree.tree) || tree.tree.some((entry) => entry.type === "blob" && entry.path === artifactPath)) throw new ArtifactProposalCollisionError();
+    const pulls = await this.githubGet<unknown[]>(`/pulls?state=open&head=${encodeURIComponent(`${this.config.owner}:${branchName}`)}&base=${encodeURIComponent(this.branch)}`, "tree");
+    const parsed = z.array(z.object({ number: z.number().int().positive(), html_url: z.string().url(), head: z.object({ ref: z.string() }), base: z.object({ ref: z.string() }) })).safeParse(pulls);
+    const pull = parsed.success ? parsed.data.find((candidate) => candidate.head.ref === branchName && candidate.base.ref === this.branch) : undefined;
+    if (!pull || !pull.html_url.startsWith("https://github.com/")) throw new ArtifactProposalCollisionError();
+    return { artifactId, path: artifactPath, branchName, commitSha, pullRequestNumber: pull.number, pullRequestUrl: pull.html_url };
+  }
+
+  private async resolveDeletion(input: DeleteArtifactInput, capability: RepositoryCredentialCapability) {
+    if (!/^[A-Za-z0-9-]+$/.test(input.actorLogin) || !input.currentFileSha.trim()) throw new ArtifactWriteValidationError();
+    const tree = await this.fetchTree(capability);
+    const artifacts = await this.artifactsFromTree(tree, capability);
+    const artifact = artifacts.find((candidate) => candidate.id === input.id);
+    if (!artifact) throw new ArtifactNotFoundError();
+    if (validateArtifactPath(artifact.path, this.rootPath)) throw new ArtifactRepositoryContentError();
+    const entry = tree.find((candidate) => candidate.type === "blob" && candidate.path === artifact.path);
+    if (!entry?.sha) throw new ArtifactRepositoryContentError();
+    if (entry.sha !== input.currentFileSha) throw new ArtifactWriteConflictError();
+    return { artifact, path: artifact.path };
+  }
+
+  private async deleteContents(filePath: string, input: DeleteArtifactInput): Promise<ArtifactDeleteResult> {
+    let credential: string;
+    try { credential = await this.credential("write"); } catch (error) { if (error instanceof ArtifactWritePermissionError) throw error; throw new ArtifactWriteAuthenticationError(); }
+    let response: Response;
+    try { response = await this.fetchImpl(this.githubUrl(`/contents/${filePath.split("/").map(encodeURIComponent).join("/")}`), { method: "DELETE", headers: { accept: "application/vnd.github+json", authorization: `Bearer ${credential}`, "content-type": "application/json", "user-agent": "artifact-dev-toolkit", "x-github-api-version": "2022-11-28" }, body: JSON.stringify({ message: `Delete artifact ${input.id} (requested by @${input.actorLogin})`, sha: input.currentFileSha, branch: this.branch }) }); }
+    catch { throw new ArtifactRepositoryUnavailableError(); }
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined);
+      if (response.status === 401) throw new ArtifactWriteAuthenticationError();
+      if (response.status === 403) throw new ArtifactWritePermissionError();
+      if (response.status === 404 || response.status === 409 || response.status === 422) throw new ArtifactWriteConflictError();
+      if (response.status === 429 || response.status >= 500) throw new ArtifactRepositoryUnavailableError(response.status);
+      throw new ArtifactWriteResponseError();
+    }
+    let value: unknown; try { value = await response.json(); } catch { throw new ArtifactWriteResponseError(); }
+    const parsed = z.object({ content: z.null(), commit: z.object({ sha: z.string().min(1), html_url: z.string().url() }) }).safeParse(value);
+    if (!parsed.success || !parsed.data.commit.html_url.startsWith("https://github.com/")) throw new ArtifactWriteResponseError();
+    return { artifactId: input.id, path: filePath, commitSha: parsed.data.commit.sha, commitUrl: parsed.data.commit.html_url, repositoryRevision: parsed.data.commit.sha };
   }
 
   private async createPullRequest(branchName: string, title: string, input: ProposeArtifactUpdateInput, artifactPath: string) {
