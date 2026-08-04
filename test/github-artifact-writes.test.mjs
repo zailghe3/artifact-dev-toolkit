@@ -188,10 +188,10 @@ test('multibyte content is limited by UTF-8 bytes rather than JavaScript length'
   assert.equal(runtime.calls.length, 0);
 });
 
-test('update preserves a valid nested path and does not move it when metadata changes', async () => {
+test('update preserves a valid nested path and does not move it when editable metadata changes', async () => {
   const nested = 'artifacts/prompts/client-a/custom.md';
   const runtime = fake({ files: { [nested]: existingMarkdown } });
-  await runtime.repository.update({ id: metadata.id, metadata: { ...metadata, type: 'template', title: 'Changed' }, body: 'Updated', currentFileSha: 'blob-0', actorLogin: 'octocat' });
+  await runtime.repository.update({ id: metadata.id, metadata: { ...metadata, title: 'Changed' }, body: 'Updated', currentFileSha: 'blob-0', actorLogin: 'octocat' });
   const write = runtime.calls.find((call) => call.options.method === 'PUT');
   assert.ok(write.url.endsWith('/contents/artifacts/prompts/client-a/custom.md'));
   assert.equal(write.url.includes('/templates/new-prompt.md'), false);
@@ -212,4 +212,35 @@ test('nested update still rejects stale revisions and invalid existing paths bef
   const invalid = fake({ files: { 'artifacts/prompts/../custom.md': existingMarkdown } });
   await assert.rejects(invalid.repository.update({ id: metadata.id, metadata, body: 'Updated', currentFileSha: 'blob-0', actorLogin: 'octocat' }), ArtifactRepositoryContentError);
   assert.equal(invalid.calls.some((call) => call.options.method === 'PUT'), false);
+});
+
+test('creation is draft-only and normalizes before deriving its canonical path', async () => {
+  const runtime = fake();
+  const result = await runtime.repository.create({ metadata: { ...metadata, id: ' new-prompt ', title: ' Trimmed ', tags: [' one ', 'one'] }, body: 'Body', actorLogin: 'octocat' });
+  const write = runtime.calls.find((call) => call.options.method === 'PUT'); const payload = JSON.parse(write.options.body); const markdown = Buffer.from(payload.content, 'base64').toString();
+  assert.ok(write.url.endsWith('/artifacts/prompts/new-prompt.md')); assert.equal(result.artifactId, 'new-prompt'); assert.match(markdown, /id: new-prompt/); assert.match(markdown, /title: Trimmed/);
+  const rejected = fake(); await assert.rejects(rejected.repository.create({ metadata: { ...metadata, status: 'production' }, body: 'Body', actorLogin: 'octocat' }), ArtifactWriteValidationError); assert.equal(rejected.calls.length, 0);
+});
+
+test('updates enforce immutable type, status, source relationship, and creation timestamp', async () => {
+  const stored = serializeArtifactMarkdown({ ...metadata, sourceId: 'source', createdAt: '2026-01-01T00:00:00.000Z' }, 'old');
+  for (const change of [{ type: 'agent' }, { status: 'archived' }, { sourceId: 'other' }, { createdAt: '2026-01-02T00:00:00.000Z' }]) {
+    const runtime = fake({ files: { 'artifacts/prompts/nested/item.md': stored } });
+    await assert.rejects(runtime.repository.update({ id: metadata.id, metadata: { ...metadata, sourceId: 'source', createdAt: '2026-01-01T00:00:00.000Z', ...change }, body: 'new', currentFileSha: 'blob-0', actorLogin: 'octocat' }), ArtifactWriteValidationError);
+    assert.equal(runtime.calls.some((call) => call.options.method === 'PUT'), false);
+  }
+});
+
+test('direct deletion uses exact nested path, SHA, branch and attributable single DELETE', async () => {
+  const runtime = fake({ files: { 'artifacts/prompts/nested/item.md': existingMarkdown }, writeValue: { content: null, commit: { sha: 'deleted-commit', html_url: 'https://github.com/owner/repo/commit/deleted' } } });
+  const result = await runtime.repository.delete({ id: metadata.id, currentFileSha: 'blob-0', actorLogin: 'octocat' });
+  const writes = runtime.calls.filter((call) => call.options.method === 'DELETE'); assert.equal(writes.length, 1); assert.ok(writes[0].url.endsWith('/contents/artifacts/prompts/nested/item.md'));
+  assert.deepEqual(JSON.parse(writes[0].options.body), { message: 'Delete artifact new-prompt (requested by @octocat)', sha: 'blob-0', branch: 'main' });
+  assert.deepEqual(result, { artifactId: 'new-prompt', path: 'artifacts/prompts/nested/item.md', commitSha: 'deleted-commit', commitUrl: 'https://github.com/owner/repo/commit/deleted', repositoryRevision: 'deleted-commit' });
+});
+
+test('deletion rejects stale SHA and production status before mutation', async () => {
+  const draft = fake({ files: { 'artifacts/prompts/item.md': existingMarkdown } }); await assert.rejects(draft.repository.delete({ id: metadata.id, currentFileSha: 'stale', actorLogin: 'octocat' }), ArtifactWriteConflictError);
+  const production = fake({ files: { 'artifacts/prompts/item.md': existingMarkdown.replace('status: draft', 'status: production') } }); await assert.rejects(production.repository.delete({ id: metadata.id, currentFileSha: 'blob-0', actorLogin: 'octocat' }));
+  assert.equal(draft.calls.some((call) => call.options.method === 'DELETE'), false); assert.equal(production.calls.some((call) => call.options.method === 'DELETE'), false);
 });

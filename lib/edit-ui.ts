@@ -10,6 +10,12 @@ export function safeGitHubUrl(value: unknown, kind: "commit" | "pull" | "branch"
   } catch { return undefined; }
 }
 
+export function safeArtifactHref(value: unknown) { return typeof value === "string" && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value) ? `/artifacts/${encodeURIComponent(value)}` : undefined; }
+export function lifecycleErrorMessage(code: unknown) {
+  const messages: Record<string, string> = { validation_failed: "Check the artifact metadata and Markdown, then try again.", secret_rejected: "Remove secret-like content before saving.", artifact_too_large: "The artifact is too large.", write_conflict: "This artifact changed. Reload before trying again.", write_permission_required: "The GitHub App needs Contents write permission.", proposal_permission_required: "The GitHub App needs proposal permission.", repository_unavailable: "The repository is temporarily unavailable.", proposal_incomplete: "The branch was created, but its pull request could not be completed.", duplicate_artifact: "An artifact with this ID or path already exists.", artifact_not_found: "The artifact no longer exists." };
+  return typeof code === "string" ? messages[code] ?? unknownEditErrorMessage : unknownEditErrorMessage;
+}
+
 export function proposalErrorMessage(code: unknown) {
   const messages: Record<string, string> = {
     validation_failed: "Check the proposed metadata and body, then try again.", secret_rejected: "Remove secret-like content before proposing this change.",

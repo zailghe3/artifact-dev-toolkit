@@ -5,6 +5,8 @@ import { z } from "zod";
 import { ArtifactMarkdownParseError, DEFAULT_ARTIFACT_BRANCH, DEFAULT_ARTIFACT_ROOT, MAX_SERIALIZED_ARTIFACT_BYTES, normalizeArtifactMetadata, parseArtifactMarkdown, serializeArtifactMarkdown, trimSlashes, validateArtifactPath, validateUniqueArtifactIds, type ArtifactMetadata, type ArtifactModel } from "./artifact-contract.ts";
 import type { RepositoryAccessContext } from "./repository-authorization.ts";
 import type { RepositoryCredential, RepositoryCredentialCapability } from "./github-app.ts";
+import { slugify } from "./artifact-id.ts";
+export { slugify } from "./artifact-id.ts";
 
 const artifactsDir = path.join(process.cwd(), "artifacts");
 const githubApiBaseUrl = "https://api.github.com";
@@ -116,7 +118,7 @@ const artifactTypeDirectories: Record<ArtifactMetadata["type"], string> = {
   prompt: "prompts", agent: "agents", snippet: "snippets", template: "templates", "app-idea": "app-ideas",
 };
 
-function prepareWrite(metadataInput: ArtifactMetadata, body: string) {
+export function prepareArtifactWrite(metadataInput: ArtifactMetadata, body: string) {
   try {
     const metadata = normalizeArtifactMetadata(metadataInput);
     if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(metadata.id)) throw new ArtifactWriteValidationError();
@@ -129,6 +131,12 @@ function prepareWrite(metadataInput: ArtifactMetadata, body: string) {
     if (error instanceof ArtifactSecretRejectedError || error instanceof ArtifactWriteValidationError || error instanceof ArtifactWriteTooLargeError) throw error;
     throw new ArtifactWriteValidationError();
   }
+}
+
+export function validateImmutableLifecycleMetadata(stored: Artifact, submitted: ArtifactMetadata) {
+  const metadata = normalizeArtifactMetadata(submitted);
+  if (metadata.id !== stored.id || metadata.type !== stored.type || metadata.status !== stored.status || metadata.sourceId !== stored.sourceId || String(metadata.createdAt ?? "") !== String(stored.createdAt ?? "")) throw new ArtifactWriteValidationError();
+  return metadata;
 }
 
 async function walkMarkdownFiles(dir: string): Promise<string[]> {
@@ -147,14 +155,6 @@ async function walkMarkdownFiles(dir: string): Promise<string[]> {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
     throw error;
   }
-}
-
-export function slugify(value: string) {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)+/g, "")
-    .slice(0, 80);
 }
 
 type VariationGeneration = { now: () => Date; randomBytes: (length: number) => Uint8Array };
@@ -226,7 +226,7 @@ export class FileArtifactRepository implements ArtifactRepository {
 
   async createVariation({ source, body, title }: CreateVariationInput): Promise<CreateVariationResult> {
     const { id, metadata } = prepareVariation(source, title);
-    const { markdown } = prepareWrite(metadata, body.trim());
+    const { markdown } = prepareArtifactWrite(metadata, body.trim());
     const filePath = path.join(this.rootDir, "variations", `${id}.md`);
     if ((await this.list()).some((artifact) => artifact.id === id || path.resolve(artifact.path) === path.resolve(filePath))) throw new ArtifactDuplicateError();
     await fs.mkdir(path.dirname(filePath), { recursive: true });
@@ -397,13 +397,14 @@ export class GitHubArtifactRepository implements ArtifactRepository {
 
   async create(input: CreateArtifactInput): Promise<ArtifactWriteResult> {
     if (!/^[A-Za-z0-9-]+$/.test(input.actorLogin)) throw new ArtifactWriteValidationError();
-    if (input.metadata.status !== "draft") throw new ArtifactWriteValidationError();
-    return this.createValidatedArtifactAtPath({ metadata: input.metadata, body: input.body, path: this.artifactPath(input.metadata), actorLogin: input.actorLogin, commitMessage: `Create artifact ${input.metadata.id} (requested by @${input.actorLogin})` });
+    const prepared = prepareArtifactWrite(input.metadata, input.body);
+    if (prepared.metadata.status !== "draft") throw new ArtifactWriteValidationError();
+    return this.createValidatedArtifactAtPath({ metadata: prepared.metadata, body: input.body, path: this.artifactPath(prepared.metadata), actorLogin: input.actorLogin, commitMessage: `Create artifact ${prepared.metadata.id} (requested by @${input.actorLogin})`, prepared });
   }
 
   async update(input: UpdateArtifactInput): Promise<ArtifactWriteResult> {
     if (!/^[A-Za-z0-9-]+$/.test(input.actorLogin)) throw new ArtifactWriteValidationError();
-    const { metadata, markdown } = prepareWrite(input.metadata, input.body);
+    const { metadata, markdown } = prepareArtifactWrite(input.metadata, input.body);
     if (metadata.id !== input.id || !input.currentFileSha.trim()) throw new ArtifactWriteValidationError();
     const tree = await this.fetchTree("write");
     const artifacts = await this.artifactsFromTree(tree, "write");
@@ -414,7 +415,7 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     if (entry.sha !== input.currentFileSha) throw new ArtifactWriteConflictError();
     if (validateArtifactPath(artifact.path, this.rootPath)) throw new ArtifactRepositoryContentError();
     if (artifact.status === "production") throw new ArtifactProductionUpdateRequiresProposalError();
-    if (metadata.status !== artifact.status || metadata.sourceId !== artifact.sourceId || String(metadata.createdAt ?? "") !== String(artifact.createdAt ?? "")) throw new ArtifactWriteValidationError();
+    validateImmutableLifecycleMetadata(artifact, metadata);
     return this.writeContents(artifact.path, metadata.id, markdown, `Update artifact ${metadata.id} (requested by @${input.actorLogin})`, input.currentFileSha);
   }
 
@@ -441,7 +442,7 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     if (!entry?.sha || entry.sha !== input.currentFileSha) throw new ArtifactWriteConflictError();
     if (artifact.status !== "production") throw new ArtifactWriteValidationError();
     const existingRef = await this.optionalGitHubGet<{ object?: { sha?: string } }>(`/git/ref/heads/${branchName.split("/").map(encodeURIComponent).join("/")}`);
-    if (existingRef) return this.resolveExistingDeletionProposal(input.id, branchName, artifact.path, existingRef.object?.sha);
+    if (existingRef) return this.resolveExistingDeletionProposal(input.id, branchName, artifact.path, input.currentFileSha, baseCommitSha, baseCommit.tree.sha, existingRef.object?.sha);
     const tree = await this.githubWrite<{ sha?: string }>("/git/trees", { base_tree: baseCommit.tree.sha, tree: [{ path: artifact.path, mode: "100644", type: "blob", sha: null }] });
     if (!tree.sha) throw new ArtifactWriteResponseError();
     const commit = await this.githubWrite<{ sha?: string }>("/git/commits", { message: `Propose deletion of artifact ${input.id} (requested by @${input.actorLogin})`, tree: tree.sha, parents: [baseCommitSha] });
@@ -469,7 +470,7 @@ export class GitHubArtifactRepository implements ArtifactRepository {
 
   async proposeUpdate(input: ProposeArtifactUpdateInput): Promise<ArtifactProposalResult> {
     if (!/^[A-Za-z0-9-]+$/.test(input.actorLogin)) throw new ArtifactWriteValidationError();
-    const { metadata, markdown } = prepareWrite(input.metadata, input.body);
+    const { metadata, markdown } = prepareArtifactWrite(input.metadata, input.body);
     if (metadata.id !== input.id || !input.currentFileSha.trim()) throw new ArtifactWriteValidationError();
     const branchName = proposalBranchName(input.id, input.currentFileSha);
 
@@ -487,6 +488,8 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     const entry = treeResponse.tree.find((candidate) => candidate.type === "blob" && candidate.path === artifact.path);
     if (!entry?.sha) throw new ArtifactRepositoryContentError();
     if (entry.sha !== input.currentFileSha) throw new ArtifactWriteConflictError();
+
+    validateImmutableLifecycleMetadata(artifact, metadata);
 
     const existingRef = await this.optionalGitHubGet<{ object?: { sha?: string } }>(`/git/ref/heads/${branchName.split("/").map(encodeURIComponent).join("/")}`);
     if (existingRef) return this.resolveExistingProposal(input.id, branchName, artifact.path, markdown, existingRef.object?.sha);
@@ -525,10 +528,17 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     return { artifactId, path: artifactPath, branchName, commitSha, pullRequestNumber: pull.number, pullRequestUrl: pull.html_url };
   }
 
-  private async resolveExistingDeletionProposal(artifactId: string, branchName: string, artifactPath: string, commitSha?: string): Promise<ArtifactProposalResult> {
+  private async resolveExistingDeletionProposal(artifactId: string, branchName: string, artifactPath: string, sourceFileSha: string, baseCommitSha: string, baseTreeSha: string, commitSha?: string): Promise<ArtifactProposalResult> {
     if (!commitSha) throw new ArtifactProposalCollisionError();
-    const tree = await this.githubGet<GitHubTreeResponse>(`/git/trees/${encodeURIComponent(commitSha)}?recursive=1`, "tree");
-    if (!Array.isArray(tree.tree) || tree.tree.some((entry) => entry.type === "blob" && entry.path === artifactPath)) throw new ArtifactProposalCollisionError();
+    const commit = await this.githubGet<{ tree?: { sha?: string }; parents?: { sha?: string }[] }>(`/git/commits/${encodeURIComponent(commitSha)}`, "tree");
+    if (commit.parents?.length !== 1 || commit.parents[0]?.sha !== baseCommitSha || !commit.tree?.sha) throw new ArtifactProposalCollisionError();
+    const baseTree = await this.githubGet<GitHubTreeResponse>(`/git/trees/${encodeURIComponent(baseTreeSha)}?recursive=1`, "tree");
+    const proposalTree = await this.githubGet<GitHubTreeResponse>(`/git/trees/${encodeURIComponent(commit.tree.sha)}?recursive=1`, "tree");
+    if (!Array.isArray(baseTree.tree) || !Array.isArray(proposalTree.tree) || baseTree.truncated || proposalTree.truncated) throw new ArtifactProposalCollisionError();
+    const source = baseTree.tree.find((entry) => entry.type === "blob" && entry.path === artifactPath);
+    if (source?.sha !== sourceFileSha) throw new ArtifactProposalCollisionError();
+    const withoutTarget = (entries: GitHubTreeEntry[]) => entries.filter((entry) => entry.type === "blob" && entry.path !== artifactPath).map((entry) => `${entry.path}\0${entry.mode}\0${entry.type}\0${entry.sha}`).sort();
+    if (proposalTree.tree.some((entry) => entry.path === artifactPath) || JSON.stringify(withoutTarget(baseTree.tree)) !== JSON.stringify(withoutTarget(proposalTree.tree))) throw new ArtifactProposalCollisionError();
     const pulls = await this.githubGet<unknown[]>(`/pulls?state=open&head=${encodeURIComponent(`${this.config.owner}:${branchName}`)}&base=${encodeURIComponent(this.branch)}`, "tree");
     const parsed = z.array(z.object({ number: z.number().int().positive(), html_url: z.string().url(), head: z.object({ ref: z.string() }), base: z.object({ ref: z.string() }) })).safeParse(pulls);
     const pull = parsed.success ? parsed.data.find((candidate) => candidate.head.ref === branchName && candidate.base.ref === this.branch) : undefined;
@@ -577,8 +587,8 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     return parsed.data;
   }
 
-  private async createValidatedArtifactAtPath(input: { metadata: ArtifactMetadata; body: string; path: string; actorLogin: string; commitMessage: string }): Promise<ArtifactWriteResult> {
-    const { metadata, markdown } = prepareWrite(input.metadata, input.body);
+  private async createValidatedArtifactAtPath(input: { metadata: ArtifactMetadata; body: string; path: string; actorLogin: string; commitMessage: string; prepared?: ReturnType<typeof prepareArtifactWrite> }): Promise<ArtifactWriteResult> {
+    const { metadata, markdown } = input.prepared ?? prepareArtifactWrite(input.metadata, input.body);
     if (validateArtifactPath(input.path, this.rootPath)) throw new ArtifactWriteValidationError();
     const tree = await this.fetchTree("write");
     if (tree.some((entry) => entry.type === "blob" && entry.path === input.path)) throw new ArtifactDuplicateError();
