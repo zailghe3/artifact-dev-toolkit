@@ -537,7 +537,7 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     if (!Array.isArray(baseTree.tree) || !Array.isArray(proposalTree.tree) || baseTree.truncated || proposalTree.truncated) throw new ArtifactProposalCollisionError();
     const source = baseTree.tree.find((entry) => entry.type === "blob" && entry.path === artifactPath);
     if (source?.sha !== sourceFileSha) throw new ArtifactProposalCollisionError();
-    const withoutTarget = (entries: GitHubTreeEntry[]) => entries.filter((entry) => entry.type === "blob" && entry.path !== artifactPath).map((entry) => `${entry.path}\0${entry.mode}\0${entry.type}\0${entry.sha}`).sort();
+    const withoutTarget = (entries: GitHubTreeEntry[]) => entries.filter((entry) => entry.type !== "tree" && entry.path !== artifactPath).map((entry) => `${entry.path}\0${entry.mode}\0${entry.type}\0${entry.sha}`).sort();
     if (proposalTree.tree.some((entry) => entry.path === artifactPath) || JSON.stringify(withoutTarget(baseTree.tree)) !== JSON.stringify(withoutTarget(proposalTree.tree))) throw new ArtifactProposalCollisionError();
     const pulls = await this.githubGet<unknown[]>(`/pulls?state=open&head=${encodeURIComponent(`${this.config.owner}:${branchName}`)}&base=${encodeURIComponent(this.branch)}`, "tree");
     const parsed = z.array(z.object({ number: z.number().int().positive(), html_url: z.string().url(), head: z.object({ ref: z.string() }), base: z.object({ ref: z.string() }) })).safeParse(pulls);

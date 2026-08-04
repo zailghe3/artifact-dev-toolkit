@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   ArtifactDuplicateError, ArtifactRepositoryContentError, ArtifactRepositoryUnavailableError, ArtifactSecretRejectedError,
-  ArtifactWriteConflictError, ArtifactWritePermissionError, ArtifactWriteResponseError,
+  ArtifactProductionDeleteRequiresProposalError, ArtifactWriteAuthenticationError, ArtifactWriteConflictError, ArtifactWritePermissionError, ArtifactWriteResponseError,
   ArtifactWriteValidationError, GitHubArtifactRepository,
   ArtifactWriteTooLargeError,
 } from '../lib/artifact-repository.ts';
@@ -241,6 +241,21 @@ test('direct deletion uses exact nested path, SHA, branch and attributable singl
 
 test('deletion rejects stale SHA and production status before mutation', async () => {
   const draft = fake({ files: { 'artifacts/prompts/item.md': existingMarkdown } }); await assert.rejects(draft.repository.delete({ id: metadata.id, currentFileSha: 'stale', actorLogin: 'octocat' }), ArtifactWriteConflictError);
-  const production = fake({ files: { 'artifacts/prompts/item.md': existingMarkdown.replace('status: draft', 'status: production') } }); await assert.rejects(production.repository.delete({ id: metadata.id, currentFileSha: 'blob-0', actorLogin: 'octocat' }));
+  const production = fake({ files: { 'artifacts/prompts/item.md': existingMarkdown.replace('status: draft', 'status: production') } }); await assert.rejects(production.repository.delete({ id: metadata.id, currentFileSha: 'blob-0', actorLogin: 'octocat' }), ArtifactProductionDeleteRequiresProposalError);
   assert.equal(draft.calls.some((call) => call.options.method === 'DELETE'), false); assert.equal(production.calls.some((call) => call.options.method === 'DELETE'), false);
+});
+
+test('direct deletion maps changed state, authentication, permission and availability without retrying', async () => {
+  for (const [status, ErrorType] of [[401, ArtifactWriteAuthenticationError], [403, ArtifactWritePermissionError], [404, ArtifactWriteConflictError], [409, ArtifactWriteConflictError], [422, ArtifactWriteConflictError], [429, ArtifactRepositoryUnavailableError], [503, ArtifactRepositoryUnavailableError]]) {
+    const runtime = fake({ files: { 'artifacts/prompts/item.md': existingMarkdown }, writeStatus: status, writeValue: { private: 'upstream-body' } });
+    await assert.rejects(runtime.repository.delete({ id: metadata.id, currentFileSha: 'blob-0', actorLogin: 'octocat' }), ErrorType);
+    assert.equal(runtime.calls.filter((call) => call.options.method === 'DELETE').length, 1);
+  }
+});
+
+test('direct deletion rejects malformed success metadata and unsafe commit URLs', async () => {
+  for (const value of [{ content: null }, { content: null, commit: { sha: 'c', html_url: 'https://evil.test/o/r/commit/c' } }]) {
+    const runtime = fake({ files: { 'artifacts/prompts/item.md': existingMarkdown }, writeValue: value });
+    await assert.rejects(runtime.repository.delete({ id: metadata.id, currentFileSha: 'blob-0', actorLogin: 'octocat' }), ArtifactWriteResponseError);
+  }
 });

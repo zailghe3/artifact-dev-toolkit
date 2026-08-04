@@ -21,7 +21,8 @@ test('edit helpers recognize only safe GitHub result links and preview shapes', 
   assert.equal(safeGitHubUrl('https://github.com/o/r/commit/abc123', 'commit'), 'https://github.com/o/r/commit/abc123');
   assert.equal(safeGitHubUrl('https://github.com/o/r/pull/40', 'pull'), 'https://github.com/o/r/pull/40');
   for (const value of ['http://github.com/o/r/pull/1', 'https://evil.test/o/r/pull/1', 'https://github.com/o/r/issues/1', 'bad']) assert.equal(safeGitHubUrl(value, 'pull'), undefined);
-  assert.equal(hasPreview({ metadata: { title: 'Draft', status: 'draft', tags: [], aliases: [] }, bodyHtml: '<p>safe</p>' }), true);
+  assert.equal(hasPreview({ metadata: { id: 'draft', title: 'Draft', type: 'prompt', status: 'draft', tags: [], aliases: [] }, bodyHtml: '<p>safe</p>' }), true);
+  assert.equal(hasPreview({ metadata: { id: 'draft', title: 'Draft', status: 'draft', tags: [], aliases: [] }, bodyHtml: '<p>missing type</p>' }), false);
   assert.equal(hasPreview({ bodyHtml: '<p>missing metadata</p>' }), false);
   assert.match(proposalErrorMessage('write_conflict'), /Reload/);
 });

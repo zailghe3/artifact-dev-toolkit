@@ -1,0 +1,5 @@
+import test from 'node:test'; import assert from 'node:assert/strict';
+import { applyDeletionResult, deletionRequest } from '../lib/deletion-ui.ts';
+const artifacts=[{id:'one',status:'draft'},{id:'two',status:'production'}];
+test('confirmed deletion snapshot selects exactly the consented operation and SHA',()=>{ assert.deepEqual(deletionRequest({id:'one',title:'One',status:'draft',currentFileSha:'sha-one'}),{endpoint:'/api/artifacts/one',method:'DELETE',body:{currentFileSha:'sha-one'}}); assert.deepEqual(deletionRequest({id:'two',title:'Two',status:'production',currentFileSha:'sha-two'}),{endpoint:'/api/artifacts/two/deletion-proposal',method:'POST',body:{currentFileSha:'sha-two'}}); });
+test('direct results remove a card while proposals retain it',()=>{ assert.deepEqual(applyDeletionResult(artifacts,{kind:'deleted',artifactId:'one',commitUrl:'https://github.com/o/r/commit/c'}).map(a=>a.id),['two']); assert.equal(applyDeletionResult(artifacts,{kind:'proposal',artifactId:'two',pullUrl:'https://github.com/o/r/pull/1'}).length,2); });

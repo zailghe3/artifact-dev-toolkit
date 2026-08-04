@@ -5,10 +5,14 @@ import { useMemo, useState } from "react";
 import type { Artifact } from "@/lib/artifacts";
 import { searchArtifacts } from "@/lib/search";
 import { ArtifactDeleteButton } from "@/components/ArtifactDeleteButton";
+import { applyDeletionResult, type DeletionResult } from "@/lib/deletion-ui";
 
 export function ArtifactSearch({ artifacts }: { artifacts: Artifact[] }) {
   const [query, setQuery] = useState("");
-  const results = useMemo(() => searchArtifacts(artifacts, query), [artifacts, query]);
+  const [currentArtifacts, setCurrentArtifacts] = useState(artifacts);
+  const [operationResult, setOperationResult] = useState<DeletionResult>();
+  const results = useMemo(() => searchArtifacts(currentArtifacts, query), [currentArtifacts, query]);
+  function handleDeletion(result: DeletionResult) { setOperationResult(result); setCurrentArtifacts((values) => applyDeletionResult(values, result)); }
 
   return (
     <div className="space-y-5">
@@ -22,7 +26,8 @@ export function ArtifactSearch({ artifacts }: { artifacts: Artifact[] }) {
         />
       </div>
       <p className="text-sm font-medium text-slate-600 dark:text-slate-300">{results.length} artifacts found</p>
-      {artifacts.length === 0 ? <p className="rounded-3xl border border-slate-200 bg-white p-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">The configured repository contains no compatible Markdown artifacts under its configured root.</p> : null}
+      {currentArtifacts.length === 0 ? <p className="rounded-3xl border border-slate-200 bg-white p-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">The configured repository contains no compatible Markdown artifacts under its configured root.</p> : null}
+      {operationResult ? <p className="rounded-xl bg-emerald-50 p-4 text-emerald-950">{operationResult.kind === "deleted" ? <>Deleted <strong>{operationResult.artifactId}</strong>. <a className="underline" href={operationResult.commitUrl} target="_blank" rel="noreferrer">View commit</a></> : <>Deletion proposed for <strong>{operationResult.artifactId}</strong>; the artifact remains live until merged. <a className="underline" href={operationResult.pullUrl} target="_blank" rel="noreferrer">View pull request</a></>}</p> : null}
       <div className="grid gap-4">
         {results.map((artifact) => (
           <article key={artifact.id} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900"><Link href={`/artifacts/${artifact.id}`} className="group block transition hover:-translate-y-0.5 focus:outline-none focus:ring-4 focus:ring-sky-200 dark:focus:ring-orange-500/35">
@@ -39,7 +44,7 @@ export function ArtifactSearch({ artifacts }: { artifacts: Artifact[] }) {
                 <span key={tag} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">#{tag}</span>
               ))}
             </div>
-          </Link><ArtifactDeleteButton artifact={artifact} /></article>
+          </Link><ArtifactDeleteButton artifact={artifact} onResult={handleDeletion} onStart={() => setOperationResult(undefined)} /></article>
         ))}
       </div>
     </div>
