@@ -2,543 +2,489 @@
 
 **Document status:** Baseline specification of the implemented application  
 **Application version:** 0.1.0  
-**Scope:** Current behaviour only; this document is not a roadmap  
-**Last updated:** 2026-08-02
+**Scope:** Current features only; this document is not a roadmap  
+**Last updated:** 2026-08-04
 
-## 1. Purpose
+# Artifact Library — Existing Feature Hierarchy
 
-Artifact Library is a fast, local-first web application for finding, reading, copying, and creating variations of reusable consulting and development assets.
+## 1. Authentication and repository access
 
-The application treats each reusable asset as an **artifact**. Current supported artifact types are:
+### 1.1 GitHub sign-in
 
-- prompt
-- agent
-- snippet
-- template
-- app idea
+* Users sign in through a GitHub App OAuth flow.
+* OAuth requests use a single-use state value and S256 PKCE.
+* A safe relative return path sends the user back to the originally requested application page.
+* GitHub identity is validated using the numeric GitHub user ID and login.
 
-The primary use case is rapid retrieval during day-to-day work. A user should be able to search for an artifact, open it, copy its content, and paste it into another tool with minimal friction.
+### 1.2 Server-side sessions
 
-## 2. Current product goals
+* Authenticated sessions are stored in Cloudflare D1.
+* The browser stores a strongly random session identifier in an HTTP-only session cookie.
+* GitHub user access tokens retained for repository revalidation are encrypted with AES-GCM.
+* Session expiry does not extend beyond the corresponding GitHub user token expiry.
 
-The implemented application aims to:
+### 1.3 Repository authorisation
 
-1. Provide a single searchable catalogue of reusable artifacts.
-2. Store artifacts in a portable, human-readable Markdown format.
-3. Support quick copying of artifact content.
-4. Allow an existing artifact to be forked into a draft variation.
-5. Keep storage access behind a repository abstraction so another backend can be introduced later.
-6. Run locally as a Next.js application and deploy as a Cloudflare Worker through OpenNext.
+* Access is restricted to the configured artifact repository.
+* Authorisation verifies:
 
-## 3. Users and access
+  * the signed-in GitHub user’s access;
+  * the GitHub App installation’s access;
+  * the configured repository owner and name;
+  * the stored immutable repository and installation IDs;
+  * an optional login allowlist.
+* Stored repository authorisation is periodically revalidated.
+* Repository access contexts provide capability-scoped installation credentials for reading, writing, and pull-request operations.
 
-The current application requires GitHub sign-in before a visitor can access artifact metadata, artifact bodies, library pages, detail pages, or protected artifact APIs.
+### 1.4 Protected application surfaces
 
-The application currently has:
+* Library pages, artifact pages, diagnostics, and artifact APIs require authentication and repository authorisation.
+* Unauthenticated browser requests are redirected to sign-in.
+* Repository-authorisation failures are presented on an access-denied page with a safe reason.
+* Protected API responses use private, no-store cache headers.
+* Signing out revokes the server-side session and clears the session cookie.
 
-- GitHub OAuth sign-in as the only identity provider;
-- server-side session tracking in Cloudflare D1 keyed by HMACs of strongly random session identifiers;
-- a production `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/` `__Host-` session cookie with no `Domain` attribute and non-production localhost cookie names with `secure: false`;
-- sign-out behaviour that revokes the D1 session record and expires the browser cookie;
-- repository authorisation during session creation that verifies the exact configured private artifact repository is readable by the configured GitHub App/server token and by the signed-in GitHub user token;
-- an optional comma-separated `GITHUB_ARTIFACT_ALLOWED_LOGINS` defence-in-depth allowlist, matched case-insensitively after sign-in;
-- no role model;
-- no user profile or account settings;
-- no tenant separation;
-- no sharing or collaboration workflow.
+## 2. Artifact catalogue and search
 
-Unauthenticated visitors are redirected to `/sign-in` and must complete GitHub authentication before protected application content is rendered. Authenticated visitors who fail repository authorisation are sent to `/access-denied` with a non-secret reason that distinguishes missing configuration, allowlist denial, missing GitHub App repository access, and missing user repository access.
+### 2.1 Catalogue loading
 
-## 4. Artifact data model
+* The library loads a validated collection of artifacts after repository access is established.
+* Artifacts are sorted alphabetically by title.
+* The library displays:
 
-Artifacts are stored as Markdown files with YAML frontmatter under the `artifacts/` directory and its subdirectories. DATA-001 also defines the compatible external private repository contract documented in `docs/external-artifact-repository-contract.md`.
+  * the total artifact count;
+  * the production artifact count;
+  * the current catalogue refresh state;
+  * the last successful refresh time.
 
-### 4.1 Required frontmatter
+### 2.2 Artifact cards
 
-Each artifact must contain:
+Each artifact card displays:
 
-```yaml
-id: unique-artifact-id
-title: Human-readable title
-type: prompt | agent | snippet | template | app-idea
-status: production | draft | archived
-tags: []
-aliases: []
-```
+* title;
+* an excerpt derived from the first 180 body characters;
+* status;
+* type;
+* tags.
 
-### 4.2 Optional frontmatter
+Selecting a card opens its artifact detail page.
 
-A variation may additionally contain:
+### 2.3 Search
 
-```yaml
-sourceId: source-artifact-id
-createdAt: ISO-8601 timestamp
-```
+* Search runs interactively in the browser over the loaded catalogue.
+* The search input receives initial focus.
+* Search is case-insensitive.
+* Multiple search terms must all match the combined searchable content.
+* Search covers:
 
-### 4.3 Body
+  * title;
+  * type;
+  * status;
+  * tags;
+  * aliases;
+  * Markdown body.
+* The matching artifact count updates with the search.
+* An empty query returns the complete catalogue.
+* The protected artifacts API also supports query-based search.
 
-The Markdown content following the frontmatter is the artifact body.
+## 3. Artifact detail and copying
 
-The body is:
+### 3.1 Detail resolution
 
-- included in search;
-- rendered as HTML on the artifact detail page;
-- copied without the YAML frontmatter;
-- used as the starting content when creating a variation.
+* Artifact detail pages use `/artifacts/{artifact-id}` routes.
+* Detail pages are dynamically resolved.
+* An artifact is resolved together with its current repository file SHA and catalogue state.
+* A successfully completed lookup with no matching artifact returns the application’s not-found page.
 
-### 4.4 Validation
+### 3.2 Artifact presentation
 
-Artifact metadata is validated at runtime.
+The detail page displays:
 
-An artifact is valid only when:
+* artifact type;
+* title;
+* status;
+* tags;
+* aliases;
+* rendered Markdown body;
+* catalogue freshness information;
+* navigation back to the library;
+* the signed-in login and sign-out control.
 
-- `id` is a non-empty string;
-- `title` is a non-empty string;
-- `type` is one of the supported artifact types;
-- `status` is one of the supported statuses;
-- `tags` and `aliases` are arrays of strings.
+### 3.3 Copying
 
-Invalid artifact metadata causes artifact loading to fail rather than being silently ignored.
+* The Copy body control writes the source Markdown body to the clipboard.
+* YAML frontmatter and rendered HTML are excluded.
+* The control displays temporary success feedback after copying.
 
-## 5. Functional requirements
+## 4. Draft variation creation
 
-### 5.0 Production catalogue cache
+### 4.1 Variation editor
 
-After authentication and exact-repository authorization, production reads use the dedicated `ARTIFACT_CATALOGUE_CACHE` Workers KV binding. Complete validated snapshots are scoped by repository identity, configured base branch and artifact root, and immutable revision. Deterministic artifact-boundary chunks contain each artifact with the file SHA from that same revision; a publish-last pointer prevents partial snapshots becoming current.
+* Every artifact detail page provides a variation editor.
+* The initial variation title is the source title followed by `Variation`.
+* The initial body is the complete source artifact body.
+* The user can edit the title and body.
 
-Freshness defaults to five minutes and can be configured from 30 seconds through one hour. A fresh hit performs no GitHub catalogue download. An expired hit first checks the lightweight base ref, refreshes metadata when unchanged, and rebuilds all validated content only when changed. Temporary network, rate-limit, and GitHub server failures may return a clearly marked last-known-good snapshot; authorization, configuration, repository content, path, encoding, and duplicate-ID failures may not. Cache corruption is a miss rather than trusted content.
+### 4.2 Variation preview
 
-The library displays cache state and last refresh time and offers protected revision-check and full-rebuild controls. Successful base-branch creates, updates, and direct draft variations invalidate the current pointer. Proposal creation does not invalidate it because the base branch is unchanged; merges are detected by normal revision checking or manual refresh.
+* A protected preview renders the proposed Markdown body.
+* Preview displays the generated metadata, including:
 
-Invalidation advances a repository generation before pointer removal. Generation comparison provides single-isolate race protection, not global KV atomicity; publication additionally verifies the lightweight GitHub base revision immediately before and after pointer publication. Private attempt identifiers distinguish an uncertain request-owned pointer from an independent competing publication. An uncertain pointer write or failed final verification advances generation and best-effort deletes the attempt without deleting a demonstrably newer validated pointer; cleanup and pointer visibility remain eventually consistent. Repository verification errors retain repository classifications rather than becoming cache errors. Eventual propagation can briefly expose a prior complete snapshot in another location, and manual refresh forces reconciliation. KV failures degrade caching rather than successful GitHub reads or writes, and detail resolution retains artifact bodies, file SHAs, revision, freshness time, and cache state from one in-memory resolved snapshot. Stronger refresh requests are never downgraded (`ordinary < forced < full`). File-backed local development bypasses KV and does not display refresh controls.
+  * title;
+  * draft status;
+  * source relationship;
+  * tags;
+  * aliases.
+* Previewing performs no repository write.
 
-### 5.1 Library home page
+### 4.3 Variation metadata
 
-The home page shall:
+A saved variation:
 
-1. Require an authenticated GitHub session before loading artifacts from the configured artifact repository.
-2. Load all available artifacts from the configured artifact repository.
-3. Display the total number of artifacts.
-4. Display the number of artifacts with `production` status.
-5. Present a search field with focus on initial page load.
-6. Display the number of artifacts matching the current search.
-7. Display matching artifacts as selectable cards.
-8. Sort artifacts alphabetically by title before displaying them.
-9. Display the signed-in GitHub login and provide a sign-out action.
+* receives a generated globally unique ID;
+* receives `draft` status;
+* preserves the source artifact type;
+* preserves source aliases;
+* preserves source tags and adds the `variation` tag;
+* records the source artifact ID in `sourceId`;
+* records an ISO-8601 creation timestamp in `createdAt`.
 
-Each artifact card shall display:
+The generated ID contains:
 
-- title;
-- short excerpt derived from the first 180 characters of the body;
-- status;
-- type;
-- tags.
+* a slug derived from the title;
+* the creation date;
+* the creation time;
+* a cryptographically random eight-character hexadecimal suffix.
 
-Selecting a card shall open the artifact detail page.
+### 4.4 Variation persistence
 
-### 5.2 Search
+* GitHub-backed deployments save variations beneath the configured `variations` directory.
+* The write creates an attributable GitHub commit.
+* Successful persistence invalidates the current catalogue cache.
+* The result includes a link to the new artifact and a validated GitHub commit link.
+* Local file-backed operation can write variation Markdown to the local variations directory.
 
-Search shall operate in the browser over the artifacts loaded with the page.
+## 5. Production artifact change proposals
 
-The search shall match against the currently implemented searchable fields:
+### 5.1 Proposal editor
 
-- title;
-- type;
-- status;
-- tags;
-- aliases;
-- body.
+* Production artifact detail pages provide a change-proposal editor.
+* The editor is populated with the current:
 
-An empty search query shall return all artifacts.
+  * title;
+  * tags;
+  * aliases;
+  * Markdown body;
+  * repository file SHA.
+* The user can modify the title, tags, aliases, and body.
 
-The application currently provides text search only. It does not provide semantic search, ranking by meaning, filters, saved searches, or advanced query syntax.
+### 5.2 Proposal preview
 
-### 5.3 Artifact detail page
+* The proposed metadata and rendered body can be previewed before submission.
+* Preview requires an authenticated and authorised request.
+* The source artifact must currently have production status.
 
-The artifact detail page shall:
+### 5.3 Revision protection
 
-1. Require an authenticated GitHub session before resolving or rendering artifact data.
-2. Resolve an artifact by its `id`.
-3. return the standard not-found page when no artifact matches the requested ID;
-4. display the artifact type;
-5. display the artifact title;
-6. display the status;
-7. display all tags;
-8. display aliases when present;
-9. render the Markdown body as HTML;
-10. provide navigation back to the library;
-11. provide a copy action;
-12. provide the variation editor;
-13. display the signed-in GitHub login and provide a sign-out action.
+* Proposal submission includes the file SHA observed when the artifact was loaded.
+* The server reloads the current artifact and compares its SHA with the submitted SHA.
+* A changed revision is returned as a write conflict.
 
-Artifact detail routes use the form:
+### 5.4 GitHub proposal workflow
 
-```text
-/artifacts/{artifact-id}
-```
+A proposal:
 
-Known artifact IDs are included in the application's generated route parameters during build.
+1. resolves the current base branch commit and tree;
+2. validates the artifact’s existing repository path and file SHA;
+3. creates the proposed artifact blob;
+4. creates a tree based on the current base tree;
+5. creates a commit with the base commit as its parent;
+6. creates a deterministic branch;
+7. opens a pull request against the configured base branch.
 
-### 5.4 Copy artifact
+The deterministic branch format is:
 
-The detail page shall provide a one-click copy action.
+`artifact-change/{artifact-id}-{first-eight-file-sha-characters}`
 
-The copied value shall be the Markdown body only. It shall not include YAML frontmatter or generated HTML.
+### 5.5 Proposal collision and recovery handling
 
-### 5.5 Create variation
+* An existing branch is inspected before further mutation.
+* An identical existing proposal can return its existing pull request.
+* A conflicting branch returns a proposal-collision error.
+* When the proposal branch exists but pull-request creation is incomplete, the response provides a validated branch recovery link.
+* Proposal creation leaves the configured base branch unchanged until the pull request is merged outside the application.
 
-The detail page shall provide a variation form pre-populated with:
+## 6. Artifact model and repository operations
 
-- a title formed from the source title followed by `Variation`;
-- the complete body of the source artifact.
+### 6.1 Artifact format
 
-The user may edit both values before saving. A protected, private/no-store preview renders the unsaved body through the same Markdown renderer used by artifact details and shows the resulting draft title, status, source relationship, normalized tags, and aliases. Previewing performs no repository write. The renderer preserves the application's characterized raw-HTML behavior: raw HTML is escaped and user-supplied scripts and event handlers are never executed.
+Artifacts are Markdown documents with YAML frontmatter.
 
-On save, the application shall:
+Required metadata:
 
-1. submit the variation through the artifact variation API;
-2. reject the request when the source artifact does not exist;
-3. reject invalid input;
-4. scan the title and body for supported secret-like patterns;
-5. create a new Markdown artifact when validation succeeds;
-6. assign the variation `draft` status;
-7. retain the source artifact type;
-8. retain the source aliases;
-9. retain the source tags and add the `variation` tag;
-10. set `sourceId` to the original artifact ID;
-11. set `createdAt` to the current ISO-8601 timestamp;
-12. generate a unique ID from the title, timestamp, and a cryptographically random suffix;
-13. save the file under `artifacts/variations/`;
-14. keep the source page visible and display `Variation saved`, a local link to the new artifact, and the validated HTTPS GitHub commit link.
+* `id`;
+* `title`;
+* `type`;
+* `status`;
+* `tags`;
+* `aliases`.
 
-### 5.6 Propose a production change
+Optional metadata:
 
-Production artifact details provide a separate editor, pre-populated from the artifact and its revision-aware `currentFileSha`. Preview uses the shared Markdown renderer. Submission creates a branch and GitHub pull request; it never invokes the direct update primitive, changes the configured base branch, merges the pull request, or implies that the live artifact has changed. Draft and archived artifacts do not expose this action.
+* `sourceId`;
+* `createdAt`.
 
-The proposal API validates complete metadata, canonical serialization, the shared UTF-8 limit, secret patterns, stable ID, valid existing path, and the blob SHA observed in the same base revision before any write. A stale SHA returns `409 write_conflict`. The deterministic, bounded branch is `artifact-change/{lowercase-artifact-id}-{first-8-file-sha}`. An existing unrelated branch returns `409 proposal_branch_collision`; an identical open proposal may be returned idempotently. There is no random fallback, reset, force-push, branch deletion, or automatic merge.
+Supported types:
 
-The Git Data workflow reads the base ref and commit/tree, creates one blob, one tree based on that exact base tree, and one commit with that base commit as its sole parent, then creates the branch ref and pull request targeting the configured base branch. The commit title is `Propose update to artifact {id} (requested by @{login})`. The pull-request title is `Update artifact: {title}` and its body contains only the artifact ID, repository-relative path, source SHA, requesting login, generated-branch attribution, and no-auto-merge statement—not artifact content or secrets. Writes are single-attempt. If a branch exists but pull-request creation fails, `502 proposal_incomplete` returns only safe branch recovery details; a repeat can inspect the deterministic branch rather than blindly repeating writes.
+* `prompt`;
+* `agent`;
+* `snippet`;
+* `template`;
+* `app-idea`.
 
-A generated variation ID follows the current pattern:
+Supported statuses:
 
-```text
-{slugified-title}-{YYYY-MM-DD}-{HHMMSS}-{8-hex-character-random-suffix}
-```
+* `production`;
+* `draft`;
+* `archived`.
 
-The title slug is lowercase, uses hyphens for non-alphanumeric sequences, and is limited to 80 characters before the timestamp and collision-resistant suffix are appended.
+### 6.2 Repository structure
 
-### 5.7 Secret detection
+* Artifacts are stored beneath a configurable artifact root.
+* Supported top-level directories are:
 
-Before writing a variation, the application shall refuse content that appears to contain certain secrets, including supported patterns for:
+  * `prompts`;
+  * `agents`;
+  * `snippets`;
+  * `templates`;
+  * `app-ideas`;
+  * `variations`.
+* Nested directories beneath these locations are supported.
+* Artifact IDs are globally unique across the complete artifact root.
+* Artifact paths reject empty segments and path traversal.
 
-- private keys;
-- values assigned to fields named API key, token, secret, or password;
-- GitHub tokens;
-- OpenAI-style secret keys.
+### 6.3 Parsing and serialization
 
-This is a safety check, not a complete secret-scanning or data-loss-prevention system.
+* Reads parse YAML frontmatter and Markdown through a shared canonical contract.
+* Writes serialize metadata and body into canonical Markdown and parse the result again before persistence.
+* Artifact excerpts are generated from normalized body text.
+* Complete serialized artifacts have a one-megabyte UTF-8 size limit.
+* GitHub blobs are accepted through supported base64 responses and validated before parsing.
 
-### 5.8 Authentication
+### 6.4 Repository backends
 
-The sign-in page at `/sign-in` explains that GitHub authentication is required and links to `/auth/github/start`, which creates OAuth state cookies in a Route Handler before redirecting to GitHub. It supports a relative `returnTo` URL so successful authentication returns users to their intended protected page.
+The repository abstraction provides:
 
-The GitHub OAuth callback at `/auth/github/callback` validates the OAuth `state` value stored in an `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/` `__Host-` cookie before accepting either a denied or successful callback and before exchanging the authorization code server-side. OAuth state cookies are short-lived, single-use, compared without early-exit equality, and deleted during callback processing including denied authorization outcomes. The OAuth start request asks GitHub for repository read capability so the callback can verify private repository access. After a successful callback, the application fetches the authenticated GitHub user through GitHub server-side APIs, validates the stable numeric user ID and login, verifies optional login allowlisting, verifies that the configured GitHub App/server token can read only the configured repository, verifies that the signed-in user token can read that same repository, creates a strongly random server-side session identifier only when those checks pass, stores only that identifier in the session cookie, and redirects to the safe return URL. The OAuth access token is discarded after the identity and repository authorisation checks; it is not retained in the session database or exposed to browser JavaScript. Denied authorization, missing codes, invalid state, token-exchange failures, identity-fetch failures, and repository-authorisation failures redirect to clear non-secret-bearing states.
+* catalogue listing;
+* lookup by ID;
+* revision-aware lookup;
+* base-revision resolution;
+* catalogue loading;
+* repository validation diagnostics;
+* artifact creation;
+* artifact updating;
+* variation creation;
+* production update proposals.
 
-The sign-out endpoint at `/sign-out` changes state only for POST requests. POST sign-out revokes the server-side D1 session record, clears the session cookie, and redirects to a safe local destination. GET sign-out does not invalidate the session and only redirects to a safe local destination. Sign-out is idempotent and does not disclose whether an arbitrary session identifier existed. Expired, revoked, malformed, missing, or unknown sessions are rejected and protected pages redirect back to sign-in without rendering artifact content.
+The file backend supports local artifact reading and local variation persistence.
 
-Protected artifact APIs return private, no-store `401` JSON responses for unauthenticated callers and private, no-store `403` JSON responses for authenticated but unauthorised callers before artifact loading, repository access, or variation creation occurs. Authenticated protected API responses, OAuth callback responses, and sign-out redirects also use private/no-store cache controls.
+The GitHub backend supports:
 
-## 6. Storage behaviour
+* recursive tree and blob loading;
+* exact-revision catalogue loading;
+* direct artifact creation;
+* optimistic-concurrency updates;
+* variation commits;
+* production proposal branches and pull requests.
 
-### 6.1 Repository abstraction
+### 6.5 Protected artifact API
 
-All artifact reads and writes shall use the `ArtifactRepository` interface.
+The artifact API provides:
 
-The interface currently provides:
+* catalogue listing and search;
+* artifact detail with `currentFileSha`;
+* artifact creation;
+* artifact updating.
 
-```ts
-list(): Promise<Artifact[]>
-findById(id: string): Promise<Artifact | undefined>
-findByIdWithRevision(id: string): Promise<{ artifact: Artifact; currentFileSha: string } | undefined>
-create(input: CreateArtifactInput): Promise<ArtifactWriteResult>
-update(input: UpdateArtifactInput): Promise<ArtifactWriteResult>
-createVariation(input: CreateVariationInput): Promise<CreateVariationResult>
-```
+Direct creation:
 
-### 6.2 File repository
+* chooses the canonical directory from the artifact type;
+* rejects duplicate paths and duplicate IDs;
+* creates an attributable commit.
 
-The default backend is `FileArtifactRepository`.
+Direct updating:
 
-It shall:
+* requires the current file SHA;
+* rejects stale revisions;
+* preserves the artifact’s existing valid repository path;
+* creates an attributable commit.
 
-- recursively discover `.md` files beneath `artifacts/`;
-- parse YAML frontmatter and Markdown bodies;
-- validate metadata;
-- return artifacts sorted by title;
-- create variation files beneath `artifacts/variations/`.
+Successful direct writes return repository path, file SHA, commit SHA, commit URL, and repository revision information.
 
-### 6.3 External artifact repository contract
+### 6.6 Write validation and safety
 
-The stable storage contract for a dedicated private artifact repository is documented in `docs/external-artifact-repository-contract.md`.
+Before persistence, writes validate:
 
-That contract specifies:
+* metadata schema;
+* lower-kebab-case artifact ID;
+* non-empty body;
+* canonical Markdown;
+* artifact path;
+* serialized UTF-8 size;
+* global ID uniqueness;
+* destination-path uniqueness;
+* supported secret-like patterns.
 
-- authoritative branch `main`;
-- configurable artifact root path, defaulting to `artifacts/`;
-- supported top-level directories `prompts/`, `agents/`, `snippets/`, `templates/`, `app-ideas/`, and `variations/`;
-- recursive nested Markdown artifact support inside those directories;
-- globally unique artifact IDs across the complete artifact root;
-- required frontmatter fields `id`, `title`, `type`, `status`, `tags`, and `aliases`;
-- optional `sourceId` and `createdAt` variation metadata;
-- the same supported artifact types and statuses used by the application.
+Installation credentials are scoped separately for repository reads, repository writes, and proposal operations.
 
-A validation command exists for complete checkouts of that external repository:
+## 7. Catalogue caching and refresh
 
-```bash
-npm run artifacts:validate -- ../private-artifact-storage
-npm run artifacts:validate -- ../private-artifact-storage --root custom-root
-```
+### 7.1 Revision-scoped catalogue snapshots
 
-The validator is independent of GitHub authentication and Cloudflare runtime behaviour. It reports file-specific errors for missing roots or directories, malformed or missing YAML front matter, missing required fields, unsupported values, duplicate IDs, and Markdown files placed outside the supported top-level directories.
+* GitHub-backed catalogue reads use Workers KV.
+* Cached snapshots are scoped to:
 
-Representative valid and invalid fixtures exist under `test-fixtures/external-artifact-repository/`, and examples for every supported artifact type exist under `docs/examples/external-artifact-repository/`.
+  * repository identity;
+  * owner and repository;
+  * configured branch;
+  * configured artifact root;
+  * immutable repository revision.
+* Cached artifacts retain their matching repository file SHAs.
 
-### 6.4 GitHub repository backend
+### 7.2 Freshness and refresh
 
-Setting:
+* Catalogue freshness defaults to five minutes.
+* The configured freshness value is bounded between 30 seconds and one hour.
+* A fresh catalogue is served directly from KV.
+* An expired catalogue checks the current base revision.
+* An unchanged repository revision refreshes catalogue timing without reloading every artifact.
+* A changed revision rebuilds the validated catalogue from GitHub.
 
-```text
-ARTIFACT_REPOSITORY=github
-```
+### 7.3 Cache states
 
-selects `GitHubArtifactRepository` for runtime reads and direct artifact writes. The backend requires server-side configuration only:
+The application presents these catalogue states:
 
-```text
-GITHUB_ARTIFACT_REPOSITORY_OWNER=<repository-owner>
-GITHUB_ARTIFACT_REPOSITORY_NAME=<repository-name>
-GITHUB_ARTIFACT_REPOSITORY_BRANCH=main      # optional; defaults to main
-GITHUB_ARTIFACT_REPOSITORY_ROOT=artifacts   # optional; defaults to artifacts
-```
+* `fresh`;
+* `refreshed`;
+* `stale`;
+* `degraded`.
 
-`ARTIFACT_REPOSITORY` supports only `file` and `github`; deployed production requires an explicit value and never silently falls back to local files. The production repository is `zailghe3/fpo-artifacts`. Each GitHub read requires a freshly authorized, exact-repository access context and a lazy repository-restricted installation-token provider. Tokens are reused within the repository instance and are not persisted in D1. Authorization older than seven minutes is revalidated with the encrypted user token, the allowlist, user access, and current App installation; the resulting authorized or denied record is explicitly updated in D1 before any read.
+A last-known-good catalogue can be served as stale content during temporary GitHub or rate-limit failures.
 
-The repository uses the Git Trees and Blobs APIs and the canonical DATA-001 parser. A valid tree with no compatible Markdown returns the genuine empty state. Configuration errors, temporary GitHub failures, truncated trees, malformed content, duplicate IDs, unsupported encodings, and oversized blobs fail closed and produce safe browser/API responses rather than an empty library. Structured logs contain only repository identifiers, counts, timing/status categories, and stable event names—never credentials, sessions, bodies, or full GitHub payloads. DATA-003 caching remains deferred until this read path is operationally stable.
+Fresh GitHub content can be served in degraded mode when KV is temporarily unavailable.
 
-The GitHub backend supports canonical artifact creation and optimistic-concurrency updates through the Contents API. Creation uses the canonical `{root}/{type-directory}/{id}.md` path and rejects duplicate paths and globally duplicate IDs. Updates require the caller's current file SHA, reject stale revisions, and preserve the valid existing repository path, including nested paths; metadata changes never implicitly rename or move a file. The authenticated `GET /api/artifacts/{id}` detail endpoint returns the artifact together with its matching tree-entry SHA as `currentFileSha`, using private, no-store responses, so clients can safely submit an update. Successful writes return the path, file SHA, commit SHA, commit URL, and latest known repository revision. Writes do not depend on a catalogue cache.
+### 7.4 Manual controls
 
-Reads and writes share a 1 MiB maximum for the UTF-8 byte size of the complete serialized Markdown artifact. Writes validate the final canonical Markdown before issuing a Contents API request and return the stable `artifact_too_large` error when it exceeds that limit.
+The library provides:
 
-`createVariation()` uses the shared canonical serialization, size validation, secret scanning, path validation, duplicate detection, installation credentials, and single-attempt Contents API write primitive to persist a new draft beneath `artifacts/variations/` on the configured branch. Variations preserve the source type, aliases, and `sourceId` without changing the source artifact. The authenticated GitHub login is included only in the safe commit message for request attribution. Successful API responses contain the generated ID and path plus safe file SHA, commit SHA, commit URL, and repository revision when provided by GitHub. Typed write failures are mapped to safe status/code responses and actionable form messages.
+* Refresh, which forces a repository revision check;
+* Full rebuild, which reloads the complete repository catalogue.
 
-Production proposals require the GitHub App's repository **Metadata: read**, **Contents: read and write** (repository/ref and Git Data reads and creation), and **Pull requests: read and write** (collision lookup and pull-request creation) permissions. These are the least privileges required by the GitHub REST endpoints used. Updating permissions does not happen automatically and may require an organization or repository administrator to approve the changed permissions on an existing installation.
+Refresh failure leaves the current catalogue in place.
 
-No catalogue cache is implemented. Reads and writes remain correct without KV, Cache API, or D1 catalogue state. DATA-003 issue #38 remains responsible for caching, stale fallback, persistent invalidation, and manual refresh.
+### 7.5 Write invalidation
 
-### 6.5 Hosted variation persistence
+Successful direct operations invalidate the current catalogue pointer:
 
-The local file backend supports variation creation when the application runs with a writable project filesystem. Because serverless runtime filesystems may be unavailable, read-only, or ephemeral, hosted deployments use the GitHub repository backend for persistent variation storage through the GitHub Contents API.
+* artifact creation;
+* artifact update;
+* draft variation creation.
 
-## 7. Seed content
+Production proposal creation operates on a separate branch and retains the current base-branch catalogue.
 
-The application repository currently includes example prompt artifacts covering:
+## 8. Diagnostics and operational handling
 
-- board updates;
-- slide narrative creation;
-- Copilot coding requests;
-- meeting summaries.
+### 8.1 Protected diagnostics
 
-These serve both as usable initial content and as examples of the artifact format. Under the external repository contract, these samples should be migrated to `artifacts/prompts/` in the storage repository because each sample currently has `type: prompt`.
+The application provides:
 
-## 8. User experience and presentation
+* a protected diagnostics page at `/diagnostics`;
+* a protected diagnostics API.
 
-The current interface shall:
+Diagnostics access uses the stored authorised session context and is observational.
 
-- be responsive across desktop and mobile screen widths;
-- prioritise search and quick retrieval;
-- use a card-based library layout;
-- use badges to distinguish status, type, and tags;
-- use a constrained central content width;
-- provide visible hover and focus states;
-- use Tailwind CSS for styling;
-- support application-wide dark and light themes, with dark mode used by default.
+### 8.2 Diagnostic information
 
-The active theme is applied on the root document element and initialised before paint from browser storage. The stable storage key is `artifact-library-theme`. When the stored value is absent or invalid, the application defaults to dark mode rather than following the operating-system colour-scheme preference. A saved light or dark preference takes precedence on later visits.
+Diagnostics reports:
 
-A compact theme toggle is available in the top-right area of the shared page chrome on the library page and artifact detail pages. Switching themes takes effect immediately without a page reload, persists the selected value in browser storage, exposes an accessible label for the next action, and remains keyboard operable with visible focus styling.
+* signed-in GitHub identity;
+* public repository configuration;
+* authentication-secret configuration states;
+* stored repository authorisation;
+* best-effort live authorisation;
+* GitHub App installation identifiers;
+* effective Contents read permission;
+* effective Contents write permission;
+* effective Pull requests write permission;
+* current repository revision;
+* catalogue cache state;
+* repository artifact validation results;
+* overall operational state.
 
-Dark mode uses orange as the primary accent colour for theme-specific highlights, focus rings, hover states, primary controls, and type badges. Light mode retains the existing blue/sky primary accent colour. Cards, text, links, buttons, forms, badges, backgrounds, borders, selection states, artifact search, artifact details, copy controls, and variation forms are styled to remain readable and usable in both themes.
+### 8.3 Repository validation diagnostics
 
-Accessibility is supported through standard HTML controls and focus styling, but the current application has no documented WCAG conformance target or automated accessibility test suite.
+The diagnostics scan checks:
 
-## 9. Technical architecture
+* repository paths;
+* blob SHAs;
+* supported encoding;
+* artifact size;
+* frontmatter;
+* metadata;
+* body parsing;
+* duplicate artifact IDs.
 
-### 9.1 Application stack
+The returned error list is bounded and uses safe repository-relative diagnostic information.
 
-The current application uses:
+### 8.4 Operational states
 
-- Next.js 16.2.10;
-- React 19.2.7;
-- TypeScript 5.9.3 with ESLint 9.39.5, `eslint-config-next` 16.2.10, and `typescript-eslint` 8.63.0;
-- Tailwind CSS 4.3.2 with `@tailwindcss/postcss` 4.3.2 and PostCSS 8.5.18;
-- Zod for validation;
-- gray-matter for Markdown frontmatter parsing;
-- remark and remark-html for Markdown rendering;
-- OpenNext for Cloudflare 1.20.1;
-- Wrangler 4.110.0 for Cloudflare deployment.
+Library and detail pages map expected failures into user-facing operational states covering:
 
-Direct dependency declarations are maintained as the tested lower bounds for the package versions validated by this repository. DEV-005 records the inspected dependency outcomes, removal decisions, audit status, and compatibility constraints in `docs/dev-005-dependency-refresh.md`. DEV-006 documents the deterministic maintenance model in `docs/dependency-toolchain-maintenance.md`, including Dependabot compatibility-domain grouping, intentional major-upgrade handling, exception recording, and currentness verification. DEV-007 documents the TypeScript 7 assessment in `docs/dev-007-typescript-7-assessment.md`; the migration is deferred because the required `typescript-eslint` 8.63.0 parser/compiler-API stack declares TypeScript support only through `<6.1.0`, so the application remains on TypeScript 5.9.3 until that integration supports TypeScript 7 and the full validation matrix is reassessed.
+* authentication and repository authorisation;
+* GitHub App installation and permissions;
+* repository and branch configuration;
+* rate limiting and temporary GitHub availability;
+* invalid artifact repository content;
+* unavailable or invalid catalogue cache state.
 
-### 9.2 Rendering model
+Operational states provide an explanation, recovery guidance, retry behavior where appropriate, and access to diagnostics.
 
-- The home page is a server component that loads artifacts before rendering.
-- Interactive search is implemented as a client component.
-- Artifact detail pages are server-rendered and use generated static parameters for known artifacts.
-- Copy and variation controls are client components.
-- Variation creation is handled through an HTTP API route.
+### 8.5 Safe diagnostics behavior
 
-### 9.3 Security assumptions
+* Diagnostics performs read-only capability and repository checks.
+* Configuration secrets are represented as configured, missing, or invalid states.
+* Responses and logs use stable categories, counts, identifiers, and timings.
+* Artifact bodies, complete frontmatter, access tokens, encrypted token fields, session identifiers, cache keys, and cached contents are excluded.
 
-The current application assumes that artifact files are trusted repository content.
+## 9. Presentation and deployment identity
 
-The current implementation does not include:
+### 9.1 Responsive interface
 
-- per-artifact or role-based authorisation beyond the configured repository authorisation gate;
-- content approval;
-- malware scanning;
-- comprehensive secret scanning;
-- rate limiting;
-- audit logs;
-- encryption managed by the application.
+* Application content uses constrained, responsive layouts.
+* Artifact results use card-based presentation.
+* Status, type, and tags use visual badges.
+* Interactive controls provide hover and focus states.
 
-Markdown is transformed to HTML for display. Any future support for untrusted user-generated content must explicitly review sanitisation requirements.
+### 9.2 Theme support
 
-## 10. Development and quality checks
+* The application supports dark and light themes.
+* Dark mode is the default.
+* The theme is applied before the page becomes interactive.
+* The selected theme is persisted in browser storage.
+* Theme changes apply immediately.
+* The theme toggle identifies the next available theme through its accessible label.
 
-The application shall support the following local commands:
+### 9.3 Deployment identity
 
-```bash
-npm install
-npm run dev
-npm run toolchain:validate
-npm run typecheck
-npm run build
-npm run build:worker
-npm run preview
-npm run deploy
-```
+Every page includes a deployment footer.
 
-Pull-request validation includes an automatic package-lock repair stage for trusted same-repository PR branches with lockfile-relevant changes, including package metadata, lockfile, Node/npm version files, and dependency-management configuration. The PR lifecycle does not duplicate lockfile repair logic; it calls the existing `Repair package lock` workflow with the PR head branch as `target_branch` for branches in the workflow's permitted repair scope. That called workflow remains the single implementation for canonical Node.js/npm setup, regenerating `package-lock.json`, saving the regenerated lockfile outside the workspace, validating with a clean install and the full suite, discarding validation side effects, restoring only the saved lockfile, and committing only `package-lock.json` when it changed. The reusable repair workflow reports whether it published a repair so PR validation can continue immediately for no-op regeneration, or skip old-head verification and let the subsequent `synchronize` run validate the repaired head commit. Fork PRs, untrusted external branches, and same-repository branches outside the existing repair scope never receive write-capable repair automation. Dependabot and other bot PRs are handled only when their branches are same-repository branches writable by the repository token; otherwise maintainers use the manual recovery workflow and the PR receives the normal lockfile-validation failure.
+Production deployment metadata can display:
 
-The manual package-lock repair workflow preserves that same canonical toolchain: it regenerates `package-lock.json` with Node.js from `.nvmrc` and the exact npm version from `package.json#packageManager`, saves the regenerated lockfile outside the repository workspace, runs the full validation suite, then discards validation side effects before restoring only `package-lock.json`. Validation tools are allowed to modify framework-generated tracked files temporarily, but those files are never committed by the repair workflow. Repairs to `main` are delivered through the deterministic `repair/regenerate-package-lock` branch and a reused or newly created pull request because repository rules prohibit direct pushes to `main`; repairs to permitted working branches such as `codex/*`, `repair/*`, and `dependabot/*` are committed directly to those branches. The repository uses Node.js 24 LTS from `.nvmrc`/`.node-version`, npm 11.4.2 from `package.json` `packageManager`, and Node 24-aligned `@types/node` declarations. The React type declarations track React/React DOM 19.2.7, and the linting stack uses Next.js flat ESLint configuration with the `typescript-eslint` package required by `eslint-config-next`. GitHub Actions workflows select Node.js with `node-version-file: .nvmrc`; third-party actions remain pinned to full immutable commit SHAs with adjacent comments identifying their release tags, currently `actions/checkout@v7.0.0` and `actions/setup-node@v6.4.0` where those actions are used. The `npm run toolchain:validate` command checks agreement between the canonical version files, package metadata, lockfile metadata, GitHub Actions workflows, GitHub Action full-SHA pins and release comments, and Codex/documentation templates. The `npm run maintenance:report` command provides deterministic read-only reporting for outdated direct dependencies, deprecated direct packages, unsupported runtime versions, canonical toolchain disagreement, lockfile/package-manager inconsistency, unpinned action references, and stale action release comments. The repository's continuous integration workflow runs installation, toolchain validation, type checking, and production build checks on pull requests and pushes to `main`. A scheduled and manually dispatchable dependency maintenance report workflow runs with `contents: read` permissions only, writes findings to the GitHub Actions summary, and never modifies repository contents or creates noisy issues.
+* deployment timestamp;
+* abbreviated source commit;
+* link to the source commit;
+* associated pull-request number and link.
 
-## 11. Deployment
+Deployment time is displayed in the browser’s locale while retaining the canonical timestamp in semantic time markup.
 
-The application is configured to build and deploy as a Cloudflare Worker using OpenNext.
-
-Relevant commands include:
-
-```bash
-npm run build:worker
-npm run preview
-npm run deploy
-npm run upload
-```
-
-Production deployment through GitHub Actions requires deployment credentials to be supplied as secrets:
-
-- `CLOUDFLARE_API_TOKEN`
-- `CLOUDFLARE_ACCOUNT_ID`
-- `GITHUB_OAUTH_CLIENT_ID`
-- `GITHUB_OAUTH_CLIENT_SECRET`
-- `SESSION_SECRET`
-
-Credentials and OAuth/session secrets shall not be committed to source control. `SESSION_SECRET` must be at least 32 characters long. The GitHub OAuth App callback URL must point to `/auth/github/callback` on the deployed application host. Deployments must bind the Cloudflare D1 database `AUTH_SESSIONS_DB`; `wrangler.jsonc` records the binding name, database name, and migrations directory. Operators must run `npx wrangler d1 create fpo-adt-db`, then run `npx wrangler d1 migrations apply fpo-adt-db --local` and `npx wrangler d1 migrations apply fpo-adt-db --remote`.
-
-The repository may also be deployed through Cloudflare's Git integration, but only one automatic deployment path should normally be active to avoid duplicate builds and deployments.
-
-## 12. Current exclusions
-
-The following capabilities are not part of the current application:
-
-- creating a brand-new base artifact through the UI;
-- deleting an existing artifact or directly overwriting production through the UI;
-- promoting a variation to production;
-- comparing or merging variations;
-- multiple users or collaboration;
-- favourites, recent items, or usage history;
-- filtering or sorting controls in the UI;
-- semantic or AI-assisted search;
-- import or export workflows;
-- artifact version history within the application;
-- agents that execute actions;
-- API integrations with Copilot, ChatGPT, Outlook, Teams, or PowerPoint;
-- automated tests beyond the currently included Node test suite, type checking, and production build validation.
-
-## 13. Baseline acceptance criteria
-
-The current application is considered operational when:
-
-1. dependencies install successfully;
-2. TypeScript validation succeeds;
-3. a production Next.js build succeeds;
-4. valid Markdown artifacts are loaded from `artifacts/`;
-5. the home page displays artifact and production counts;
-6. search returns matching artifacts across the implemented fields;
-7. artifact cards open their detail pages;
-8. Markdown bodies render on detail pages;
-9. copy places the source Markdown body on the clipboard;
-10. variation creation writes a valid direct draft commit to `artifacts/variations/` and opens the new artifact;
-11. secret-like variation content is rejected;
-12. unauthenticated visitors are redirected away from protected pages and receive `401` responses from protected APIs;
-13. GitHub OAuth callbacks validate state before creating a session;
-14. sign-out invalidates the current session;
-15. the OpenNext Cloudflare worker build succeeds with the supported deployment configuration.
-
-## 14. Document maintenance
-
-This file describes the implemented baseline as of its stated update date.
-
-When behaviour changes, this specification should be updated in the same pull request as the implementation. Future product ideas should be documented separately rather than added here as if already implemented.
-
-## 15. Deployment identity footer
-
-Every page renders a visually secondary site footer containing deployment identity. When production deployment metadata is available at build time, the footer displays the deployment timestamp, abbreviated source commit SHA and, when resolved, the pull request number associated with the deployed commit.
-
-The deployment timestamp is stored as a canonical UTC ISO-8601 value and is rendered in the browser's local timezone using semantic `<time>` markup. The canonical UTC value remains available through the `dateTime` attribute and title. The abbreviated commit links to the repository commit while preserving the full SHA in accessible metadata. The pull request element is optional and is omitted when no associated pull request is resolved.
-
-Local development and builds without generated deployment metadata display `Development build`. Deployment metadata is supplied at build time by the production workflow and is validated through `lib/deployment-metadata.ts`; generated deployment-specific data is not committed to the repository.
-
-## Remediated AUTH-002/DATA-002 runtime contract
-
-Authentication is implemented with a GitHub App web application flow. The required server-side configuration is `GITHUB_APP_ID`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_TOKEN_ENCRYPTION_KEY`, `GITHUB_ARTIFACT_REPOSITORY_OWNER`, and `GITHUB_ARTIFACT_REPOSITORY_NAME`, with optional branch, root, and login allowlist variables. The callback URL is `/auth/github/callback`. The GitHub App is installed on the selected artifact repository and requires Metadata read-only and Contents read and write permissions. Existing installations may require administrator approval after the Contents permission change. The runtime does not use `GITHUB_ARTIFACT_REPOSITORY_TOKEN` or traditional OAuth App credentials.
-
-OAuth state and S256 PKCE are validated for sign-in, no `repo` scope is requested, user access tokens are encrypted server-side with AES-GCM, and local sessions expire no later than the GitHub user token. The repository-authorisation decision is stored explicitly as `authorized` or `denied`, includes the configured owner/name, immutable repository ID, installation ID, and check time, and is refreshed after seven minutes. Stale, mismatched, revoked, unavailable, or denied repository access fails closed before any artifact repository method runs.
-
-The initial `auth_sessions` schema stores complete authenticated-session and repository-authorisation state. Since the deployment has no existing users, successful logins, sessions, or user data to preserve, no data migration or compatibility backfill is part of this remediation.
-
-DATA-001 artifact parsing is canonical in `lib/artifact-contract.ts`. The contract owns allowed artifact types, statuses, directories, default branch/root, front matter parsing, metadata normalization including Date-valued `createdAt`, path validation, duplicate-ID validation, and file-specific diagnostics. Protected artifact routes are dynamic; known artifact IDs are not generated as static route parameters during build.
-
-## OPS-001 protected repository diagnostics
-
-`/diagnostics` and `GET /api/diagnostics` are private, authenticated surfaces. Their access gate requires an unexpired D1 session whose stored last-known repository authorization is authorized, belongs to the same GitHub identity, contains positive repository and installation IDs, and matches safely resolvable current owner/repository configuration. It does not refresh, revoke, extend, or mutate the session. Consequently, a never-authorized or unrelated user is denied, while a previously authorized user can inspect safe configuration and outage information when live GitHub authorization is unavailable. The API returns `private, no-store` responses; there is no public health or status endpoint.
-
-The shared server diagnostics model reports safe public configuration and only `configured`, `missing`, or `invalid` states for secrets. Stored authorization and its check time are distinct from a best-effort, observational live authorization check. A failed live check never downgrades stored authorization. Read, write, and proposal capabilities are checked with separate capability-scoped installation-token requests and the permission metadata GitHub actually returns: Contents read accepts read or stronger; Contents write requires write or stronger; proposals require both Contents write and Pull requests write. Unknown results are not represented as denial, and no mutation is used as a permission probe.
-
-The repository revision check uses the lightweight base-reference operation rather than catalogue loading. The DATA-003 cache inspector is read-only and uses the existing pointer, identity, schema, and chunk validation. It exposes only revision, refresh time, age, artifact count, freshness, and optional live-revision match—not keys, generations, publication identifiers, cached entries, metadata, or bodies. `fresh`, `stale`, `missing`, `degraded`, `corrupt`, and unavailable prerequisite states remain distinct. Inspection performs no refresh or KV write; the existing protected manual refresh is the only refresh operation. As with all Workers KV behavior, the inspection makes no claim of globally atomic state.
-
-The diagnostics-only validation scan applies the normal root/path, Markdown/front-matter, schema, encoding, size, and bounded-concurrency rules independently to compatible files. It collects safe repository-relative file errors, detects duplicate IDs, caps returned errors at 50, reports omissions, and never returns bodies or complete front matter. It neither publishes invalid content nor changes normal fail-closed catalogue loading.
-
-Expected read failures map to stable operational categories for authentication, authorization, GitHub App installation, invalid configuration, missing repository or branch, read/write/proposal permission, rate limiting, temporary GitHub failure, invalid repository content, unavailable/corrupt cache, and unexpected failures. Library and detail pages render safe explanations and recovery guidance for typed expected failures; a successful zero-file catalogue remains an ordinary empty library, and only a successful detail lookup can produce an artifact 404. Unexpected programming failures still reach the application error boundary.
-
-Structured diagnostics logging is limited to public repository identity, numeric repository/installation IDs, branch/root, shortened revisions, stable categories, statuses, counts, and durations. Logs and responses exclude tokens, encrypted token fields, session/cookie identifiers, keys and secrets, cache keys or contents, publication/generation values, raw GitHub payloads, artifact metadata/bodies, and expected-error stack traces. GitHub and KV outages are reported as unavailable or degraded checks with actionable retry guidance, without automated remediation.
-### OPS-001 diagnostics hardening
-
-The protected diagnostics gate parses the public repository backend, owner, repository, branch, and artifact root independently from authentication secrets. A stored authorization is accepted only when its owner and repository match the currently configured public identity; malformed private keys, encryption keys, or session secrets never turn a known mismatch into an unknown match. If owner or repository is absent, only safe configuration diagnostics are reachable and repository-backed checks are not run.
-
-Live authorization failures distinguish temporary or inconclusive checks from definitive user, allowlist, installation, or repository-identity denial. A matching stored context may support bounded, read-only observation after a temporary GitHub interruption. Definitive denial performs no installation-token minting, repository revision read, cache inspection, or repository scan, and does not mutate the stored session.
-
-Each non-destructive capability check reports an effective value and one of `granted`, `permission_missing`, `installation_missing`, `authentication_failed`, `temporarily_unavailable`, `rate_limited`, `malformed_response`, `prerequisite_invalid`, or `not_checked`. Unknown is not presented as denial. The overall state is derived from configuration, authorization, permissions, revision, cache, and validation results and cannot be healthy without Contents read or required configuration.
-
-DATA-003 normal reads and diagnostics use the same validated snapshot reader. It validates pointer and generation identity, isolate invalidation, chunks and indexes, artifact and SHA schemas, safe rooted paths, uniqueness, and completeness. Diagnostics never writes or returns KV keys, generation/publication identifiers, entries, bodies, or front-matter values.
-
-Repository/tree authorization, rate-limit, and availability failures remain systemic validation failures. Only isolated file content failures become bounded file diagnostics; unsafe path text is replaced with a stable placeholder. Operational UI mapping retains authorization, App installation, repository, branch, Contents permission, rate-limit, temporary availability, invalid content, missing KV binding, corrupt snapshot, and unexpected programming categories.
+Builds without deployment metadata display `Development build`.
