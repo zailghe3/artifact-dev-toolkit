@@ -2,29 +2,45 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { stableRefreshTime } from "@/lib/catalogue-presentation";
+import type { CatalogueRefreshAvailability } from "@/lib/diagnostics-model";
 
-export function CatalogueRefresh({ refreshedAt, cacheState }: { refreshedAt: string; cacheState: "fresh" | "refreshed" | "stale" | "degraded" }) {
+const guidance: Record<Exclude<CatalogueRefreshAvailability, { available: true }>["reason"], string> = {
+  local_backend: "Manual catalogue refresh is not used by the local file backend.",
+  cache_binding_missing: "Configure the catalogue cache binding before refreshing.",
+  authorization_unavailable: "Restore repository authorization before refreshing the catalogue.",
+  read_permission_missing: "Restore repository read access before refreshing the catalogue.",
+  configuration_invalid: "Correct repository configuration before refreshing the catalogue.",
+};
+
+const apiErrorMessages: Record<string, string> = {
+  refresh_unsupported: "Manual catalogue refresh is not supported for the current repository backend.",
+  repository_access_denied: "Repository access was denied. Restore repository read access before refreshing the catalogue.",
+  repository_unavailable: "The artifact repository is temporarily unavailable. Try refreshing again later.",
+  refresh_failed: "Refresh failed. The current catalogue was not replaced.",
+};
+
+async function safeRefreshMessage(response: Response) {
+  try {
+    const body = await response.json() as { code?: unknown };
+    if (typeof body.code === "string") return apiErrorMessages[body.code] ?? apiErrorMessages.refresh_failed;
+  } catch { /* ignore malformed API responses */ }
+  return apiErrorMessages.refresh_failed;
+}
+
+export function CatalogueRefreshControls({ availability }: { availability: CatalogueRefreshAvailability }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const router = useRouter();
   async function refresh(full = false) {
-    if (pending) return;
+    if (pending || !availability.available) return;
     setPending(true); setError("");
     try {
       const response = await fetch("/api/artifacts/refresh", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ full }) });
-      if (!response.ok) throw new Error();
+      if (!response.ok) { setError(await safeRefreshMessage(response)); return; }
       router.refresh();
-    } catch { setError("Refresh failed. The current catalogue was not replaced."); }
+    } catch { setError(apiErrorMessages.refresh_failed); }
     finally { setPending(false); }
   }
-  return <div className="mb-5 rounded-2xl border border-slate-200 bg-white p-4 text-sm dark:border-slate-800 dark:bg-slate-900">
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      <p><strong className="capitalize">{cacheState}</strong> · Last successful refresh <time dateTime={refreshedAt}>{stableRefreshTime(refreshedAt)}</time></p>
-      <div className="flex gap-2"><button disabled={pending} onClick={() => refresh()} className="rounded-lg bg-sky-700 px-3 py-2 font-semibold text-white disabled:opacity-50">{pending ? "Refreshing…" : "Refresh"}</button><button disabled={pending} onClick={() => refresh(true)} className="rounded-lg border border-slate-300 px-3 py-2 font-semibold disabled:opacity-50">Full rebuild</button></div>
-    </div>
-    {cacheState === "stale" ? <p role="alert" className="mt-2 font-semibold text-amber-700 dark:text-amber-300">GitHub is temporarily unavailable. Stale catalogue content is being served.</p> : null}
-    {cacheState === "degraded" ? <p role="status" className="mt-2 font-semibold text-amber-700 dark:text-amber-300">Content is fresh from GitHub, but catalogue caching is temporarily unavailable.</p> : null}
-    {error ? <p role="alert" className="mt-2 text-red-700">{error}</p> : null}
-  </div>;
+  if (!availability.available) return <p className="rounded-xl bg-slate-100 p-3 text-sm font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">{guidance[availability.reason]}</p>;
+  return <div className="space-y-2"><div className="flex flex-wrap gap-2"><button disabled={pending} onClick={() => refresh()} className="rounded-lg bg-sky-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">{pending ? "Refreshing…" : "Refresh"}</button><button disabled={pending} onClick={() => refresh(true)} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold disabled:opacity-50">Full rebuild</button></div>{error ? <p role="alert" className="text-sm font-semibold text-red-700 dark:text-red-300">{error}</p> : null}</div>;
 }

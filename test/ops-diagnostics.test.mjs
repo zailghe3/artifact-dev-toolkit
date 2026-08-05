@@ -85,3 +85,48 @@ test('all declared read operational categories are reachable without leaking sou
   assert.equal(mapOperationalError(new CatalogueCacheUnavailableError()).category, 'catalogue_cache_unavailable');
   assert.equal(mapOperationalError(new CatalogueSnapshotCorruptError()).category, 'catalogue_cache_corrupt');
 });
+
+import { catalogueRefreshAvailability } from '../lib/diagnostics-model.ts';
+
+const baseDiagnostics = (overrides = {}) => ({
+  configuration: { backend: 'github', owner: 'owner', repository: 'repo', branch: 'main', artifactRoot: 'artifacts', cacheBinding: 'configured', authSecrets: {} },
+  authorization: { storedState: 'authorized', lastCheckedAt: '2026-01-01T00:00:00.000Z', repositoryMatches: true, repositoryIdPresent: true, installationIdPresent: true, liveState: 'authorized' },
+  permissions: { contentsRead: { effective: true, reason: 'granted' }, contentsWrite: { effective: true, reason: 'granted' }, pullRequestsWrite: { effective: true, reason: 'granted' } },
+  ...overrides,
+});
+
+test('catalogue refresh policy exposes controls only for configured GitHub infrastructure', () => {
+  assert.deepEqual(catalogueRefreshAvailability(baseDiagnostics()), { available: true });
+  assert.deepEqual(catalogueRefreshAvailability(baseDiagnostics({ configuration: { ...baseDiagnostics().configuration, backend: 'file' } })), { available: false, reason: 'local_backend' });
+  assert.deepEqual(catalogueRefreshAvailability(baseDiagnostics({ configuration: { ...baseDiagnostics().configuration, cacheBinding: 'missing' } })), { available: false, reason: 'cache_binding_missing' });
+  assert.deepEqual(catalogueRefreshAvailability(baseDiagnostics({ authorization: { ...baseDiagnostics().authorization, liveState: 'denied' } })), { available: false, reason: 'authorization_unavailable' });
+  assert.deepEqual(catalogueRefreshAvailability(baseDiagnostics({ permissions: { ...baseDiagnostics().permissions, contentsRead: { effective: false, reason: 'permission_missing' } } })), { available: false, reason: 'read_permission_missing' });
+  assert.deepEqual(catalogueRefreshAvailability(baseDiagnostics({ configuration: { ...baseDiagnostics().configuration, owner: undefined } })), { available: false, reason: 'configuration_invalid' });
+});
+
+test('catalogue refresh policy allows repair for non-fresh cache states when infrastructure is configured', () => {
+  for (const state of ['fresh', 'stale', 'degraded', 'missing', 'corrupt']) {
+    assert.deepEqual(catalogueRefreshAvailability(baseDiagnostics({ cache: { state } })), { available: true });
+  }
+});
+
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { installTsxHook } from './render-tsx.mjs';
+const requireTsx = installTsxHook();
+const { CatalogueHealthSummary } = requireTsx('../components/CatalogueHealthSummary.tsx');
+
+test('catalogue health summary preserves exact states and never uses diagnostics generation as refresh time', () => {
+  const refreshedAt = '2026-02-03T04:05:06.000Z';
+  for (const state of ['fresh', 'stale', 'degraded']) {
+    const html = renderToStaticMarkup(React.createElement(CatalogueHealthSummary, { cache: { configured: true, state, refreshedAt } }));
+    assert.match(html, new RegExp(`Catalogue state:.*${state}`));
+    assert.match(html, /Last successful refresh:.*2026-02-03 04:05:06 UTC/);
+  }
+  for (const state of ['missing', 'corrupt', 'unavailable']) {
+    const html = renderToStaticMarkup(React.createElement(CatalogueHealthSummary, { cache: { configured: true, state }, generatedAt: '2026-09-09T00:00:00.000Z' }));
+    assert.match(html, new RegExp(`Catalogue state:.*${state}`));
+    assert.match(html, /Last successful refresh: unknown/);
+    assert.doesNotMatch(html, /refreshed|2026-09-09/);
+  }
+});

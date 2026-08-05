@@ -379,12 +379,16 @@ Installation credentials are scoped separately for repository reads, repository 
 
 ### 7.3 Cache states
 
-The application presents these catalogue states:
+The catalogue health diagnostics model presents these cache states exactly as reported:
 
 * `fresh`;
-* `refreshed`;
 * `stale`;
-* `degraded`.
+* `missing`;
+* `degraded`;
+* `corrupt`;
+* `unavailable`.
+
+A real catalogue result may separately report `refreshed` after a successful refresh. Missing, corrupt, and unavailable diagnostic cache states are not presented as refreshed. When no catalogue `refreshedAt` value exists, Diagnostics displays `Last successful refresh: unknown` and does not substitute diagnostics generation time.
 
 A last-known-good catalogue can be served as stale content during temporary GitHub or rate-limit failures.
 
@@ -392,10 +396,12 @@ Fresh GitHub content can be served in degraded mode when KV is temporarily unava
 
 ### 7.4 Manual controls
 
-Diagnostics provides the manual catalogue controls:
+Diagnostics provides the manual catalogue controls only when refresh is supported by the current infrastructure:
 
 * Refresh, which forces a repository revision check;
 * Full rebuild, which reloads the complete repository catalogue.
+
+Controls are available for valid GitHub-backed repository configuration with repository authorisation, effective Contents read permission, and a configured catalogue cache binding. Controls are not rendered as active actions for the local file backend, missing or invalid cache binding, invalid repository configuration, definitive authorisation denial, denied Contents read permission, or known unsupported refresh routes; Diagnostics shows concise recovery guidance instead.
 
 Refresh failure leaves the current catalogue in place. The artifact workspace links to Diagnostics only for exceptional stale or degraded catalogue states and does not duplicate the refresh controls.
 
@@ -438,7 +444,7 @@ Diagnostics reports:
 * effective Pull requests write permission;
 * current repository revision;
 * catalogue cache state;
-* last successful catalogue refresh time;
+* last successful catalogue refresh time, or `unknown` when no successful refresh timestamp is available;
 * manual catalogue Refresh and Full rebuild controls;
 * stale and degraded catalogue explanations;
 * repository artifact validation results;
@@ -470,7 +476,7 @@ Library and detail pages map expected failures into user-facing operational stat
 * invalid artifact repository content;
 * unavailable or invalid catalogue cache state.
 
-Operational states provide an explanation, recovery guidance, retry behavior where appropriate, and access to diagnostics.
+Operational states provide an explanation, recovery guidance, retry behavior where appropriate, and access to diagnostics. Expected artifact detail and edit operational states retain the shared protected application header and constrained content shell so Artifacts remains active and Diagnostics remains reachable; unauthenticated redirects and not-found responses remain outside this shell.
 
 ### 8.5 Safe diagnostics behavior
 
@@ -483,7 +489,7 @@ Operational states provide an explanation, recovery guidance, retry behavior whe
 
 ### 9.1 Responsive interface
 
-* Protected application pages use a shared compact application header with the product identity `Artifact Toolkit`, the purpose line `Manage reusable work assets` on sufficiently wide screens, primary navigation, signed-in user information, theme control, and sign-out control.
+* Protected application pages use a shared compact application header with the product identity `Artifact Toolkit`, the purpose line `Manage reusable work assets` on sufficiently wide screens, primary navigation, one visible signed-in user identity, theme control, and a clearly labelled sign-out control.
 * Primary navigation is declared through a reusable navigation model and initially links to `Artifacts` and `Diagnostics`. Active links use a visible active treatment and `aria-current="page"`.
 * The header uses semantic `<header>` and `<nav aria-label="Primary">` landmarks. Navigation links route between pages and are not implemented as ARIA tabs.
 * On mobile, account controls remain in the first row while the primary navigation is keyboard-reachable in a horizontally scrollable, non-wrapping second row that avoids whole-page overflow.
