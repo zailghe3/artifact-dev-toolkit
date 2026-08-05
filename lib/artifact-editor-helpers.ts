@@ -4,11 +4,24 @@ import type { Artifact } from "./artifact-repository.ts";
 import type { DeletionSnapshot } from "./deletion-ui.ts";
 export function normalizeEditorValues(values: string[]) { return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean))); }
 export type CanonicalEditorSnapshot = { title: string; tags: string[]; aliases: string[]; body: string };
+type LiveEditorSnapshot = CanonicalEditorSnapshot & { invalid: boolean };
 export function canonicalEditorSnapshot(values: { title: string; tags: string[]; aliases: string[]; body: string }): CanonicalEditorSnapshot {
   const metadata = normalizeArtifactMetadata({ id: "editor", type: "prompt", status: "draft", title: values.title, tags: values.tags, aliases: values.aliases });
   return { title: metadata.title, tags: metadata.tags, aliases: metadata.aliases, body: values.body.trim() };
 }
+export function liveEditorSnapshot(values: { title: unknown; tags: unknown; aliases: unknown; body: unknown }): LiveEditorSnapshot {
+  const title = typeof values.title === "string" ? values.title.trim() : "";
+  const tags = Array.isArray(values.tags) && values.tags.every((value) => typeof value === "string") ? normalizeEditorValues(values.tags) : [];
+  const aliases = Array.isArray(values.aliases) && values.aliases.every((value) => typeof value === "string") ? normalizeEditorValues(values.aliases) : [];
+  const body = typeof values.body === "string" ? values.body.trim() : "";
+  return { title, tags, aliases, body, invalid: title.length === 0 || !Array.isArray(values.tags) || !values.tags.every((value) => typeof value === "string") || !Array.isArray(values.aliases) || !values.aliases.every((value) => typeof value === "string") || typeof values.body !== "string" };
+}
 export function editorValuesAreDirty(current: CanonicalEditorSnapshot, persisted: CanonicalEditorSnapshot) { return JSON.stringify(current) !== JSON.stringify(persisted); }
+export function liveEditorValuesAreDirty(current: { title: unknown; tags: unknown; aliases: unknown; body: unknown }, persisted: CanonicalEditorSnapshot) {
+  const live = liveEditorSnapshot(current);
+  const { invalid, ...canonicalComparable } = live;
+  return invalid || editorValuesAreDirty(canonicalComparable, persisted);
+}
 export function validatedCanonicalEditorSnapshot(value: unknown): CanonicalEditorSnapshot | undefined {
   if (!value || typeof value !== "object") return undefined;
   const candidate = value as Partial<CanonicalEditorSnapshot>;

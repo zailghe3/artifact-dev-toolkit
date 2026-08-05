@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { canonicalEditorSnapshot, directDeletionCompleted, directWriteCompleted, editorDeletionSnapshot, editorRequestAllowed, editorValuesAreDirty, initialEditorLifecycle, proposalCompleted, validFileSha } from '../lib/artifact-editor-helpers.ts';
+import { canonicalEditorSnapshot, directDeletionCompleted, directWriteCompleted, editorDeletionSnapshot, editorRequestAllowed, editorValuesAreDirty, initialEditorLifecycle, liveEditorValuesAreDirty, proposalCompleted, validFileSha, validatedCanonicalEditorSnapshot } from '../lib/artifact-editor-helpers.ts';
 import { deletionConfirmation, deletionRequest } from '../lib/deletion-ui.ts';
 
 test('direct edits advance the active revision used by later operations', () => {
@@ -69,6 +69,34 @@ test('canonical dirty state clears after reverting every editable value', () => 
   const persisted = canonicalEditorSnapshot({ title: 'Original', tags: ['one'], aliases: ['alias'], body: 'Body' });
   assert.equal(editorValuesAreDirty(canonicalEditorSnapshot({ ...persisted, title: 'Changed' }), persisted), true);
   assert.equal(editorValuesAreDirty(canonicalEditorSnapshot({ title: ' Original ', tags: [' one '], aliases: ['alias'], body: '\nBody\n' }), persisted), false);
+});
+
+
+test('live dirty checks tolerate invalid transient titles and restore clean state', () => {
+  const persisted = canonicalEditorSnapshot({ title: 'Original title', tags: ['one'], aliases: ['alias'], body: 'Body' });
+  assert.equal(liveEditorValuesAreDirty({ title: '', tags: ['one'], aliases: ['alias'], body: 'Body' }, persisted), true);
+  assert.equal(liveEditorValuesAreDirty({ title: '   ', tags: ['one'], aliases: ['alias'], body: 'Body' }, persisted), true);
+  assert.equal(liveEditorValuesAreDirty({ title: 'Changed title', tags: ['one'], aliases: ['alias'], body: 'Body' }, persisted), true);
+  assert.equal(liveEditorValuesAreDirty({ title: 'Original title', tags: ['one'], aliases: ['alias'], body: 'Body' }, persisted), false);
+  assert.equal(liveEditorValuesAreDirty({ title: '  Original title  ', tags: [' one ', 'one', ''], aliases: [' alias ', '', 'alias'], body: '\nBody\n' }, persisted), false);
+});
+
+test('live dirty checks treat malformed representable list values as dirty without throwing', () => {
+  const persisted = canonicalEditorSnapshot({ title: 'Original title', tags: ['one'], aliases: ['alias'], body: 'Body' });
+  assert.equal(liveEditorValuesAreDirty({ title: 'Original title', tags: ['one', 42], aliases: ['alias'], body: 'Body' }, persisted), true);
+  assert.equal(liveEditorValuesAreDirty({ title: 'Original title', tags: ['one'], aliases: ['alias', { bad: true }], body: 'Body' }, persisted), true);
+});
+
+test('validated server snapshots remain strict while successful saves advance canonical state', () => {
+  assert.throws(() => validatedCanonicalEditorSnapshot({ title: '', tags: [], aliases: [], body: 'Body' }));
+  assert.equal(validatedCanonicalEditorSnapshot({ title: ' Server title ', tags: [], aliases: [], body: 'Body' }), undefined);
+  const loaded = initialEditorLifecycle('abcdef12', 'Original title');
+  const savedEditor = validatedCanonicalEditorSnapshot({ title: 'Saved title', tags: ['tag'], aliases: ['alias'], body: 'Saved body' });
+  const savedLifecycle = directWriteCompleted(loaded, '12345678', savedEditor?.title, false);
+  assert.deepEqual(savedEditor, { title: 'Saved title', tags: ['tag'], aliases: ['alias'], body: 'Saved body' });
+  assert.equal(savedLifecycle?.persistedTitle, 'Saved title');
+  assert.equal(liveEditorValuesAreDirty(savedEditor, savedEditor), false);
+  assert.throws(() => validatedCanonicalEditorSnapshot({ title: '   ', tags: [], aliases: [], body: 'Body' }));
 });
 
 test('direct-save snapshots apply shared title, list, and body normalization', () => {
