@@ -1,5 +1,7 @@
 import { AppHeader } from "@/components/AppHeader";
-import { CatalogueRefresh } from "@/components/CatalogueRefresh";
+import { CatalogueRefreshControls } from "@/components/CatalogueRefresh";
+import { CatalogueHealthSummary } from "@/components/CatalogueHealthSummary";
+import { catalogueRefreshAvailability } from "@/lib/diagnostics-model";
 import { requireDiagnosticsAccess } from "@/lib/auth";
 import { generateRepositoryDiagnostics } from "@/lib/repository-diagnostics";
 
@@ -8,14 +10,15 @@ const badge = (value: string) => <span className="rounded-full bg-slate-100 px-2
 const permission = (value: { effective: boolean | "unknown"; reason: string }) => `${value.effective === "unknown" ? "unknown" : value.effective ? "granted" : "denied"} · ${value.reason.replaceAll("_", " ")}`;
 function Section({ title, children }: { title: string; children: React.ReactNode }) { return <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft dark:border-slate-800 dark:bg-slate-900"><h2 className="text-lg font-black">{title}</h2><div className="mt-3 space-y-2 text-sm">{children}</div></section>; }
 export default async function DiagnosticsPage() {
-  const session = await requireDiagnosticsAccess(); const d = await generateRepositoryDiagnostics(session);
+  const session = await requireDiagnosticsAccess(); const d = await generateRepositoryDiagnostics(session); const refreshAvailability = catalogueRefreshAvailability(d);
   return <><AppHeader login={session.login} currentPath="/diagnostics" /><main className="mx-auto min-h-screen max-w-5xl px-4 py-6 sm:px-6"><div><p className="text-sm font-bold uppercase tracking-[.25em] text-sky-700 dark:text-orange-300">Protected operations</p><h1 className="text-3xl font-black">Repository diagnostics</h1></div><p className="mt-3 text-sm text-slate-500">Generated <time dateTime={d.generatedAt}>{d.generatedAt}</time> · Overall {badge(d.overall)}</p>
   <section aria-labelledby="catalogue-health-heading" className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-soft dark:border-slate-800 dark:bg-slate-900">
     <h2 id="catalogue-health-heading" className="text-lg font-black">Catalogue health</h2>
     <div className="mt-3 space-y-3 text-sm">
-      <p>Catalogue state: {badge(d.cache.state)}</p>
-      <p>Last successful refresh: {d.cache.refreshedAt ? <time dateTime={d.cache.refreshedAt}>{d.cache.refreshedAt}</time> : "unknown"}</p>
-      <CatalogueRefresh refreshedAt={d.cache.refreshedAt ?? d.generatedAt} cacheState={d.cache.state === "fresh" || d.cache.state === "stale" || d.cache.state === "degraded" ? d.cache.state : "refreshed"} />
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <CatalogueHealthSummary cache={d.cache} />
+        <CatalogueRefreshControls availability={refreshAvailability} />
+      </div>
     </div>
   </section>
   <div className="mt-6 grid gap-4 md:grid-cols-2">

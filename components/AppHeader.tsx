@@ -36,7 +36,6 @@ export function AppHeader({ login, currentPath }: { login: string; currentPath: 
             </ul>
           </nav>
           <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-3">
-            <span className="hidden max-w-32 truncate text-xs font-semibold text-slate-600 sm:inline dark:text-slate-300">@{login}</span>
             <ThemeToggle />
             <SignOutButton login={login} />
           </div>

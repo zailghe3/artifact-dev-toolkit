@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CopyButton } from "@/components/CopyButton";
-import { AppHeader } from "@/components/AppHeader";
+import { ProtectedArtifactShell } from "@/components/ProtectedArtifactShell";
 import { VariationForm } from "@/components/VariationForm";
 import { ProposalForm } from "@/components/ProposalForm";
 import { CatalogueStatus } from "@/components/CatalogueStatus";
@@ -17,15 +17,13 @@ export const dynamic = "force-dynamic";
 export default async function ArtifactPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const { session, access } = await requireRepositoryAccess(`/artifacts/${encodeURIComponent(id)}`);
-  let result; try { result = await getArtifactWithRevision(access, id); } catch (error) { if (!isExpectedOperationalError(error)) throw error; return <main className="mx-auto min-h-screen max-w-4xl px-4 py-8"><OperationalState state={mapOperationalError(error)} /></main>; }
+  let result; try { result = await getArtifactWithRevision(access, id); } catch (error) { if (!isExpectedOperationalError(error)) throw error; return <ProtectedArtifactShell login={session.login} currentPath={`/artifacts/${encodeURIComponent(id)}`}><OperationalState state={mapOperationalError(error)} /></ProtectedArtifactShell>; }
   if (!result) notFound();
   const { artifact, currentFileSha, catalogue } = result;
   const html = await markdownToHtml(artifact.body);
 
   return (
-    <>
-    <AppHeader login={session.login} currentPath={`/artifacts/${encodeURIComponent(id)}`} />
-    <main className="mx-auto min-h-screen max-w-4xl px-4 py-6 sm:px-6 lg:px-8">
+    <ProtectedArtifactShell login={session.login} currentPath={`/artifacts/${encodeURIComponent(id)}`}>
       <div className="mb-4">
         <Link href="/" className="rounded-lg text-sm font-semibold text-sky-700 transition hover:text-sky-900 focus:outline-none focus:ring-4 focus:ring-sky-200 dark:text-orange-300 dark:hover:text-orange-200 dark:focus:ring-orange-500/35">← Back to artifacts</Link>
       </div>
@@ -47,7 +45,6 @@ export default async function ArtifactPage({ params }: { params: Promise<{ id: s
       </article>
       <VariationForm artifactId={artifact.id} defaultBody={artifact.body} defaultTitle={artifact.title} />
       {artifact.status === "production" && currentFileSha ? <ProposalForm artifact={artifact} currentFileSha={currentFileSha} /> : null}
-    </main>
-    </>
+    </ProtectedArtifactShell>
   );
 }
