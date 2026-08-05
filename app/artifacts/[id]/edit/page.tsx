@@ -2,8 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArtifactEditor } from "@/components/ArtifactEditor";
 import { OperationalState } from "@/components/OperationalState";
-import { SignOutButton } from "@/components/SignOutButton";
-import { ThemeToggle } from "@/components/ThemeToggle";
+import { AppHeader } from "@/components/AppHeader";
 import { getArtifactWithRevision, getTagSuggestions } from "@/lib/artifacts";
 import { isExpectedOperationalError, mapOperationalError } from "@/lib/operational-errors";
 import { requireRepositoryAccess } from "@/lib/auth";
@@ -16,5 +15,5 @@ export default async function EditArtifactPage({ params }: { params: Promise<{ i
   if (!artifactRead.value) notFound();
   if (suggestionRead.status === "rejected" && !isExpectedOperationalError(suggestionRead.reason)) throw suggestionRead.reason;
   const result = artifactRead.value; const tagSuggestions = suggestionRead.status === "fulfilled" ? suggestionRead.value : []; const tagSuggestionsUnavailable = suggestionRead.status === "rejected";
-  return <main className="mx-auto min-h-screen max-w-4xl px-4 py-8 sm:px-6"><div className="mb-5 flex items-center justify-between gap-4"><Link href={`/artifacts/${encodeURIComponent(id)}`} className="font-semibold text-sky-700 dark:text-orange-300">← Back to artifact</Link><div className="flex items-center gap-4"><SignOutButton login={session.login} /><ThemeToggle /></div></div><ArtifactEditor artifact={result.artifact} currentFileSha={result.currentFileSha} tagSuggestions={tagSuggestions} tagSuggestionsUnavailable={tagSuggestionsUnavailable} /></main>;
+  return <><AppHeader login={session.login} currentPath={`/artifacts/${encodeURIComponent(id)}/edit`} /><main className="mx-auto min-h-screen max-w-4xl px-4 py-6 sm:px-6"><div className="mb-5"><Link href={`/artifacts/${encodeURIComponent(id)}`} className="font-semibold text-sky-700 dark:text-orange-300">← Back to artifact</Link></div><ArtifactEditor artifact={result.artifact} currentFileSha={result.currentFileSha} tagSuggestions={tagSuggestions} tagSuggestionsUnavailable={tagSuggestionsUnavailable} /></main></>;
 }
