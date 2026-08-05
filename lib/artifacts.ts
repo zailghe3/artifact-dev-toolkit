@@ -4,6 +4,7 @@ import { createArtifactRepository, getArtifactRepositoryBackend, type Artifact, 
 import type { RepositoryAccessContext } from "@/lib/repository-authorization";
 import { completeWriteWithInvalidation } from "@/lib/artifact-cache-invalidation";
 import { localArtifactDetail } from "@/lib/catalogue-presentation";
+import { collectTagSuggestions } from "@/lib/tag-suggestions";
 export { completeWriteWithInvalidation } from "@/lib/artifact-cache-invalidation";
 
 export type { Artifact, ArtifactStatus, ArtifactCatalogueResult };
@@ -44,6 +45,7 @@ export async function inspectArtifactCatalogueCache(access: RepositoryAccessCont
 export async function getArtifactRepositoryDiagnostics(access: RepositoryAccessContext, revision?: string) { const repository = getRepository(access); if (!repository.diagnoseCatalogue) return undefined; return repository.diagnoseCatalogue(revision); }
 export async function getArtifactBaseRevision(access: RepositoryAccessContext) { return getRepository(access).getBaseRevision(); }
 export async function getArtifacts(access: RepositoryAccessContext): Promise<Artifact[]> { return (await getArtifactCatalogue(access)).artifacts; }
+export async function getTagSuggestions(access: RepositoryAccessContext) { return collectTagSuggestions(await getArtifacts(access)); }
 export async function getArtifact(access: RepositoryAccessContext, id: string) { return getArtifactRepositoryBackend() === "file" ? getRepository(access).findById(id) : (await getService(access)).findByIdWithRevision(id).then((value) => value?.artifact); }
 export async function getArtifactWithRevision(access: RepositoryAccessContext, id: string) {
   if (getArtifactRepositoryBackend() === "file") { const artifact = await getRepository(access).findById(id); return artifact ? localArtifactDetail(artifact, new Date().toISOString()) : undefined; }

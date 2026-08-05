@@ -1,0 +1,39 @@
+{
+  "requestId": "edit-004-tag-autocomplete",
+  "featureId": "EDIT-004",
+  "title": "Add accessible tag autocomplete and chip removal",
+  "priority": "high",
+  "objective": "Improve tag editing during artifact creation and editing by replacing the basic tag value list with an accessible catalogue-backed autocomplete field while preserving GitHub as the durable source of truth and all EDIT-003 lifecycle behaviour.",
+  "userContext": "Authorised users creating or maintaining artifacts should be able to reuse existing catalogue tags quickly, remove selected tags with accessible chip controls, and still create a free-form tag when the catalogue has no suitable value.",
+  "currentBehaviour": "ArtifactEditor uses the same basic ValueList for tags and aliases. Tags render as whole-value remove buttons plus a separate input and Add button, provide no catalogue suggestions, and do not support combobox keyboard navigation. Creation and editing pages do not pass catalogue tag vocabulary to the editor.",
+  "requiredBehaviour": "Provide a focused tags-only combobox backed by tags already visible in the authorised artifact catalogue. Selected tags appear as compact chips with separate remove buttons. Typing filters existing tags; mouse, touch, and keyboard can select suggestions; Enter can create a trimmed free-form tag when no active suggestion is selected. The existing alias control, validation, revision handling, direct write, proposal, cache, authentication, and authorization policies remain unchanged.",
+  "userExperience": "The Tags field shows existing selections as chips and an input with screen-reader instructions. Users can remove an individual tag through a visible cross button, search existing catalogue tags, choose one from a listbox, or create a new tag. If suggestions are temporarily unavailable, the editor explains that free-form tag entry still works.",
+  "functionalRequirements": [
+    "Create a dedicated controlled tag autocomplete component without adding a third-party UI dependency.",
+    "Derive tag suggestions server-side from the complete authorised catalogue and pass only the safe vocabulary to ArtifactEditor.",
+    "Aggregate trimmed non-empty exact tag strings, count usage, preserve stored casing, and avoid mutating artifacts.",
+    "Filter suggestions case-insensitively, exclude exact selected values, prefer prefix matches over substring matches, sort by usage count and case-insensitive alphabetical tie-breaker, and limit displayed options.",
+    "Support Arrow Down, Arrow Up, Enter, Escape, pointer selection, and normal Tab behaviour in an accessible combobox/listbox pattern.",
+    "Allow free-form tag creation without forced lowercase conversion, comma splitting, new taxonomy persistence, or new validation rules.",
+    "Keep aliases on the existing add/remove control without autocomplete.",
+    "Preserve EDIT-003 lifecycle save, preview, proposal, deletion, validation, authorization, cache invalidation, and conflict behaviour."
+  ],
+  "technicalConsiderations": [
+    "Likely surfaces include components/TagCombobox.tsx, a pure tag suggestion helper, ArtifactEditor props, /artifacts/new, /artifacts/{id}/edit, Node tests, README, and the current application specification.",
+    "Do not introduce a client-side tags endpoint, database table, KV taxonomy, browser repository read, dependency, lockfile, workflow, deployment, D1, permission, secret, or separate artifact repository change."
+  ],
+  "outOfScope": [
+    "Global tag rename, deleting or merging tags across artifacts, taxonomy administration, controlled-vocabulary enforcement, tag descriptions or colours, ownership, analytics, bulk tagging, tag filtering routes, alias autocomplete, and AI tag recommendations."
+  ],
+  "acceptanceCriteria": [
+    "Artifact creation and editing show tags as compact chips with tag-specific accessible remove buttons.",
+    "The Tags input exposes combobox/listbox semantics and supports keyboard and pointer selection.",
+    "Suggestions come from authorised catalogue tags, are ranked and filtered as specified, and never require a client-side unauthenticated fetch.",
+    "Free-form tags remain supported when no existing suggestion is suitable or suggestions are unavailable.",
+    "Tag changes save through the existing draft/archived direct-write and production proposal policies.",
+    "Aliases keep their existing add/remove behaviour without suggestions.",
+    "Focused helper, mutation, keyboard-state, and accessibility-oriented tests cover the new behaviour.",
+    "No dependency, lockfile, workflow, deployment, D1, KV, secret, permission, or separate-repository changes are included."
+  ],
+  "codexGuidance": "Implement as EDIT-004 from current main. Keep this independent of EDIT-003 follow-ups and do not mutate zailghe3/fpo-artifacts."
+}
