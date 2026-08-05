@@ -26,7 +26,7 @@ Start from any artifact, edit a prefilled title and body, and preview the render
 
 ### Create and edit artifacts
 
-Create a draft artifact from scratch with a suggested, editable stable ID. After it is saved, its ID and type are locked. Draft and archived artifacts can be edited directly, including adding or removing tags and aliases; production edits create a pull request instead.
+Create a draft artifact from scratch with a suggested, editable stable ID. After it is saved, its ID and type are locked. Draft and archived artifacts can be edited directly, including catalogue-backed tag autocomplete with accessible removable tag chips; production edits create a pull request instead.
 
 ### Delete artifacts safely
 

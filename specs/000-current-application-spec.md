@@ -186,6 +186,9 @@ The generated ID contains:
   * repository file SHA.
 * The user can modify the title, tags, aliases, and body.
 
+* Tags use a catalogue-backed autocomplete during creation and editing. The server derives suggestions from tag values visible in the authorised artifact catalogue and passes only that safe vocabulary to the client editor. Users can still create free-form tags; unavailable suggestion loading degrades to a short non-blocking note without disabling tag entry.
+* Selected tags are displayed as compact chips with separate accessible remove buttons so a tag can be removed without making the whole chip a button. Tag changes continue through the existing policy: draft and archived saves write directly with the active file SHA, while production tag changes create reviewable update proposals and do not invalidate the base-branch catalogue.
+
 ### 5.3 Proposal preview
 
 * The proposed metadata and rendered body can be previewed before submission.
