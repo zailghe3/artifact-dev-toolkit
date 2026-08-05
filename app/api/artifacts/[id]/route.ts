@@ -7,6 +7,7 @@ import { artifactWriteErrorResponse } from "@/lib/artifact-write-http";
 import { deleteArtifact, getArtifactWithRevision, updateArtifact } from "@/lib/artifacts";
 import { handleDirectDeletion } from "@/lib/deletion-route-handler";
 import { ArtifactRepositoryAccessError, ArtifactRepositoryUnavailableError } from "@/lib/artifact-repository";
+import { canonicalEditorSnapshot } from "@/lib/artifact-editor-helpers";
 
 const payloadSchema = z.object({ metadata: artifactFrontMatterSchema, body: z.string().min(1), currentFileSha: z.string().min(1) });
 
@@ -33,7 +34,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (!payload.success) return NextResponse.json({ error: "Artifact input is invalid", code: "validation_failed" }, { status: 400, headers: noStoreHeaders });
   try {
     const result = await updateArtifact(authorization.access, { id: (await params).id, ...payload.data, actorLogin: authorization.session.login });
-    return NextResponse.json({ ...result, canonicalTitle: normalizeArtifactMetadata(payload.data.metadata).title }, { headers: noStoreHeaders });
+    const canonical = canonicalEditorSnapshot({ ...payload.data.metadata, body: payload.data.body });
+    return NextResponse.json({ ...result, canonicalTitle: normalizeArtifactMetadata(payload.data.metadata).title, canonicalEditor: canonical }, { headers: noStoreHeaders });
   } catch (error) { return artifactWriteErrorResponse(error); }
 }
 

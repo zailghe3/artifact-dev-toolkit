@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { directDeletionCompleted, directWriteCompleted, editorDeletionSnapshot, editorRequestAllowed, initialEditorLifecycle, proposalCompleted, validFileSha } from '../lib/artifact-editor-helpers.ts';
+import { canonicalEditorSnapshot, directDeletionCompleted, directWriteCompleted, editorDeletionSnapshot, editorRequestAllowed, editorValuesAreDirty, initialEditorLifecycle, proposalCompleted, validFileSha } from '../lib/artifact-editor-helpers.ts';
 import { deletionConfirmation, deletionRequest } from '../lib/deletion-ui.ts';
 
 test('direct edits advance the active revision used by later operations', () => {
@@ -63,4 +63,23 @@ test('proposal and failed response transitions never advance persisted identity'
   const snapshot = editorDeletionSnapshot(loaded, { id: 'artifact-id', status: 'production' });
   assert.match(deletionConfirmation(snapshot).heading, /Original title \(artifact-id\)/);
   assert.deepEqual(deletionRequest(snapshot), { endpoint: '/api/artifacts/artifact-id/deletion-proposal', method: 'POST', body: { currentFileSha: 'abcdef12' } });
+});
+
+test('canonical dirty state clears after reverting every editable value', () => {
+  const persisted = canonicalEditorSnapshot({ title: 'Original', tags: ['one'], aliases: ['alias'], body: 'Body' });
+  assert.equal(editorValuesAreDirty(canonicalEditorSnapshot({ ...persisted, title: 'Changed' }), persisted), true);
+  assert.equal(editorValuesAreDirty(canonicalEditorSnapshot({ title: ' Original ', tags: [' one '], aliases: ['alias'], body: '\nBody\n' }), persisted), false);
+});
+
+test('direct-save snapshots apply shared title, list, and body normalization', () => {
+  const saved = canonicalEditorSnapshot({ title: '  Saved title  ', tags: [' tag ', 'tag', 'two'], aliases: [' alias ', '', 'alias'], body: '\n Saved body \n' });
+  assert.deepEqual(saved, { title: 'Saved title', tags: ['tag', 'two'], aliases: ['alias'], body: 'Saved body' });
+  assert.equal(editorValuesAreDirty(saved, saved), false);
+});
+
+test('preview, failed save, and proposal do not advance the persisted editor snapshot', () => {
+  const persisted = canonicalEditorSnapshot({ title: 'Base', tags: [], aliases: [], body: 'Base body' });
+  const edited = canonicalEditorSnapshot({ ...persisted, body: 'Proposed body' });
+  assert.equal(editorValuesAreDirty(edited, persisted), true);
+  for (const unchanged of [persisted, persisted, persisted]) assert.equal(editorValuesAreDirty(edited, unchanged), true);
 });

@@ -1,7 +1,21 @@
 import { slugify } from "./artifact-id.ts";
+import { normalizeArtifactMetadata } from "./artifact-contract.ts";
 import type { Artifact } from "./artifact-repository.ts";
 import type { DeletionSnapshot } from "./deletion-ui.ts";
 export function normalizeEditorValues(values: string[]) { return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean))); }
+export type CanonicalEditorSnapshot = { title: string; tags: string[]; aliases: string[]; body: string };
+export function canonicalEditorSnapshot(values: { title: string; tags: string[]; aliases: string[]; body: string }): CanonicalEditorSnapshot {
+  const metadata = normalizeArtifactMetadata({ id: "editor", type: "prompt", status: "draft", title: values.title, tags: values.tags, aliases: values.aliases });
+  return { title: metadata.title, tags: metadata.tags, aliases: metadata.aliases, body: values.body.trim() };
+}
+export function editorValuesAreDirty(current: CanonicalEditorSnapshot, persisted: CanonicalEditorSnapshot) { return JSON.stringify(current) !== JSON.stringify(persisted); }
+export function validatedCanonicalEditorSnapshot(value: unknown): CanonicalEditorSnapshot | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const candidate = value as Partial<CanonicalEditorSnapshot>;
+  if (typeof candidate.title !== "string" || typeof candidate.body !== "string" || !Array.isArray(candidate.tags) || !candidate.tags.every((item) => typeof item === "string") || !Array.isArray(candidate.aliases) || !candidate.aliases.every((item) => typeof item === "string")) return undefined;
+  const canonical = canonicalEditorSnapshot(candidate as CanonicalEditorSnapshot);
+  return editorValuesAreDirty(canonical, candidate as CanonicalEditorSnapshot) ? undefined : canonical;
+}
 export function suggestedArtifactId(title: string, manuallyEdited: boolean, currentId: string) { return manuallyEdited ? currentId : slugify(title); }
 
 export type EditorLifecycleState = { activeFileSha?: string; persistedTitle?: string; completedCreation: boolean; deleted: boolean };

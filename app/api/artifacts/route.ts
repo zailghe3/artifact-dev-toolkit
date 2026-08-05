@@ -7,6 +7,7 @@ import { artifactFrontMatterSchema, normalizeArtifactMetadata } from "@/lib/arti
 import { artifactWriteErrorResponse } from "@/lib/artifact-write-http";
 import { z } from "zod";
 import { mapOperationalError } from "@/lib/operational-errors";
+import { canonicalEditorSnapshot } from "@/lib/artifact-editor-helpers";
 
 const writePayloadSchema = z.object({ metadata: artifactFrontMatterSchema, body: z.string().min(1) });
 
@@ -19,7 +20,8 @@ export async function POST(request: Request) {
   if (!payload.success) return NextResponse.json({ error: "Artifact input is invalid", code: "validation_failed" }, { status: 400, headers: noStoreHeaders });
   try {
     const result = await createArtifact(authorization.access, { ...payload.data, actorLogin: authorization.session.login });
-    return NextResponse.json({ ...result, canonicalTitle: normalizeArtifactMetadata(payload.data.metadata).title }, { status: 201, headers: noStoreHeaders });
+    const canonical = canonicalEditorSnapshot({ ...payload.data.metadata, body: payload.data.body });
+    return NextResponse.json({ ...result, canonicalTitle: normalizeArtifactMetadata(payload.data.metadata).title, canonicalEditor: canonical }, { status: 201, headers: noStoreHeaders });
   } catch (error) { return artifactWriteErrorResponse(error); }
 }
 

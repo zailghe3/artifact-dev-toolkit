@@ -172,6 +172,7 @@ The generated ID contains:
 * New base artifacts are drafts. Their suggested stable ID remains editable until the first successful save, after which ID and type are immutable and duplicate creation is prevented.
 * The shared preview covers creation and editing without writing. Title, tags, aliases, and body are editable; ID, type, status, source relationship, and creation timestamp are immutable for stored artifacts.
 * Draft and archived updates are direct writes. The editor validates and adopts each returned file SHA, so subsequent previews, saves, and deletion use the exact active revision.
+* Unsaved state compares canonically normalized title, tags, aliases, and trimmed body with the latest directly persisted editor snapshot. Preview, failed writes, and production proposals do not advance that snapshot; a successful direct write adopts the server-returned canonical values.
 
 ### 5.2 Proposal editor
 
@@ -217,6 +218,7 @@ The deterministic branch format is:
 
 * Production deletion uses a deterministic `artifact-delete/{artifact-id}-{revision}` branch; direct draft and archived deletion uses the exact loaded revision and requires explicit confirmation. Confirmation identifies the artifact title persisted at that active revision and explicitly excludes unsaved editor changes and unmerged proposal edits.
 * An existing branch is inspected before further mutation. Its single base parent, actual recursive tree, exact target result, every unrelated blob or gitlink, and matching open pull request are verified.
+* If the single deterministic branch-ref creation attempt returns a 409 or 422 collision, the branch ref is read once and passed through the same exact update or deletion resolver; branch creation and other uncertain mutations are never replayed.
 * An identical existing proposal can return its existing pull request.
 * A conflicting branch returns a proposal-collision error.
 * When the proposal branch exists but pull-request creation is incomplete, the response provides a validated branch recovery link.
