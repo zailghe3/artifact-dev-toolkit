@@ -3,7 +3,7 @@
 **Document status:** Baseline specification of the implemented application  
 **Application version:** 0.1.0  
 **Scope:** Current features only; this document is not a roadmap  
-**Last updated:** 2026-08-04
+**Last updated:** 2026-08-05
 
 ## 1. Authentication and repository access
 
@@ -48,12 +48,9 @@
 
 * The library loads a validated collection of artifacts after repository access is established.
 * Artifacts are sorted alphabetically by title.
-* The library displays:
-
-  * the total artifact count;
-  * the production artifact count;
-  * the current catalogue refresh state;
-  * the last successful refresh time.
+* The artifact workspace uses a compact page header that displays the `Artifacts` heading, the total artifact count, the production artifact count, and the `Create artifact` action.
+* Search is the first primary content block after the workspace header, except when stale or degraded catalogue health requires a compact warning.
+* Normal fresh or refreshed catalogue state does not occupy persistent space in the artifact workflow.
 
 ### 2.2 Artifact cards
 
@@ -395,12 +392,12 @@ Fresh GitHub content can be served in degraded mode when KV is temporarily unava
 
 ### 7.4 Manual controls
 
-The library provides:
+Diagnostics provides the manual catalogue controls:
 
 * Refresh, which forces a repository revision check;
 * Full rebuild, which reloads the complete repository catalogue.
 
-Refresh failure leaves the current catalogue in place.
+Refresh failure leaves the current catalogue in place. The artifact workspace links to Diagnostics only for exceptional stale or degraded catalogue states and does not duplicate the refresh controls.
 
 ### 7.5 Write invalidation
 
@@ -441,6 +438,9 @@ Diagnostics reports:
 * effective Pull requests write permission;
 * current repository revision;
 * catalogue cache state;
+* last successful catalogue refresh time;
+* manual catalogue Refresh and Full rebuild controls;
+* stale and degraded catalogue explanations;
 * repository artifact validation results;
 * overall operational state.
 
@@ -483,7 +483,12 @@ Operational states provide an explanation, recovery guidance, retry behavior whe
 
 ### 9.1 Responsive interface
 
+* Protected application pages use a shared compact application header with the product identity `Artifact Toolkit`, the purpose line `Manage reusable work assets` on sufficiently wide screens, primary navigation, signed-in user information, theme control, and sign-out control.
+* Primary navigation is declared through a reusable navigation model and initially links to `Artifacts` and `Diagnostics`. Active links use a visible active treatment and `aria-current="page"`.
+* The header uses semantic `<header>` and `<nav aria-label="Primary">` landmarks. Navigation links route between pages and are not implemented as ARIA tabs.
+* On mobile, account controls remain in the first row while the primary navigation is keyboard-reachable in a horizontally scrollable, non-wrapping second row that avoids whole-page overflow.
 * Application content uses constrained, responsive layouts.
+* The artifact workspace avoids a promotional hero. Its compact feature header keeps the `Create artifact` link inside the artifact feature area rather than in global navigation.
 * Artifact results use card-based presentation.
 * Status, type, and tags use visual badges.
 * Interactive controls provide hover and focus states.

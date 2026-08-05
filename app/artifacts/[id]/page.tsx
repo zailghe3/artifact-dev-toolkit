@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CopyButton } from "@/components/CopyButton";
-import { SignOutButton } from "@/components/SignOutButton";
-import { ThemeToggle } from "@/components/ThemeToggle";
+import { AppHeader } from "@/components/AppHeader";
 import { VariationForm } from "@/components/VariationForm";
 import { ProposalForm } from "@/components/ProposalForm";
 import { CatalogueStatus } from "@/components/CatalogueStatus";
@@ -24,10 +23,11 @@ export default async function ArtifactPage({ params }: { params: Promise<{ id: s
   const html = await markdownToHtml(artifact.body);
 
   return (
-    <main className="mx-auto min-h-screen max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
-        <Link href="/" className="rounded-lg text-sm font-semibold text-sky-700 transition hover:text-sky-900 focus:outline-none focus:ring-4 focus:ring-sky-200 dark:text-orange-300 dark:hover:text-orange-200 dark:focus:ring-orange-500/35">← Back to library</Link>
-        <div className="flex items-center gap-4"><SignOutButton login={session.login} /><ThemeToggle /></div>
+    <>
+    <AppHeader login={session.login} currentPath={`/artifacts/${encodeURIComponent(id)}`} />
+    <main className="mx-auto min-h-screen max-w-4xl px-4 py-6 sm:px-6 lg:px-8">
+      <div className="mb-4">
+        <Link href="/" className="rounded-lg text-sm font-semibold text-sky-700 transition hover:text-sky-900 focus:outline-none focus:ring-4 focus:ring-sky-200 dark:text-orange-300 dark:hover:text-orange-200 dark:focus:ring-orange-500/35">← Back to artifacts</Link>
       </div>
       <CatalogueStatus refreshedAt={catalogue.refreshedAt} cacheState={catalogue.cacheState} />
       <article className="my-6 rounded-[2rem] border border-slate-200 bg-white p-6 shadow-soft dark:border-slate-800 dark:bg-slate-900 sm:p-8">
@@ -48,5 +48,6 @@ export default async function ArtifactPage({ params }: { params: Promise<{ id: s
       <VariationForm artifactId={artifact.id} defaultBody={artifact.body} defaultTitle={artifact.title} />
       {artifact.status === "production" && currentFileSha ? <ProposalForm artifact={artifact} currentFileSha={currentFileSha} /> : null}
     </main>
+    </>
   );
 }

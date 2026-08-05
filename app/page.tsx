@@ -1,42 +1,39 @@
+import { AppHeader } from "@/components/AppHeader";
 import { ArtifactSearch } from "@/components/ArtifactSearch";
-import { SignOutButton } from "@/components/SignOutButton";
-import { ThemeToggle } from "@/components/ThemeToggle";
-import { CatalogueRefresh } from "@/components/CatalogueRefresh";
+import { OperationalState } from "@/components/OperationalState";
 import { getArtifactCatalogue } from "@/lib/artifacts";
 import { requireRepositoryAccess } from "@/lib/auth";
-import Link from "next/link";
-import { OperationalState } from "@/components/OperationalState";
 import { isExpectedOperationalError, mapOperationalError } from "@/lib/operational-errors";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
+function CatalogueWarning({ cacheState }: { cacheState: "fresh" | "refreshed" | "stale" | "degraded" }) {
+  if (cacheState === "stale") return <p role="alert" className="mb-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900 dark:border-amber-500/50 dark:bg-amber-500/10 dark:text-amber-200">Catalogue data may be stale. <Link href="/diagnostics" className="underline decoration-2 underline-offset-4">View Diagnostics</Link></p>;
+  if (cacheState === "degraded") return <p role="status" className="mb-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900 dark:border-amber-500/50 dark:bg-amber-500/10 dark:text-amber-200">Catalogue caching is temporarily unavailable. <Link href="/diagnostics" className="underline decoration-2 underline-offset-4">View Diagnostics</Link></p>;
+  return null;
+}
+
 export default async function Home() {
   const { session, access } = await requireRepositoryAccess("/");
-  let catalogue; try { catalogue = await getArtifactCatalogue(access); } catch (error) { if (!isExpectedOperationalError(error)) throw error; return <main className="mx-auto min-h-screen max-w-5xl px-4 py-8"><OperationalState state={mapOperationalError(error)} /></main>; }
+  let catalogue; try { catalogue = await getArtifactCatalogue(access); } catch (error) { if (!isExpectedOperationalError(error)) throw error; return <><AppHeader login={session.login} currentPath="/" /><main className="mx-auto min-h-screen max-w-5xl px-4 py-8"><OperationalState state={mapOperationalError(error)} /></main></>; }
   const artifacts = catalogue.artifacts;
   const productionCount = artifacts.filter((artifact) => artifact.status === "production").length;
 
   return (
-    <main className="mx-auto min-h-screen max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
-      <div className="mb-4 flex items-center justify-between gap-4">
-        <SignOutButton login={session.login} />
-        <div className="flex items-center gap-4"><Link href="/artifacts/new" className="rounded-xl bg-sky-700 px-4 py-2 text-sm font-semibold text-white">Create artifact</Link><Link href="/diagnostics" className="text-sm font-semibold text-sky-700 dark:text-orange-300">Diagnostics</Link><ThemeToggle /></div>
-      </div>
-      <section className="mb-8 rounded-[2rem] bg-ink p-6 text-white dark:border dark:border-orange-500/20 dark:bg-slate-950 shadow-soft sm:p-10">
-        <p className="text-sm font-semibold uppercase tracking-[0.35em] text-sky-200 dark:text-orange-300">Artifact Library</p>
-        <div className="mt-5 grid gap-6 md:grid-cols-[1fr_auto] md:items-end">
+    <>
+      <AppHeader login={session.login} currentPath="/" />
+      <main className="mx-auto min-h-screen max-w-5xl px-4 py-6 sm:px-6 lg:px-8">
+        <section aria-labelledby="artifacts-heading" className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h1 className="text-3xl font-black tracking-tight sm:text-5xl">Find, copy, and fork workday assets fast.</h1>
-            <p className="mt-3 max-w-xl text-base leading-7 text-slate-200">Reusable prompts, agents, snippets, templates, and app ideas backed by swappable storage.</p>
+            <h1 id="artifacts-heading" className="text-3xl font-black tracking-tight text-slate-950 dark:text-slate-50">Artifacts</h1>
+            <p className="mt-1 text-sm font-semibold text-slate-600 dark:text-slate-300">{artifacts.length} artifacts · {productionCount} production</p>
           </div>
-          <div className="grid grid-cols-2 gap-3 text-center sm:grid-cols-3 md:grid-cols-1">
-            <div className="rounded-2xl bg-white/10 p-4"><strong className="block text-3xl">{artifacts.length}</strong><span className="text-sm text-slate-200">total</span></div>
-            <div className="rounded-2xl bg-white/10 p-4"><strong className="block text-3xl">{productionCount}</strong><span className="text-sm text-slate-200">production</span></div>
-          </div>
-        </div>
-      </section>
-      {catalogue.cacheEnabled === false ? null : <CatalogueRefresh refreshedAt={catalogue.refreshedAt} cacheState={catalogue.cacheState} />}
-      <ArtifactSearch artifacts={artifacts} />
-    </main>
+          <Link href="/artifacts/new" className="inline-flex min-h-11 items-center justify-center rounded-xl bg-sky-700 px-4 py-2 text-sm font-bold text-white shadow-sm outline-none transition hover:bg-sky-800 focus:ring-4 focus:ring-sky-200 dark:bg-orange-500 dark:text-slate-950 dark:hover:bg-orange-400 dark:focus:ring-orange-500/35 sm:w-auto motion-reduce:transition-none">+ Create artifact</Link>
+        </section>
+        <CatalogueWarning cacheState={catalogue.cacheState} />
+        <ArtifactSearch artifacts={artifacts} />
+      </main>
+    </>
   );
 }
