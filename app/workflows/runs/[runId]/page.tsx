@@ -1,0 +1,1 @@
+export default async function Page({params}:{params:Promise<{runId:string}>}){const {runId}=await params;return <><h1 className="text-3xl font-black">Workflow run</h1><p className="mt-4">Run <code>{runId}</code> is unavailable.</p></>}

@@ -118,3 +118,5 @@ See [GitHub artifact deployment](docs/github-artifact-deployment.md) for deploym
 | [GitHub artifact deployment](docs/github-artifact-deployment.md) | Production architecture, configuration, and operations |
 | [Development workflow](docs/development-workflow.md) | Maintainer workflow and delivery process |
 | [Dependency and toolchain maintenance](docs/dependency-toolchain-maintenance.md) | Runtime baseline and dependency maintenance policy |
+
+**Feature status:** WF-001 adds a bounded durable sequential-agent workflow walking skeleton with a deterministic test adapter; no real AI provider is integrated.

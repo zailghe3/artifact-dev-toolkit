@@ -1,0 +1,2 @@
+import { NextResponse } from "next/server"; import { requireRepositoryAuthorization } from "@/lib/auth"; import { listConnectionDescriptors } from "@/lib/workflow-connections"; import { noStoreHeaders } from "@/lib/auth-core";
+export async function GET(){await requireRepositoryAuthorization("/workflows/connections");return NextResponse.json({connections:listConnectionDescriptors()},{headers:noStoreHeaders});}

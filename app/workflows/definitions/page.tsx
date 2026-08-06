@@ -1,0 +1,1 @@
+import Link from "next/link"; export default function Page(){return <><h1 className="text-3xl font-black">Workflow definitions</h1><p className="mt-4">No workflow definitions yet.</p><Link className="underline" href="/workflows/definitions/new">Create workflow</Link></>}

@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "main": ".open-next/worker.js",
+  "main": "cloudflare-worker.ts",
   "name": "fpo-adt",
   "compatibility_date": "2026-07-09",
   "compatibility_flags": [
@@ -32,6 +32,13 @@
       "database_name": "fpo-adt-db",
       "database_id": "85c16b35-40d2-4374-936c-de17f0d63114",
       "migrations_dir": "migrations"
+    }
+  ],
+  "workflows": [
+    {
+      "binding": "AGENT_RUN_WORKFLOW",
+      "name": "fpo-adt-agent-run",
+      "class_name": "AgentRunWorkflow"
     }
   ],
   "observability": {

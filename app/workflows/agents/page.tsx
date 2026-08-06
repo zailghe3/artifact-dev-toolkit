@@ -1,0 +1,1 @@
+import Link from "next/link"; export default function Page(){return <><h1 className="text-3xl font-black">Agents</h1><p className="mt-4">No draft agents yet.</p><Link className="underline" href="/workflows/agents/new">Create agent</Link></>}

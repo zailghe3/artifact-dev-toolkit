@@ -15,14 +15,15 @@ const textCount = (html, text) => (html.match(new RegExp(text.replace(/[.*+?^${}
 
 test('primary navigation exposes expected route destinations and future-friendly model', () => {
   assert.equal(applicationIdentity.name, 'Artifact Toolkit');
-  assert.deepEqual(primaryNavigation.map(({ label, href }) => [label, href]), [['Artifacts', '/'], ['Diagnostics', '/diagnostics']]);
+  assert.deepEqual(primaryNavigation.map(({ label, href }) => [label, href]), [['Artifacts', '/'], ['Workflows', '/workflows'], ['Diagnostics', '/diagnostics']]);
   assert.equal(primaryNavigation.some((item) => item.label === 'Create artifact'), false);
 });
 
 test('primary navigation resolves artifact and diagnostics active states', () => {
-  assert.deepEqual(primaryNavigationState('/').map(({ label, active }) => [label, active]), [['Artifacts', true], ['Diagnostics', false]]);
-  assert.deepEqual(primaryNavigationState('/artifacts/example/edit').map(({ label, active }) => [label, active]), [['Artifacts', true], ['Diagnostics', false]]);
-  assert.deepEqual(primaryNavigationState('/diagnostics').map(({ label, active }) => [label, active]), [['Artifacts', false], ['Diagnostics', true]]);
+  assert.deepEqual(primaryNavigationState('/').map(({ label, active }) => [label, active]), [['Artifacts', true], ['Workflows', false], ['Diagnostics', false]]);
+  assert.deepEqual(primaryNavigationState('/artifacts/example/edit').map(({ label, active }) => [label, active]), [['Artifacts', true], ['Workflows', false], ['Diagnostics', false]]);
+  assert.deepEqual(primaryNavigationState('/workflows/runs').map(({ label, active }) => [label, active]), [['Artifacts', false], ['Workflows', true], ['Diagnostics', false]]);
+  assert.deepEqual(primaryNavigationState('/diagnostics').map(({ label, active }) => [label, active]), [['Artifacts', false], ['Workflows', false], ['Diagnostics', true]]);
 });
 
 test('shared application header renders semantic compact navigation without duplicate identity', () => {
