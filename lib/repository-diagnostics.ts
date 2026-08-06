@@ -7,8 +7,10 @@ import { validateTokenEncryptionKey } from "./auth-configuration.ts";
 import { getPublicRepositoryConfiguration, storedRepositoryMatchesPublicConfiguration } from "./public-repository-configuration.ts";
 import { ArtifactRepositoryAccessError, ArtifactRepositoryUnavailableError } from "./artifact-repository.ts";
 import { classifyCapabilityResult, unknownPermissionCheck as unknownCheck, type PermissionCheck } from "./diagnostics-model.ts";
+import { deriveOverallDiagnosticsState } from "./diagnostics-overall.ts";
 
 export { classifyCapabilityResult } from "./diagnostics-model.ts";
+export { deriveOverallDiagnosticsState } from "./diagnostics-overall.ts";
 export type { PermissionCheck, PermissionReason } from "./diagnostics-model.ts";
 
 type SettingState = "configured" | "missing" | "invalid";
@@ -33,17 +35,6 @@ async function safeConfiguration() {
   if (authSecrets.GITHUB_TOKEN_ENCRYPTION_KEY === "configured") try { validateTokenEncryptionKey(process.env.GITHUB_TOKEN_ENCRYPTION_KEY!); } catch { authSecrets.GITHUB_TOKEN_ENCRYPTION_KEY = "invalid"; }
   if (authSecrets.GITHUB_APP_PRIVATE_KEY === "configured") try { await validateGitHubAppPrivateKey(process.env.GITHUB_APP_PRIVATE_KEY!); } catch { authSecrets.GITHUB_APP_PRIVATE_KEY = "invalid"; }
   return { backend: publicConfig.backend, ...(publicConfig.owner ? { owner: publicConfig.owner } : {}), ...(publicConfig.repository ? { repository: publicConfig.repository } : {}), branch: publicConfig.branch, artifactRoot: publicConfig.root, cacheBinding: await inspectCatalogueCacheBinding(), authSecrets };
-}
-
-export function deriveOverallDiagnosticsState(input: Pick<RepositoryDiagnostics, "configuration" | "authorization" | "permissions" | "repositoryRevision" | "cache" | "validation">): RepositoryDiagnostics["overall"] {
-  const identityMissing = input.configuration.backend === "github" && (!input.configuration.owner || !input.configuration.repository);
-  if (input.configuration.backend === "invalid" || identityMissing || Object.values(input.configuration.authSecrets).some(state => state !== "configured")) return "misconfigured";
-  if (input.authorization.repositoryMatches === false || input.authorization.liveState === "denied") return "unauthorized";
-  if (input.validation.state === "invalid") return "invalid_content";
-  if (input.permissions.contentsRead.effective === false) return "unauthorized";
-  if (input.repositoryRevision.state === "unavailable" || input.cache.state === "degraded" || input.cache.state === "unavailable") return "unavailable";
-  if (input.permissions.contentsRead.effective === "unknown" || input.permissions.contentsWrite.effective !== true || input.permissions.pullRequestsWrite.effective !== true || input.authorization.liveState === "temporarily_unavailable" || input.cache.state === "stale" || input.cache.state === "missing" || input.cache.state === "corrupt" || input.validation.state === "unavailable") return "degraded";
-  return "healthy";
 }
 
 export async function generateRepositoryDiagnostics(session: SessionRecord): Promise<RepositoryDiagnostics> {

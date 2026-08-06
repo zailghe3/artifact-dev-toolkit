@@ -388,7 +388,7 @@ The catalogue health diagnostics model presents these cache states exactly as re
 * `corrupt`;
 * `unavailable`.
 
-A real catalogue result may separately report `refreshed` after a successful refresh. Missing, corrupt, and unavailable diagnostic cache states are not presented as refreshed. When no catalogue `refreshedAt` value exists, Diagnostics displays `Last successful refresh: unknown` and does not substitute diagnostics generation time.
+A real catalogue result may separately report `refreshed` after a successful refresh. Missing, corrupt, and unavailable diagnostic cache states are not presented as refreshed. Catalogue health is the single authoritative display of the last successful refresh: it uses the browser locale and timezone while preserving the canonical ISO value in the time element. When no catalogue `refreshedAt` value exists, Diagnostics displays `Last successful refresh: unknown` and does not substitute diagnostics generation time. Every condition that makes the overall diagnostics state non-healthy is represented by a safe, anchored contributor explanation.
 
 A last-known-good catalogue can be served as stale content during temporary GitHub or rate-limit failures.
 
