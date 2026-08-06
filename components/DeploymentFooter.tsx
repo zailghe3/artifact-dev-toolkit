@@ -1,19 +1,7 @@
 "use client";
 
 import { getDeploymentDisplayModel, type DeploymentMetadata } from "@/lib/deployment-metadata";
-
-const DATE_FORMAT: Intl.DateTimeFormatOptions = {
-  day: "2-digit",
-  month: "short",
-  year: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-  timeZoneName: "short",
-};
-
-export function formatDeploymentTime(deployedAt: string, locale?: string): string {
-  return new Intl.DateTimeFormat(locale, DATE_FORMAT).format(new Date(deployedAt));
-}
+import { LocalizedTime } from "@/components/LocalizedTime";
 
 export function DeploymentFooter({ metadata }: { metadata: DeploymentMetadata | null }) {
   return (
@@ -28,9 +16,7 @@ function DeploymentIdentity({ metadata }: { metadata: DeploymentMetadata }) {
 
   return (
     <p aria-label={`Deployment ${display.deployedAt} from commit ${display.commitSha}`}>
-      <time dateTime={display.deployedAt} title={display.deployedAt}>
-        Deployed {formatDeploymentTime(display.deployedAt)}
-      </time>
+      <LocalizedTime value={display.deployedAt} prefix="Deployed " />
       {display.pullRequestNumber ? (
         <>
           <span aria-hidden="true"> · </span>
