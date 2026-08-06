@@ -154,16 +154,19 @@ test('catalogue refresh controls explain every unavailable policy outcome safely
   }
 });
 
-test('catalogue health summary preserves exact states and never uses diagnostics generation as refresh time', () => {
+test('catalogue health summary uses semantic badges and localized time without substituting generation time', () => {
   const refreshedAt = '2026-02-03T04:05:06.000Z';
   for (const state of ['fresh', 'stale', 'degraded']) {
     const html = renderToStaticMarkup(React.createElement(CatalogueHealthSummary, { cache: { configured: true, state, refreshedAt } }));
-    assert.match(html, new RegExp(`Catalogue state:.*${state}`));
-    assert.match(html, /Last successful refresh:.*2026-02-03 04:05:06 UTC/);
+    assert.match(html, new RegExp(`Catalogue state:.*${state[0].toUpperCase()}${state.slice(1)}`));
+    assert.match(html, /positive status:|warning status:/);
+    assert.match(html, /dateTime="2026-02-03T04:05:06.000Z"/);
+    assert.match(html, /title="2026-02-03T04:05:06.000Z"/);
+    assert.match(html, /Last successful refresh:.*2026-02-03T04:05:06.000Z/);
   }
   for (const state of ['missing', 'corrupt', 'unavailable']) {
     const html = renderToStaticMarkup(React.createElement(CatalogueHealthSummary, { cache: { configured: true, state }, generatedAt: '2026-09-09T00:00:00.000Z' }));
-    assert.match(html, new RegExp(`Catalogue state:.*${state}`));
+    assert.match(html, new RegExp(`Catalogue state:.*${state[0].toUpperCase()}${state.slice(1)}`));
     assert.match(html, /Last successful refresh: unknown/);
     assert.doesNotMatch(html, /refreshed|2026-09-09/);
   }

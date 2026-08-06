@@ -67,6 +67,10 @@ test('diagnostics owns catalogue refresh controls and accessible feedback', asyn
   const health = await readFile(new URL('../components/CatalogueHealthSummary.tsx', import.meta.url), 'utf8');
   assert.match(diagnostics, /Catalogue health/);
   assert.match(health, /Catalogue state:/);
+  assert.match(health, /DiagnosticStatusBadge/);
+  assert.match(health, /LocalizedTime/);
+  assert.doesNotMatch(health, /stableRefreshTime/);
+  assert.equal((`${diagnostics}\n${health}`.match(/Last successful refresh:/g) ?? []).length, 1);
   assert.match(diagnostics, /<CatalogueRefreshControls/);
   assert.match(refresh, /Refresh/);
   assert.match(refresh, /Full rebuild/);

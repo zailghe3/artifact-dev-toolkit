@@ -53,20 +53,31 @@ export type DiagnosticContributorSummary = { contributors: DiagnosticContributor
 export function diagnosticContributors(d: RepositoryDiagnostics, limit = 5): DiagnosticContributorSummary {
   if (d.overall === "healthy") return { contributors: [], omittedCount: 0 };
   const all: DiagnosticContributor[] = [];
-  const add = (id: string, message: string) => { if (!all.some(item => item.id === id)) all.push({ id, message, href: `#${id}` }); };
+  const add = (id: string, message: string, anchor = id) => { if (!all.some(item => item.id === id)) all.push({ id, message, href: `#${anchor}` }); };
   if (d.configuration.backend === "invalid" || (d.configuration.backend === "github" && (!d.configuration.owner || !d.configuration.repository))) add("repository-configuration", "Required repository configuration is missing or invalid.");
-  if (Object.values(d.configuration.authSecrets).some(value => value !== "configured")) add("repository-configuration", "A required GitHub App setting is missing or invalid.");
+  const invalidSettings = Object.entries(d.configuration.authSecrets).filter(([, value]) => value !== "configured").map(([name]) => name);
+  if (invalidSettings.some(name => name.startsWith("GITHUB_APP_"))) add("github-app-configuration", "A required GitHub App setting is missing or invalid.", "repository-configuration");
+  if (invalidSettings.includes("GITHUB_TOKEN_ENCRYPTION_KEY")) add("token-encryption-configuration", "The token-encryption configuration is missing or invalid.", "repository-configuration");
+  if (invalidSettings.includes("SESSION_SECRET")) add("session-configuration", "The session configuration is missing or invalid.", "repository-configuration");
+  if (invalidSettings.some(name => !name.startsWith("GITHUB_APP_") && name !== "GITHUB_TOKEN_ENCRYPTION_KEY" && name !== "SESSION_SECRET")) add("application-configuration", "A required application setting is missing or invalid.", "repository-configuration");
   if (d.authorization.repositoryMatches === false) add("authorization", "The configured repository does not match the stored authorization.");
+  else if (d.authorization.repositoryMatches === "unknown") add("authorization", "The repository authorization match could not be verified.");
   if (d.authorization.liveState === "denied") add("authorization", "Live repository authorization was denied.");
+  else if (d.authorization.liveState === "temporarily_unavailable") add("authorization", "Live repository authorization is temporarily unavailable.");
   if (d.permissions.contentsRead.effective === false) add("permissions", "Contents read permission is not granted.");
+  else if (d.permissions.contentsRead.effective === "unknown") add("permissions", "Contents read permission could not be verified.");
   if (d.permissions.contentsWrite.effective === false) add("permissions-write", "Contents write permission is not granted.");
+  else if (d.permissions.contentsWrite.effective === "unknown") add("permissions-write", "Contents write permission could not be verified.");
   if (d.permissions.pullRequestsWrite.effective === false) add("permissions-proposal", "The production proposal credential was denied.");
-  else if (d.permissions.pullRequestsWrite.effective === "unknown") add("permissions-proposal", "Pull request creation permission could not be verified.");
+  else if (d.permissions.pullRequestsWrite.effective === "unknown") add("permissions-proposal", "Production proposal permission could not be verified.");
   if (d.repositoryRevision.state !== "available") add("repository-revision", d.repositoryRevision.state === "unknown" ? "The repository revision was not checked." : "The repository revision is unavailable.");
   if (d.cache.state === "stale") add("catalogue-cache", "Catalogue data is stale.");
   else if (d.cache.state === "missing") add("catalogue-cache", "The catalogue snapshot is missing.");
-  else if (d.cache.state !== "fresh") add("catalogue-cache", "Catalogue data is unavailable or corrupt.");
+  else if (d.cache.state === "degraded") add("catalogue-cache", "Catalogue content is fresh, but cache persistence is temporarily unavailable.");
+  else if (d.cache.state === "corrupt") add("catalogue-cache", "The catalogue snapshot is invalid or corrupt.");
+  else if (d.cache.state === "unavailable") add("catalogue-cache", "Catalogue data is currently unavailable.");
   if (d.validation.state === "invalid") add("artifact-validation", "One or more artifacts are invalid.");
-  else if (d.validation.state !== "valid") add("artifact-validation", "Repository validation could not be completed.");
+  else if (d.validation.state === "unavailable") add("artifact-validation", "Repository validation is temporarily unavailable.");
+  else if (d.validation.state === "not_run") add("artifact-validation", "Repository validation was not completed.");
   return { contributors: all.slice(0, limit), omittedCount: Math.max(0, all.length - limit) };
 }
