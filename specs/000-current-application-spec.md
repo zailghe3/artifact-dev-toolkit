@@ -450,6 +450,14 @@ Diagnostics reports:
 * repository artifact validation results;
 * overall operational state.
 
+Diagnostics presents every typed status with a shared accessible badge: green denotes successful checks, amber denotes impaired or unverified checks, red denotes failures that prevent a required capability, and grey is reserved for informational or unsupported states. Text labels and a status marker accompany colour. The overall state includes a stable explanation: `healthy` means all required checks succeeded; `degraded` means the application remains usable but functionality is partial, impaired, or uncertain; the misconfigured, unauthorized, invalid-content, and unavailable states explain the corresponding blocking failure.
+
+When the overall state is not healthy, Diagnostics shows up to five ordered, deduplicated, safe contributing reasons and reports the number omitted. Contributors point to the relevant card and never contain credentials, raw GitHub responses, artifact bodies, or exception text.
+
+Installation credential failures use safe typed categories. Network failures and server errors are temporarily unavailable; 401 is authentication failure; 403/404 means the installation is unavailable; 422 is a rejected capability request; 429 is rate limited; other unsuccessful statuses are request failures. `malformed_response` is reserved for a successful response with invalid JSON or without a valid token. Missing requested permissions in an otherwise valid credential are reported as denied rather than malformed. The proposal capability continues to request and verify both Contents write and Pull requests write without broadening permission levels.
+
+All user-facing Diagnostics event times and the deployment time reuse one client locale formatter with day, short month, year, hour, minute, and short local timezone. Semantic `<time>` markup retains the canonical ISO value in both `dateTime` and `title`, while server rendering supplies a stable canonical fallback; missing event times remain `unknown`.
+
 ### 8.3 Repository validation diagnostics
 
 The diagnostics scan checks:

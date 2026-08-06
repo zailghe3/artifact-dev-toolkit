@@ -5,6 +5,19 @@ export type GitHubAppConfig = { appId: string; clientId: string; clientSecret: s
 export type GitHubRepository = { id: number; name: string; owner: { login: string } };
 export type GitHubInstallation = { id: number; repository_selection?: string };
 export type RepositoryCredentialCapability = "read" | "write" | "proposal";
+export type InstallationCredentialFailure = "authentication_failed" | "installation_missing" | "capability_request_rejected" | "rate_limited" | "temporarily_unavailable" | "malformed_response" | "request_failed";
+export class InstallationCredentialError extends Error {
+  readonly name = "InstallationCredentialError";
+  readonly category: InstallationCredentialFailure;
+  readonly capability: RepositoryCredentialCapability;
+  readonly status?: number;
+  constructor(category: InstallationCredentialFailure, capability: RepositoryCredentialCapability, status?: number) {
+    super(`Installation credential request failed: ${category}`);
+    this.category = category;
+    this.capability = capability;
+    this.status = status;
+  }
+}
 export type RepositoryCredential = {
   token: string;
   permissions: { contents?: string; pullRequests?: string };
@@ -97,14 +110,27 @@ export async function mintInstallationToken(installationId: number, repositoryId
     : capability === "write"
       ? { contents: "write" }
       : { contents: "write", pull_requests: "write" };
-  const response = await fetchImpl(`${githubApiBaseUrl}/app/installations/${installationId}/access_tokens`, {
-    method: "POST",
-    headers: { ...githubHeaders(appJwt), "content-type": "application/json" },
-    body: JSON.stringify({ repository_ids: [repositoryId], permissions }),
-  });
-  if (!response.ok) throw Object.assign(new Error(`GitHub installation token request failed with ${response.status}`), { status: response.status });
-  const payload = await response.json() as { token?: string; expires_at?: string; permissions?: { contents?: string; pull_requests?: string }; repositories?: { id?: number }[] };
-  if (!payload.token) throw new Error("GitHub installation token response was malformed.");
+  let response: Response;
+  try {
+    response = await fetchImpl(`${githubApiBaseUrl}/app/installations/${installationId}/access_tokens`, {
+      method: "POST",
+      headers: { ...githubHeaders(appJwt), "content-type": "application/json" },
+      body: JSON.stringify({ repository_ids: [repositoryId], permissions }),
+    });
+  } catch {
+    throw new InstallationCredentialError("temporarily_unavailable", capability);
+  }
+  if (!response.ok) {
+    const category: InstallationCredentialFailure = response.status === 401 ? "authentication_failed"
+      : response.status === 403 || response.status === 404 ? "installation_missing"
+      : response.status === 422 ? "capability_request_rejected"
+      : response.status === 429 ? "rate_limited"
+      : response.status >= 500 ? "temporarily_unavailable" : "request_failed";
+    throw new InstallationCredentialError(category, capability, response.status);
+  }
+  let payload: { token?: string; expires_at?: string; permissions?: { contents?: string; pull_requests?: string } };
+  try { payload = await response.json() as typeof payload; } catch { throw new InstallationCredentialError("malformed_response", capability, response.status); }
+  if (!payload || typeof payload.token !== "string" || !payload.token.trim()) throw new InstallationCredentialError("malformed_response", capability, response.status);
   return {
     token: payload.token,
     permissions: {

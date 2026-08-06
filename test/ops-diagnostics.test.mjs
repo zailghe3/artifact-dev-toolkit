@@ -69,6 +69,9 @@ test('capability outcomes retain effective permission and safe reason', () => {
   assert.equal(classifyCapabilityResult({ status: 'rejected', reason: { status: 403 } }, required).reason, 'installation_missing');
   assert.equal(classifyCapabilityResult({ status: 'rejected', reason: { status: 429 } }, required).reason, 'rate_limited');
   assert.equal(classifyCapabilityResult({ status: 'rejected', reason: { status: 503 } }, required).reason, 'temporarily_unavailable');
+  assert.deepEqual(classifyCapabilityResult({ status: 'rejected', reason: { status: 422 } }, required), { effective: false, reason: 'capability_request_rejected' });
+  assert.equal(classifyCapabilityResult({ status: 'rejected', reason: new TypeError('network detail') }, required).reason, 'temporarily_unavailable');
+  assert.equal(classifyCapabilityResult({ status: 'rejected', reason: { status: 418 } }, required).reason, 'request_failed');
   assert.equal(classifyCapabilityResult({ status: 'fulfilled', value: {} }, required).reason, 'malformed_response');
 });
 

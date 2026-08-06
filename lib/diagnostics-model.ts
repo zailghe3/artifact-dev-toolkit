@@ -1,6 +1,6 @@
 import type { RepositoryDiagnostics } from "./repository-diagnostics.ts";
 
-export type PermissionReason = "granted" | "permission_missing" | "installation_missing" | "authentication_failed" | "temporarily_unavailable" | "rate_limited" | "malformed_response" | "prerequisite_invalid" | "not_checked";
+export type PermissionReason = "granted" | "permission_missing" | "installation_missing" | "authentication_failed" | "capability_request_rejected" | "temporarily_unavailable" | "rate_limited" | "malformed_response" | "request_failed" | "prerequisite_invalid" | "not_checked";
 export type PermissionCheck = { effective: boolean | "unknown"; reason: PermissionReason };
 export const unknownPermissionCheck = (reason: PermissionReason = "not_checked"): PermissionCheck => ({ effective: "unknown", reason });
 
@@ -26,12 +26,16 @@ export function catalogueRefreshAvailability(diagnostics: Pick<RepositoryDiagnos
 
 export function classifyCapabilityResult(result: PromiseSettledResult<{ permissions?: Record<string, string> }>, required: Array<[string, string[]]>): PermissionCheck {
   if (result.status === "rejected") {
-    const status = (result.reason as { status?: number }).status;
+    const failure = result.reason as { status?: number; category?: PermissionReason };
+    if (failure.category === "capability_request_rejected") return { effective: false, reason: failure.category };
+    if (failure.category) return failure.category === "installation_missing" ? { effective: false, reason: failure.category } : unknownPermissionCheck(failure.category);
+    const status = failure.status;
     if (status === 401) return unknownPermissionCheck("authentication_failed");
     if (status === 403 || status === 404) return { effective: false, reason: "installation_missing" };
     if (status === 429) return unknownPermissionCheck("rate_limited");
     if (typeof status === "number" && status >= 500) return unknownPermissionCheck("temporarily_unavailable");
-    return unknownPermissionCheck("malformed_response");
+    if (status === 422) return { effective: false, reason: "capability_request_rejected" };
+    return unknownPermissionCheck(typeof status === "number" ? "request_failed" : "temporarily_unavailable");
   }
   const permissions = result.value.permissions;
   if (!permissions || typeof permissions !== "object") return unknownPermissionCheck("malformed_response");
