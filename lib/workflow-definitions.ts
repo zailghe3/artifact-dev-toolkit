@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { validateAdapterOptions } from "./workflow-adapter.ts";
 
 export const DEFINITION_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 export const MAX_WORKFLOW_STEPS = 32;
@@ -52,6 +53,8 @@ export const workflowDefinitionSchema = z.object({
 
 export type AgentDefinitionV1 = z.infer<typeof agentDefinitionSchema>;
 export type WorkflowDefinitionV1 = z.infer<typeof workflowDefinitionSchema>;
+
+export function validateAgentAdapterOptions(agent:AgentDefinitionV1,adapter:string){return {...agent,adapterOptions:validateAdapterOptions(adapter,agent.adapterOptions)};}
 
 export const agentDefinitionPath = (idValue: string, root = "_adt/agents") => `${root.replace(/^\/+|\/+$/g, "")}/${id.parse(idValue)}.agent.json`;
 export const workflowDefinitionPath = (idValue: string, root = "_adt/workflows") => `${root.replace(/^\/+|\/+$/g, "")}/${id.parse(idValue)}.workflow.json`;
