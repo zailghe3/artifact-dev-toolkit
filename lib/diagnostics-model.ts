@@ -4,7 +4,7 @@ export type PermissionReason = "granted" | "permission_missing" | "installation_
 export type PermissionCheck = { effective: boolean | "unknown"; reason: PermissionReason };
 export const unknownPermissionCheck = (reason: PermissionReason = "not_checked"): PermissionCheck => ({ effective: "unknown", reason });
 
-export type CatalogueRefreshUnavailableReason = "local_backend" | "cache_binding_missing" | "authorization_unavailable" | "read_permission_missing" | "configuration_invalid";
+export type CatalogueRefreshUnavailableReason = "local_backend" | "cache_binding_missing" | "repository_identity_missing" | "installation_identity_missing" | "authorization_unavailable" | "authentication_unavailable" | "read_permission_missing" | "read_permission_unverified" | "configuration_invalid";
 export type CatalogueRefreshAvailability = { available: true } | { available: false; reason: CatalogueRefreshUnavailableReason };
 
 export function catalogueRefreshAvailability(diagnostics: Pick<RepositoryDiagnostics, "configuration" | "authorization" | "permissions">): CatalogueRefreshAvailability {
@@ -12,9 +12,16 @@ export function catalogueRefreshAvailability(diagnostics: Pick<RepositoryDiagnos
   if (configuration.backend === "file") return { available: false, reason: "local_backend" };
   if (configuration.backend !== "github" || !configuration.owner || !configuration.repository || !configuration.branch || !configuration.artifactRoot) return { available: false, reason: "configuration_invalid" };
   if (configuration.cacheBinding !== "configured") return { available: false, reason: "cache_binding_missing" };
+  const requiredRefreshSettings = ["GITHUB_APP_ID", "GITHUB_APP_CLIENT_ID", "GITHUB_APP_CLIENT_SECRET", "GITHUB_APP_PRIVATE_KEY", "GITHUB_TOKEN_ENCRYPTION_KEY"];
+  if (requiredRefreshSettings.some((name) => configuration.authSecrets[name] !== "configured")) return { available: false, reason: "configuration_invalid" };
+  if (!authorization.repositoryIdPresent) return { available: false, reason: "repository_identity_missing" };
+  if (!authorization.installationIdPresent) return { available: false, reason: "installation_identity_missing" };
   if (authorization.repositoryMatches === false || authorization.liveState === "denied") return { available: false, reason: "authorization_unavailable" };
   if (permissions.contentsRead.effective === false) return { available: false, reason: "read_permission_missing" };
-  return { available: true };
+  if (permissions.contentsRead.effective === true) return { available: true };
+  if (permissions.contentsRead.reason === "rate_limited" || permissions.contentsRead.reason === "temporarily_unavailable") return { available: true };
+  if (permissions.contentsRead.reason === "authentication_failed") return { available: false, reason: "authentication_unavailable" };
+  return { available: false, reason: "read_permission_unverified" };
 }
 
 export function classifyCapabilityResult(result: PromiseSettledResult<{ permissions?: Record<string, string> }>, required: Array<[string, string[]]>): PermissionCheck {

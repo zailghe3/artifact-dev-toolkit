@@ -89,19 +89,34 @@ test('all declared read operational categories are reachable without leaking sou
 import { catalogueRefreshAvailability } from '../lib/diagnostics-model.ts';
 
 const baseDiagnostics = (overrides = {}) => ({
-  configuration: { backend: 'github', owner: 'owner', repository: 'repo', branch: 'main', artifactRoot: 'artifacts', cacheBinding: 'configured', authSecrets: {} },
+  configuration: { backend: 'github', owner: 'owner', repository: 'repo', branch: 'main', artifactRoot: 'artifacts', cacheBinding: 'configured', authSecrets: Object.fromEntries(['GITHUB_APP_ID', 'GITHUB_APP_CLIENT_ID', 'GITHUB_APP_CLIENT_SECRET', 'GITHUB_APP_PRIVATE_KEY', 'GITHUB_TOKEN_ENCRYPTION_KEY', 'SESSION_SECRET'].map(name => [name, 'configured'])) },
   authorization: { storedState: 'authorized', lastCheckedAt: '2026-01-01T00:00:00.000Z', repositoryMatches: true, repositoryIdPresent: true, installationIdPresent: true, liveState: 'authorized' },
   permissions: { contentsRead: { effective: true, reason: 'granted' }, contentsWrite: { effective: true, reason: 'granted' }, pullRequestsWrite: { effective: true, reason: 'granted' } },
   ...overrides,
 });
 
-test('catalogue refresh policy exposes controls only for configured GitHub infrastructure', () => {
+test('catalogue refresh policy exposes controls only for usable GitHub infrastructure and authorization', () => {
   assert.deepEqual(catalogueRefreshAvailability(baseDiagnostics()), { available: true });
   assert.deepEqual(catalogueRefreshAvailability(baseDiagnostics({ configuration: { ...baseDiagnostics().configuration, backend: 'file' } })), { available: false, reason: 'local_backend' });
   assert.deepEqual(catalogueRefreshAvailability(baseDiagnostics({ configuration: { ...baseDiagnostics().configuration, cacheBinding: 'missing' } })), { available: false, reason: 'cache_binding_missing' });
+  assert.deepEqual(catalogueRefreshAvailability(baseDiagnostics({ authorization: { ...baseDiagnostics().authorization, repositoryIdPresent: false } })), { available: false, reason: 'repository_identity_missing' });
+  assert.deepEqual(catalogueRefreshAvailability(baseDiagnostics({ authorization: { ...baseDiagnostics().authorization, installationIdPresent: false } })), { available: false, reason: 'installation_identity_missing' });
+  assert.deepEqual(catalogueRefreshAvailability(baseDiagnostics({ authorization: { ...baseDiagnostics().authorization, repositoryMatches: false } })), { available: false, reason: 'authorization_unavailable' });
   assert.deepEqual(catalogueRefreshAvailability(baseDiagnostics({ authorization: { ...baseDiagnostics().authorization, liveState: 'denied' } })), { available: false, reason: 'authorization_unavailable' });
   assert.deepEqual(catalogueRefreshAvailability(baseDiagnostics({ permissions: { ...baseDiagnostics().permissions, contentsRead: { effective: false, reason: 'permission_missing' } } })), { available: false, reason: 'read_permission_missing' });
   assert.deepEqual(catalogueRefreshAvailability(baseDiagnostics({ configuration: { ...baseDiagnostics().configuration, owner: undefined } })), { available: false, reason: 'configuration_invalid' });
+  assert.deepEqual(catalogueRefreshAvailability(baseDiagnostics({ configuration: { ...baseDiagnostics().configuration, authSecrets: { ...baseDiagnostics().configuration.authSecrets, GITHUB_APP_PRIVATE_KEY: 'invalid' } } })), { available: false, reason: 'configuration_invalid' });
+  assert.deepEqual(catalogueRefreshAvailability(baseDiagnostics({ configuration: { ...baseDiagnostics().configuration, authSecrets: { ...baseDiagnostics().configuration.authSecrets, SESSION_SECRET: 'invalid' } } })), { available: true });
+});
+
+test('catalogue refresh policy distinguishes retryable permission checks from unusable unknown outcomes', () => {
+  for (const reason of ['temporarily_unavailable', 'rate_limited']) {
+    assert.deepEqual(catalogueRefreshAvailability(baseDiagnostics({ permissions: { ...baseDiagnostics().permissions, contentsRead: { effective: 'unknown', reason } } })), { available: true });
+  }
+  assert.deepEqual(catalogueRefreshAvailability(baseDiagnostics({ permissions: { ...baseDiagnostics().permissions, contentsRead: { effective: 'unknown', reason: 'authentication_failed' } } })), { available: false, reason: 'authentication_unavailable' });
+  for (const reason of ['malformed_response', 'prerequisite_invalid', 'installation_missing', 'not_checked']) {
+    assert.deepEqual(catalogueRefreshAvailability(baseDiagnostics({ permissions: { ...baseDiagnostics().permissions, contentsRead: { effective: 'unknown', reason } } })), { available: false, reason: 'read_permission_unverified' });
+  }
 });
 
 test('catalogue refresh policy allows repair for non-fresh cache states when infrastructure is configured', () => {
@@ -115,6 +130,26 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { installTsxHook } from './render-tsx.mjs';
 const requireTsx = installTsxHook();
 const { CatalogueHealthSummary } = requireTsx('../components/CatalogueHealthSummary.tsx');
+const { CatalogueRefreshControls } = requireTsx('../components/CatalogueRefresh.tsx');
+
+test('catalogue refresh controls explain every unavailable policy outcome safely', () => {
+  const expected = {
+    local_backend: 'Manual catalogue refresh is not used by the local file backend.',
+    cache_binding_missing: 'Configure the catalogue cache binding before refreshing.',
+    repository_identity_missing: 'Repository details are unavailable. Reauthorize repository access before refreshing.',
+    installation_identity_missing: 'Repository installation details are unavailable. Reauthorize repository access before refreshing.',
+    authorization_unavailable: 'Restore repository authorization before refreshing the catalogue.',
+    authentication_unavailable: 'Repository read access could not be verified. Resolve the authentication problem before refreshing.',
+    read_permission_missing: 'Restore repository read access before refreshing the catalogue.',
+    read_permission_unverified: 'Repository read access could not be verified. Reauthorize repository access before refreshing.',
+    configuration_invalid: 'Correct the GitHub App configuration before refreshing the catalogue.',
+  };
+  for (const [reason, message] of Object.entries(expected)) {
+    const html = renderToStaticMarkup(React.createElement(CatalogueRefreshControls, { availability: { available: false, reason } }));
+    assert.match(html, new RegExp(message.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.doesNotMatch(html, /token|secret|encrypted|exception/i);
+  }
+});
 
 test('catalogue health summary preserves exact states and never uses diagnostics generation as refresh time', () => {
   const refreshedAt = '2026-02-03T04:05:06.000Z';
