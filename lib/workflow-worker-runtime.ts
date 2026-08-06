@@ -12,7 +12,7 @@ export async function executeWorkflowRun(env: CloudflareEnv, runId: string, inst
   if (!env.AUTH_SESSIONS_DB) throw new Error("workflow_storage_unavailable");
   if (!runId || !instanceId) throw new Error("invalid_workflow_context");
   const storage=new D1WorkflowRunStorage(env.AUTH_SESSIONS_DB as unknown as WorkflowD1Database);
-  await storage.attachWorkflowInstance(runId,instanceId);
+  const detail=await storage.getRun(runId);if(!detail)throw new Error("run_not_found");await storage.attachWorkflowInstance(runId,detail.run.workflowGeneration,instanceId);
   const adapter=new DeterministicTestAdapter();
   return executeDurableWorkflow({runId,storage,adapters:new Map([[adapter.kind,adapter]]),resolveConnection:(key)=>resolveConnection(key,env as unknown as Record<string,string|undefined>),step:step as unknown as DurableStep});
 }
