@@ -1,0 +1,84 @@
+import { z } from "zod";
+import { validateAdapterOptions } from "./workflow-adapter.ts";
+
+export const DEFINITION_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+export const MAX_WORKFLOW_STEPS = 32;
+export const MAX_STEP_EXECUTIONS = 128;
+
+const id = z.string().regex(DEFINITION_ID).max(80);
+const credentialKey = /(?:credential|password|secret|token|api.?key|private.?key)/i;
+
+export const agentDefinitionSchema = z.object({
+  schemaVersion: z.literal(1), id, name: z.string().trim().min(1).max(120),
+  description: z.string().max(2000), status: z.literal("draft"),
+  masterPrompt: z.string().min(1).max(65536), connectionKey: id,
+  adapterOptions: z.unknown().optional(),
+}).strict().superRefine((value, context) => {
+  const visit = (item: unknown, path: PropertyKey[] = []) => {
+    if (!item || typeof item !== "object") return;
+    for (const [key, child] of Object.entries(item as Record<string, unknown>)) {
+      if (credentialKey.test(key)) context.addIssue({ code: "custom", message: "Credential-like fields are not permitted.", path: [...path, key] as (string | number)[] });
+      visit(child, [...path, key]);
+    }
+  };
+  visit(value.adapterOptions, ["adapterOptions"]);
+});
+
+export const workflowStepSchema = z.object({
+  id, name: z.string().trim().min(1).max(120), agentId: id,
+  input: z.discriminatedUnion("source", [z.object({ source: z.literal("run_input") }).strict(), z.object({ source: z.literal("previous_step") }).strict()]),
+  onSuccess: z.discriminatedUnion("type", [z.object({ type: z.literal("next") }).strict(), z.object({ type: z.literal("complete") }).strict()]),
+  onFailure: z.object({ type: z.literal("fail") }).strict(),
+}).strict();
+
+export const workflowDefinitionSchema = z.object({
+  schemaVersion: z.literal(1), id, name: z.string().trim().min(1).max(120), description: z.string().max(2000), status: z.literal("draft"),
+  steps: z.array(workflowStepSchema).min(1).max(MAX_WORKFLOW_STEPS),
+  result: z.object({ source: z.literal("step_output"), stepId: id }).strict(),
+  limits: z.object({ maxStepExecutions: z.number().int().min(1).max(MAX_STEP_EXECUTIONS) }).strict(),
+}).strict().superRefine((workflow, context) => {
+  const ids = new Set<string>();
+  workflow.steps.forEach((step, index) => {
+    if (ids.has(step.id)) context.addIssue({ code: "custom", message: "Step IDs must be unique.", path: ["steps", index, "id"] });
+    ids.add(step.id);
+    const expectedInput = index === 0 ? "run_input" : "previous_step";
+    const expectedSuccess = index === workflow.steps.length - 1 ? "complete" : "next";
+    if (step.input.source !== expectedInput) context.addIssue({ code: "custom", message: `Step ${index + 1} must use ${expectedInput}.`, path: ["steps", index, "input"] });
+    if (step.onSuccess.type !== expectedSuccess) context.addIssue({ code: "custom", message: `Step ${index + 1} must ${expectedSuccess}.`, path: ["steps", index, "onSuccess"] });
+  });
+  if (!ids.has(workflow.result.stepId)) context.addIssue({ code: "custom", message: "Result step does not exist.", path: ["result", "stepId"] });
+  if (workflow.result.stepId !== workflow.steps.at(-1)?.id) context.addIssue({ code: "custom", message: "Result must use the final step.", path: ["result", "stepId"] });
+  if (workflow.limits.maxStepExecutions < workflow.steps.length) context.addIssue({ code: "custom", message: "Execution limit is lower than the step count.", path: ["limits", "maxStepExecutions"] });
+});
+
+export type AgentDefinitionV1 = z.infer<typeof agentDefinitionSchema>;
+export type WorkflowDefinitionV1 = z.infer<typeof workflowDefinitionSchema>;
+
+export function validateAgentAdapterOptions(agent:AgentDefinitionV1,adapter:string){return {...agent,adapterOptions:validateAdapterOptions(adapter,agent.adapterOptions)};}
+
+export const agentDefinitionPath = (idValue: string, root = "_adt/agents") => `${root.replace(/^\/+|\/+$/g, "")}/${id.parse(idValue)}.agent.json`;
+export const workflowDefinitionPath = (idValue: string, root = "_adt/workflows") => `${root.replace(/^\/+|\/+$/g, "")}/${id.parse(idValue)}.workflow.json`;
+
+/** Canonical UTF-8 representation used in Git and immutable run snapshots. */
+export function canonicalJson(value: unknown) {
+  const sort = (item: unknown): unknown => Array.isArray(item) ? item.map(sort) : item && typeof item === "object"
+    ? Object.fromEntries(Object.entries(item as Record<string, unknown>).filter(([, child]) => child !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => [key, sort(child)])) : item;
+  return `${JSON.stringify(sort(value), null, 2)}\n`;
+}
+
+export function buildSequentialWorkflow(input: { id: string; name: string; description?: string; agents: Array<{ id: string; name: string }>; maxStepExecutions?: number }): WorkflowDefinitionV1 {
+  const steps = input.agents.map((agent, index, all) => ({ id: `step-${index + 1}`, name: agent.name, agentId: agent.id,
+    input: { source: index === 0 ? "run_input" as const : "previous_step" as const },
+    onSuccess: { type: index === all.length - 1 ? "complete" as const : "next" as const }, onFailure: { type: "fail" as const } }));
+  return workflowDefinitionSchema.parse({ schemaVersion: 1, id: input.id, name: input.name, description: input.description ?? "", status: "draft", steps,
+    result: { source: "step_output", stepId: steps.at(-1)?.id }, limits: { maxStepExecutions: input.maxStepExecutions ?? Math.max(steps.length, 32) } });
+}
+
+export async function validateWorkflowReferences(workflow: WorkflowDefinitionV1, agents: readonly AgentDefinitionV1[], availableConnections: ReadonlySet<string>) {
+  const byId = new Map(agents.map((agent) => [agent.id, agent]));
+  for (const step of workflow.steps) {
+    const agent = byId.get(step.agentId);
+    if (!agent) throw new Error(`missing_agent:${step.agentId}`);
+    if (!availableConnections.has(agent.connectionKey)) throw new Error(`connection_unavailable:${agent.connectionKey}`);
+  }
+}

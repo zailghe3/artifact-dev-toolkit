@@ -530,3 +530,16 @@ Production deployment metadata can display:
 Deployment time is displayed in the browser’s locale while retaining the canonical timestamp in semantic time markup.
 
 Builds without deployment metadata display `Development build`.
+
+## 9. Durable sequential agent workflows (WF-001)
+
+* **Framing:** the framework deterministically owns invocation order, persistence, retry, cancellation, timestamps and visibility; configured agents own reasoning and text formatting. WF-001 is not an autonomous multi-agent framework.
+* **Sources of truth:** draft Agent and Workflow definitions are canonical JSON in Git. D1 is the operational source of truth for immutable run snapshots, attempts and raw text. Cloudflare Workflows coordinates execution from a run ID only. The artifact catalogue KV cache is not run storage.
+* **Concepts:** a Connection is a safe browser-visible reference to server-only adapter configuration; an Agent selects a connection and master prompt; a Workflow is an ordered, acyclic sequence; a Run freezes those definitions and records its history.
+* **Handoff:** step one receives the initial input. Every later step receives the exact previous output after its UTF-8 D1 storage round trip, without trimming, parsing, summarising or transforming it.
+* **Adapter boundary:** adapters receive prompt and input separately and may complete synchronously or expose a safely persisted task ID for polling. Credentials are resolved server-side and excluded from snapshots, responses, logs and errors.
+* **Recovery:** stable per-attempt idempotency keys and compare-and-set transitions prevent duplicate work. Only transient failures retry automatically, attempts are retained, and cancellation stops local progression even when provider cancellation is unsupported.
+* **Launch durability:** a generation-specific launch reservation ensures concurrent browser requests create at most one Cloudflare Workflow instance. Failed launches are explicit and recoverable rather than appearing indefinitely queued.
+* **Retry separation:** automatic retries stay in the current Workflow instance after durable exponential backoff; eligible manual retries retain history and reserve a new Workflow generation.
+* **Limitations:** workflows are draft, sequential and acyclic, with bounded steps, transitions, attempts, duration and text sizes. There is no branching, mapping, scripting, streaming, scheduling or production promotion.
+* **Deterministic adapter:** the deterministic test connection makes handoffs, pending work, failures and cancellation testable. It does not perform AI reasoning and is not an AI provider; production enablement requires an explicit safe flag.

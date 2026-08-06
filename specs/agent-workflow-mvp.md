@@ -1,0 +1,13 @@
+# WF-001 durable sequential workflow architecture
+
+WF-001 separates durable concerns deliberately. Git stores maintainer-authored draft Agent and Workflow definitions. A run copies safe immutable snapshots into D1, which stores the cursor, attempts, raw input and output, failures, cancellation and terminal result. Cloudflare Workflows receives only `{ runId }` and reloads canonical state at each durable boundary.
+
+Each attempt uses `<runId>:<stepId>:<iteration>:<attempt>` as its idempotency key. An existing provider task is checked rather than started again. A successful output is written to D1 before the cursor advances; the next invocation consumes that exact stored string. Outputs are never returned from durable workflow steps or written to logs.
+
+Connections expose a safe descriptor while credentials and private provider options remain server-only. The included deterministic adapter supports testing and local smoke runs and must not be represented as an AI service. Its production availability is explicitly opt-in.
+
+The engine is intentionally bounded and sequential. It has no autonomous routing, conditions, loops, parallel work, mapping language or schema-aware handoff. Automatic retry is limited to transient categories, while manual retry preserves history and resumes at the failed step. Cancellation stops local progression; unsupported external cancellation is reported without claiming external work stopped.
+
+Run launch is a D1 compare-and-set state machine (`unclaimed`, `launching`, `attached`, or `launch_failed`). A client idempotency key resolves to one run, and only the caller that reserves the generation-specific Workflow instance ID may create it. Attachment and launch failure are replay-safe, so a concurrent or interrupted request cannot strand an unexplained queued run.
+
+Automatic transient retries remain inside the attached Workflow generation and use durable 10- and 30-second backoff. Manual retry is separately bounded, preserves all attempts, advances the Workflow generation, and uses the same launch reservation protocol. Provider polling guidance is clamped from one second to fifteen minutes and persisted for replay-stable sleep. Run duration, step duration, poll count, text size, transition count, automatic attempts, and total attempts are bounded.

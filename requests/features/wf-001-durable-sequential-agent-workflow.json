@@ -1,0 +1,49 @@
+{
+  "requestId": "wf-001-durable-sequential-agent-workflow",
+  "featureId": "WF-001",
+  "title": "Add durable sequential agent workflow walking skeleton",
+  "priority": "high",
+  "objective": "Add the first durable deterministic sequential agent workflow vertical, with Git-backed draft definitions, D1 run state, Cloudflare Workflows execution, exact raw-text handoff, retries and cancellation.",
+  "userContext": "An authenticated repository maintainer needs to configure two draft agents, arrange them in a deterministic two-step workflow, start a durable run, and inspect the persisted result after closing the browser.",
+  "currentBehaviour": "The toolkit manages artifacts and diagnostics but has no agent connection registry, workflow definitions, durable run storage, or execution engine.",
+  "requiredBehaviour": "Provide protected workflow navigation, safe server-side connection discovery, Git-backed agent and workflow definitions, normalized D1 run history, deterministic adapter execution through Cloudflare Workflows, exact persisted raw-text handoff, replay protection, bounded retry and cancellation, and durable run inspection.",
+  "userExperience": "The maintainer can create two draft agents, order them in a workflow, provide initial text, start a run, and later inspect every persisted attempt and raw handoff. The deterministic test connection is clearly identified as a test facility rather than an AI provider.",
+  "functionalRequirements": [
+    "Add protected Workflows routes and semantic primary navigation.",
+    "Keep draft agent and sequential workflow definitions in canonical JSON in the authorised Git repository.",
+    "Expose only safe server-side connection descriptors and never browser-side secret entry.",
+    "Persist immutable definition snapshots, runs, attempts, inputs, outputs, transitions, timestamps, retries and cancellation in D1.",
+    "Execute runs with Cloudflare Workflows using only a run ID as workflow input.",
+    "Pass each persisted step output byte-for-byte to the following step.",
+    "Use stable per-attempt idempotency keys and reuse persisted provider task IDs on replay.",
+    "Provide a deterministic test adapter for immediate, pending, failure, oversized-output and cancellation scenarios.",
+    "Enforce documented size, attempt, duration, poll and transition bounds.",
+    "Provide protected no-store APIs and accessible durable run history and detail UI."
+  ],
+  "technicalConsiderations": [
+    "Git is the source of truth for mutable draft definitions; D1 is the source of truth for immutable operational run state; Cloudflare Workflows provides durable orchestration.",
+    "Use a focused storage abstraction with D1 and in-memory implementations.",
+    "Keep master prompts and raw input/output out of logs and Workflow step return values.",
+    "Do not reuse the artifact catalogue KV binding or change GitHub App permissions.",
+    "The deterministic adapter is a test/local smoke facility, not an AI provider.",
+    "Keep WF-001 sequential, acyclic and deterministic."
+  ],
+  "outOfScope": [
+    "Real AI provider integrations.",
+    "Autonomous routing, agent swarms, parallel branches, loops or conditions.",
+    "Handoff schemas, field mapping, scripts, expressions or node graphs.",
+    "Team permissions, multi-tenancy, scheduled runs or provider webhooks.",
+    "Deployment, merge, CI orchestration, streaming or production definition promotion."
+  ],
+  "acceptanceCriteria": [
+    "An authenticated maintainer can create two draft agents and a two-step draft workflow.",
+    "A run persists step one output and uses the exact persisted UTF-8 text as step two input.",
+    "A completed run remains inspectable independently of the browser session that started it.",
+    "Replay does not invoke adapter start more than once per attempt.",
+    "Transient retry, terminal failure, manual retry and supported or unsupported cancellation are safely represented.",
+    "Credentials never appear in definitions, snapshots, D1 records, APIs, pages, errors or logs.",
+    "The deterministic connection is disabled in production unless explicitly enabled and is never described as an AI provider.",
+    "Definition, storage, runner, route, rendering and Cloudflare builds are tested."
+  ],
+  "codexGuidance": "Implement WF-001 as a bounded sequential walking skeleton. Preserve all existing authentication, repository, artifact, cache, diagnostics and deployment behavior. The next feature should add the first real provider adapter."
+}
