@@ -549,3 +549,11 @@ Builds without deployment metadata display `Development build`.
 ### Provider credential storage
 
 Provider credentials are never stored in Git. Configured provider credentials are encrypted with AES-256-GCM before persistence in D1. The provider-secret encryption root remains a Cloudflare Worker secret and is never stored in D1. Models are safe D1 connection configuration; provider endpoints remain fixed in application code.
+
+## Codex Cloud workflow entry point (WF-003)
+
+* Codex Cloud owns repository execution and GitHub integration. ADT supplies the exact deterministically framed prompt and a safe reference to a preconfigured environment, persists the provider task before polling, and succeeds only when the resulting pull request is available.
+* Safe D1 environment records contain only an environment key, display name, external environment ID, and enabled state. They never contain GitHub credentials, repository configuration, environment variables, setup scripts, commands, headers, endpoints, or secrets.
+* Coding completion, user-visible summary, and safe task URL are persisted before PR publication. Publication retry reuses completed coding work; ambiguous creation and ambiguous publication never blindly duplicate repository-writing work. The final external URL is the PR URL.
+* A Codex-backed agent may appear only as the final step in WF-003. Codex task URLs are auxiliary; no post-PR workflow step or automatic merge is implemented.
+* Official OpenAI Codex documentation was reviewed on 2026-08-08 and did not document a supported server-to-server Cloud task lifecycle satisfying creation, stable identity, polling, textual result, structured PR publication/result, reconciliation, and cancellation needs. Production `codex-cloud-primary` is therefore intentionally shown as `Transport unavailable`. Real Codex Cloud execution is unavailable until OpenAI exposes a supported server-to-server Codex Cloud transport that satisfies the gateway contract.
