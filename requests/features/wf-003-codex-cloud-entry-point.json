@@ -1,0 +1,38 @@
+{
+  "requestId": "wf-003-codex-cloud-entry-point",
+  "featureId": "WF-003",
+  "title": "Add Codex Cloud workflow entry point foundation",
+  "priority": "high",
+  "objective": "Allow a terminal workflow step to reference a preconfigured Codex Cloud environment behind a durable provider gateway without making ADT a repository automation engine.",
+  "userContext": "A maintainer wants the final workflow step to hand an exact prepared task to Codex Cloud and eventually receive the pull request created with Codex's own GitHub integration.",
+  "currentBehaviour": "WF-001 and WF-002 provide durable orchestration and encrypted text-provider connections, but no separate Codex Cloud execution surface.",
+  "requiredBehaviour": "Add safe D1 environment references, constrained Codex agent options, a CodexCloudGateway, deterministic mock lifecycle, durable coding-complete and publication stages, terminal-only validation, cancellation semantics, UI, and a production connection that fails closed while transport is unavailable.",
+  "userExperience": "Connections clearly reports Transport unavailable, maintainers can manage safe environment references, and run details distinguish coding from pull-request publication and prioritize the final pull-request URL.",
+  "functionalRequirements": [
+    "Compose the agent master prompt and byte-exact workflow input deterministically.",
+    "Persist a returned task ID before polling and never restart an attempt that has one.",
+    "Persist coding output and task URL before pull-request publication.",
+    "Treat a Codex step as successful only after structured pull-request metadata is available.",
+    "Keep codex-cloud separate from openai-responses and allow it only as the final workflow step.",
+    "Store only a safe environment key, display name, external environment ID, and enabled flag."
+  ],
+  "technicalConsiderations": [
+    "Official Codex documentation was reviewed on 2026-08-08. No documented server-to-server API contract covering environment task creation, stable task retrieval, result and PR metadata, publication, and cancellation was available; Path B is therefore required.",
+    "Real Codex Cloud execution is unavailable until OpenAI exposes a supported server-to-server Codex Cloud transport that satisfies the gateway contract.",
+    "Codex owns repository checkout, environment setup, secrets, commands, tests, GitHub identity, and PR creation; ADT never receives the repository GitHub credential.",
+    "Do not use Responses, browser sessions, undocumented endpoints, GitHub issue comments, arbitrary endpoints, or arbitrary headers as a substitute transport."
+  ],
+  "outOfScope": [
+    "Production Codex Cloud execution before a supported transport exists.",
+    "ADT-managed repositories, GitHub credentials, setup scripts, environment secrets, commands, branches, patches, diffs, merge, deployment, CI waiting, or post-PR steps.",
+    "Multiple Codex steps, nonterminal Codex steps, loops, branching, parallelism, swarms, or live provider requests in CI."
+  ],
+  "acceptanceCriteria": [
+    "Environment references are D1-backed and contain no repository credentials or arbitrary configuration.",
+    "The gateway mock proves exact prompt construction, one start, replay polling, coding persistence, publication, cancellation, and PR URL completion without live traffic.",
+    "Ambiguous start or publication cannot automatically duplicate repository-writing work.",
+    "Connections and specifications state that production transport is intentionally unavailable.",
+    "WF-001 and WF-002 regression tests continue to pass."
+  ],
+  "codexGuidance": "Implement Path B only. Preserve the security boundary and deterministic orchestration; do not infer or reverse-engineer a Codex transport and do not interact with zailghe3/fpo-artifacts."
+}
