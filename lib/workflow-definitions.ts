@@ -17,7 +17,7 @@ export const agentDefinitionSchema = z.object({
   const visit = (item: unknown, path: PropertyKey[] = []) => {
     if (!item || typeof item !== "object") return;
     for (const [key, child] of Object.entries(item as Record<string, unknown>)) {
-      if (credentialKey.test(key)) context.addIssue({ code: "custom", message: "Credential-like fields are not permitted.", path: [...path, key] as (string | number)[] });
+      if (key!=="maxOutputTokens"&&credentialKey.test(key)) context.addIssue({ code: "custom", message: "Credential-like fields are not permitted.", path: [...path, key] as (string | number)[] });
       visit(child, [...path, key]);
     }
   };

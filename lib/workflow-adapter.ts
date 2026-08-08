@@ -1,7 +1,7 @@
 import type { ConnectionDescriptor, ResolvedConnection } from "./workflow-connections.ts";
 import { z } from "zod";
 
-export type FailureCategory = "configuration_invalid" | "connection_unavailable" | "authentication_failed" | "permission_denied" | "provider_rejected" | "rate_limited" | "provider_unavailable" | "provider_timeout" | "malformed_response" | "output_too_large" | "cancelled" | "internal_error";
+export type FailureCategory = "configuration_invalid" | "connection_unavailable" | "authentication_failed" | "permission_denied" | "provider_rejected" | "provider_start_ambiguous" | "rate_limited" | "provider_unavailable" | "provider_timeout" | "malformed_response" | "output_too_large" | "cancelled" | "internal_error";
 export type AdapterInvocation = { runId: string; stepId: string; iteration: number; attempt: number; providerPollCount: number; idempotencyKey: string; agentName: string; masterPrompt: string; inputText: string; connection: ResolvedConnection; providerOptions?: unknown };
 export type AdapterResult = { state: "pending"; taskId: string; pollAfterMs?: number } | { state: "completed"; outputText: string; externalUrl?: string };
 export interface AgentProviderAdapter {
@@ -13,8 +13,10 @@ export interface AgentProviderAdapter {
 }
 
 export const deterministicOptionsSchema=z.object({mode:z.enum(["immediate","pending","transient_failure","terminal_failure","oversized"]).optional(),pendingChecks:z.number().int().min(0).max(20).optional(),cancellation:z.enum(["supported","unsupported"]).optional()}).strict();
+export const openAIResponsesOptionsSchema=z.object({reasoningEffort:z.enum(["none","low","medium","high","xhigh","max"]).optional(),verbosity:z.enum(["low","medium","high"]).optional(),maxOutputTokens:z.number().int().positive().max(262144).optional()}).strict();
+export type OpenAIResponsesOptions=z.infer<typeof openAIResponsesOptionsSchema>;
 export type DeterministicOptions = z.infer<typeof deterministicOptionsSchema>;
-export function validateAdapterOptions(adapter:string,options:unknown){if(adapter==="deterministic-test")return deterministicOptionsSchema.parse(options??{});throw new Error("unsupported_adapter");}
+export function validateAdapterOptions(adapter:string,options:unknown){if(adapter==="deterministic-test")return deterministicOptionsSchema.parse(options??{});if(adapter==="openai-responses")return openAIResponsesOptionsSchema.parse(options??{});throw new Error("unsupported_adapter");}
 export class DeterministicTestAdapter implements AgentProviderAdapter {
   readonly kind = "deterministic-test";
   readonly starts = new Map<string, number>();
