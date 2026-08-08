@@ -6,7 +6,7 @@
   "objective": "Add a native-fetch OpenAI Responses API adapter to the existing durable sequential workflow runner.",
   "userContext": "An authenticated maintainer needs to configure a server-side OpenAI connection, create text agents, run them durably, cancel pending work, and inspect persisted results later.",
   "currentBehaviour": "WF-001 provides the durable provider boundary and deterministic test adapter, but no real AI provider.",
-  "requiredBehaviour": "Expose a safe OpenAI connection backed by WORKFLOW_OPENAI_API_KEY and WORKFLOW_OPENAI_MODEL, validate bounded agent options, create background Responses with store=false, persist and poll Response IDs, extract only final text, and cancel through the existing durable path.",
+  "requiredBehaviour": "Expose a safe OpenAI connection backed by encrypted D1 provider connection and D1 provider model configuration, validate bounded agent options, create background Responses with store=false, persist and poll Response IDs, extract only final text, and cancel through the existing durable path.",
   "userExperience": "Connections reports safe readiness and model information. Agent create/edit shows adapter-specific fields. Runs preserve exact text handoff, safe failures, replay protection, cancellation, and later inspection.",
   "functionalRequirements": [
     "Register deterministic-test and openai-responses adapters in the production runtime.",
