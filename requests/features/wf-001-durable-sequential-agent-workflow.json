@@ -39,6 +39,7 @@
     "An authenticated maintainer can create two draft agents and a two-step draft workflow.",
     "A run persists step one output and uses the exact persisted UTF-8 text as step two input.",
     "A completed run remains inspectable independently of the browser session that started it.",
+    "A nonterminal abandoned launch is reconciled during run observation after its bounded lease, using the same reserved Workflow instance ID.",
     "Replay does not invoke adapter start more than once per attempt.",
     "Transient retry, terminal failure, manual retry and supported or unsupported cancellation are safely represented.",
     "Credentials never appear in definitions, snapshots, D1 records, APIs, pages, errors or logs.",
