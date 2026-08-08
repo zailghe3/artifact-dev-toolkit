@@ -1,0 +1,37 @@
+{
+  "requestId": "wf-002-openai-responses-provider",
+  "featureId": "WF-002",
+  "title": "Add first real OpenAI Responses workflow provider",
+  "priority": "high",
+  "objective": "Add a native-fetch OpenAI Responses API adapter to the existing durable sequential workflow runner.",
+  "userContext": "An authenticated maintainer needs to configure a server-side OpenAI connection, create text agents, run them durably, cancel pending work, and inspect persisted results later.",
+  "currentBehaviour": "WF-001 provides the durable provider boundary and deterministic test adapter, but no real AI provider.",
+  "requiredBehaviour": "Expose a safe OpenAI connection backed by WORKFLOW_OPENAI_API_KEY and WORKFLOW_OPENAI_MODEL, validate bounded agent options, create background Responses with store=false, persist and poll Response IDs, extract only final text, and cancel through the existing durable path.",
+  "userExperience": "Connections reports safe readiness and model information. Agent create/edit shows adapter-specific fields. Runs preserve exact text handoff, safe failures, replay protection, cancellation, and later inspection.",
+  "functionalRequirements": [
+    "Register deterministic-test and openai-responses adapters in the production runtime.",
+    "Map masterPrompt to instructions and persisted workflow input to input without modification.",
+    "Use background=true and store=false with no provider tools.",
+    "Persist the Response ID and poll or cancel it through the existing runner.",
+    "Classify ambiguous creation as provider_start_ambiguous without automatic retry.",
+    "Keep credentials server-only and snapshots safe."
+  ],
+  "technicalConsiderations": [
+    "Use platform fetch with a bounded timeout and injected fake transport tests.",
+    "Keep https://api.openai.com/v1 fixed and the model deployment-configured.",
+    "Extract output_text and textual refusal fragments in provider order without exposing reasoning or raw JSON.",
+    "Preserve WF-001 D1 schema, sequencing, retry, handoff and cancellation semantics."
+  ],
+  "outOfScope": [
+    "OpenAI tools, SDKs, conversations, streaming, structured outputs or multimodal input.",
+    "Branching, loops, parallel agents, repository mutation, pull requests, CI, merge or deployment."
+  ],
+  "acceptanceCriteria": [
+    "OpenAI readiness requires both the server-only API key and safe configured model.",
+    "A background Response ID is persisted and replay never creates a duplicate after persistence.",
+    "Completed text is persisted and handed to the next step byte-for-byte.",
+    "Ambiguous starts do not automatically retry and pending Responses use provider cancellation.",
+    "Existing deterministic workflow tests continue to pass and mocked tests make no live OpenAI requests."
+  ],
+  "codexGuidance": "Implement only the first real text provider behind the frozen WF-001 adapter boundary. Do not add tools, repository access, provider conversations, orchestration features, deployment, merge, or live provider traffic to normal tests."
+}

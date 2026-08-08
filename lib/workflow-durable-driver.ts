@@ -9,9 +9,9 @@ export function clampPollDelay(value:unknown){return typeof value==="number"&&Nu
 export function safeExternalUrl(value:string|undefined){if(!value)return undefined;try{const url=new URL(value);return url.protocol==="https:"&&!url.username&&!url.password?url.toString():undefined;}catch{return undefined;}}
 const safeFailure=(error:unknown):{category:FailureCategory;safeMessage:string;retryable:boolean}=>{
  const category=error&&typeof error==="object"&&"category" in error&&typeof error.category==="string"?error.category:"internal_error";
- const allowed:FailureCategory[]=["configuration_invalid","connection_unavailable","authentication_failed","permission_denied","provider_rejected","rate_limited","provider_unavailable","provider_timeout","malformed_response","output_too_large","cancelled","internal_error"];
+ const allowed:FailureCategory[]=["configuration_invalid","connection_unavailable","authentication_failed","permission_denied","provider_rejected","provider_start_ambiguous","rate_limited","provider_unavailable","provider_timeout","malformed_response","output_too_large","cancelled","internal_error"];
  const safe=allowed.includes(category as FailureCategory)?category as FailureCategory:"internal_error";
- return {category:safe,safeMessage:safe==="internal_error"?"The provider operation failed unexpectedly.":`The provider operation failed (${safe.replaceAll("_"," ")}).`,retryable:transient.has(safe)};
+ return {category:safe,safeMessage:safe==="internal_error"?"The provider operation failed unexpectedly.":safe==="provider_start_ambiguous"?"The provider may have accepted the request, so ADT did not automatically start a duplicate. Inspect provider activity before manually retrying if necessary.":`The provider operation failed (${safe.replaceAll("_"," ")}).`,retryable:transient.has(safe)};
 };
 function coordinates(runId:string,attempt:StepAttempt,operation:string,poll=attempt.providerPollCount){return `${runId}:${attempt.stepId}:${attempt.iteration}:${attempt.attempt}:${poll}:${operation}`;}
 function invocation(detail:RunDetail,attempt:StepAttempt,resolve:(key:string)=>ResolvedConnection):AdapterInvocation{

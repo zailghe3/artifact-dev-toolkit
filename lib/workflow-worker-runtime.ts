@@ -4,7 +4,7 @@
  */
 import type { WorkflowStep } from "cloudflare:workers";
 import { D1WorkflowRunStorage, type WorkflowD1Database } from "./workflow-d1-storage.ts";
-import { DeterministicTestAdapter } from "./workflow-adapter.ts";
+import { createWorkflowAdapterRegistry } from "./openai-responses-adapter.ts";
 import { resolveConnection } from "./workflow-connections.ts";
 import { executeDurableWorkflow, type DurableStep } from "./workflow-durable-driver.ts";
 
@@ -13,6 +13,5 @@ export async function executeWorkflowRun(env: CloudflareEnv, runId: string, inst
   if (!runId || !instanceId) throw new Error("invalid_workflow_context");
   const storage=new D1WorkflowRunStorage(env.AUTH_SESSIONS_DB as unknown as WorkflowD1Database);
   const detail=await storage.getRun(runId);if(!detail)throw new Error("run_not_found");await storage.attachWorkflowInstance(runId,detail.run.workflowGeneration,instanceId);
-  const adapter=new DeterministicTestAdapter();
-  return executeDurableWorkflow({runId,storage,adapters:new Map([[adapter.kind,adapter]]),resolveConnection:(key)=>resolveConnection(key,env as unknown as Record<string,string|undefined>),step:step as unknown as DurableStep});
+  return executeDurableWorkflow({runId,storage,adapters:createWorkflowAdapterRegistry(),resolveConnection:(key)=>resolveConnection(key,env as unknown as Record<string,string|undefined>),step:step as unknown as DurableStep});
 }

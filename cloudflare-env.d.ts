@@ -15,6 +15,8 @@ interface __BaseEnv_CloudflareEnv {
 	GITHUB_APP_PRIVATE_KEY: string;
 	GITHUB_TOKEN_ENCRYPTION_KEY: string;
 	SESSION_SECRET: string;
+	WORKFLOW_OPENAI_API_KEY?: string;
+	WORKFLOW_OPENAI_MODEL?: string;
 	WORKER_SELF_REFERENCE: Service<typeof import("./cloudflare-worker").default>;
 	AGENT_RUN_WORKFLOW: Workflow<Parameters<import("./cloudflare-worker").AgentRunWorkflow['run']>[0]['payload']>;
 }
