@@ -126,7 +126,7 @@ test("OAuth smoke retries transient failures, exhausts deterministically, times 
 
 test("Wrangler structurally declares exactly the intended secrets and production repository", () => {
   const wrangler = JSON.parse(readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8"));
-  assert.deepEqual(wrangler.secrets.required, ["GITHUB_APP_ID", "GITHUB_APP_CLIENT_ID", "GITHUB_APP_CLIENT_SECRET", "GITHUB_APP_PRIVATE_KEY", "GITHUB_TOKEN_ENCRYPTION_KEY", "SESSION_SECRET"]);
+  assert.deepEqual(wrangler.secrets.required, ["GITHUB_APP_ID", "GITHUB_APP_CLIENT_ID", "GITHUB_APP_CLIENT_SECRET", "GITHUB_APP_PRIVATE_KEY", "GITHUB_TOKEN_ENCRYPTION_KEY", "WORKFLOW_PROVIDER_SECRET_ENCRYPTION_KEY", "SESSION_SECRET"]);
   assert.deepEqual(wrangler.vars, { ARTIFACT_REPOSITORY: "github", GITHUB_ARTIFACT_REPOSITORY_OWNER: "zailghe3", GITHUB_ARTIFACT_REPOSITORY_NAME: "fpo-artifacts" });
   assert.ok(Array.isArray(wrangler.kv_namespaces));
   assert.equal(wrangler.kv_namespaces.length, 1);
