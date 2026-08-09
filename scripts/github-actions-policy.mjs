@@ -22,24 +22,21 @@ export function parseApprovedActionsManifest(source) {
   if (document.schemaVersion !== 1) {
     throw new Error(`Unsupported approved Actions manifest schema version: ${String(document.schemaVersion)}.`);
   }
-  if (!plainObject(document.actions)) {
-    throw new Error('Malformed approved Actions manifest: actions must be an object.');
-  }
-
-  // JSON.parse otherwise silently keeps the last occurrence of a duplicate key.
-  const serializedEntryNames = [...source.matchAll(/"([^"\\]*(?:\\.[^"\\]*)*)"\s*:\s*\{\s*"sha"\s*:/g)]
-    .map((match) => JSON.parse(`"${match[1]}"`));
-  if (new Set(serializedEntryNames).size !== serializedEntryNames.length) {
-    throw new Error('Malformed approved Actions manifest: duplicate Action entries are not allowed.');
+  if (!Array.isArray(document.actions)) {
+    throw new Error('Malformed approved Actions manifest: actions must be an array.');
   }
 
   const approvals = new Map();
-  for (const [name, approval] of Object.entries(document.actions)) {
+  for (const approval of document.actions) {
+    if (!exactKeys(approval, ['name', 'sha', 'tag'])) {
+      throw new Error('Malformed approved Actions manifest: each Action must contain only name, sha, and tag.');
+    }
+    const { name } = approval;
     if (!actionNamePattern.test(name)) {
       throw new Error(`Malformed approved Actions manifest: invalid Action name ${JSON.stringify(name)}.`);
     }
-    if (!exactKeys(approval, ['sha', 'tag'])) {
-      throw new Error(`Malformed approved Actions manifest: ${name} must contain only sha and tag.`);
+    if (approvals.has(name)) {
+      throw new Error(`Malformed approved Actions manifest: duplicate Action entry for ${name}.`);
     }
     if (typeof approval.sha !== 'string' || !fullShaPattern.test(approval.sha)) {
       throw new Error(`Malformed approved Actions manifest: ${name} sha must be exactly 40 lowercase hexadecimal characters.`);

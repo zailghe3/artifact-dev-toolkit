@@ -43,16 +43,43 @@ test('a tag-like Action ref fails immutable pinning', () => {
 test('malformed manifests fail closed', () => {
   assert.throws(() => parseApprovedActionsManifest('{'), /Malformed approved Actions manifest/);
   assert.throws(() => parseApprovedActionsManifest('{"schemaVersion":2,"actions":{}}'), /Unsupported/);
+  assert.throws(() => parseApprovedActionsManifest('{"schemaVersion":1,"actions":{}}'), /actions must be an array/);
   assert.throws(
-    () => parseApprovedActionsManifest('{"schemaVersion":1,"actions":{"actions/checkout":{"sha":"abc","tag":"v1"}}}'),
+    () => parseApprovedActionsManifest('{"schemaVersion":1,"actions":[{"name":"actions/checkout","sha":"abc","tag":"v1"}]}'),
     /40 lowercase hexadecimal/,
   );
 });
 
-test('duplicate manifest entries fail closed', () => {
-  const entry = `{"sha":"${checkoutSha}","tag":"v7.0.0"}`;
+test('duplicate Action names fail regardless of entry property ordering', () => {
   assert.throws(
-    () => parseApprovedActionsManifest(`{"schemaVersion":1,"actions":{"actions/checkout":${entry},"actions/checkout":${entry}}}`),
-    /duplicate Action entries/,
+    () => parseApprovedActionsManifest(`{"schemaVersion":1,"actions":[{"name":"actions/checkout","sha":"${checkoutSha}","tag":"v7.0.0"},{"tag":"v7.0.0","name":"actions/checkout","sha":"${checkoutSha}"}]}`),
+    /duplicate Action entry for actions\/checkout/,
   );
+});
+
+test('duplicate Action names fail when their SHAs differ', () => {
+  assert.throws(
+    () => parseApprovedActionsManifest(`{"schemaVersion":1,"actions":[{"name":"actions/checkout","sha":"${checkoutSha}","tag":"v7.0.0"},{"name":"actions/checkout","sha":"${'a'.repeat(40)}","tag":"v7.0.0"}]}`),
+    /duplicate Action entry for actions\/checkout/,
+  );
+});
+
+test('duplicate Action names fail when their tags differ', () => {
+  assert.throws(
+    () => parseApprovedActionsManifest(`{"schemaVersion":1,"actions":[{"name":"actions/checkout","sha":"${checkoutSha}","tag":"v7.0.0"},{"name":"actions/checkout","sha":"${checkoutSha}","tag":"v7.0.1"}]}`),
+    /duplicate Action entry for actions\/checkout/,
+  );
+});
+
+test('malformed Action entry keys fail closed', () => {
+  assert.throws(
+    () => parseApprovedActionsManifest(`{"schemaVersion":1,"actions":[{"name":"actions/checkout","sha":"${checkoutSha}","tag":"v7.0.0","trusted":true}]}`),
+    /each Action must contain only name, sha, and tag/,
+  );
+});
+
+test('an empty actions array fails when a Workflow references an Action', () => {
+  const emptyApprovals = parseApprovedActionsManifest('{"schemaVersion":1,"actions":[]}');
+  const errors = validateWorkflowActionPolicy(workflow(`actions/checkout@${checkoutSha} # actions/checkout@v7.0.0`), emptyApprovals);
+  assert.match(errors.join('\n'), /unapproved GitHub Action actions\/checkout/);
 });
