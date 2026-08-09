@@ -28,3 +28,9 @@ Transport discovery was repeated against the current official OpenAI Codex docum
 The transport-independent `CodexCloudGateway` supports start, check, optional publication, and optional cancellation. The adapter deterministically composes `<masterPrompt>\n\nTask:\n\n<inputText>` without changing the input bytes. A task ID is persisted before polling, and replay with an ID checks rather than starts. Coding completion and safe output are persisted as `task_completed` before publication. Publication resumes against that task, so a publication failure cannot rerun coding; ambiguous starts and ambiguous publication are non-automatic failures. Success requires structured PR metadata, and the PR becomes the primary external URL while the Codex task link remains auxiliary metadata.
 
 For WF-003 a `codex-cloud` agent is terminal-only. Validation after connection and agent resolution must reject it when any downstream step exists. Environment references contain only a key, display name, external environment ID, and enabled flag. Repository selection, setup, environment variables, secrets, network policy, GitHub access, tests, and PR creation remain authoritative in Codex Cloud. No automatic merge is provided.
+
+### Named provider connections
+
+ADT supports multiple named provider connections. Agents reference one connection by stable connection key. Multiple connections may use the same provider and may independently use the same or different credentials and models. The existing `openai-primary` key remains a valid connection identity for backwards compatibility.
+
+OpenAI model choices are discovered from the authenticated OpenAI `/v1/models` endpoint rather than maintained as a static ADT list. Saving a connection validates that its selected model appears in the list available to the credential; the separate connection test remains the authoritative Responses API compatibility check.
