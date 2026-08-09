@@ -34,3 +34,9 @@ For WF-003 a `codex-cloud` agent is terminal-only. Validation after connection a
 ADT supports multiple named provider connections. Agents reference one connection by stable connection key. Multiple connections may use the same provider and may independently use the same or different credentials and models. The existing `openai-primary` key remains a valid connection identity for backwards compatibility.
 
 OpenAI model choices are discovered from the authenticated OpenAI `/v1/models` endpoint rather than maintained as a static ADT list. Saving a connection validates that its selected model appears in the list available to the credential; the separate connection test remains the authoritative Responses API compatibility check.
+
+## Provider transport safety invariants
+
+Externally side-effecting provider creation and publication operations must explicitly disable implicit Cloudflare Workflow retries. Read-only provider checks may retain platform retries. A known retryable failure may still create a new, persisted, numbered ADT attempt under the bounded application retry policy; an ambiguous start or publication never does. Future WF-003 publication transport must use the same no-platform-retry boundary rather than inheriting `step.do()` defaults.
+
+Provider request correlation and narrowly validated transport metadata may be persisted for operator diagnostics. Provider credentials and request or response content—including prompts, workflow inputs, outputs, raw bodies, exception messages, and arbitrary headers—must never be included in transport diagnostics. Correlation identifiers are diagnostic metadata, not idempotency keys.
