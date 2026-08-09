@@ -57,7 +57,7 @@ test('Workflow create and edit forms explain the required sequential Agent steps
 });
 
 test('Workflow submenu displays Workflows at the unchanged definitions route',async()=>{
- const layout=await readFile(new URL('../app/workflows/layout.tsx',import.meta.url),'utf8');
- assert.match(layout,/\["Workflows","\/workflows\/definitions"\]/);
- assert.doesNotMatch(layout,/\["Definitions","\/workflows\/definitions"\]/);
+ const layout=await readFile(new URL('../components/WorkflowSubnav.tsx',import.meta.url),'utf8');
+ assert.match(layout,/label:"Workflows",href:"\/workflows\/definitions"/);
+ assert.doesNotMatch(layout,/label:"Definitions",href:"\/workflows\/definitions"/);
 });
