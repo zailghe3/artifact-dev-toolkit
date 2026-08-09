@@ -3,7 +3,8 @@ import { z } from "zod";
 
 export type FailureCategory = "configuration_invalid" | "connection_unavailable" | "authentication_failed" | "permission_denied" | "provider_rejected" | "provider_start_ambiguous" | "provider_publish_ambiguous" | "rate_limited" | "provider_unavailable" | "provider_timeout" | "malformed_response" | "output_too_large" | "cancelled" | "internal_error";
 export type AdapterInvocation = { runId: string; stepId: string; iteration: number; attempt: number; providerPollCount: number; idempotencyKey: string; agentName: string; masterPrompt: string; inputText: string; connection: ResolvedConnection; providerOptions?: unknown };
-export type AdapterResult = { state: "pending"; taskId: string; pollAfterMs?: number; providerState?:string; outputText?:string; taskUrl?:string } | { state: "completed"; outputText: string; externalUrl?: string; taskUrl?:string };
+export type ProviderTransportDiagnostics={clientRequestId:string;requestId?:string;httpStatus?:number;elapsedMs:number;processingMs?:number;outcome:"response_received"|"timeout"|"network_error"};
+export type AdapterResult = ({ state: "pending"; taskId: string; pollAfterMs?: number; providerState?:string; outputText?:string; taskUrl?:string } | { state: "completed"; outputText: string; externalUrl?: string; taskUrl?:string })&{transportDiagnostics?:ProviderTransportDiagnostics};
 export type ConnectionTestResult = {ok:true;outputText:string}|{ok:false;category:FailureCategory;safeMessage:string};
 export interface AgentProviderAdapter {
   readonly kind: string;
