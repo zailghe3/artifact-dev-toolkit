@@ -17,7 +17,7 @@
     "issue:validate": "node scripts/validate-feature-issue-template.mjs",
     "issue:create-from-requests": "node scripts/create-feature-issues-from-requests.mjs",
     "issue:validate-request": "node scripts/validate-feature-request.mjs",
-    "test": "node --test",
+    "test": "node --test test/*.test.mjs",
     "artifacts:validate": "node scripts/validate-artifact-repository.mjs",
     "toolchain:validate": "node scripts/validate-toolchain.mjs && npm run secrets:validate",
     "maintenance:report": "node scripts/maintenance-report.mjs",

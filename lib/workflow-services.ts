@@ -5,6 +5,7 @@ import { D1WorkflowRunStorage, type WorkflowD1Database } from "./workflow-d1-sto
 import {D1WorkflowProviderConnectionStore,type ProviderConnectionDatabase} from "./workflow-provider-connection-store.ts";
 import {listConnectionDescriptors} from "./workflow-connections.ts";
 import {D1WorkflowCodexEnvironmentStore} from "./workflow-codex-environment-store.ts";
+import {createWorkflowAdapterRegistry} from "./openai-responses-adapter.ts";
 
 export function createWorkflowDefinitionRepository(access:RepositoryAccessContext){
  const branch=process.env.GITHUB_ARTIFACT_REPOSITORY_BRANCH??"main";
@@ -14,5 +15,6 @@ export async function getWorkflowEnvironment(){const {env}=await getCloudflareCo
 export async function getWorkflowRunStorage(){const env=await getWorkflowEnvironment();return new D1WorkflowRunStorage(env.AUTH_SESSIONS_DB as unknown as WorkflowD1Database);}
 export async function getWorkflowProviderConnectionStore(){const env=await getWorkflowEnvironment();return new D1WorkflowProviderConnectionStore(env.AUTH_SESSIONS_DB as unknown as ProviderConnectionDatabase,env.WORKFLOW_PROVIDER_SECRET_ENCRYPTION_KEY);}
 export async function getWorkflowCodexEnvironmentStore(){const env=await getWorkflowEnvironment();return new D1WorkflowCodexEnvironmentStore(env.AUTH_SESSIONS_DB as never);}
+export function getWorkflowAdapterRegistry(){return createWorkflowAdapterRegistry();}
 
 export async function listWorkflowConnectionDescriptors(){return[...listConnectionDescriptors(),...await(await getWorkflowProviderConnectionStore()).listSafeDescriptors()];}
