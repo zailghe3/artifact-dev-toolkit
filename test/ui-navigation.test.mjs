@@ -39,6 +39,28 @@ test('shared application header renders semantic compact navigation without dupl
   for (const anchor of html.match(/<a[^>]*>[\s\S]*?<\/a>/g) ?? []) assert.doesNotMatch(anchor, /<button\b/);
 });
 
+test('primary navigation uses a rectangular active treatment without changing inactive links', () => {
+  const html = renderToStaticMarkup(React.createElement(AppHeader, { login: 'octocat', currentPath: '/workflows/runs' }));
+  const links = Object.fromEntries(
+    [...html.matchAll(/<a\b[^>]*class="([^"]*)"[^>]*?(?:aria-current="page"[^>]*?)?>(Artifacts|Workflows|Diagnostics)<\/a>/g)]
+      .map(([, className, label]) => [label, className]),
+  );
+
+  assert.match(html, /aria-current="page"[^>]*>Workflows<\/a>/);
+  assert.match(links.Workflows, /\brounded-lg\b/);
+  assert.match(links.Workflows, /\bbg-sky-50\b/);
+  assert.doesNotMatch(links.Workflows, /\brounded-full\b|shadow-\[inset_/);
+  assert.match(links.Artifacts, /\bborder-transparent\b/);
+  assert.doesNotMatch(links.Artifacts, /\bbg-sky-50\b/);
+  assert.match(links.Diagnostics, /\bborder-transparent\b/);
+});
+
+test('Workflow submenu keeps its underline tab treatment', async () => {
+  const source = await readFile(new URL('../components/WorkflowSubnav.tsx', import.meta.url), 'utf8');
+  assert.match(source, /rounded-t-md border-b-2/);
+  assert.match(source, /active\?"border-sky-700 bg-sky-50 font-black dark:border-orange-400/);
+});
+
 test('artifact operational shells retain shared navigation and content', () => {
   const state = { category: 'github_temporarily_unavailable', title: 'GitHub temporarily unavailable', message: 'Try again later.' };
   for (const currentPath of ['/artifacts/example', '/artifacts/example/edit']) {

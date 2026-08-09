@@ -23,9 +23,9 @@ export function AppHeader({ login, currentPath }: { login: string; currentPath: 
                     href={item.href}
                     aria-current={item.active ? "page" : undefined}
                     className={[
-                      "inline-flex min-h-10 items-center whitespace-nowrap rounded-full border px-3 py-2 text-sm font-bold outline-none transition focus:ring-4 focus:ring-sky-200 dark:focus:ring-orange-500/35 motion-reduce:transition-none",
+                      "inline-flex min-h-10 items-center whitespace-nowrap rounded-lg border px-3 py-2 text-sm font-bold outline-none transition focus:ring-4 focus:ring-sky-200 dark:focus:ring-orange-500/35 motion-reduce:transition-none",
                       item.active
-                        ? "border-sky-700 bg-sky-50 text-sky-900 shadow-[inset_0_-3px_0_currentColor] dark:border-orange-300 dark:bg-orange-500/10 dark:text-orange-200"
+                        ? "border-sky-200 bg-sky-50 text-sky-900 dark:border-orange-400/30 dark:bg-orange-500/10 dark:text-orange-200"
                         : "border-transparent text-slate-600 hover:border-slate-300 hover:text-slate-950 dark:text-slate-300 dark:hover:border-slate-700 dark:hover:text-slate-50",
                     ].join(" ")}
                   >
