@@ -1,7 +1,7 @@
-import type { AdapterInvocation, AdapterResult, AgentProviderAdapter, FailureCategory } from "./workflow-adapter.ts";
+import type { AdapterInvocation, AdapterResult, AgentProviderAdapter, ConnectionTestResult, FailureCategory } from "./workflow-adapter.ts";
 import { DeterministicTestAdapter } from "./workflow-adapter.ts";
 import { openAIResponsesOptionsSchema } from "./workflow-adapter.ts";
-import type { ConnectionDescriptor } from "./workflow-connections.ts";
+import type { ConnectionDescriptor,ResolvedConnection } from "./workflow-connections.ts";
 import {CodexCloudAdapter} from "./codex-cloud-adapter.ts";
 import {UnavailableCodexCloudGateway} from "./codex-cloud-gateway.ts";
 
@@ -9,6 +9,7 @@ const ENDPOINT="https://api.openai.com/v1", POLL_AFTER_MS=10_000, DEFAULT_TIMEOU
 type Fetcher=(input:string|URL,init?:RequestInit)=>Promise<Response>;
 type ProviderFailure=Error&{category:FailureCategory};
 const failure=(category:FailureCategory):ProviderFailure=>Object.assign(new Error(category),{category});
+const safeMessages:Partial<Record<FailureCategory,string>>={connection_unavailable:"Connection is not configured.",authentication_failed:"Authentication failed.",permission_denied:"Permission denied.",provider_rejected:"Configured model was rejected.",rate_limited:"Provider rate limited.",provider_unavailable:"Provider temporarily unavailable.",provider_timeout:"Connection test timed out.",malformed_response:"Provider returned an invalid response.",internal_error:"Connection test could not be completed."};
 const object=(value:unknown):value is Record<string,unknown>=>Boolean(value)&&typeof value==="object"&&!Array.isArray(value);
 
 /** Extract only documented textual message content, preserving provider order. */
@@ -72,6 +73,16 @@ export class OpenAIResponsesAdapter implements AgentProviderAdapter {
     this.validate(invocation);if(!/^resp_[A-Za-z0-9_-]+$/.test(taskId))throw failure("configuration_invalid");
     const response=await this.request(`${ENDPOINT}/responses/${taskId}/cancel`,{method:"POST",headers:{authorization:`Bearer ${invocation.connection.credential}`}},"cancel");if(!response.ok)throw this.httpFailure(response.status,"cancel");
     const value=await this.json(response);if(value.status==="cancelled")return "cancelled" as const;if(["completed","failed","incomplete"].includes(String(value.status)))return "already_terminal" as const;throw failure("malformed_response");
+  }
+  async testConnection(connection:ResolvedConnection):Promise<ConnectionTestResult>{
+    if(connection.adapter!==this.kind||connection.endpoint!==ENDPOINT||!connection.enabled||!connection.defaultModel||typeof connection.credential!=="string"||!connection.credential.trim())return{ok:false,category:"connection_unavailable",safeMessage:safeMessages.connection_unavailable!};
+    try{
+      const response=await this.request(`${ENDPOINT}/responses`,{method:"POST",headers:{authorization:`Bearer ${connection.credential}`,"content-type":"application/json"},body:JSON.stringify({model:connection.defaultModel,input:"Reply exactly with OK.",store:false})},"check");
+      if(!response.ok)throw this.httpFailure(response.status,"check");
+      const value=await this.json(response),outputText=extractOpenAIResponseText(value)?.trim();
+      if(value.status!=="completed"||!outputText)throw failure("malformed_response");
+      return{ok:true,outputText:outputText.slice(0,100)};
+    }catch(error){const category=error&&typeof error==="object"&&"category" in error&&typeof error.category==="string"?error.category as FailureCategory:"internal_error";return{ok:false,category,safeMessage:safeMessages[category]??safeMessages.internal_error!};}
   }
 }
 

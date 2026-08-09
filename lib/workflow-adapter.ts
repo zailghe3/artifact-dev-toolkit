@@ -4,12 +4,14 @@ import { z } from "zod";
 export type FailureCategory = "configuration_invalid" | "connection_unavailable" | "authentication_failed" | "permission_denied" | "provider_rejected" | "provider_start_ambiguous" | "provider_publish_ambiguous" | "rate_limited" | "provider_unavailable" | "provider_timeout" | "malformed_response" | "output_too_large" | "cancelled" | "internal_error";
 export type AdapterInvocation = { runId: string; stepId: string; iteration: number; attempt: number; providerPollCount: number; idempotencyKey: string; agentName: string; masterPrompt: string; inputText: string; connection: ResolvedConnection; providerOptions?: unknown };
 export type AdapterResult = { state: "pending"; taskId: string; pollAfterMs?: number; providerState?:string; outputText?:string; taskUrl?:string } | { state: "completed"; outputText: string; externalUrl?: string; taskUrl?:string };
+export type ConnectionTestResult = {ok:true;outputText:string}|{ok:false;category:FailureCategory;safeMessage:string};
 export interface AgentProviderAdapter {
   readonly kind: string;
   validateConnection(descriptor: ConnectionDescriptor): Promise<{ ok: true } | { ok: false; safeMessage: string }>;
   start(invocation: AdapterInvocation): Promise<AdapterResult>;
   check(taskId: string, invocation: AdapterInvocation): Promise<{ state: "pending"; pollAfterMs?: number; providerState?:string; outputText?:string; taskUrl?:string } | { state: "completed"; outputText: string; externalUrl?: string; taskUrl?:string } | { state: "failed"; category: FailureCategory; retryable: boolean; safeMessage: string }>;
   cancel?(taskId: string, invocation: AdapterInvocation): Promise<"cancelled" | "already_terminal" | "unsupported">;
+  testConnection?(connection:ResolvedConnection):Promise<ConnectionTestResult>;
 }
 
 export const deterministicOptionsSchema=z.object({mode:z.enum(["immediate","pending","transient_failure","terminal_failure","oversized"]).optional(),pendingChecks:z.number().int().min(0).max(20).optional(),cancellation:z.enum(["supported","unsupported"]).optional()}).strict();
