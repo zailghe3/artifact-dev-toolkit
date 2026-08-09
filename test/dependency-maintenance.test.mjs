@@ -29,6 +29,8 @@ test('dependabot keeps semver-major npm updates intentional', () => {
 
 test('github actions dependabot updates are grouped separately', () => {
   assert.match(dependabot, /package-ecosystem: github-actions[\s\S]*pinned-github-actions-minor-patch/);
+  assert.match(dependabot, /pinned-github-actions-minor-patch:[\s\S]*update-types:[\s\S]*minor[\s\S]*patch/);
+  assert.doesNotMatch(dependabot, /labels:\s*\n\s*- dependencies\s*\n\s*- github-actions/);
 });
 
 test('maintenance report workflow is read-only and non-mutating', () => {
@@ -44,8 +46,9 @@ test('maintenance report script covers dependency and action drift domains', () 
   assert.equal(packageJson.scripts['maintenance:report'], 'node scripts/maintenance-report.mjs');
   assert.match(script, /runNpm\(\['outdated', '--json', '--long'\]\)/);
   assert.match(script, /runNpm\(\['view', name, 'deprecated', '--json'\]\)/);
-  assert.match(script, /fullShaPattern/);
-  assert.match(script, /expectedActions/);
+  assert.match(script, /parseApprovedActionsManifest/);
+  assert.match(script, /validateWorkflowActionPolicy/);
+  assert.match(script, /\.github\/approved-actions\.json/);
   assert.match(script, /packageManager/);
 });
 
