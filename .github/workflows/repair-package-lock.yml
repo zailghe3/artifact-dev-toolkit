@@ -14,6 +14,7 @@ concurrency:
 jobs:
   publish-trusted-repair:
     name: publish trusted package-lock repair
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - name: Check out trusted main

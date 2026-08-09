@@ -56,6 +56,14 @@ test('package-lock repair is maintainer-triggered and executes trusted main only
   assert.ok(source.indexOf('Verify trusted source') < source.indexOf('npm install'));
 });
 
+test('non-main workflow dispatch cannot reach the write-capable lockfile repair job', () => {
+  const source = workflow('.github/workflows/repair-package-lock.yml');
+  const publisher = source.slice(source.indexOf('  publish-trusted-repair:'));
+
+  assert.match(publisher, /publish-trusted-repair:\n    name: publish trusted package-lock repair\n    if: github\.ref == 'refs\/heads\/main'\n    runs-on:/);
+  assert.ok(publisher.indexOf("if: github.ref == 'refs/heads/main'") < publisher.indexOf('steps:'));
+});
+
 test('trusted lockfile publisher bounds and publishes only package-lock.json', () => {
   const source = workflow('.github/workflows/repair-package-lock.yml');
   assert.match(source, /max_bytes=\$\(\(5 \* 1024 \* 1024\)\)/);
