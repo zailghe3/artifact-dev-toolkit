@@ -17,7 +17,11 @@ const connection={key:'deterministic-test',name:'Deterministic test',adapter:'de
 const agent={id:'planning-agent',name:'Planning Agent'};
 
 test('shared definition ID generation is normalized, bounded, and schema-compatible',()=>{
- assert.equal(definitionIdFromName('Security Review Agent'),'security-review-agent');
+ assert.equal(definitionIdFromName('Todo List Planner'),'todo-list-planner');
+ assert.equal(definitionIdFromName('Security & Review Agent'),'security-review-agent');
+ assert.equal(definitionIdFromName('  Planning / Review -- V2 '),'planning-review-v2');
+ assert.equal(definitionIdFromName('Agent @#$% Test'),'agent-test');
+ assert.equal(definitionIdFromName(' /\\.. "?\u0000 # % & '),'');
  assert.equal(definitionIdFromName('Feature Implementation Workflow'),'feature-implementation-workflow');
  assert.equal(definitionIdFromName('  Review & Plan / V2  '),'review-plan-v2');
  assert.equal(definitionIdFromName('Café Über'),'caf-ber');

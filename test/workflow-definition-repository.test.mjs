@@ -12,9 +12,10 @@ const agents=[
 function gitFixture(){
  const files=new Map();
  const request=async(path,init)=>{
-  if(path==='/contents/_adt/agents'&&!init){return Response.json([...files].map(([name])=>({name:name.split('/').at(-1),path:name})));}
+  if((path==='/contents/_adt/agents'||path==='/contents/_adt/workflows')&&!init){const root=path.slice('/contents/'.length);return Response.json([...files].filter(([name])=>name.startsWith(`${root}/`)).map(([name])=>({name:name.split('/').at(-1),path:name})));}
   const name=path.replace('/contents/','');
   if(!init){const file=files.get(name);return file?Response.json(file):new Response(null,{status:404});}
+  if(init.method==='DELETE'){const body=JSON.parse(init.body),file=files.get(name);if(!file)return new Response(null,{status:404});if(file.sha!==body.sha)return new Response(null,{status:409});files.delete(name);return Response.json({});}
   const body=JSON.parse(init.body),file={content:body.content,sha:`sha-${files.size+1}`};files.set(name,file);return Response.json({content:{sha:file.sha}});
  };
  return {files,repository:new GitHubWorkflowDefinitionRepository(request)};
@@ -37,4 +38,29 @@ test('in-memory Agent definitions apply the same structural-only persistence rul
  const repository=new InMemoryWorkflowDefinitionRepository();
  for(const agent of agents)assert.deepEqual((await repository.createAgent(agent)).definition,agent);
  assert.deepEqual((await repository.listAgents()).map(item=>item.definition),agents);
+});
+
+const workflow={schemaVersion:1,id:'review-flow',name:'Review flow',description:'',status:'draft',steps:[{id:'step-1',name:'Review',agentId:'openai-agent',input:{source:'run_input'},onSuccess:{type:'complete'},onFailure:{type:'fail'}}],result:{source:'step_output',stepId:'step-1'},limits:{maxStepExecutions:1}};
+
+test('Git-backed definitions delete only the exact file at the expected revision',async()=>{
+ const {files,repository}=gitFixture(),agent=await repository.createAgent(agents[1]),createdWorkflow=await repository.createWorkflow(workflow);
+ await assert.rejects(repository.deleteAgent(agents[1].id,'stale-sha'),/changed/);assert.ok(files.has('_adt/agents/deterministic-agent.agent.json'));
+ await repository.deleteAgent(agents[1].id,agent.fileSha);assert.equal(await repository.getAgent(agents[1].id),undefined);assert.ok(files.has('_adt/workflows/review-flow.workflow.json'));
+ await assert.rejects(repository.deleteWorkflow(workflow.id,'stale-sha'),/changed/);await repository.deleteWorkflow(workflow.id,createdWorkflow.fileSha);assert.equal(await repository.getWorkflow(workflow.id),undefined);
+});
+
+test('in-memory definitions enforce optimistic revisions when deleting',async()=>{
+ const repository=new InMemoryWorkflowDefinitionRepository(),agent=await repository.createAgent(agents[1]),createdWorkflow=await repository.createWorkflow(workflow);
+ await assert.rejects(repository.deleteAgent(agents[1].id,'stale-sha'),/changed/);assert.ok(await repository.getAgent(agents[1].id));
+ await repository.deleteAgent(agents[1].id,agent.fileSha);assert.equal(await repository.getAgent(agents[1].id),undefined);assert.ok(await repository.getWorkflow(workflow.id));
+ await assert.rejects(repository.deleteWorkflow(workflow.id,'stale-sha'),/changed/);await repository.deleteWorkflow(workflow.id,createdWorkflow.fileSha);assert.equal(await repository.getWorkflow(workflow.id),undefined);
+});
+
+test('referenced Agents cannot be deleted and definitions remain unchanged',async()=>{
+ for(const make of [()=>new InMemoryWorkflowDefinitionRepository(),()=>gitFixture().repository]){
+  const repository=make(),agent=await repository.createAgent(agents[0]),createdWorkflow=await repository.createWorkflow(workflow);
+  await assert.rejects(repository.deleteAgent(agents[0].id,agent.fileSha),/agent_in_use/);
+  assert.deepEqual((await repository.getAgent(agents[0].id)).definition,agents[0]);
+  assert.deepEqual(await repository.getWorkflow(workflow.id),createdWorkflow);
+ }
 });
