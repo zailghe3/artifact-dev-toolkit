@@ -1,4 +1,4 @@
-import type { AdapterInvocation, AdapterResult, AgentProviderAdapter, ConnectionTestResult, FailureCategory, ProviderTransportDiagnostics } from "./workflow-adapter.ts";
+import type { AdapterInvocation, AdapterResult, AgentProviderAdapter, ConnectionTestResult, FailureCategory, ProviderRuntimeErrorName, ProviderTransportDiagnostics, ProviderTransportReason } from "./workflow-adapter.ts";
 import { DeterministicTestAdapter } from "./workflow-adapter.ts";
 import { openAIResponsesOptionsSchema } from "./workflow-adapter.ts";
 import type { ConnectionDescriptor,ResolvedConnection } from "./workflow-connections.ts";
@@ -12,6 +12,14 @@ const failure=(category:FailureCategory,transportDiagnostics?:ProviderTransportD
 const safeMessages:Partial<Record<FailureCategory,string>>={connection_unavailable:"Connection is not configured.",authentication_failed:"Authentication failed.",permission_denied:"Permission denied.",provider_rejected:"Configured model was rejected.",rate_limited:"Provider rate limited.",provider_unavailable:"Provider temporarily unavailable.",provider_timeout:"Connection test timed out.",malformed_response:"Provider returned an invalid response.",internal_error:"Connection test could not be completed."};
 const object=(value:unknown):value is Record<string,unknown>=>Boolean(value)&&typeof value==="object"&&!Array.isArray(value);
 const safeHeader=(value:string|null,pattern:RegExp,max:number)=>value&&value.length<=max&&pattern.test(value)?value:undefined;
+const runtimeErrorNames=new Set<ProviderRuntimeErrorName>(["TypeError","AbortError","Error"]);
+function transportException(error:unknown):{reason:ProviderTransportReason;runtimeErrorName?:ProviderRuntimeErrorName}{
+  const values:unknown[]=[error];if(object(error)&&"cause" in error)values.push(error.cause);
+  const messages=values.flatMap(value=>object(value)&&typeof value.message==="string"?[value.message.toLowerCase()]:[]);
+  const name=values.flatMap(value=>object(value)&&typeof value.name==="string"?[value.name]:[]).find(value=>runtimeErrorNames.has(value as ProviderRuntimeErrorName)) as ProviderRuntimeErrorName|undefined;
+  const reason:ProviderTransportReason=messages.some(value=>value.includes("cannot perform i/o on behalf of a different request")||value.includes("different request context"))?"cross_request_io":messages.some(value=>value.includes("outside of a request context")||value.includes("outside a valid request context")||value.includes("no request context")||value.includes("invalid request context"))?"invalid_request_context":messages.some(value=>value.includes("network connection lost"))?"network_connection_lost":name==="AbortError"?"aborted":name==="TypeError"?"fetch_type_error":"unknown";
+  return {reason,runtimeErrorName:name};
+}
 async function clientRequestId(invocation:AdapterInvocation){const identity=`${invocation.runId}\0${invocation.stepId}\0${invocation.iteration}\0${invocation.attempt}\0start`,digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(identity));return `adt-${[...new Uint8Array(digest)].map(value=>value.toString(16).padStart(2,"0")).join("").slice(0,40)}`;}
 
 /** Extract only documented textual message content, preserving provider order. */
@@ -31,8 +39,9 @@ export function extractOpenAIResponseText(response:unknown):string|undefined {
 
 export class OpenAIResponsesAdapter implements AgentProviderAdapter {
   readonly kind="openai-responses";
-  private readonly fetcher:Fetcher;private readonly timeoutMs:number;
-  constructor(fetcher:Fetcher=fetch,timeoutMs=DEFAULT_TIMEOUT_MS){this.fetcher=fetcher;this.timeoutMs=timeoutMs;}
+  private readonly injectedFetcher?:Fetcher;private readonly timeoutMs:number;
+  constructor(fetcher?:Fetcher,timeoutMs=DEFAULT_TIMEOUT_MS){this.injectedFetcher=fetcher;this.timeoutMs=timeoutMs;}
+  private performFetch(input:string|URL,init?:RequestInit){return (this.injectedFetcher??globalThis.fetch)(input,init);}
   async validateConnection(descriptor:ConnectionDescriptor){return descriptor.enabled&&descriptor.endpoint===ENDPOINT&&Boolean(descriptor.defaultModel)?{ok:true as const}:{ok:false as const,safeMessage:"The OpenAI Responses connection is not configured."};}
   private validate(invocation:AdapterInvocation){
     const c=invocation.connection;
@@ -41,10 +50,10 @@ export class OpenAIResponsesAdapter implements AgentProviderAdapter {
   }
   private async request(url:string,init:RequestInit,operation:"start"|"check"|"cancel",clientId?:string):Promise<{response:Response;diagnostics?:ProviderTransportDiagnostics}>{
     const controller=new AbortController(),started=Date.now();let timer:ReturnType<typeof setTimeout>|undefined,timedOut=false;
-    const diagnostic=(outcome:ProviderTransportDiagnostics["outcome"],response?:Response):ProviderTransportDiagnostics|undefined=>clientId?{clientRequestId:clientId,requestId:response?safeHeader(response.headers.get("x-request-id"),/^[\x21-\x7e]+$/,255):undefined,httpStatus:response?.status,elapsedMs:Math.max(0,Date.now()-started),processingMs:response&&safeHeader(response.headers.get("openai-processing-ms"),/^\d{1,12}$/,12)!==undefined?Number(response.headers.get("openai-processing-ms")):undefined,outcome}:undefined;
+    const diagnostic=(outcome:ProviderTransportDiagnostics["outcome"],response?:Response,exception?:ReturnType<typeof transportException>):ProviderTransportDiagnostics|undefined=>clientId?{clientRequestId:clientId,requestId:response?safeHeader(response.headers.get("x-request-id"),/^[\x21-\x7e]+$/,255):undefined,httpStatus:response?.status,elapsedMs:Math.max(0,Date.now()-started),processingMs:response&&safeHeader(response.headers.get("openai-processing-ms"),/^\d{1,12}$/,12)!==undefined?Number(response.headers.get("openai-processing-ms")):undefined,outcome,...exception}:undefined;
     const timeout=new Promise<never>((_,reject)=>{timer=setTimeout(()=>{timedOut=true;controller.abort();reject(failure(operation==="start"?"provider_start_ambiguous":"provider_timeout",diagnostic("timeout")));},this.timeoutMs);});
-    try{const response=await Promise.race([this.fetcher(url,{...init,signal:controller.signal}),timeout]);return {response,diagnostics:diagnostic("response_received",response)};}
-    catch(error){if(error&&typeof error==="object"&&"category" in error)throw error;throw failure(operation==="start"?"provider_start_ambiguous":timedOut?"provider_timeout":"provider_unavailable",diagnostic(timedOut?"timeout":"network_error"));}
+    try{const response=await Promise.race([this.performFetch(url,{...init,signal:controller.signal}),timeout]);return {response,diagnostics:diagnostic("response_received",response)};}
+    catch(error){if(error&&typeof error==="object"&&"category" in error)throw error;const exception=transportException(error),localRuntime=exception.reason==="cross_request_io"||exception.reason==="invalid_request_context";throw failure(operation==="start"?(localRuntime?"internal_error":"provider_start_ambiguous"):timedOut?"provider_timeout":"provider_unavailable",diagnostic(timedOut?"timeout":"network_error",undefined,timedOut?undefined:exception));}
     finally{if(timer)clearTimeout(timer);}
   }
   private httpFailure(status:number,operation:"start"|"check"|"cancel"):ProviderFailure{
@@ -89,4 +98,4 @@ export class OpenAIResponsesAdapter implements AgentProviderAdapter {
   }
 }
 
-export function createWorkflowAdapterRegistry(fetcher:Fetcher=fetch):Map<string,AgentProviderAdapter>{const deterministic=new DeterministicTestAdapter(),openai=new OpenAIResponsesAdapter(fetcher),codex=new CodexCloudAdapter(new UnavailableCodexCloudGateway());return new Map<string,AgentProviderAdapter>([[deterministic.kind,deterministic],[openai.kind,openai],[codex.kind,codex]]);}
+export function createWorkflowAdapterRegistry(fetcher?:Fetcher):Map<string,AgentProviderAdapter>{const deterministic=new DeterministicTestAdapter(),openai=new OpenAIResponsesAdapter(fetcher),codex=new CodexCloudAdapter(new UnavailableCodexCloudGateway());return new Map<string,AgentProviderAdapter>([[deterministic.kind,deterministic],[openai.kind,openai],[codex.kind,codex]]);}

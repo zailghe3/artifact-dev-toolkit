@@ -11,7 +11,7 @@ import { newWorkflowRun, WORKFLOW_LAUNCH_STALE_MS } from '../lib/workflow-storag
 async function database() {
   const mf = new Miniflare({ modules: true, script: 'export default {fetch(){return new Response("ok")}}', d1Databases: { DB: 'run-detail-test' } });
   const db = await mf.getD1Database('DB');
-  for (const migration of ['0003_create_workflow_runs.sql', '0007_add_provider_transport_diagnostics.sql']) {
+  for (const migration of ['0003_create_workflow_runs.sql', '0007_add_provider_transport_diagnostics.sql','0008_add_provider_transport_reason.sql']) {
     const sql = await readFile(new URL(`../migrations/${migration}`, import.meta.url), 'utf8');
     await db.batch(sql.split(';').map(value => value.trim()).filter(Boolean).map(value => db.prepare(value)));
   }
@@ -74,7 +74,7 @@ test('the run page and API route delegate to the same reconciliation-aware loade
     readFile(new URL('../app/api/workflow-runs/[runId]/route.ts', import.meta.url), 'utf8'),
   ]);
   assert.match(page, /Provider diagnostics/);
-  for (const label of ["Client request ID","Transport outcome","Request duration","Provider request ID","HTTP status","Provider processing"]) assert.match(page,new RegExp(label));
+  for (const label of ["Client request ID","Transport outcome","Transport reason","Request duration","Provider request ID","HTTP status","Provider processing"]) assert.match(page,new RegExp(label));
   assert.doesNotMatch(page,/raw provider body|authorization|cookie/i);
   for (const source of [page, route]) {
     assert.match(source, /import \{getWorkflowRunDetail\} from "@\/lib\/workflow-run-detail"/);
