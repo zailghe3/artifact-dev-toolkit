@@ -33,7 +33,9 @@ DEV-007 records the TypeScript 7 migration decision in `docs/dev-007-typescript-
 
 ## Sensitive-file and auto-merge protections
 
-Dependency PRs do not bypass trusted auto-merge or sensitive-file classification. Changes to `.github/workflows/**`, `.github/actions/**`, `scripts/**`, `package.json`, `package-lock.json`, `wrangler.jsonc`, and `open-next.config.*` remain sensitive and require manual review. Dependabot branches may use the package-lock repair workflow only when they are same-repository branches writable by the repository token and inside the existing permitted repair scope.
+Dependency PRs do not bypass trusted auto-merge or sensitive-file classification. CI, deployment, dependency manifests, authentication, credentials, durable persistence, migrations, mutation-oriented server APIs, and related security boundaries require manual review. The shared trusted policy is enforced both when auto-merge is enabled and again at the actual `workflow_run` merge boundary. Ordinary low-risk UI, documentation, and test-only changes can retain the owner-only, same-repository automatic path.
+
+Package-lock write-back is intentionally not performed from PR validation. PR-controlled package code runs only with read permissions and checkout credentials disabled. A maintainer may explicitly dispatch the repair workflow, which regenerates and validates the lockfile from trusted `main`, enforces a size bound and a lockfile-only diff, and publishes a dedicated repair PR.
 
 ## Deterministic maintenance report
 

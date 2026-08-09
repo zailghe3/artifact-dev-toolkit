@@ -1,112 +1,45 @@
 name: Repair package lock
 
 on:
-  workflow_call:
-    inputs:
-      target_branch:
-        description: Same-repository branch to repair
-        required: true
-        type: string
-    outputs:
-      repair_published:
-        description: Whether the workflow committed or opened a repair for package-lock.json
-        value: ${{ jobs.regenerate-package-lock.outputs.repair_published }}
   workflow_dispatch:
-    inputs:
-      target_branch:
-        description: Same-repository branch to repair
-        required: true
-        type: string
 
 permissions:
-  contents: read
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: trusted-package-lock-repair
+  cancel-in-progress: false
 
 jobs:
-  regenerate-package-lock:
-    name: regenerate-package-lock
+  publish-trusted-repair:
+    name: publish trusted package-lock repair
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
-    outputs:
-      repair_published: ${{ steps.outcome.outputs.repair_published }}
     steps:
-      - name: Validate target branch
-        env:
-          TARGET_BRANCH: ${{ inputs.target_branch }}
-          REPOSITORY_URL: ${{ github.server_url }}/${{ github.repository }}.git
-        run: |
-          set -euo pipefail
-
-          if [[ -z "${TARGET_BRANCH}" ]]; then
-            echo "target_branch is required" >&2
-            exit 1
-          fi
-
-          case "${TARGET_BRANCH}" in
-            refs/*|tags/*|*/../*|../*|*/..|.|..|*.lock|*.lock/*|*@{*|*\\*|*~*|*^*|*:*|*\?*|*\[*|*//*|/*|*-|*.)
-              echo "Malformed or unsupported branch name: ${TARGET_BRANCH}" >&2
-              exit 1
-              ;;
-          esac
-
-          if [[ "${TARGET_BRANCH}" =~ ^[0-9a-fA-F]{40}$ ]]; then
-            echo "Commit SHAs are not accepted as target branches" >&2
-            exit 1
-          fi
-
-          git check-ref-format --branch "${TARGET_BRANCH}"
-          git ls-remote --exit-code --heads "${REPOSITORY_URL}" \
-            "refs/heads/${TARGET_BRANCH}" >/dev/null
-
-          case "${TARGET_BRANCH}" in
-            main|repair/*|codex/*|dependabot/*)
-              ;;
-            *)
-              echo "Branch is not in the permitted repair scope" >&2
-              exit 1
-              ;;
-          esac
-
-      - name: Checkout target branch
+      - name: Check out trusted main
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout@v7.0.1
         with:
-          ref: ${{ inputs.target_branch }}
+          ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 0
           persist-credentials: true
-
-      - name: Reset workspace to target branch
+      - name: Verify trusted source
         env:
-          TARGET_BRANCH: ${{ inputs.target_branch }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
-          git fetch origin "refs/heads/${TARGET_BRANCH}:refs/remotes/origin/${TARGET_BRANCH}" --prune
-          git checkout "${TARGET_BRANCH}"
-          git reset --hard "origin/${TARGET_BRANCH}"
-
+          test "${DEFAULT_BRANCH}" = main
+          test "$(git branch --show-current)" = main
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
       - name: Setup Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # actions/setup-node@v6.4.0
         with:
           node-version-file: .nvmrc
-
       - name: Install and confirm canonical npm
         run: |
           set -euo pipefail
           npm install -g "$(node -p 'require("./package.json").packageManager')"
-          node_version="$(node --version)"
-          npm_version="$(npm --version)"
-          expected_npm="$(node -p 'require("./package.json").packageManager.split("@").at(-1)')"
-          if [[ "${npm_version}" != "${expected_npm}" ]]; then
-            echo "Expected npm ${expected_npm}, got ${npm_version}" >&2
-            exit 1
-          fi
-          {
-            echo '## Runtime versions'
-            echo "- Node.js: ${node_version}"
-            echo "- npm: ${npm_version}"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Regenerate and save package-lock.json
+          test "$(npm --version)" = "$(node -p 'require("./package.json").packageManager.split("@").at(-1)')"
+      - name: Regenerate and validate package lock from trusted main
         run: |
           set -euo pipefail
           saved_lockfile="${RUNNER_TEMP}/package-lock.regenerated.json"
@@ -114,17 +47,8 @@ jobs:
           npm install
           test -f package-lock.json
           cp package-lock.json "${saved_lockfile}"
-          echo "SAVED_LOCKFILE=${saved_lockfile}" >> "$GITHUB_ENV"
-
-      - name: Confirm regenerated lockfile from clean install
-        run: |
-          set -euo pipefail
           rm -rf node_modules
           npm ci
-
-      - name: Run complete validation suite
-        run: |
-          set -euo pipefail
           npm run toolchain:validate
           npm test
           npm run lint
@@ -132,123 +56,49 @@ jobs:
           npm run build
           npm run build:worker
           npm run issue:validate
-          {
-            echo '## Validation results'
-            echo '- npm run toolchain:validate: passed'
-            echo '- npm test: passed'
-            echo '- npm run lint: passed'
-            echo '- npm run typecheck: passed'
-            echo '- npm run build: passed'
-            echo '- npm run build:worker: passed'
-            echo '- npm run issue:validate: passed'
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Restore only regenerated package-lock.json
-        run: |
-          set -euo pipefail
-          test -f "${SAVED_LOCKFILE}"
           git reset --hard HEAD
           git clean -fdx
-          cp "${SAVED_LOCKFILE}" package-lock.json
-
-          mapfile -t changed_files < <(git diff --name-only)
-          if [[ "${#changed_files[@]}" -eq 0 ]]; then
-            {
-              echo '## Package lock repair'
-              echo '- No package-lock.json changes were generated; nothing will be committed or pushed.'
-            } >> "$GITHUB_STEP_SUMMARY"
-            echo 'PACKAGE_LOCK_REPAIR_PUBLISHED=false' >> "$GITHUB_ENV"
-            exit 0
-          fi
-
-          if [[ "${#changed_files[@]}" -ne 1 || "${changed_files[0]}" != 'package-lock.json' ]]; then
-            echo "Unexpected tracked files remain modified after restoring the saved lockfile:" >&2
-            printf '%s\n' "${changed_files[@]}" >&2
+          cp "${saved_lockfile}" package-lock.json
+      - name: Validate narrowly scoped repair
+        id: validate
+        run: |
+          set -euo pipefail
+          max_bytes=$((5 * 1024 * 1024))
+          lockfile_bytes="$(wc -c < package-lock.json)"
+          if (( lockfile_bytes > max_bytes )); then
+            echo "package-lock.json exceeds ${max_bytes} bytes" >&2
             exit 1
           fi
-
-      - name: Commit and publish regenerated lockfile
+          mapfile -t changed_files < <(git diff --name-only)
+          if [[ "${#changed_files[@]}" -eq 0 ]]; then
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+            echo 'No package-lock.json change was generated.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [[ "${#changed_files[@]}" -ne 1 || "${changed_files[0]}" != package-lock.json ]]; then
+            printf 'Unexpected changed file: %s\n' "${changed_files[@]}" >&2
+            exit 1
+          fi
+          git diff --check
+          echo 'changed=true' >> "$GITHUB_OUTPUT"
+      - name: Publish validated lockfile-only repair
+        if: steps.validate.outputs.changed == 'true'
         env:
-          TARGET_BRANCH: ${{ inputs.target_branch }}
-          REPAIR_BRANCH: repair/regenerate-package-lock
           GH_TOKEN: ${{ github.token }}
+          REPAIR_BRANCH: repair/regenerate-package-lock
           REPOSITORY: ${{ github.repository }}
           REPOSITORY_OWNER: ${{ github.repository_owner }}
         run: |
           set -euo pipefail
-          if git diff --quiet -- package-lock.json; then
-            exit 0
-          fi
-
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add package-lock.json
-
-          staged_files="$(git diff --cached --name-only)"
-          if [[ "${staged_files}" != 'package-lock.json' ]]; then
-            echo "Unexpected staged files:" >&2
-            printf '%s\n' "${staged_files}" >&2
-            exit 1
-          fi
-
+          test "$(git diff --cached --name-only)" = package-lock.json
           git commit -m 'Regenerate package lock with canonical npm'
-          generated_commit="$(git rev-parse HEAD)"
-
-          if [[ "${TARGET_BRANCH}" == 'main' ]]; then
-            open_pr_json="$(gh pr list --head "${REPOSITORY_OWNER}:${REPAIR_BRANCH}" --base main --state open --json number,url --limit 1)"
-            open_pr_number="$(node -e 'const prs = JSON.parse(process.argv[1]); console.log(prs[0]?.number ?? "")' "${open_pr_json}")"
-            open_pr_url="$(node -e 'const prs = JSON.parse(process.argv[1]); console.log(prs[0]?.url ?? "")' "${open_pr_json}")"
-
-            if git ls-remote --exit-code --heads origin "${REPAIR_BRANCH}" >/dev/null 2>&1; then
-              git fetch origin "refs/heads/${REPAIR_BRANCH}:refs/remotes/origin/${REPAIR_BRANCH}"
-              if [[ -z "${open_pr_number}" ]]; then
-                echo "Remote repair branch ${REPAIR_BRANCH} already exists without an open PR targeting main; refusing to overwrite possibly unrelated work." >&2
-                exit 1
-              fi
-              git push --force-with-lease=refs/heads/${REPAIR_BRANCH}:refs/remotes/origin/${REPAIR_BRANCH} origin "HEAD:refs/heads/${REPAIR_BRANCH}"
-            else
-              git push origin "HEAD:refs/heads/${REPAIR_BRANCH}"
-            fi
-
-            pr_body="${RUNNER_TEMP}/package-lock-repair-pr.md"
-            cat > "${pr_body}" <<'PR_BODY'
-          This repair PR updates only `package-lock.json`.
-
-          The lockfile was regenerated with the repository canonical Node.js version from `.nvmrc` and the exact npm version declared in `package.json#packageManager`, then validated by the package-lock repair workflow. Validation side effects from framework tools are discarded before committing so the PR contains only the npm-generated lockfile.
-          PR_BODY
-
-            if [[ -z "${open_pr_number}" ]]; then
-              pr_url="$(gh pr create \
-                --base main \
-                --head "${REPAIR_BRANCH}" \
-                --title 'Regenerate package-lock.json with canonical npm' \
-                --body-file "${pr_body}")"
-            else
-              gh pr edit "${open_pr_number}" \
-                --title 'Regenerate package-lock.json with canonical npm' \
-                --body-file "${pr_body}"
-              pr_url="${open_pr_url}"
-            fi
-
-            {
-              echo '## Package lock repair'
-              echo '- Target branch: main'
-              echo "- Repair branch: ${REPAIR_BRANCH}"
-              echo "- Generated commit: ${generated_commit}"
-              echo "- Pull request: ${pr_url}"
-            } >> "$GITHUB_STEP_SUMMARY"
-            echo 'PACKAGE_LOCK_REPAIR_PUBLISHED=true' >> "$GITHUB_ENV"
+          git push --force-with-lease origin "HEAD:refs/heads/${REPAIR_BRANCH}"
+          open_pr="$(gh pr list --head "${REPOSITORY_OWNER}:${REPAIR_BRANCH}" --base main --state open --json number --jq '.[0].number // empty')"
+          if [[ -z "${open_pr}" ]]; then
+            gh pr create --base main --head "${REPAIR_BRANCH}" --title 'Regenerate package-lock.json with canonical npm' --body 'Maintainer-triggered repair generated and validated from trusted main. Only package-lock.json is changed.'
           else
-            git push origin "HEAD:${TARGET_BRANCH}"
-            {
-              echo '## Package lock repair'
-              echo "- Target branch: ${TARGET_BRANCH}"
-              echo "- Direct push: completed"
-              echo "- Generated commit: ${generated_commit}"
-            } >> "$GITHUB_STEP_SUMMARY"
-            echo 'PACKAGE_LOCK_REPAIR_PUBLISHED=true' >> "$GITHUB_ENV"
+            gh pr edit "${open_pr}" --title 'Regenerate package-lock.json with canonical npm' --body 'Maintainer-triggered repair generated and validated from trusted main. Only package-lock.json is changed.'
           fi
-
-      - name: Record repair outcome
-        id: outcome
-        run: echo "repair_published=${PACKAGE_LOCK_REPAIR_PUBLISHED:-false}" >> "$GITHUB_OUTPUT"

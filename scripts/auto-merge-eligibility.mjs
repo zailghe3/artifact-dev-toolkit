@@ -2,6 +2,7 @@ const exactSensitivePaths = new Set([
   'package.json',
   'package-lock.json',
   'wrangler.jsonc',
+  'cloudflare-worker.ts',
 ]);
 
 function normalizePath(path) {
@@ -16,7 +17,12 @@ export function isSensitivePath(path) {
     normalized.startsWith('.github/actions/') ||
     normalized.startsWith('scripts/') ||
     exactSensitivePaths.has(normalized) ||
-    /^open-next\.config\..+$/.test(normalized)
+    /^open-next\.config\..+$/.test(normalized) ||
+    /^next\.config\..+$/.test(normalized) ||
+    normalized.startsWith('migrations/') ||
+    normalized.startsWith('app/api/') ||
+    /^lib\/(?:auth(?:-|\.|$)|auth-session-store|auth-configuration|repository-authorization|github-app|workflow-provider|workflow-d1-storage|workflow-durable-driver)/.test(normalized) ||
+    /^lib\/[^/]*secret[^/]*$/i.test(normalized)
   );
 }
 

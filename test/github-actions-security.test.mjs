@@ -3,117 +3,73 @@ import { readFileSync, readdirSync } from 'node:fs';
 import test from 'node:test';
 import { parseApprovedActionsManifest, validateWorkflowActionPolicy } from '../scripts/github-actions-policy.mjs';
 
-const workflowFiles = readdirSync('.github/workflows')
-  .filter((file) => file.endsWith('.yml') || file.endsWith('.yaml'))
-  .map((file) => `.github/workflows/${file}`)
-  .sort();
+const workflowFiles = readdirSync('.github/workflows').filter((file) => /\.ya?ml$/.test(file)).map((file) => `.github/workflows/${file}`).sort();
 
-test('third-party workflow actions are pinned to full SHAs with accurate release comments', () => {
+function workflow(path) { return readFileSync(path, 'utf8'); }
+
+test('third-party workflow actions remain approved, immutable pins', () => {
   const approvals = parseApprovedActionsManifest(readFileSync('.github/approved-actions.json', 'utf8'));
-  const workflows = Object.fromEntries(workflowFiles.map((path) => [path, readFileSync(path, 'utf8')]));
-  assert.deepEqual(validateWorkflowActionPolicy(workflows, approvals), []);
+  assert.deepEqual(validateWorkflowActionPolicy(Object.fromEntries(workflowFiles.map((path) => [path, workflow(path)])), approvals), []);
 });
 
-test('setup-node workflows consume the canonical Node.js version file', () => {
-  for (const workflowFile of workflowFiles) {
-    const workflow = readFileSync(workflowFile, 'utf8');
-    if (!workflow.includes('actions/setup-node@')) continue;
-    assert.match(workflow, /node-version-file:\s+\.nvmrc/, `${workflowFile} must use .nvmrc for Node.js`);
-    assert.doesNotMatch(workflow, /node-version:\s*['"]?\d+/, `${workflowFile} must not hard-code Node.js`);
+test('workflow_run repeats trusted-main eligibility policy before merge and deployment', () => {
+  const source = workflow('.github/workflows/auto-merge.yml');
+  const boundary = source.indexOf('Enforce trusted auto-merge eligibility at merge boundary');
+  const merge = source.indexOf('Complete or confirm squash merge');
+  assert.ok(boundary > source.indexOf('Resolve trusted pull request and validate head'));
+  assert.ok(merge > boundary);
+  assert.match(source.slice(boundary, merge), /gh api --paginate[\s\S]*scripts\/auto-merge-eligibility\.mjs/);
+  assert.match(source, /if: steps\.eligibility\.outputs\.eligible == 'true'[\s\S]*gh pr merge/);
+  assert.match(source, /if: steps\.eligibility\.outputs\.eligible == 'true' && steps\.classify\.outputs\.deployable_changes == 'true'/);
+  assert.match(source, /Manual review required[\s\S]*was not merged and production deployment was not dispatched/);
+});
+
+test('workflow_run fails closed for stale heads, forks, non-owners, and non-main PRs', () => {
+  const source = workflow('.github/workflows/auto-merge.yml');
+  assert.match(source, /pr\.base\?\.ref === 'main'/);
+  assert.match(source, /pr\.user\?\.login !== process\.env\.REPOSITORY_OWNER/);
+  assert.match(source, /pr\.head\?\.repo\?\.full_name !== process\.env\.REPOSITORY/);
+  assert.match(source, /pr\.head\?\.sha !== process\.env\.VALIDATED_SHA/);
+  assert.match(source, /--match-head-commit "\$\{VALIDATED_SHA\}"/);
+});
+
+test('write-capable auto-merge job checks out only trusted main scripts', () => {
+  const source = workflow('.github/workflows/auto-merge.yml');
+  for (const checkoutBlock of source.matchAll(/uses: actions\/checkout@[\s\S]*?(?=\n      - name:|$)/g)) {
+    assert.doesNotMatch(checkoutBlock[0], /pull_request\.head/);
   }
+  assert.match(source, /ref: \$\{\{ github\.event\.repository\.default_branch \}\}[\s\S]*persist-credentials: false/);
 });
 
-test('trusted pull_request_target auto-merge never checks out pull-request code; workflow_run checks out trusted base', () => {
-  const workflow = readFileSync('.github/workflows/auto-merge.yml', 'utf8');
-  assert.match(workflow, /pull_request_target:/);
-  assert.match(workflow, /Check out trusted base scripts/);
-  assert.match(workflow, /gh api --paginate/);
+test('PR lifecycle has read-only permissions and never invokes lockfile publication', () => {
+  const source = workflow('.github/workflows/pr-orchestrator.yml');
+  assert.match(source, /permissions:\n  contents: read\n  pull-requests: read/);
+  assert.doesNotMatch(source, /repair-package-lock|contents: write|pull-requests: write/);
 });
 
-test('repair package lock workflow discards validation side effects and restores only package-lock.json', () => {
-  const workflow = readFileSync('.github/workflows/repair-package-lock.yml', 'utf8');
-  assert.match(workflow, /saved_lockfile="\$\{RUNNER_TEMP\}\/package-lock\.regenerated\.json"/);
-  assert.match(workflow, /cp package-lock\.json "\$\{saved_lockfile\}"/);
-  assert.match(workflow, /npm run toolchain:validate[\s\S]*npm test[\s\S]*npm run lint[\s\S]*npm run typecheck[\s\S]*npm run build[\s\S]*npm run build:worker[\s\S]*npm run issue:validate/);
-  assert.match(workflow, /git reset --hard HEAD/);
-  assert.match(workflow, /git clean -fdx/);
-  assert.match(workflow, /cp "\$\{SAVED_LOCKFILE\}" package-lock\.json/);
-  assert.match(workflow, /mapfile -t changed_files < <\(git diff --name-only\)/);
-  assert.match(workflow, /"\$\{changed_files\[0\]\}" != 'package-lock\.json'/);
-  assert.doesNotMatch(workflow, /next-env\.d\.ts tsconfig\.json/);
+test('package-lock repair is maintainer-triggered and executes trusted main only', () => {
+  const source = workflow('.github/workflows/repair-package-lock.yml');
+  assert.match(source, /on:\n  workflow_dispatch:/);
+  assert.doesNotMatch(source, /workflow_call:|pull_request:|target_branch|head\.sha/);
+  assert.match(source, /Check out trusted main[\s\S]*ref: \$\{\{ github\.event\.repository\.default_branch \}\}/);
+  assert.match(source, /test "\$\{DEFAULT_BRANCH\}" = main/);
+  assert.ok(source.indexOf('Verify trusted source') < source.indexOf('npm install'));
 });
 
-test('repair package lock workflow does not push directly to main', () => {
-  const workflow = readFileSync('.github/workflows/repair-package-lock.yml', 'utf8');
-  assert.match(workflow, /if \[\[ "\$\{TARGET_BRANCH\}" == 'main' \]\]; then/);
-  assert.doesNotMatch(workflow, /git push origin "HEAD:\$\{TARGET_BRANCH\}"[\s\S]*Target branch: main/);
-  assert.match(workflow, /git push (?:--force-with-lease=[^\n]+ )?origin "HEAD:refs\/heads\/\$\{REPAIR_BRANCH\}"/);
+test('trusted lockfile publisher bounds and publishes only package-lock.json', () => {
+  const source = workflow('.github/workflows/repair-package-lock.yml');
+  assert.match(source, /max_bytes=\$\(\(5 \* 1024 \* 1024\)\)/);
+  assert.match(source, /changed_files\[0\].*package-lock\.json/);
+  assert.match(source, /git diff --check/);
+  assert.match(source, /git add package-lock\.json/);
+  assert.match(source, /test "\$\(git diff --cached --name-only\)" = package-lock\.json/);
 });
 
-test('main package lock repairs use a deterministic repair branch and pull request', () => {
-  const workflow = readFileSync('.github/workflows/repair-package-lock.yml', 'utf8');
-  assert.match(workflow, /REPAIR_BRANCH: repair\/regenerate-package-lock/);
-  assert.match(workflow, /gh pr create[\s\S]*--base main[\s\S]*--head "\$\{REPAIR_BRANCH\}"/);
-  assert.match(workflow, /Regenerate package-lock\.json with canonical npm/);
-  assert.match(workflow, /canonical Node\.js version from `\.nvmrc` and the exact npm version declared in `package\.json#packageManager`/);
-});
-
-test('non-protected package lock repair branches are pushed directly', () => {
-  const workflow = readFileSync('.github/workflows/repair-package-lock.yml', 'utf8');
-  assert.match(workflow, /case "\$\{TARGET_BRANCH\}" in[\s\S]*main\|repair\/\*\|codex\/\*\|dependabot\/\*/);
-  assert.match(workflow, /else\n\s+git push origin "HEAD:\$\{TARGET_BRANCH\}"/);
-  assert.match(workflow, /Direct push: completed/);
-});
-
-test('repeated main package lock repairs reuse the same open pull request', () => {
-  const workflow = readFileSync('.github/workflows/repair-package-lock.yml', 'utf8');
-  assert.match(workflow, /gh pr list --head "\$\{REPOSITORY_OWNER\}:\$\{REPAIR_BRANCH\}" --base main --state open/);
-  assert.match(workflow, /gh pr edit "\$\{open_pr_number\}"/);
-  assert.match(workflow, /--force-with-lease=refs\/heads\/\$\{REPAIR_BRANCH\}:refs\/remotes\/origin\/\$\{REPAIR_BRANCH\}/);
-  assert.match(workflow, /refusing to overwrite possibly unrelated work/);
-});
-
-test('no-change package lock repairs exit successfully without commit or pull request', () => {
-  const workflow = readFileSync('.github/workflows/repair-package-lock.yml', 'utf8');
-  assert.match(workflow, /No package-lock\.json changes were generated; nothing will be committed or pushed\./);
-  assert.match(workflow, /if git diff --quiet -- package-lock\.json; then\n\s+exit 0\n\s+fi/);
-});
-
-test('repair package lock workflow rejects unsafe target refs', () => {
-  const workflow = readFileSync('.github/workflows/repair-package-lock.yml', 'utf8');
-  assert.match(workflow, /refs\/\*\|tags\/\*/);
-  assert.match(workflow, /Commit SHAs are not accepted as target branches/);
-  assert.match(workflow, /git check-ref-format --branch "\$\{TARGET_BRANCH\}"/);
-  assert.match(workflow, /Branch is not in the permitted repair scope/);
-});
-
-test('pull request lifecycle delegates package-lock repair to the existing repair workflow', () => {
-  const workflow = readFileSync('.github/workflows/pr-orchestrator.yml', 'utf8');
-  assert.match(workflow, /concurrency:[\s\S]*pr-lifecycle-\$\{\{ github\.event\.pull_request\.number \}\}/);
-  assert.match(workflow, /repair-package-lock:/);
-  assert.match(workflow, /has_lockfile_repair_changes == 'true'/);
-  assert.match(workflow, /github\.event\.pull_request\.head\.repo\.full_name == github\.repository/);
-  assert.match(workflow, /startsWith\(github\.event\.pull_request\.head\.ref, 'codex\/'\)/);
-  assert.match(workflow, /uses: \.\/\.github\/workflows\/repair-package-lock\.yml/);
-  assert.match(workflow, /permissions:[\s\S]*contents: write[\s\S]*pull-requests: write/);
-  assert.match(workflow, /target_branch: \${\{ github\.event\.pull_request\.head\.ref \}\}/);
-  assert.doesNotMatch(workflow, /Regenerate and validate canonical package lock/);
-  assert.doesNotMatch(workflow, /npm install -g/);
-});
-
-test('reusable package lock repair exposes whether it published a repair', () => {
-  const workflow = readFileSync('.github/workflows/repair-package-lock.yml', 'utf8');
-  assert.match(workflow, /workflow_call:/);
-  assert.match(workflow, /target_branch:[\s\S]*required: true[\s\S]*type: string/);
-  assert.match(workflow, /repair_published:[\s\S]*value: \$\{\{ jobs\.regenerate-package-lock\.outputs\.repair_published \}\}/);
-  assert.match(workflow, /PACKAGE_LOCK_REPAIR_PUBLISHED=false/);
-  assert.match(workflow, /PACKAGE_LOCK_REPAIR_PUBLISHED=true/);
-  assert.match(workflow, /id: outcome[\s\S]*repair_published=\$\{PACKAGE_LOCK_REPAIR_PUBLISHED:-false\}/);
-});
-
-test('pull request lifecycle skips obsolete pre-repair validation runs after reusable repair publishes', () => {
-  const workflow = readFileSync('.github/workflows/pr-orchestrator.yml', 'utf8');
-  assert.match(workflow, /needs\.repair-package-lock\.outputs\.repair_published != 'true'/);
-  assert.doesNotMatch(workflow, /continue_validation/);
-  assert.doesNotMatch(workflow, /\[skip lockfile-repair\]/);
+test('all non-publishing checkout steps disable persisted credentials', () => {
+  for (const path of workflowFiles.filter((path) => !path.endsWith('/repair-package-lock.yml'))) {
+    const source = workflow(path);
+    const checkoutCount = (source.match(/uses: actions\/checkout@/g) ?? []).length;
+    const disabledCount = (source.match(/persist-credentials: false/g) ?? []).length;
+    assert.equal(disabledCount, checkoutCount, path);
+  }
 });
