@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseApprovedActionsManifest, validateWorkflowActionPolicy } from './github-actions-policy.mjs';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const errors = [];
@@ -45,19 +46,15 @@ for (const path of ['README.md', 'docs/development-workflow.md', 'docs/codex-cre
   if (/Node\.js 22|npm 10\.9\.7|node-version:\s*22/.test(body)) fail(`${path} still references the previous Node.js/npm baseline.`);
 }
 
-const fullShaPattern = /^[0-9a-f]{40}$/;
-const expectedActionReleases = new Map([
-  ['actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0', 'actions/checkout@v7.0.0'],
-  ['actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e', 'actions/setup-node@v6.4.0'],
-]);
-const actionPattern = /^\s*uses:\s+([^\s#@]+\/[^\s#@]+)@([^\s#]+)(?:\s+#\s+(.+))?\s*$/gm;
-for (const workflow of ['.github/workflows/auto-merge.yml', '.github/workflows/create-feature-issues.yml', '.github/workflows/dependency-maintenance-report.yml', '.github/workflows/deploy-cloudflare.yml', '.github/workflows/main-orchestrator.yml', '.github/workflows/pr-orchestrator.yml', '.github/workflows/repair-package-lock.yml', '.github/workflows/reprocess-feature-requests.yml', '.github/workflows/reusable-classify-changes.yml', '.github/workflows/reusable-create-feature-issues.yml', '.github/workflows/reusable-deploy-cloudflare.yml', '.github/workflows/reusable-validate-feature-requests.yml', '.github/workflows/reusable-verify.yml']) {
-  const body = read(workflow);
-  for (const [, action, ref, comment = ''] of body.matchAll(actionPattern)) {
-    const key = `${action}@${ref}`;
-    if (!fullShaPattern.test(ref)) fail(`${workflow} must pin ${action} to a full commit SHA.`);
-    if (comment.trim() !== expectedActionReleases.get(key)) fail(`${workflow} must document the approved release tag for ${key}.`);
-  }
+try {
+  const approvals = parseApprovedActionsManifest(read('.github/approved-actions.json'));
+  const workflows = Object.fromEntries(readdirSync(resolve(repoRoot, '.github/workflows'))
+    .filter((name) => /\.ya?ml$/.test(name))
+    .sort()
+    .map((name) => [`.github/workflows/${name}`, read(`.github/workflows/${name}`)]));
+  errors.push(...validateWorkflowActionPolicy(workflows, approvals));
+} catch (error) {
+  fail(error.message);
 }
 
 if (errors.length > 0) {

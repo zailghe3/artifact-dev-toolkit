@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, readdirSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseApprovedActionsManifest, validateWorkflowActionPolicy } from './github-actions-policy.mjs';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (path) => readFileSync(resolve(repoRoot, path), 'utf8');
@@ -16,12 +17,6 @@ const directDependencies = {
   ...packageJson.dependencies,
   ...packageJson.devDependencies,
 };
-const expectedActions = new Map([
-  ['actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0', 'actions/checkout@v7.0.0'],
-  ['actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e', 'actions/setup-node@v6.4.0'],
-]);
-const fullShaPattern = /^[0-9a-f]{40}$/;
-const actionPattern = /^\s*uses:\s+([^\s#@]+\/[^\s#@]+)@([^\s#]+)(?:\s+#\s+(.+))?\s*$/gm;
 
 const failures = [];
 const warnings = [];
@@ -51,19 +46,19 @@ if (lock.packages?.['']?.engines?.npm !== packageJson.engines?.npm) fail('packag
 if (lock.packages?.['']?.packageManager && lock.packages[''].packageManager !== packageManager) fail('package-lock root packageManager must match package.json.');
 
 section('GitHub Actions pinning');
+const workflows = {};
 for (const file of readdirSync(resolve(repoRoot, '.github/workflows')).filter((name) => /\.ya?ml$/.test(name)).sort()) {
   const path = `.github/workflows/${file}`;
   const body = read(path);
-  let count = 0;
-  for (const [, action, ref, comment = ''] of body.matchAll(actionPattern)) {
-    count += 1;
-    const key = `${action}@${ref}`;
-    if (!fullShaPattern.test(ref)) fail(`${path} uses unpinned action ${action}@${ref}.`);
-    const expectedComment = expectedActions.get(key);
-    if (!expectedComment) fail(`${path} uses ${key} without an approved release-comment mapping.`);
-    else if (comment.trim() !== expectedComment) fail(`${path} comment for ${key} must be ${expectedComment}.`);
-  }
+  workflows[path] = body;
+  const count = [...body.matchAll(/^\s*(?:-\s*)?uses:\s+(?!\.\/|docker:\/\/)[^\s#]+/gm)].length;
   if (count > 0) bullet(`${path}: ${count} pinned third-party action reference(s).`);
+}
+try {
+  const approvals = parseApprovedActionsManifest(read('.github/approved-actions.json'));
+  failures.push(...validateWorkflowActionPolicy(workflows, approvals));
+} catch (error) {
+  fail(error.message);
 }
 
 section('Direct dependency currency');

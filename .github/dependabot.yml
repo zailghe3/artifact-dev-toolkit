@@ -16,7 +16,6 @@ updates:
       prefix: ci
     labels:
       - dependencies
-      - github-actions
 
   - package-ecosystem: npm
     directory: /
