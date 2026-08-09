@@ -38,10 +38,10 @@ test('shared ID draft behavior follows names until a manual override',()=>{
 
 test('Agent create and edit forms render explicit, accessible requirements',()=>{
  const create=render(React.createElement(WorkflowAgentEditor,{connections:[connection]}));
- for(const label of ['Name *','ID *','Description (optional)','Master prompt *','Connection *'])assert.ok(create.includes(label),label);
+ for(const label of ['Name *','ID *','Description (optional)','Prompt *','Master prompt *','Connection *'])assert.ok(create.includes(label),label);
  assert.match(create,/<input(?=[^>]*name="name")(?=[^>]*required="")/);assert.match(create,/<input(?=[^>]*name="id")(?=[^>]*required="")/);
  assert.match(create,/<textarea(?=[^>]*name="masterPrompt")(?=[^>]*required="")/);assert.match(create,/<select(?=[^>]*name="connectionKey")(?=[^>]*required="")/);
- assert.match(create,/aria-describedby="agent-id-help"/);assert.match(create,/Permanent identifier used in Git filenames and Workflow references/);
+ assert.match(create,/aria-describedby="agent-id-help"/);assert.match(create,/Permanent identifier used by Workflows/);
  const edit=render(React.createElement(WorkflowAgentEditor,{connections:[connection],initial:{id:'existing-agent',name:'Existing Agent',description:'',masterPrompt:'Act.',connectionKey:'deterministic-test'}}));
  assert.match(edit,/<input(?=[^>]*name="id")(?=[^>]*required="")(?=[^>]*readOnly="")(?=[^>]*value="existing-agent")/);
 });

@@ -16,7 +16,7 @@ test('Workflow submenu identifies exact and nested active sections accessibly', 
 test('catalogues use the shared header, creation wording, and broad entity links', async () => {
   const cases=[['definitions','New workflow'],['agents','New agent'],['connections','New connection']];
   for(const [name,label] of cases){const page=await source(`app/workflows/${name}/page.tsx`);assert.match(page,/WorkflowSectionHeader/);assert.match(page,new RegExp(label));}
-  for(const name of ['runs','definitions','agents']){const page=await source(`app/workflows/${name}/page.tsx`);assert.match(page,/EntityCard/);assert.match(page,/label=\{`Open /);}
+  for(const name of ['definitions','agents']){const page=await source(`app/workflows/${name}/page.tsx`);assert.match(page,/EntityCard/);assert.match(page,/label=\{`Open /);}
   const card=await source('components/WorkflowUi.tsx');
   assert.match(card,/data-entity-card-link/);
   assert.match(card,/data-entity-card-actions/);
