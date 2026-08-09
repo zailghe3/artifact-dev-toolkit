@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
+import {validateAgentAdapterOptions} from '../lib/workflow-definitions.ts';
 
 test('Agent pages and connection API use the shared safe workflow catalogue',async()=>{
  const [create,edit,route,editor]=await Promise.all([
@@ -14,4 +15,14 @@ test('Agent pages and connection API use the shared safe workflow catalogue',asy
  assert.match(edit,/if\(!value\)notFound\(\)/);assert.match(edit,/connections\.find\(c=>c\.key===value\.definition\.connectionKey\)/);
  assert.match(editor,/disabled=\{!c\.enabled&&c\.key!==initial\?\.connectionKey\}/);assert.match(editor,/\(Not configured\)/);assert.match(editor,/disabled=\{!selected\?\.enabled\}/);
  for(const source of [create,edit,route,editor])assert.doesNotMatch(source,/encrypted_credential|credential_iv|Authorization/);
+});
+
+test('Agent creation resolves OpenAI connection adapters before persistence and rejects malformed options',async()=>{
+ const route=await readFile(new URL('../app/api/workflow-agents/route.ts',import.meta.url),'utf8');
+ assert.match(route,/listWorkflowConnectionDescriptors\(\)/);
+ assert.match(route,/validateAgentAdapterOptions\(base,connection\.adapter\)/);
+ assert.match(route,/createAgent\(definition\)/);
+ const agent={schemaVersion:1,id:'openai-agent',name:'OpenAI agent',description:'',status:'draft',masterPrompt:'Respond carefully.',connectionKey:'openai-primary',adapterOptions:{reasoningEffort:'medium',verbosity:'medium'}};
+ assert.deepEqual(validateAgentAdapterOptions(agent,'openai-responses'),agent);
+ assert.throws(()=>validateAgentAdapterOptions({...agent,adapterOptions:{reasoningEffort:'invalid'}},'openai-responses'));
 });
