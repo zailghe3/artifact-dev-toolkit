@@ -29,6 +29,7 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
           fetch-depth: 1
+          persist-credentials: false
       - name: Resolve immutable commit SHA
         id: resolve
         run: |

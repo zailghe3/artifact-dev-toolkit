@@ -22,6 +22,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout@v7.0.1
         with:
           ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
       - name: Check trusted auto-merge eligibility
         id: eligibility
         env:
@@ -59,6 +60,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout@v7.0.1
         with:
           ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
       - name: Resolve trusted pull request and validate head
         id: pr
         env:
@@ -81,8 +83,35 @@ jobs:
           console.log(`number=${pr.number}`);
           console.log(`url=${pr.html_url}`);
           console.log(`head_sha=${pr.head.sha}`);
+          console.log(`author=${pr.user.login}`);
+          console.log(`head_repository=${pr.head.repo.full_name}`);
           NODE
+      - name: Enforce trusted auto-merge eligibility at merge boundary
+        id: eligibility
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_AUTHOR: ${{ steps.pr.outputs.author }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          REPOSITORY: ${{ github.repository }}
+          HEAD_REPOSITORY: ${{ steps.pr.outputs.head_repository }}
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/files" --jq '.[] | {filename, previous_filename, status}' > files.jsonl
+          node scripts/auto-merge-eligibility.mjs files.jsonl >> "$GITHUB_OUTPUT"
+      - name: Require manual review for sensitive pull request
+        if: steps.eligibility.outputs.eligible != 'true'
+        env:
+          REASON: ${{ steps.eligibility.outputs.reason }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        run: |
+          {
+            echo '## Manual review required'
+            echo "PR #${PR_NUMBER} was not merged and production deployment was not dispatched."
+            echo "Reason: ${REASON}"
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Classify production impact
+        if: steps.eligibility.outputs.eligible == 'true'
         id: classify
         env:
           GH_TOKEN: ${{ github.token }}
@@ -93,6 +122,7 @@ jobs:
           gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/files" --jq '.[] | {filename, previous_filename, status}' > files.jsonl
           node scripts/classify-changes.mjs files.jsonl >> "$GITHUB_OUTPUT"
       - name: Complete or confirm squash merge
+        if: steps.eligibility.outputs.eligible == 'true'
         id: merge
         env:
           GH_TOKEN: ${{ github.token }}
@@ -111,7 +141,7 @@ jobs:
           echo "merge_sha=${merge_sha}" >> "$GITHUB_OUTPUT"
           echo "Merged PR #${PR_NUMBER} at ${merge_sha}" >> "$GITHUB_STEP_SUMMARY"
       - name: Dispatch production deployment
-        if: steps.classify.outputs.deployable_changes == 'true'
+        if: steps.eligibility.outputs.eligible == 'true' && steps.classify.outputs.deployable_changes == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
@@ -122,5 +152,5 @@ jobs:
           gh workflow run deploy-cloudflare.yml --repo "${REPOSITORY}" --ref "${MERGE_SHA}" -f ref="${MERGE_SHA}" -f pull_request_number="${PR_NUMBER}"
           echo "Dispatched Manual Cloudflare deployment for ${MERGE_SHA} / PR #${PR_NUMBER}." >> "$GITHUB_STEP_SUMMARY"
       - name: Summarize skipped deployment
-        if: steps.classify.outputs.deployable_changes != 'true'
+        if: steps.eligibility.outputs.eligible == 'true' && steps.classify.outputs.deployable_changes != 'true'
         run: echo "No production-affecting files changed; Cloudflare deployment was not dispatched." >> "$GITHUB_STEP_SUMMARY"

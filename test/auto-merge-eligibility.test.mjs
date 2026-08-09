@@ -76,9 +76,23 @@ test('all configured sensitive path patterns are detected', () => {
     'open-next.config.ts',
     'open-next.config.mjs',
     'scripts/deploy.mjs',
+    'next.config.ts',
+    'cloudflare-worker.ts',
+    'migrations/0001.sql',
+    'lib/auth.ts',
+    'lib/auth-session-store.ts',
+    'lib/auth-configuration.ts',
+    'lib/repository-authorization.ts',
+    'lib/github-app.ts',
+    'lib/provider-secret-crypto.ts',
+    'lib/workflow-provider.ts',
+    'lib/workflow-d1-storage.ts',
+    'lib/workflow-durable-driver.ts',
+    'app/api/artifacts/route.ts',
   ]) {
     assert.equal(isSensitivePath(path), true, path);
   }
 
   assert.equal(isSensitivePath('docs/scripts/example.md'), false);
+  assert.equal(isSensitivePath('app/page.tsx'), false);
 });
