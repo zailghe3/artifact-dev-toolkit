@@ -199,7 +199,7 @@ For a bug fix, the specification must be reviewed. Update it when the fix change
 
 ## CI/CD lifecycle automation
 
-The repository uses a deterministic GitHub Actions lifecycle with one entry workflow for pull requests, one entry workflow for pushes to `main`, and a separate privileged workflow that only enables trusted auto-merge. Reusable atomic workflows are called directly with `workflow_call`; workflows do not continue the pipeline by applying labels, dispatching other workflows with `gh workflow run`, or relying on events emitted by actions taken with `GITHUB_TOKEN`.
+The repository uses a deterministic GitHub Actions lifecycle with one entry workflow for pull requests, one entry workflow for pushes to `main`, and a separate privileged trusted auto-merge workflow. Reusable atomic workflows are called directly with `workflow_call`. The auto-merge workflow deliberately uses an explicit `workflow_dispatch` deployment handoff because GitHub can suppress workflow events caused by merges performed with `GITHUB_TOKEN`; human merges and direct trusted pushes use the normal push-to-main lifecycle instead.
 
 ```text
 Pull request
@@ -209,19 +209,19 @@ Pull request
      └─ if no repair is published, continue validation on the current head
   → PR lifecycle / verify-pr
   → PR lifecycle / validate-feature-requests when requests/features/*.json changed
-  → Trusted auto-merge may enable squash auto-merge for owner-authored, same-repo, non-sensitive PRs
-  → GitHub waits for required checks
-  → squash merge creates a native push to main
-  → Main lifecycle / classify-main
-  → Main lifecycle / verify-main
-     ├─ create-feature-issues for changed feature JSON files
-     └─ deploy-cloudflare for deployable changes
+  → merge entry path
+     ├─ safe PR: Trusted auto-merge completes the merge and explicitly dispatches deployment for the merge SHA
+     └─ sensitive PR: manual review and manual merge produce a push to main
+        → Main lifecycle / classify-main
+        → Main lifecycle / verify-main
+           ├─ create-feature-issues for changed feature JSON files
+           └─ deploy-cloudflare for deployable changes
 ```
 
 Entry workflows and triggers:
 
 - `PR lifecycle` (`.github/workflows/pr-orchestrator.yml`): `pull_request` on `opened`, `synchronize`, `reopened`, and `ready_for_review`. It has read-only default permissions, validates all PRs, never accesses production secrets, never creates issues, never deploys, and never enables a merge. It has no write-capable job. Forks, external branches, and same-repository branches are all validated read-only; lockfile failures are actionable signals to repair the branch manually or ask a maintainer to run the trusted manual repair workflow.
-- `Trusted auto-merge` (`.github/workflows/auto-merge.yml`): `pull_request_target` on the same PR activity types. It never checks out or executes PR code. It only uses metadata and the complete paginated PR file list to decide whether to enable squash auto-merge. It grants `contents: write` because enabling or completing a merge updates the target branch; the former informational label step was removed so `issues: write` is not required.
+- `Trusted auto-merge` (`.github/workflows/auto-merge.yml`): `pull_request_target` and successful PR verification drive the safe automatic path. It never checks out or executes PR code. It uses metadata and the complete paginated PR file list to decide whether a merge is allowed, then explicitly dispatches deployment for the immutable merge SHA when production-affecting. This handoff must remain because a merge performed with its `GITHUB_TOKEN` may not trigger another workflow.
 - `Main lifecycle` (`.github/workflows/main-orchestrator.yml`): `push` to `main`. It operates on the exact pushed commit, verifies it, then runs feature issue creation and Cloudflare deployment as independent sibling jobs. Failure in one side-effecting job does not block the other.
 - `Manual feature issue recovery` and `Manual Cloudflare deployment` are thin `workflow_dispatch` wrappers around the same reusable workflows. Operators must provide an explicit target ref or SHA; the safe default is `main`.
 
@@ -248,10 +248,8 @@ ChatGPT prompt
 → trusted auto-merge enables auto-merge if eligible
 → GitHub waits for required checks
 → GitHub auto-merges
-→ push to main triggers Main lifecycle
-→ exact main commit is verified
-→ feature issues are created idempotently
-→ deployment is skipped because canonical feature-request-only changes are conclusively non-runtime changes
+→ trusted merge-boundary classification identifies no deployable changes
+→ explicit deployment dispatch is skipped because canonical feature-request-only changes are conclusively non-runtime changes
 ```
 
 Implementation PR timeline:
@@ -264,9 +262,8 @@ Issue
 → trusted auto-merge enables auto-merge if eligible
 → GitHub waits for required checks
 → GitHub auto-merges and closes the issue
-→ push to main triggers Main lifecycle
-→ exact main commit is verified
-→ Cloudflare deployment runs
+→ trusted workflow explicitly dispatches Cloudflare deployment for the exact merge commit
+→ reusable deployment verifies and deploys that immutable commit
 ```
 
 Sensitive CI/CD PR timeline:
@@ -277,7 +274,33 @@ Codex opens a PR touching sensitive paths
 → Trusted auto-merge skips successfully
 → human reviews and manually merges
 → push to main triggers the same verified post-merge path
+→ exact pushed main commit deploys automatically when production-affecting
 ```
+
+The resulting production architecture is:
+
+```text
+PR
+├─ safe PR
+│  → PR lifecycle
+│  → trusted auto-merge
+│  → explicit deploy dispatch
+│
+└─ sensitive PR
+   → PR lifecycle
+   → manual review
+   → manual merge
+   → Main lifecycle
+   → verify
+   → automatic deploy
+
+Direct trusted commit to main (if ever used)
+→ push main
+→ verify
+→ deploy when production-affecting
+```
+
+Both deployment callers pass an immutable commit: the trusted auto-merge handoff passes its resolved merge SHA, while Main lifecycle passes only `github.sha` from `refs/heads/main`. They intentionally converge on `Reusable / deploy Cloudflare` rather than duplicating build, migration, publish, secret, or smoke-test steps. Its production concurrency group serializes the two paths if they overlap. A documentation-only, specification-only, or feature-request-only main change remains non-deployable according to the shared classifier.
 
 Sensitive paths include CI and deployment configuration, dependency manifests, `next.config.*`, the Cloudflare worker, migrations, authentication/authorization and credential-bearing libraries, durable workflow persistence, and all server APIs under `app/api/**`. The single trusted policy is applied when auto-merge is enabled and again immediately before the `workflow_run` merge. It checks both `filename` and `previous_filename` for added, modified, renamed, and deleted files, including files on later API pages. User-controlled labels are never authorization. This CI/CD stabilisation PR touches sensitive workflow and script files, so it must remain available for manual review and manual merge.
 
@@ -297,7 +320,7 @@ Recovery procedures:
 Migration sequence:
 
 1. Manually review and merge this sensitive CI/CD PR; do not rely on auto-merge for it.
-2. Let the native push to `main` run `Main lifecycle`; enabling GitHub auto-merge for future PRs does not suppress this native push-to-main workflow because the post-merge continuation is the `push` event itself, not a token-generated dispatch chain.
+2. Let the manual merge's native push to `main` run `Main lifecycle`. Future workflow-token merges retain their explicit deployment dispatch because their generated push event may be suppressed.
 3. Update branch protection from legacy `CI` checks to `classify-pr` and `verify-pr / verify` after the new checks appear.
 4. Keep manual merge required for future sensitive CI/CD changes.
 5. If DATA-001 or any earlier runtime-relevant commit was not deployed during the old workflow transition, run `Manual Cloudflare deployment` against the current `main` SHA. If feature issues from DATA-001 are missing, run `Manual feature issue recovery` with `mode: all`.
