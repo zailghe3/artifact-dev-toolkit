@@ -15,10 +15,43 @@ test('auto-merge dispatches deployment explicitly instead of depending on pull_r
   assert.match(autoMerge, /-f pull_request_number="\$\{PR_NUMBER\}"/);
 });
 
-test('only trusted auto-merge performs automatic Cloudflare deployment handoff', () => {
-  assert.doesNotMatch(main, /reusable-deploy-cloudflare\.yml/);
+test('verified deployable pushes to main invoke the reusable Cloudflare deployment', () => {
+  assert.match(main, /push:[\s\S]*branches: \[main\]/);
+  assert.match(main, /deploy:\n[\s\S]*needs: \[classify, verify-main, resolve-deployment-metadata\]/);
+  assert.match(main, /needs\.verify-main\.result == 'success'[\s\S]*needs\.classify\.outputs\.deployable_changes == 'true'/);
+  assert.match(main, /uses: \.\/\.github\/workflows\/reusable-deploy-cloudflare\.yml/);
+  assert.match(main, /commit_sha: \$\{\{ github\.sha \}\}/);
+  assert.doesNotMatch(main, /commit_sha:.*github\.head_ref|commit_sha:.*pull_request\.head|commit_sha:.*github\.ref/);
   assert.doesNotMatch(main, /npx wrangler deploy/);
   assert.doesNotMatch(main, /workflow run deploy-cloudflare\.yml/);
+});
+
+test('main deployment is skipped for non-deployable changes and verification failure', () => {
+  const deploy = main.slice(main.indexOf('  deploy:'), main.indexOf('  summary:'));
+  assert.match(deploy, /needs\.classify\.outputs\.deployable_changes == 'true'/);
+  assert.match(deploy, /needs\.verify-main\.result == 'success'/);
+  assert.match(main, /Deployment: skipped — no production-affecting changes/);
+  assert.match(main, /Deployment: `\$\{\{ needs\.deploy\.result \}\}`/);
+});
+
+test('manual sensitive merges use the push-to-main path while token merges keep explicit dispatch', () => {
+  assert.match(main, /on:\n  push:\n    branches: \[main\]/);
+  assert.match(autoMerge, /Require manual review for sensitive pull request/);
+  assert.match(autoMerge, /steps\.eligibility\.outputs\.eligible != 'true'/);
+  assert.match(autoMerge, /gh workflow run deploy-cloudflare\.yml/);
+});
+
+test('main metadata lookup cannot block deployment when no unique PR exists', () => {
+  assert.match(main, /pull_request_number=""/);
+  assert.match(main, /if \[\[ "\$\{#matches\[@\]\}" -eq 1 \]\]/);
+  assert.match(main, /deployment will continue without PR metadata/);
+});
+
+test('Cloudflare implementation and credentials remain outside PR workflows', () => {
+  const pr = readFileSync('.github/workflows/pr-orchestrator.yml', 'utf8');
+  assert.doesNotMatch(pr, /CLOUDFLARE_API_TOKEN|CLOUDFLARE_ACCOUNT_ID|reusable-deploy-cloudflare/);
+  assert.doesNotMatch(main, /npm run build:worker|d1 migrations|npx wrangler|smoke-test-oauth/);
+  assert.match(reusableDeploy, /production-cloudflare-deploy-\$\{\{ github\.repository \}\}/);
 });
 
 test('reusable deployment checks out and verifies exact commit SHA', () => {

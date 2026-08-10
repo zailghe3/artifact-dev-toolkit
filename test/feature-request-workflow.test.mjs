@@ -200,7 +200,7 @@ test('feature issue workflow has minimum permissions and no PR lifecycle step', 
   assert.doesNotMatch(workflow, /open-feature-request-processing-prs/);
 });
 
-test('main orchestration verifies before independent issue creation; deployment is dispatched by trusted auto-merge', () => {
+test('main orchestration verifies before independent issue creation and exact-commit deployment', () => {
   const workflow = execFileSync('cat', ['.github/workflows/main-orchestrator.yml'], { encoding: 'utf8' });
   assert.match(workflow, /push:/);
   assert.match(workflow, /branches: \[main\]/);
@@ -208,7 +208,10 @@ test('main orchestration verifies before independent issue creation; deployment 
   assert.match(workflow, /create-feature-issues:/);
   assert.match(workflow, /needs: \[classify, verify-main\]/);
   assert.match(workflow, /reusable-create-feature-issues\.yml/);
-  assert.doesNotMatch(workflow, /reusable-deploy-cloudflare\.yml/);
+  assert.match(workflow, /reusable-deploy-cloudflare\.yml/);
+  assert.match(workflow, /commit_sha: \$\{\{ github\.sha \}\}/);
+  assert.match(workflow, /needs\.verify-main\.result == 'success'/);
+  assert.match(workflow, /needs\.classify\.outputs\.deployable_changes == 'true'/);
   assert.doesNotMatch(workflow, /gh workflow run/);
 });
 
@@ -249,7 +252,8 @@ test('Cloudflare deployment uses reusable workflow and remains manually runnable
   assert.match(reusable, /npm run build:worker/);
   assert.match(reusable, /npx wrangler deploy/);
   assert.match(reusable, /environment: production/);
-  assert.doesNotMatch(orchestrator, /reusable-deploy-cloudflare\.yml/);
+  assert.match(orchestrator, /reusable-deploy-cloudflare\.yml/);
+  assert.match(orchestrator, /commit_sha: \$\{\{ github\.sha \}\}/);
   assert.doesNotMatch(orchestrator, /gh workflow run/);
 });
 
