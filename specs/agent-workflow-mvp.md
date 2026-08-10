@@ -54,7 +54,7 @@ artifact-dev-toolkit main
                  |
                  | manual / Shepherd refresh
                  v
-        home cluster -> codex-runner.pouchet.net -> OpenAI Codex
+        home cluster -> cr.pouchet.net -> OpenAI Codex
 ```
 
 Cloudflare ADT owns application sessions, Workflow state, D1/KV, Access service credentials, the application Runner secret, and orchestration state. The home Runner owns persistent `CODEX_HOME`, ChatGPT/Codex authentication, local Codex processes, and future workspaces. Docker/Portainer owns secret injection, persistent-volume lifecycle, and container lifecycle. Cloudflare Access authenticates ADT-to-Runner ingress; OpenAI owns Codex model inference.
