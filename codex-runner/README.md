@@ -8,7 +8,7 @@ Deploy `poulti/adt-codex-runner:latest` with the Compose example. Create the ext
 
 Mount durable storage at `CODEX_HOME=/data/codex`. Images and containers are disposable, while that volume retains ChatGPT authentication. Never copy the volume into an image or repository. Pull and recreate manually or with Shepherd; GitHub Actions only publishes images and never operates the cluster.
 
-Place an independently managed Cloudflare Tunnel named `adt-codex-runner` in front of the service: hostname `codex-runner.pouchet.net`, origin `http://<home-runner-service>:8789`, Access application policy `Service Auth`, and the ADT service token as the sole identity. Access and `X-Codex-Runner-Secret` are both required for `/v1/**`. Do not expose App Server, add browser CORS, or commit Tunnel credentials.
+Place an independently managed Cloudflare Tunnel named `adt-codex-runner` in front of the service: hostname `cr.pouchet.net`, origin `http://<home-runner-service>:8789`, Access application policy `Service Auth`, and the ADT service token as the sole identity. Access and `X-Codex-Runner-Secret` are both required for `/v1/**`. Do not expose App Server, add browser CORS, or commit Tunnel credentials.
 
 The production Compose topology joins `cloudflared` and `codex-runner` to the private `codex_ingress` network and publishes no host port. If `cloudflared` instead runs directly on the host, add only a loopback binding: `ports: ["127.0.0.1:8789:8789"]`. Never publish the Runner on every host/LAN interface.
 
