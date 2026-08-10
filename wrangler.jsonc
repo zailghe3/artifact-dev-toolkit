@@ -48,7 +48,7 @@
     "ARTIFACT_REPOSITORY": "github",
     "GITHUB_ARTIFACT_REPOSITORY_OWNER": "zailghe3",
     "GITHUB_ARTIFACT_REPOSITORY_NAME": "fpo-artifacts"
-    ,"CODEX_RUNNER_BASE_URL": "https://codex-runner.pouchet.net"
+    ,"CODEX_RUNNER_BASE_URL": "https://cr.pouchet.net"
   },
   "secrets": {
     "required": [
