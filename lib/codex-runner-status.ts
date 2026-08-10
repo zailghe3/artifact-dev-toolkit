@@ -13,7 +13,7 @@ function errorCategory(error:unknown){
 }
 
 function logFailure(logger:StatusLogger,stage:StatusStage,error:unknown){
- logger(JSON.stringify({event:"codex_runner_status_failed",stage,category:errorCategory(error)}));
+ logger(JSON.stringify({event:"codex_runner_status_failed",stage,category:errorCategory(error),...(error instanceof CodexRunnerError&&error.transport?{transport:error.transport}:{})}));
 }
 
 function safeFailureStatus(error:unknown):SafeCodexConnectionStatus{
