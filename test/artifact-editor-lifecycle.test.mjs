@@ -88,20 +88,20 @@ test('live dirty checks treat malformed representable list values as dirty witho
 });
 
 test('validated server snapshots remain strict while successful saves advance canonical state', () => {
-  assert.throws(() => validatedCanonicalEditorSnapshot({ title: '', tags: [], aliases: [], body: 'Body' }));
-  assert.equal(validatedCanonicalEditorSnapshot({ title: ' Server title ', tags: [], aliases: [], body: 'Body' }), undefined);
+  assert.throws(() => validatedCanonicalEditorSnapshot({ title: '', description: '', tags: [], aliases: [], body: 'Body' }));
+  assert.equal(validatedCanonicalEditorSnapshot({ title: ' Server title ', description: '', tags: [], aliases: [], body: 'Body' }), undefined);
   const loaded = initialEditorLifecycle('abcdef12', 'Original title');
-  const savedEditor = validatedCanonicalEditorSnapshot({ title: 'Saved title', tags: ['tag'], aliases: ['alias'], body: 'Saved body' });
+  const savedEditor = validatedCanonicalEditorSnapshot({ title: 'Saved title', description: 'Retained description', tags: ['tag'], aliases: ['alias'], body: 'Saved body' });
   const savedLifecycle = directWriteCompleted(loaded, '12345678', savedEditor?.title, false);
-  assert.deepEqual(savedEditor, { title: 'Saved title', tags: ['tag'], aliases: ['alias'], body: 'Saved body' });
+  assert.deepEqual(savedEditor, { title: 'Saved title', description: 'Retained description', tags: ['tag'], aliases: ['alias'], body: 'Saved body' });
   assert.equal(savedLifecycle?.persistedTitle, 'Saved title');
   assert.equal(liveEditorValuesAreDirty(savedEditor, savedEditor), false);
-  assert.throws(() => validatedCanonicalEditorSnapshot({ title: '   ', tags: [], aliases: [], body: 'Body' }));
+  assert.throws(() => validatedCanonicalEditorSnapshot({ title: '   ', description: '', tags: [], aliases: [], body: 'Body' }));
 });
 
 test('direct-save snapshots apply shared title, list, and body normalization', () => {
   const saved = canonicalEditorSnapshot({ title: '  Saved title  ', tags: [' tag ', 'tag', 'two'], aliases: [' alias ', '', 'alias'], body: '\n Saved body \n' });
-  assert.deepEqual(saved, { title: 'Saved title', tags: ['tag', 'two'], aliases: ['alias'], body: 'Saved body' });
+  assert.deepEqual(saved, { title: 'Saved title', description: '', tags: ['tag', 'two'], aliases: ['alias'], body: 'Saved body' });
   assert.equal(editorValuesAreDirty(saved, saved), false);
 });
 
@@ -110,4 +110,15 @@ test('preview, failed save, and proposal do not advance the persisted editor sna
   const edited = canonicalEditorSnapshot({ ...persisted, body: 'Proposed body' });
   assert.equal(editorValuesAreDirty(edited, persisted), true);
   for (const unchanged of [persisted, persisted, persisted]) assert.equal(editorValuesAreDirty(edited, unchanged), true);
+});
+
+
+test('description participates in canonical snapshots and dirty-state round trips',()=>{
+ const persisted=canonicalEditorSnapshot({title:'Prompt',description:'Original description',tags:[],aliases:[],body:'Body'});
+ assert.equal(persisted.description,'Original description');
+ assert.equal(liveEditorValuesAreDirty({...persisted,description:'Changed'},persisted),true);
+ assert.equal(liveEditorValuesAreDirty({...persisted,description:'Original description'},persisted),false);
+ const saved=validatedCanonicalEditorSnapshot({...persisted,description:'Saved description'});
+ assert.equal(saved?.description,'Saved description');
+ assert.equal(liveEditorValuesAreDirty(saved,saved),false);
 });

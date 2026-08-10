@@ -3,19 +3,19 @@ import { normalizeArtifactMetadata } from "./artifact-contract.ts";
 import type { Artifact } from "./artifact-repository.ts";
 import type { DeletionSnapshot } from "./deletion-ui.ts";
 export function normalizeEditorValues(values: string[]) { return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean))); }
-export type CanonicalEditorSnapshot = { title: string; description?: string; tags: string[]; aliases: string[]; body: string };
+export type CanonicalEditorSnapshot = { title: string; description: string; tags: string[]; aliases: string[]; body: string };
 type LiveEditorSnapshot = CanonicalEditorSnapshot & { invalid: boolean };
-export function canonicalEditorSnapshot(values: { title: string; description?: string; tags: string[]; aliases: string[]; body: string }): CanonicalEditorSnapshot {
-  const metadata = normalizeArtifactMetadata({ id: "editor", type: "prompt", status: "draft", title: values.title, tags: values.tags, aliases: values.aliases });
-  return { title: metadata.title, ...(Object.prototype.hasOwnProperty.call(values,"description")?{description:metadata.description}:{}), tags: metadata.tags, aliases: metadata.aliases, body: values.body.trim() };
+export function canonicalEditorSnapshot(values: { title: string; description: string; tags: string[]; aliases: string[]; body: string }): CanonicalEditorSnapshot {
+  const metadata = normalizeArtifactMetadata({ id: "editor", type: "prompt", status: "draft", title: values.title, description: values.description ?? "", tags: values.tags, aliases: values.aliases });
+  return { title: metadata.title, description: metadata.description, tags: metadata.tags, aliases: metadata.aliases, body: values.body.trim() };
 }
 export function liveEditorSnapshot(values: { title: unknown; description: unknown; tags: unknown; aliases: unknown; body: unknown }): LiveEditorSnapshot {
   const title = typeof values.title === "string" ? values.title.trim() : "";
-  const description = typeof values.description === "string" ? values.description : undefined;
+  const description = typeof values.description === "string" ? values.description : "";
   const tags = Array.isArray(values.tags) && values.tags.every((value) => typeof value === "string") ? normalizeEditorValues(values.tags) : [];
   const aliases = Array.isArray(values.aliases) && values.aliases.every((value) => typeof value === "string") ? normalizeEditorValues(values.aliases) : [];
   const body = typeof values.body === "string" ? values.body.trim() : "";
-  return { title, ...(description!==undefined?{description}:{}), tags, aliases, body, invalid: title.length === 0 || !Array.isArray(values.tags) || !values.tags.every((value) => typeof value === "string") || !Array.isArray(values.aliases) || !values.aliases.every((value) => typeof value === "string") || (values.description !== undefined && typeof values.description !== "string") || typeof values.body !== "string" };
+  return { title, description, tags, aliases, body, invalid: title.length === 0 || !Array.isArray(values.tags) || !values.tags.every((value) => typeof value === "string") || !Array.isArray(values.aliases) || !values.aliases.every((value) => typeof value === "string") || (values.description !== undefined && typeof values.description !== "string") || typeof values.body !== "string" };
 }
 export function editorValuesAreDirty(current: CanonicalEditorSnapshot, persisted: CanonicalEditorSnapshot) { return JSON.stringify(current) !== JSON.stringify(persisted); }
 export function liveEditorValuesAreDirty(current: { title: unknown; description: unknown; tags: unknown; aliases: unknown; body: unknown }, persisted: CanonicalEditorSnapshot) {
@@ -26,7 +26,7 @@ export function liveEditorValuesAreDirty(current: { title: unknown; description:
 export function validatedCanonicalEditorSnapshot(value: unknown): CanonicalEditorSnapshot | undefined {
   if (!value || typeof value !== "object") return undefined;
   const candidate = value as Partial<CanonicalEditorSnapshot>;
-  if (typeof candidate.title !== "string" || (candidate.description !== undefined && typeof candidate.description !== "string") || typeof candidate.body !== "string" || !Array.isArray(candidate.tags) || !candidate.tags.every((item) => typeof item === "string") || !Array.isArray(candidate.aliases) || !candidate.aliases.every((item) => typeof item === "string")) return undefined;
+  if (typeof candidate.title !== "string" || typeof candidate.description !== "string" || typeof candidate.body !== "string" || !Array.isArray(candidate.tags) || !candidate.tags.every((item) => typeof item === "string") || !Array.isArray(candidate.aliases) || !candidate.aliases.every((item) => typeof item === "string")) return undefined;
   const canonical = canonicalEditorSnapshot(candidate as CanonicalEditorSnapshot);
   return editorValuesAreDirty(canonical, candidate as CanonicalEditorSnapshot) ? undefined : canonical;
 }

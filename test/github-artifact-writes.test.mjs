@@ -8,8 +8,8 @@ import {
 } from '../lib/artifact-repository.ts';
 import { MAX_SERIALIZED_ARTIFACT_BYTES, serializeArtifactMarkdown } from '../lib/artifact-contract.ts';
 
-const metadata = { id: 'new-prompt', title: 'New Prompt', type: 'prompt', status: 'draft', tags: ['writing'], aliases: [] };
-const existingMarkdown = `---\nid: new-prompt\ntitle: New Prompt\ntype: prompt\nstatus: draft\ntags: [writing]\naliases: []\n---\n\nOld body\n`;
+const metadata = { id: 'new-prompt', title: 'New Prompt', description: '', type: 'prompt', status: 'draft', tags: ['writing'], aliases: [] };
+const existingMarkdown = `---\nid: new-prompt\ntitle: New Prompt\ndescription: ''\ntype: prompt\nstatus: draft\ntags: [writing]\naliases: []\n---\n\nOld body\n`;
 const source = { ...metadata, id: 'source-prompt', title: 'Source Prompt', status: 'production', aliases: ['starter'], body: 'Source body', excerpt: 'Source body', path: 'artifacts/prompts/source-prompt.md' };
 const json = (value, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
 
@@ -39,7 +39,7 @@ test('create serializes canonical Markdown, sends one Contents API write, and re
   assert.ok(write.url.endsWith('/repos/owner/repo/contents/artifacts/prompts/new-prompt.md'));
   const payload = JSON.parse(write.options.body);
   assert.equal(payload.message, 'Create artifact new-prompt (requested by @octocat)');
-  assert.equal(Buffer.from(payload.content, 'base64').toString(), '---\nid: new-prompt\ntitle: New Prompt\ntype: prompt\nstatus: draft\ntags:\n  - writing\naliases: []\n---\nUseful body\n');
+  assert.equal(Buffer.from(payload.content, 'base64').toString(), '---\nid: new-prompt\ntitle: New Prompt\ndescription: \'\'\ntype: prompt\nstatus: draft\ntags:\n  - writing\naliases: []\n---\nUseful body\n');
   assert.deepEqual(result, { artifactId: 'new-prompt', path: 'artifacts/prompts/new-prompt.md', fileSha: 'new-blob', commitSha: 'commit-1', commitUrl: 'https://github.example/commit/1', repositoryRevision: 'commit-1' });
   assert.equal(JSON.stringify(result).includes('installation-secret'), false);
   assert.equal(payload.message.includes('installation-secret'), false);
@@ -58,7 +58,7 @@ test('createVariation persists canonical draft Markdown under variations with so
   assert.equal(payload.branch, 'main');
   const markdown = Buffer.from(payload.content, 'base64').toString();
   assert.match(markdown, new RegExp(`id: ${id}`));
-  assert.match(markdown, /title: Focused Draft\ntype: prompt\nstatus: draft/);
+  assert.match(markdown, /title: Focused Draft\ndescription: ''\ntype: prompt\nstatus: draft/);
   assert.match(markdown, /tags:\n  - writing\n  - variation\naliases:\n  - starter\nsourceId: source-prompt\ncreatedAt: '2026-08-02T17:03:05.123Z'/);
   assert.ok(markdown.endsWith('Revised body\n'));
   assert.deepEqual(result, { id, path: `artifacts/variations/${id}.md`, fileSha: 'new-blob', commitSha: 'commit-1', commitUrl: 'https://github.example/commit/1', repositoryRevision: 'commit-1' });

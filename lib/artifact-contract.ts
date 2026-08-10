@@ -44,7 +44,7 @@ export function serializeArtifactMarkdown(metadata: unknown, body: string): stri
   const markdown = matter.stringify(`${body.trim()}\n`, {
     id: data.id,
     title: data.title,
-    ...(metadata && typeof metadata === "object" && Object.prototype.hasOwnProperty.call(metadata,"description") && data.description.length>0 ? { description: data.description } : {}),
+    description: data.description,
     type: data.type,
     status: data.status,
     tags: data.tags,
