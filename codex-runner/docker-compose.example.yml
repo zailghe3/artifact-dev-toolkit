@@ -2,8 +2,6 @@ services:
   codex-runner:
     image: poulti/adt-codex-runner:latest
     restart: unless-stopped
-    ports:
-      - "8789:8789"
     environment:
       CODEX_HOME: /data/codex
       CODEX_RUNNER_SHARED_SECRET_FILE: /run/secrets/codex_runner_shared_secret
@@ -11,8 +9,13 @@ services:
       - codex_runner_shared_secret
     volumes:
       - codex_home:/data/codex
+    networks:
+      - codex_ingress
 secrets:
   codex_runner_shared_secret:
     external: true
 volumes:
   codex_home:
+networks:
+  codex_ingress:
+    name: codex_ingress
