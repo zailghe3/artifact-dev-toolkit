@@ -6,6 +6,7 @@ export const artifactTypeSchema = z.enum(["prompt", "agent", "snippet", "templat
 export const artifactMetadataSchema = z.object({
   id: z.string().min(1),
   title: z.string().min(1),
+  description: z.string().max(2000).default(""),
   type: artifactTypeSchema,
   status: artifactStatusSchema,
   tags: z.array(z.string()).default([]),

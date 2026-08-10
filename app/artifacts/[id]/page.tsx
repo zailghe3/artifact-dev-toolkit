@@ -32,7 +32,7 @@ export default async function ArtifactPage({ params }: { params: Promise<{ id: s
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.25em] text-sky-700 dark:text-orange-300">{artifact.type}</p>
-            <h1 className="mt-2 text-4xl font-black tracking-tight text-slate-950 dark:text-slate-50">{artifact.title}</h1>
+            <h1 className="mt-2 text-4xl font-black tracking-tight text-slate-950 dark:text-slate-50">{artifact.title}</h1>{artifact.description ? <p className="mt-3 text-lg text-slate-600 dark:text-slate-300">{artifact.description}</p> : null}
           </div>
           <div className="flex gap-3"><Link href={`/artifacts/${encodeURIComponent(artifact.id)}/edit`} className="rounded-xl border px-4 py-2 font-semibold">Edit</Link><CopyButton text={artifact.body} /></div>
         </div>

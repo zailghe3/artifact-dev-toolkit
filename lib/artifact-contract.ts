@@ -11,6 +11,7 @@ export const MAX_SERIALIZED_ARTIFACT_BYTES = 1024 * 1024;
 export const artifactFrontMatterSchema = z.object({
   id: z.string().trim().min(1),
   title: z.string().trim().min(1),
+  description: z.string().max(2000).default(""),
   type: artifactTypeSchema,
   status: artifactStatusSchema,
   tags: z.array(z.string()).default([]),
@@ -43,6 +44,7 @@ export function serializeArtifactMarkdown(metadata: unknown, body: string): stri
   const markdown = matter.stringify(`${body.trim()}\n`, {
     id: data.id,
     title: data.title,
+    description: data.description,
     type: data.type,
     status: data.status,
     tags: data.tags,

@@ -8,6 +8,7 @@ import { deleteArtifact, getArtifactWithRevision, updateArtifact } from "@/lib/a
 import { handleDirectDeletion } from "@/lib/deletion-route-handler";
 import { ArtifactRepositoryAccessError, ArtifactRepositoryUnavailableError } from "@/lib/artifact-repository";
 import { canonicalEditorSnapshot } from "@/lib/artifact-editor-helpers";
+import {createWorkflowDefinitionRepository} from "@/lib/workflow-services";
 
 const payloadSchema = z.object({ metadata: artifactFrontMatterSchema, body: z.string().min(1), currentFileSha: z.string().min(1) });
 
@@ -40,5 +41,6 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 }
 
 export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  return handleDirectDeletion(request, (await params).id, { authorize: requireApiRepositoryAccess, load: getArtifactWithRevision, remove: deleteArtifact });
+  const id=(await params).id;
+  return handleDirectDeletion(request, id, { authorize:async request=>{const auth=await requireApiRepositoryAccess(request);if(auth instanceof Response)return auth;const references=(await createWorkflowDefinitionRepository(auth.access).listAgents()).filter(({definition})=>definition.prompt.source==="artifact"&&definition.prompt.artifactId===id);return references.length?NextResponse.json({code:"artifact_in_use",error:`This prompt is referenced by ${references.length} Agents and cannot be deleted. Remove or replace those references first.`,agents:references.map(({definition})=>({id:definition.id,name:definition.name}))},{status:409,headers:noStoreHeaders}):auth}, load: getArtifactWithRevision, remove: deleteArtifact });
 }
