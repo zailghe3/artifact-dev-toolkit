@@ -181,6 +181,7 @@ export function prepareVariation(source: Artifact, title: string | undefined, ge
   const metadata: ArtifactMetadata = {
     id,
     title: variationTitle,
+    description: source.description,
     type: source.type,
     status: "draft",
     tags: Array.from(new Set([...source.tags, "variation"])),

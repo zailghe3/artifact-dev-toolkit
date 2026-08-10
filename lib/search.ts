@@ -1,5 +1,6 @@
 export type SearchableArtifact = {
   title: string;
+  description: string;
   type: string;
   status: string;
   tags: string[];
@@ -15,6 +16,7 @@ export function searchArtifacts<T extends SearchableArtifact>(artifacts: T[], qu
   return artifacts.filter((artifact) => {
     const haystack = [
       artifact.title,
+      artifact.description,
       artifact.type,
       artifact.status,
       artifact.tags.join(" "),

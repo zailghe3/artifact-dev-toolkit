@@ -26,7 +26,7 @@ export function ArtifactSearch({ artifacts }: { artifacts: Artifact[] }) {
           autoFocus
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search title, tags, aliases, status, or body..."
+          placeholder="Search title, description, tags, aliases, status, or body..."
           className="w-full rounded-2xl bg-slate-50 px-5 py-4 text-lg text-slate-950 outline-none ring-sky-200 transition placeholder:text-slate-400 focus:ring-4 dark:bg-slate-950 dark:text-slate-100 dark:ring-orange-500/35 dark:placeholder:text-slate-500"
         />
       </div>
@@ -39,7 +39,7 @@ export function ArtifactSearch({ artifacts }: { artifacts: Artifact[] }) {
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h2 className="text-xl font-bold text-slate-950 group-hover:text-sky-700 dark:text-slate-50 dark:group-hover:text-orange-300">{artifact.title}</h2>
-                <p className="mt-2 line-clamp-2 text-sm leading-6 text-slate-600 dark:text-slate-300">{artifact.excerpt}</p>
+                <p className="mt-2 line-clamp-2 text-sm leading-6 text-slate-600 dark:text-slate-300">{artifact.description || artifact.excerpt}</p>
               </div>
               <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold uppercase tracking-wide text-slate-700 dark:bg-slate-800 dark:text-slate-300">{artifact.status}</span>
             </div>

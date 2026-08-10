@@ -373,3 +373,9 @@ Manual recovery after this repair PR is merged:
 3. Confirm the deployment summary shows the same resolved SHA and that D1 migration `0002_rebuild_auth_sessions.sql` was applied to `AUTH_SESSIONS_DB`.
 4. Confirm Cloudflare reports the same deployed SHA in the deployment metadata.
 5. Confirm the live application deployment identity footer matches the new SHA.
+
+## Agent prompt sources
+
+New Agent definitions use schema version 2 and persist exactly one prompt source. A custom prompt stores text owned by the Agent. An Artifact reference stores only the Artifact ID; its latest prompt body is resolved and immutably snapshotted when a Workflow Run starts. Provider adapters continue to receive only the resolved `masterPrompt` text. Later Artifact edits affect future Runs, never active or historical Runs, and referenced prompt Artifacts cannot be deleted until all Agent references are removed. Legacy schema-version-1 Agents remain readable as custom prompts and migrate through the normal file-SHA-protected save flow without changing IDs or Git paths.
+
+Artifact metadata includes a bounded plain-text `description`. Missing legacy descriptions normalize to an empty string; descriptions are serialized on new writes, displayed in the library and prompt picker, and included by the shared Artifact search alongside title, tags, aliases, status, type, and body.

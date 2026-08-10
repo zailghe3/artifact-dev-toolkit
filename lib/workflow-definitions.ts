@@ -9,12 +9,18 @@ export const MAX_STEP_EXECUTIONS = 128;
 const id = z.string().regex(DEFINITION_ID).max(80);
 const credentialKey = /(?:credential|password|secret|token|api.?key|private.?key)/i;
 
-export const agentDefinitionSchema = z.object({
-  schemaVersion: z.literal(1), id, name: z.string().trim().min(1).max(120),
-  description: z.string().max(2000), status: z.literal("draft"),
-  masterPrompt: z.string().min(1).max(65536), connectionKey: id,
-  adapterOptions: z.unknown().optional(),
-}).strict().superRefine((value, context) => {
+export const AGENT_MASTER_PROMPT_MAX_LENGTH=65536;
+const agentBase={id,name:z.string().trim().min(1).max(120),description:z.string().max(2000),status:z.literal("draft"),connectionKey:id,adapterOptions:z.unknown().optional()};
+const agentV1Schema=z.object({schemaVersion:z.literal(1),...agentBase,masterPrompt:z.string().min(1).max(AGENT_MASTER_PROMPT_MAX_LENGTH)}).strict();
+const agentV2Schema=z.object({schemaVersion:z.literal(2),...agentBase,prompt:z.discriminatedUnion("source",[
+  z.object({source:z.literal("custom"),text:z.string().min(1).max(AGENT_MASTER_PROMPT_MAX_LENGTH)}).strict(),
+  z.object({source:z.literal("artifact"),artifactId:id}).strict(),
+])}).strict();
+const withCompatibilityPrompt=(value:z.infer<typeof agentV2Schema>)=>({...value,masterPrompt:value.prompt.source==="custom"?value.prompt.text:""});
+const compatibleV2Schema=agentV2Schema.extend({masterPrompt:z.string()});
+export const agentDefinitionSchema = z.union([agentV1Schema,agentV2Schema,compatibleV2Schema]).transform(value=>{if(value.schemaVersion===2){const clean={...value} as z.infer<typeof compatibleV2Schema>;delete (clean as {masterPrompt?:string}).masterPrompt;return withCompatibilityPrompt(clean)}const {masterPrompt,...rest}=value;return withCompatibilityPrompt({...rest,schemaVersion:2 as const,prompt:{source:"custom" as const,text:masterPrompt}})}).pipe(z.object({
+  schemaVersion:z.literal(2),...agentBase,prompt:agentV2Schema.shape.prompt,masterPrompt:z.string()
+})).superRefine((value, context) => {
   const visit = (item: unknown, path: PropertyKey[] = []) => {
     if (!item || typeof item !== "object") return;
     for (const [key, child] of Object.entries(item as Record<string, unknown>)) {
@@ -52,6 +58,7 @@ export const workflowDefinitionSchema = z.object({
   if (workflow.limits.maxStepExecutions < workflow.steps.length) context.addIssue({ code: "custom", message: "Execution limit is lower than the step count.", path: ["limits", "maxStepExecutions"] });
 });
 
+export type AgentPrompt=z.infer<typeof agentV2Schema>["prompt"];
 export type AgentDefinitionV1 = z.infer<typeof agentDefinitionSchema>;
 export type WorkflowDefinitionV1 = z.infer<typeof workflowDefinitionSchema>;
 
@@ -64,7 +71,7 @@ export const workflowDefinitionPath = (idValue: string, root = "_adt/workflows")
 /** Canonical UTF-8 representation used in Git and immutable run snapshots. */
 export function canonicalJson(value: unknown) {
   const sort = (item: unknown): unknown => Array.isArray(item) ? item.map(sort) : item && typeof item === "object"
-    ? Object.fromEntries(Object.entries(item as Record<string, unknown>).filter(([, child]) => child !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => [key, sort(child)])) : item;
+    ? Object.fromEntries(Object.entries(item as Record<string, unknown>).filter(([key, child]) => child !== undefined && !(key==="masterPrompt"&&(item as Record<string,unknown>).schemaVersion===2)).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => [key, sort(child)])) : item;
   return `${JSON.stringify(sort(value), null, 2)}\n`;
 }
 
