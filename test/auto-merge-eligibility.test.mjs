@@ -89,6 +89,8 @@ test('all configured sensitive path patterns are detected', () => {
     'lib/workflow-d1-storage.ts',
     'lib/workflow-durable-driver.ts',
     'app/api/artifacts/route.ts',
+    'codex-runner/Dockerfile',
+    'lib/codex-runner-client.ts',
   ]) {
     assert.equal(isSensitivePath(path), true, path);
   }

@@ -2,8 +2,9 @@ export type ConnectionDescriptor={key:string;name:string;adapter:string;endpoint
 export type ResolvedConnection=ConnectionDescriptor&{credential?:string;serverConfiguration?:unknown;privateOptions?:unknown};
 const deterministic:ConnectionDescriptor={key:"deterministic-test",name:"Deterministic test connection",adapter:"deterministic-test",enabled:true,capabilities:{asynchronous:true,cancellation:true}};
 export const codexCloudConnection:ConnectionDescriptor={key:"codex-cloud-primary",name:"Codex Cloud",adapter:"codex-cloud",enabled:false,capabilities:{asynchronous:true,cancellation:false}};
+export const codexRunnerConnection:ConnectionDescriptor={key:"codex-primary",name:"Codex",adapter:"codex-runner",enabled:false,capabilities:{asynchronous:true,cancellation:false}};
 export function deterministicConnection(environment:Record<string,string|undefined>=process.env){const enabled=environment.NODE_ENV==="test"||environment.NODE_ENV==="development"||environment.WORKFLOW_ENABLE_DETERMINISTIC_TEST_CONNECTION==="true";return{...deterministic,enabled};}
 /** Process configuration contains no provider credentials. Provider descriptors come from D1. */
-export function listConnectionDescriptors(environment:Record<string,string|undefined>=process.env):ConnectionDescriptor[]{return[deterministicConnection(environment),codexCloudConnection];}
+export function listConnectionDescriptors(environment:Record<string,string|undefined>=process.env):ConnectionDescriptor[]{return[deterministicConnection(environment),codexRunnerConnection,codexCloudConnection];}
 export function resolveConnection(key:string,environment:Record<string,string|undefined>=process.env):ResolvedConnection{const item=listConnectionDescriptors(environment).find(c=>c.key===key);if(!item?.enabled)throw new Error("connection_unavailable");return item;}
 export function safeConnectionSnapshot(connection:ResolvedConnection):ConnectionDescriptor{const{key,name,adapter,endpoint,defaultModel,enabled,capabilities}=connection;return{key,name,adapter,...(endpoint?{endpoint}:{}),...(defaultModel?{defaultModel}:{}),enabled,capabilities};}

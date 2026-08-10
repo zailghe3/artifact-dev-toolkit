@@ -1,4 +1,8 @@
 node_modules
+codex-runner/dist/
+codex-runner/node_modules/
+codex-runner/.codex/
+codex-runner/data/
 .next
 out
 .vercel
@@ -15,3 +19,5 @@ pnpm-debug.log*
 !.env.example
 
 .wrangler/
+
+tsconfig.tsbuildinfo

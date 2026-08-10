@@ -46,3 +46,22 @@ jobs:
         run: npm run build
       - name: Build OpenNext Cloudflare worker
         run: npm run build:worker
+      - name: Install Codex Runner dependencies
+        working-directory: codex-runner
+        run: npm ci
+      - name: Validate Codex Runner
+        working-directory: codex-runner
+        run: npm test && npm run typecheck
+      - name: Build and smoke-test Codex Runner image
+        run: |
+          docker build --build-arg CODEX_RUNNER_VERSION="${{ inputs.ref }}" -t adt-codex-runner:pr codex-runner
+          secret_file="$(mktemp)"
+          trap 'docker rm -f adt-codex-runner-smoke >/dev/null 2>&1 || true; rm -f "$secret_file"' EXIT
+          printf '%s' 'ci-smoke-secret' > "$secret_file"
+          chmod 0444 "$secret_file"
+          docker run -d --name adt-codex-runner-smoke -p 127.0.0.1:18789:8789 \
+            -e CODEX_RUNNER_SHARED_SECRET_FILE=/run/secrets/runner \
+            -v "$secret_file:/run/secrets/runner:ro" adt-codex-runner:pr
+          for attempt in {1..20}; do curl --fail --silent http://127.0.0.1:18789/health && break; sleep 1; done
+          curl --fail --silent -H 'X-Codex-Runner-Secret: ci-smoke-secret' http://127.0.0.1:18789/v1/capabilities | jq -e '.protocolVersion == 1 and .codexAvailable == true and .deviceAuth == true and .jobExecution == false'
+          curl --fail --silent -H 'X-Codex-Runner-Secret: ci-smoke-secret' http://127.0.0.1:18789/v1/auth/status | jq -e '.connected == false and .runtime == "app-server-ready"'
