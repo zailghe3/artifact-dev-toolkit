@@ -40,3 +40,25 @@ OpenAI model choices are discovered from the authenticated OpenAI `/v1/models` e
 Externally side-effecting provider creation and publication operations must explicitly disable implicit Cloudflare Workflow retries. Read-only provider checks may retain platform retries. A known retryable failure may still create a new, persisted, numbered ADT attempt under the bounded application retry policy; an ambiguous start or publication never does. Future WF-003 publication transport must use the same no-platform-retry boundary rather than inheriting `step.do()` defaults.
 
 Provider request correlation and narrowly validated transport metadata may be persisted for operator diagnostics. Provider credentials and request or response content—including prompts, workflow inputs, outputs, raw bodies, exception messages, and arbitrary headers—must never be included in transport diagnostics. Correlation identifiers are diagnostic metadata, not idempotency keys.
+# Codex connection boundary
+
+OpenAI Responses connections are direct OpenAI API model calls and may select a Codex-family API model. They remain distinct from the `codex-runner` connection: a self-hosted runtime using ChatGPT device authentication and the official Codex runtime, intended for future repository coding jobs. The legacy `codex-cloud` key remains readable but deprecated and unavailable.
+
+```text
+artifact-dev-toolkit main
+        +---- ADT deployment ---> Cloudflare
+        +---- Codex Runner image publication
+                 |
+                 v
+        Docker Hub: poulti/adt-codex-runner
+                 |
+                 | manual / Shepherd refresh
+                 v
+        home cluster -> codex-runner.pouchet.net -> OpenAI Codex
+```
+
+Cloudflare ADT owns application sessions, Workflow state, D1/KV, Access service credentials, the application Runner secret, and orchestration state. The home Runner owns persistent `CODEX_HOME`, ChatGPT/Codex authentication, local Codex processes, and future workspaces. Docker/Portainer owns secret injection, persistent-volume lifecycle, and container lifecycle. Cloudflare Access authenticates ADT-to-Runner ingress; OpenAI owns Codex model inference.
+
+Production injects the Runner secret from an external Docker/Portainer secret file, never directly in service YAML. `CODEX_HOME=/data/codex` is a durable volume retained while images and containers are replaced. The Cloudflare Tunnel and Access Service Auth application are externally provisioned; Access plus the application secret protect the service. App Server stays local over stdio and serves only account/authentication lifecycle. No OAuth token crosses into ADT.
+
+ADT and Runner releases deploy independently. Protocol version 1 and feature capabilities negotiate delayed home adoption; unsupported protocol/features produce **Runner update required** without breaking unrelated providers. GitHub credentials, cloning, commits, pushes, pull requests, repository mutation, and coding-job execution are intentionally absent. Future execution will use the Codex SDK rather than exposing App Server transport.

@@ -48,6 +48,7 @@
     "ARTIFACT_REPOSITORY": "github",
     "GITHUB_ARTIFACT_REPOSITORY_OWNER": "zailghe3",
     "GITHUB_ARTIFACT_REPOSITORY_NAME": "fpo-artifacts"
+    ,"CODEX_RUNNER_BASE_URL": "https://codex-runner.pouchet.net"
   },
   "secrets": {
     "required": [
@@ -58,6 +59,9 @@
       "GITHUB_TOKEN_ENCRYPTION_KEY",
       "WORKFLOW_PROVIDER_SECRET_ENCRYPTION_KEY",
       "SESSION_SECRET"
+      ,"CODEX_RUNNER_ACCESS_CLIENT_ID"
+      ,"CODEX_RUNNER_ACCESS_CLIENT_SECRET"
+      ,"CODEX_RUNNER_SHARED_SECRET"
     ]
   },
   "build": {

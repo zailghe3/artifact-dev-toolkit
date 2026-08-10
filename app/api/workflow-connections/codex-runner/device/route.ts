@@ -1,0 +1,2 @@
+import {NextResponse} from "next/server";import {CodexRunnerError,getCodexRunnerClient} from "@/lib/codex-runner-client";
+export async function POST(){try{return NextResponse.json(await getCodexRunnerClient().startDeviceAuth(),{headers:{"cache-control":"no-store"}})}catch(error){const category=error instanceof CodexRunnerError?error.category:"runner_unavailable";return NextResponse.json({error:category},{status:503})}}

@@ -21,6 +21,8 @@ export function isSensitivePath(path) {
     /^next\.config\..+$/.test(normalized) ||
     normalized.startsWith('migrations/') ||
     normalized.startsWith('app/api/') ||
+    normalized.startsWith('codex-runner/') ||
+    normalized.startsWith('lib/codex-runner') ||
     /^lib\/(?:auth(?:-|\.|$)|auth-session-store|auth-configuration|repository-authorization|github-app|workflow-provider|workflow-d1-storage|workflow-durable-driver)/.test(normalized) ||
     /^lib\/[^/]*secret[^/]*$/i.test(normalized)
   );
