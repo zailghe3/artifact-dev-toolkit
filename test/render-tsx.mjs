@@ -23,6 +23,7 @@ export function installTsxHook() {
   if (!Module.__artifactAliasPatched) {
     const original = Module._resolveFilename;
     Module._resolveFilename = function(request, parent, isMain, options) {
+      if (request === 'server-only') return resolve(process.cwd(), 'test/fixtures/server-only.cjs');
       if (request.startsWith('@/')) return original.call(this, resolve(process.cwd(), request.slice(2)), parent, isMain, options);
       return original.call(this, request, parent, isMain, options);
     };
