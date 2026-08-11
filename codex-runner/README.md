@@ -14,6 +14,8 @@ The production Compose topology joins `cloudflared` and `codex-runner` to the pr
 
 ## Updating the pinned Codex protocol
 
-The Dockerfile intentionally pins an exact `@openai/codex` version. To upgrade it: update the exact version; run the old and new CLI's `codex app-server generate-ts` or `generate-json-schema` and inspect the initialization/account request contracts; update this client and protocol fixtures if required; run Runner tests; run the real App Server `/v1/auth/status` image smoke test with an empty `CODEX_HOME`; then build the Docker image. The wire-order unit test and real CLI smoke make drift visible without committing a large generated schema.
+The Dockerfile intentionally pins the verified `@openai/codex@0.118.0` version. Its generated v2 App Server schema supports `account/login/start` with `{type:"chatgptDeviceCode"}` and returns `loginId`, `verificationUrl`, and `userCode`. The image build generates the installed CLI's schema and fails unless that complete contract is present; only an image that passed that check sets the marker used to advertise `deviceAuth`. CI repeats the deterministic check without beginning a real ChatGPT login.
+
+To upgrade the pin: update the exact version; generate and inspect the old and new initialization/account contracts; update this client and protocol fixtures if required; run Runner tests and the schema validator; run the real App Server `/v1/auth/status` image smoke test with an empty `CODEX_HOME`; then build the Docker image. The stdio device-request test, schema validation, and real CLI smoke make drift visible without committing a large generated schema. Device login remains an explicit user ceremony; normal tests and image validation never authenticate with OpenAI.
 
 Runner protocol 1 reports capabilities so independently deployed ADT and Runner releases can coexist. There is no GitHub credential, repository clone/mutation, or coding execution authority in this release.

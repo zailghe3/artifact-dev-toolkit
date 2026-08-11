@@ -5,6 +5,7 @@ import {installTsxHook} from "./render-tsx.mjs";
 const require=installTsxHook();
 const {CodexRunnerClient}=require("../lib/codex-runner-client.ts");
 const {getSafeCodexConnectionStatus}=require("../lib/codex-runner-status.ts");
+const {runnerActionFailure}=require("../lib/codex-runner-actions.ts");
 
 const secrets=["access-client-id-sentinel","access-client-secret-sentinel","runner-shared-secret-sentinel","response-body-sentinel","thrown-error-sentinel","redirect-location-sentinel"];
 const configuration={baseUrl:"https://runner.example.test",accessClientId:secrets[0],accessClientSecret:secrets[1],sharedSecret:secrets[2],production:true};
@@ -99,4 +100,24 @@ test("logs configuration failures while preserving the safe missing state",async
  const status=await getSafeCodexConnectionStatus({clientFactory:()=>{throw new (require("../lib/codex-runner-client.ts").CodexRunnerError)("configuration_missing")},logger:value=>logs.push(value)});
  assert.deepEqual(JSON.parse(logs[0]),{event:"codex_runner_status_failed",stage:"configuration",category:"configuration_missing"});
  assert.deepEqual(status,{state:"configuration-missing",label:"Runner configuration missing"});
+});
+
+test("device proxy preserves only an allowlisted bounded Runner failure",async()=>{
+ const client=new CodexRunnerClient(configuration,async()=>Response.json({error:"device_auth_start_failed",accessToken:"response-body-sentinel"},{status:503}));
+ let error;try{await client.startDeviceAuth()}catch(caught){error=caught}
+ const logs=[];assert.deepEqual(runnerActionFailure("device_auth_start",error,value=>logs.push(value)),{error:"runner_unavailable",runnerCode:"device_auth_start_failed"});
+ assert.deepEqual(JSON.parse(logs[0]),{event:"codex_runner_action_failed",stage:"device_auth_start",category:"runner_unavailable",runnerCode:"device_auth_start_failed"});
+ for(const secret of secrets)assert.doesNotMatch(logs[0],new RegExp(secret));
+});
+
+test("unknown, malformed, and oversized Runner failures remain generic",async()=>{
+ for(const response of [new Response("response-body-sentinel",{status:503}),Response.json({error:"arbitrary_remote_code"},{status:503}),new Response("x".repeat(32_769),{status:503})]){
+  const client=new CodexRunnerClient(configuration,async()=>response);await assert.rejects(client.logout(),error=>error.category==="runner_unavailable"&&error.runnerCode===undefined);
+ }
+});
+
+test("successful device proxy accepts only the OpenAI ceremony URL",async()=>{
+ const ceremony={loginId:"login",verificationUrl:"https://auth.openai.com/device",userCode:"SAFE-CODE"};
+ assert.deepEqual(await new CodexRunnerClient(configuration,async()=>Response.json(ceremony)).startDeviceAuth(),ceremony);
+ await assert.rejects(new CodexRunnerClient(configuration,async()=>Response.json({...ceremony,verificationUrl:"https://redirect-location-sentinel.example"})).startDeviceAuth(),error=>error.category==="invalid_response");
 });

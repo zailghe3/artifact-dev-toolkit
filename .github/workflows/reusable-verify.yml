@@ -55,6 +55,7 @@ jobs:
       - name: Build and smoke-test Codex Runner image
         run: |
           docker build --build-arg CODEX_RUNNER_VERSION="${{ inputs.ref }}" -t adt-codex-runner:pr codex-runner
+          docker run --rm adt-codex-runner:pr node dist/validate-device-auth-schema.js codex
           secret_file="$(mktemp)"
           trap 'docker rm -f adt-codex-runner-smoke >/dev/null 2>&1 || true; rm -f "$secret_file"' EXIT
           printf '%s' 'ci-smoke-secret' > "$secret_file"
