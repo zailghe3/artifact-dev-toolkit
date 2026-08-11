@@ -123,3 +123,16 @@ test("successful device proxy accepts only the OpenAI ceremony URL",async()=>{
  assert.deepEqual(await new CodexRunnerClient(configuration,async()=>Response.json(ceremony)).startDeviceAuth(),ceremony);
  await assert.rejects(new CodexRunnerClient(configuration,async()=>Response.json({...ceremony,verificationUrl:"https://redirect-location-sentinel.example"})).startDeviceAuth(),error=>error.category==="invalid_response");
 });
+
+test("auth diagnostic proxy uses the fixed Runner route and validates only bounded fields",async()=>{
+ const diagnostic={runnerReachable:true,codexAppServerReady:true,customCaSource:"codex_ca_certificate",customCaFileReadable:false,httpProxyConfigured:true,httpsProxyConfigured:false,allProxyConfigured:false,noProxyConfigured:true,dnsResolution:"ok",ipv4Available:true,ipv6Available:false,tcpConnectivity:"timeout",codexHomeReadable:true,codexHomeWritable:false};let request;
+ const client=new CodexRunnerClient(configuration,async(url,options)=>{request={url:String(url),options};return Response.json({...diagnostic,proxyUrl:"https://response-body-sentinel.invalid",resolvedAddress:"response-body-sentinel"})});
+ assert.deepEqual(await client.authEnvironmentDiagnostics(),diagnostic);
+ assert.equal(new URL(request.url).pathname,"/v1/diagnostics/auth-environment");assert.equal(request.options.method,"GET");assert.equal(request.options.redirect,"manual");
+});
+
+test("auth diagnostic proxy rejects malformed and oversized Runner responses",async()=>{
+ const valid={runnerReachable:true,codexAppServerReady:true,customCaSource:"none",httpProxyConfigured:false,httpsProxyConfigured:false,allProxyConfigured:false,noProxyConfigured:false,dnsResolution:"ok",ipv4Available:true,ipv6Available:false,tcpConnectivity:"ok",codexHomeReadable:true,codexHomeWritable:true};
+ for(const value of [{...valid,customCaSource:"/secret/ca"},{...valid,customCaFileReadable:true},{...valid,dnsResolution:"192.0.2.1"},{...valid,tcpConnectivity:"socket-error-sentinel"}])await assert.rejects(new CodexRunnerClient(configuration,async()=>Response.json(value)).authEnvironmentDiagnostics(),error=>error.category==="invalid_response");
+ await assert.rejects(new CodexRunnerClient(configuration,async()=>new Response("x".repeat(32_769))).authEnvironmentDiagnostics(),error=>error.category==="invalid_response");
+});
