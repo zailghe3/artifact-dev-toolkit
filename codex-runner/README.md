@@ -19,3 +19,7 @@ The Dockerfile intentionally pins the verified `@openai/codex@0.118.0` version. 
 To upgrade the pin: update the exact version; generate and inspect the old and new initialization/account contracts; update this client and protocol fixtures if required; run Runner tests and the schema validator; run the real App Server `/v1/auth/status` image smoke test with an empty `CODEX_HOME`; then build the Docker image. The stdio device-request test, schema validation, and real CLI smoke make drift visible without committing a large generated schema. Device login remains an explicit user ceremony; normal tests and image validation never authenticate with OpenAI.
 
 Runner protocol 1 reports capabilities so independently deployed ADT and Runner releases can coexist. There is no GitHub credential, repository clone/mutation, or coding execution authority in this release.
+
+## Safe device-start diagnostics
+
+Failed device starts keep the stable `device_auth_start_failed` operation code and may include only an allowlisted reason: login disabled, device login not enabled, upstream forbidden, rate limited, unavailable, rejected, internal, or unknown. A strictly parsed HTTP status and finite integer JSON-RPC code may accompany that reason. Raw App Server errors, error data, stderr, response bodies, credentials, codes, and private paths are always discarded.

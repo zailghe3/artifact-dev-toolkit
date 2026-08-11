@@ -7,6 +7,21 @@ export interface AppServerClient {readiness():Promise<boolean>;status():Promise<
 type Pending={resolve:(value:unknown)=>void;reject:(error:Error)=>void;timer:NodeJS.Timeout};
 type Spawn=typeof spawn;
 
+export type DeviceAuthFailureReason="chatgpt_login_disabled"|"device_auth_not_enabled"|"device_auth_upstream_forbidden"|"device_auth_rate_limited"|"device_auth_upstream_unavailable"|"device_auth_upstream_rejected"|"device_auth_internal"|"device_auth_unknown";
+export class AppServerRequestError extends Error{
+  constructor(public readonly reason:DeviceAuthFailureReason,public readonly jsonRpcCode:number,public readonly upstreamHttpStatus?:number){super("app_server_request_failed")}
+}
+function appServerError(value:unknown):Error{
+  if(!value||typeof value!=="object"||Array.isArray(value))return new Error("app_server_request_failed");
+  const {code,message}=value as {code?:unknown;message?:unknown};
+  if(typeof code!=="number"||!Number.isFinite(code)||!Number.isInteger(code)||typeof message!=="string")return new Error("app_server_request_failed");
+  if(/^ChatGPT login is disabled\.?$/.test(message))return new AppServerRequestError("chatgpt_login_disabled",code);
+  if(/^device code login is not enabled\.?$/i.test(message))return new AppServerRequestError("device_auth_not_enabled",code);
+  const statusMatch=/^device code request failed with status ([1-5]\d\d)$/.exec(message);
+  if(statusMatch){const status=Number(statusMatch[1]);const reason=status===403?"device_auth_upstream_forbidden":status===429?"device_auth_rate_limited":status>=500?"device_auth_upstream_unavailable":"device_auth_upstream_rejected";return new AppServerRequestError(reason,code,status)}
+  return new AppServerRequestError(code===-32603?"device_auth_internal":"device_auth_unknown",code);
+}
+
 export class StdioAppServerClient implements AppServerClient{
   private process?:ChildProcessWithoutNullStreams;
   private lines?:Interface;
@@ -34,7 +49,7 @@ export class StdioAppServerClient implements AppServerClient{
     child.stdin.once("error",()=>this.failProcess());
   }
   private async initialize(){try{await this.request("initialize",{clientInfo:{name:"adt_codex_runner",title:"ADT Codex Runner",version:this.runnerVersion}});this.notify("initialized");}catch{this.failProcess();throw new Error("app_server_initialization_failed")}}
-  private receive(line:string){try{const message=JSON.parse(line) as {id?:number;result?:unknown;error?:unknown};if(typeof message.id!=="number")return;const pending=this.pending.get(message.id);if(!pending)return;this.pending.delete(message.id);clearTimeout(pending.timer);if(message.error===undefined)pending.resolve(message.result);else pending.reject(new Error("app_server_request_failed"));}catch{/* Raw protocol messages are intentionally discarded. */}}
+  private receive(line:string){try{const message=JSON.parse(line) as {id?:number;result?:unknown;error?:unknown};if(typeof message.id!=="number")return;const pending=this.pending.get(message.id);if(!pending)return;this.pending.delete(message.id);clearTimeout(pending.timer);if(message.error===undefined)pending.resolve(message.result);else pending.reject(appServerError(message.error));}catch{/* Raw protocol messages are intentionally discarded. */}}
   private request(method:string,params:unknown):Promise<unknown>{const id=++this.id;return new Promise((resolve,reject)=>{const timer=setTimeout(()=>{this.pending.delete(id);reject(new Error("app_server_request_timeout"));},this.timeoutMs);this.pending.set(id,{resolve,reject,timer});this.write({method,id,params}).catch(()=>{const pending=this.pending.get(id);if(!pending)return;this.pending.delete(id);clearTimeout(pending.timer);pending.reject(new Error("app_server_unavailable"));this.failProcess();});})}
   private notify(method:string){void this.write({method}).catch(()=>this.failProcess())}
   private write(message:unknown){return new Promise<void>((resolve,reject)=>{const process=this.process;if(!process||process.stdin.destroyed)return reject(new Error("app_server_unavailable"));process.stdin.write(`${JSON.stringify(message)}\n`,error=>error?reject(new Error("app_server_unavailable")):resolve());})}

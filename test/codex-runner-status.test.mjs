@@ -103,12 +103,14 @@ test("logs configuration failures while preserving the safe missing state",async
 });
 
 test("device proxy preserves only an allowlisted bounded Runner failure",async()=>{
- const client=new CodexRunnerClient(configuration,async()=>Response.json({error:"device_auth_start_failed",accessToken:"response-body-sentinel"},{status:503}));
+ const client=new CodexRunnerClient(configuration,async()=>Response.json({error:"device_auth_start_failed",deviceAuthReason:"device_auth_rate_limited",upstreamHttpStatus:429,jsonRpcCode:-32000,accessToken:"response-body-sentinel"},{status:503}));
  let error;try{await client.startDeviceAuth()}catch(caught){error=caught}
- const logs=[];assert.deepEqual(runnerActionFailure("device_auth_start",error,value=>logs.push(value)),{error:"runner_unavailable",runnerCode:"device_auth_start_failed"});
- assert.deepEqual(JSON.parse(logs[0]),{event:"codex_runner_action_failed",stage:"device_auth_start",category:"runner_unavailable",runnerCode:"device_auth_start_failed"});
+ const logs=[];assert.deepEqual(runnerActionFailure("device_auth_start",error,value=>logs.push(value)),{error:"runner_unavailable",runnerCode:"device_auth_start_failed",deviceAuthReason:"device_auth_rate_limited",upstreamHttpStatus:429,jsonRpcCode:-32000});
+ assert.deepEqual(JSON.parse(logs[0]),{event:"codex_runner_action_failed",stage:"device_auth_start",category:"runner_unavailable",runnerCode:"device_auth_start_failed",deviceAuthReason:"device_auth_rate_limited",upstreamHttpStatus:429,jsonRpcCode:-32000});
  for(const secret of secrets)assert.doesNotMatch(logs[0],new RegExp(secret));
 });
+
+test("device proxy rejects unallowlisted diagnostic fields",async()=>{const client=new CodexRunnerClient(configuration,async()=>Response.json({error:"device_auth_start_failed",deviceAuthReason:"response-body-sentinel",upstreamHttpStatus:"403 response-body-sentinel",jsonRpcCode:1.5,url:"https://response-body-sentinel.invalid"},{status:503}));let error;try{await client.startDeviceAuth()}catch(caught){error=caught}const logs=[];assert.deepEqual(runnerActionFailure("device_auth_start",error,value=>logs.push(value)),{error:"runner_unavailable",runnerCode:"device_auth_start_failed"});assert.doesNotMatch(logs[0],/response-body-sentinel|url|403/)});
 
 test("unknown, malformed, and oversized Runner failures remain generic",async()=>{
  for(const response of [new Response("response-body-sentinel",{status:503}),Response.json({error:"arbitrary_remote_code"},{status:503}),new Response("x".repeat(32_769),{status:503})]){
