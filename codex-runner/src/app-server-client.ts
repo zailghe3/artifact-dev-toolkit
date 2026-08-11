@@ -15,9 +15,9 @@ function appServerError(value:unknown):Error{
   if(!value||typeof value!=="object"||Array.isArray(value))return new Error("app_server_request_failed");
   const {code,message}=value as {code?:unknown;message?:unknown};
   if(typeof code!=="number"||!Number.isFinite(code)||!Number.isInteger(code)||typeof message!=="string")return new Error("app_server_request_failed");
-  if(/^ChatGPT login is disabled\.?$/.test(message))return new AppServerRequestError("chatgpt_login_disabled",code);
-  if(/^device code login is not enabled\.?$/i.test(message))return new AppServerRequestError("device_auth_not_enabled",code);
-  const statusMatch=/^device code request failed with status ([1-5]\d\d)$/.exec(message);
+  if(message==="ChatGPT login is disabled. Use API key login instead.")return new AppServerRequestError("chatgpt_login_disabled",code);
+  if(message==="device code login is not enabled for this Codex server. Use the browser login or verify the server URL.")return new AppServerRequestError("device_auth_not_enabled",code);
+  const statusMatch=/^failed to request device code: device code request failed with status ([1-5]\d\d)$/.exec(message);
   if(statusMatch){const status=Number(statusMatch[1]);const reason=status===403?"device_auth_upstream_forbidden":status===429?"device_auth_rate_limited":status>=500?"device_auth_upstream_unavailable":"device_auth_upstream_rejected";return new AppServerRequestError(reason,code,status)}
   return new AppServerRequestError(code===-32603?"device_auth_internal":"device_auth_unknown",code);
 }
