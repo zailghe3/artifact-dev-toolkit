@@ -26,10 +26,11 @@ jobs:
       - name: Build and smoke test
         run: |
           docker build --build-arg CODEX_RUNNER_VERSION="$GITHUB_SHA" -t adt-codex-runner:validated codex-runner
+          docker run --rm adt-codex-runner:validated node dist/validate-device-auth-schema.js codex
           docker run -d --name runner-smoke -p 127.0.0.1:18789:8789 -e CODEX_RUNNER_SHARED_SECRET=ci-only-smoke adt-codex-runner:validated
           trap 'docker rm -f runner-smoke >/dev/null 2>&1 || true' EXIT
           for attempt in {1..20}; do curl --fail --silent http://127.0.0.1:18789/health && break; sleep 1; done
-          curl --fail --silent -H 'X-Codex-Runner-Secret: ci-only-smoke' http://127.0.0.1:18789/v1/capabilities | jq -e '.protocolVersion == 1 and .codexAvailable == true'
+          curl --fail --silent -H 'X-Codex-Runner-Secret: ci-only-smoke' http://127.0.0.1:18789/v1/capabilities | jq -e '.protocolVersion == 1 and .codexAvailable == true and .deviceAuth == true'
           curl --fail --silent -H 'X-Codex-Runner-Secret: ci-only-smoke' http://127.0.0.1:18789/v1/auth/status | jq -e '.connected == false and .runtime == "app-server-ready"'
       - name: Authenticate to Docker Hub
         env: {DOCKERHUB_USERNAME: "${{ vars.DOCKERHUB_USERNAME }}", DOCKERHUB_TOKEN: "${{ secrets.DOCKERHUB_TOKEN }}"}
