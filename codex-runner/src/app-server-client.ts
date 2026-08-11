@@ -1,4 +1,5 @@
 import {spawn,type ChildProcessWithoutNullStreams} from "node:child_process";
+import {STATUS_CODES} from "node:http";
 import {createInterface,type Interface} from "node:readline";
 
 export interface AccountSnapshot {connected:boolean;authMode?:string;planType?:string;runtime:"app-server-ready"}
@@ -7,7 +8,7 @@ export interface AppServerClient {readiness():Promise<boolean>;status():Promise<
 type Pending={resolve:(value:unknown)=>void;reject:(error:Error)=>void;timer:NodeJS.Timeout};
 type Spawn=typeof spawn;
 
-export type DeviceAuthFailureReason="chatgpt_login_disabled"|"device_auth_not_enabled"|"device_auth_upstream_forbidden"|"device_auth_rate_limited"|"device_auth_upstream_unavailable"|"device_auth_upstream_rejected"|"device_auth_internal"|"device_auth_unknown";
+export type DeviceAuthFailureReason="chatgpt_login_disabled"|"device_auth_not_enabled"|"device_auth_upstream_forbidden"|"device_auth_rate_limited"|"device_auth_upstream_unavailable"|"device_auth_upstream_rejected"|"device_auth_transport_error"|"device_auth_ca_configuration"|"device_auth_http_client_configuration"|"device_auth_internal"|"device_auth_unknown";
 export class AppServerRequestError extends Error{
   constructor(public readonly reason:DeviceAuthFailureReason,public readonly jsonRpcCode:number,public readonly upstreamHttpStatus?:number){super("app_server_request_failed")}
 }
@@ -17,8 +18,14 @@ function appServerError(value:unknown):Error{
   if(typeof code!=="number"||!Number.isFinite(code)||!Number.isInteger(code)||typeof message!=="string")return new Error("app_server_request_failed");
   if(message==="ChatGPT login is disabled. Use API key login instead.")return new AppServerRequestError("chatgpt_login_disabled",code);
   if(message==="device code login is not enabled for this Codex server. Use the browser login or verify the server URL.")return new AppServerRequestError("device_auth_not_enabled",code);
-  const statusMatch=/^failed to request device code: device code request failed with status ([1-5]\d\d)$/.exec(message);
-  if(statusMatch){const status=Number(statusMatch[1]);const reason=status===403?"device_auth_upstream_forbidden":status===429?"device_auth_rate_limited":status>=500?"device_auth_upstream_unavailable":"device_auth_upstream_rejected";return new AppServerRequestError(reason,code,status)}
+  const statusMatch=/^failed to request device code: device code request failed with status ([1-5]\d\d)(?: (.+))?$/.exec(message);
+  if(statusMatch){const status=Number(statusMatch[1]);const reasonPhrase=statusMatch[2];if(reasonPhrase===undefined||reasonPhrase===STATUS_CODES[status]){const reason=status===403?"device_auth_upstream_forbidden":status===429?"device_auth_rate_limited":status>=500?"device_auth_upstream_unavailable":"device_auth_upstream_rejected";return new AppServerRequestError(reason,code,status)}}
+  if(message==="failed to request device code: error sending request for url (https://auth.openai.com/api/accounts/deviceauth/usercode)")return new AppServerRequestError("device_auth_transport_error",code);
+  const caPrefix="failed to request device code: ",caEnvironment="(?:CODEX_CA_CERTIFICATE|SSL_CERT_FILE)",caPath=".+";
+  const caConfiguration=new RegExp(`^${caPrefix}(?:Failed to read CA certificate file ${caPath} selected by ${caEnvironment}: .+|Failed to load CA certificates from ${caPath} selected by ${caEnvironment}: .+|Failed to parse certificate #\\d+ from ${caPath} selected by ${caEnvironment}: .+|Failed to register certificate #\\d+ from ${caPath} selected by ${caEnvironment} in rustls root store: .+)$`);
+  if(caConfiguration.test(message))return new AppServerRequestError("device_auth_ca_configuration",code);
+  const clientConfiguration=new RegExp(`^${caPrefix}(?:Failed to build HTTP client while using CA bundle from ${caPath} selected by ${caEnvironment}: .+|Failed to build HTTP client while using system root certificates: .+)$`);
+  if(clientConfiguration.test(message))return new AppServerRequestError("device_auth_http_client_configuration",code);
   return new AppServerRequestError(code===-32603?"device_auth_internal":"device_auth_unknown",code);
 }
 
