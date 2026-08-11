@@ -7,6 +7,12 @@ export function codexRunnerFailureFeedback(status:number,value:Record<string,unk
   return{message:"Your ADT session has expired. Sign in again."};
  }
  if(status===403)return{message:"This action was rejected. Refresh the page and try again."};
- if(operation==="connect"&&value.runnerCode==="device_auth_start_failed")return{message:"ChatGPT device connection could not be started. Try again."};
+ if(operation==="connect"&&value.runnerCode==="device_auth_start_failed"){
+  if(value.deviceAuthReason==="chatgpt_login_disabled"||value.deviceAuthReason==="device_auth_not_enabled")return{message:"ChatGPT device authorization is not enabled or allowed."};
+  if(value.deviceAuthReason==="device_auth_upstream_forbidden"||value.deviceAuthReason==="device_auth_upstream_rejected")return{message:"OpenAI rejected the device-code request."};
+  if(value.deviceAuthReason==="device_auth_rate_limited")return{message:"ChatGPT device authorization is temporarily rate limited. Try again later."};
+  if(value.deviceAuthReason==="device_auth_upstream_unavailable")return{message:"The upstream authentication service is temporarily unavailable. Try again later."};
+  return{message:"ChatGPT device connection could not be started. Try again."};
+ }
  return{message:operation==="logout"?"ChatGPT could not be disconnected. Try again.":operation==="refresh"?"Runner status could not be refreshed.":"Codex Runner is unavailable. Try again."};
 }

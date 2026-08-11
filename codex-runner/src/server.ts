@@ -19,6 +19,6 @@ export function createRunnerServer(configuration:RunnerConfiguration,appServer:A
   if(request.method==="POST"&&path==="/v1/auth/device/start")return json(response,200,await auth.startDevice());
   if(request.method==="POST"&&path==="/v1/auth/logout")return json(response,200,await auth.logout());
   throw new SafeError("not_found",404);
- }catch(error){const safe=safeError(error);console.error(JSON.stringify({level:"error",event:"runner_operation_failed",operation:`${request.method??"UNKNOWN"} ${path}`,category:safe.code}));json(response,safe.status,{error:safe.code});}}).on("close",()=>void appServer.close());
+ }catch(error){const safe=safeError(error),details=safe.details;console.error(JSON.stringify({level:"error",event:"runner_operation_failed",operation:`${request.method??"UNKNOWN"} ${path}`,category:safe.code,...details}));json(response,safe.status,{error:safe.code,...details});}}).on("close",()=>void appServer.close());
 }
 if(process.argv[1]===new URL(import.meta.url).pathname){const config=await loadConfiguration();const server=createRunnerServer(config);server.listen(config.port,config.host,()=>console.log(JSON.stringify({level:"info",event:"runner_started",port:config.port,sharedSecretLoaded:true})));const stop=()=>server.close(()=>process.exit(0));process.on("SIGTERM",stop);process.on("SIGINT",stop);}
