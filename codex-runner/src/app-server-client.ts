@@ -1,4 +1,5 @@
 import {spawn,type ChildProcessWithoutNullStreams} from "node:child_process";
+import {STATUS_CODES} from "node:http";
 import {createInterface,type Interface} from "node:readline";
 
 export interface AccountSnapshot {connected:boolean;authMode?:string;planType?:string;runtime:"app-server-ready"}
@@ -17,8 +18,8 @@ function appServerError(value:unknown):Error{
   if(typeof code!=="number"||!Number.isFinite(code)||!Number.isInteger(code)||typeof message!=="string")return new Error("app_server_request_failed");
   if(message==="ChatGPT login is disabled. Use API key login instead.")return new AppServerRequestError("chatgpt_login_disabled",code);
   if(message==="device code login is not enabled for this Codex server. Use the browser login or verify the server URL.")return new AppServerRequestError("device_auth_not_enabled",code);
-  const statusMatch=/^failed to request device code: device code request failed with status ([1-5]\d\d)$/.exec(message);
-  if(statusMatch){const status=Number(statusMatch[1]);const reason=status===403?"device_auth_upstream_forbidden":status===429?"device_auth_rate_limited":status>=500?"device_auth_upstream_unavailable":"device_auth_upstream_rejected";return new AppServerRequestError(reason,code,status)}
+  const statusMatch=/^failed to request device code: device code request failed with status ([1-5]\d\d)(?: (.+))?$/.exec(message);
+  if(statusMatch){const status=Number(statusMatch[1]);const reasonPhrase=statusMatch[2];if(reasonPhrase===undefined||reasonPhrase===STATUS_CODES[status]){const reason=status===403?"device_auth_upstream_forbidden":status===429?"device_auth_rate_limited":status>=500?"device_auth_upstream_unavailable":"device_auth_upstream_rejected";return new AppServerRequestError(reason,code,status)}}
   return new AppServerRequestError(code===-32603?"device_auth_internal":"device_auth_unknown",code);
 }
 
