@@ -1,0 +1,26 @@
+{
+  "$comment": "Curated from rust-v0.147.0 codex-rs/app-server-protocol/schema/json/{ClientRequest,LoginAccountParams,LoginAccountResponse}.json; intentionally only the ADT auth relationships are retained.",
+  "documents": [
+    {
+      "filename": "ClientRequest.json",
+      "schema": {
+        "title": "ClientRequest",
+        "oneOf": [
+          {"type":"object","properties":{"method":{"enum":["initialize"]},"params":{"$ref":"#/definitions/InitializeParams"}},"required":["method","params"]},
+          {"type":"object","properties":{"method":{"enum":["account/read"]},"params":{"$ref":"#/definitions/GetAccountParams"}},"required":["method","params"]},
+          {"type":"object","properties":{"method":{"enum":["account/login/start"]},"params":{"$ref":"#/definitions/LoginAccountParams"}},"required":["method","params"]},
+          {"type":"object","properties":{"method":{"enum":["account/logout"]},"params":{"$ref":"#/definitions/LogoutAccountParams"}},"required":["method","params"]}
+        ],
+        "definitions": {
+          "ClientInfo": {"type":"object","properties":{"name":{"type":"string"},"title":{"type":["string","null"]},"version":{"type":"string"}},"required":["name","version"]},
+          "InitializeParams": {"type":"object","properties":{"clientInfo":{"$ref":"#/definitions/ClientInfo"}},"required":["clientInfo"]},
+          "GetAccountParams": {"type":"object","properties":{"refreshToken":{"type":"boolean"}}},
+          "LoginAccountParams": {"oneOf":[{"type":"object","properties":{"type":{"enum":["chatgptDeviceCode"]}},"required":["type"]},{"type":"object","properties":{"type":{"enum":["apiKey"]},"apiKey":{"type":"string"}},"required":["type","apiKey"]}]},
+          "LogoutAccountParams": {"type":"object","properties":{}}
+        }
+      }
+    },
+    {"filename":"LoginAccountParams.json","schema":{"title":"LoginAccountParams","oneOf":[{"type":"object","properties":{"type":{"enum":["chatgptDeviceCode"]}},"required":["type"]},{"type":"object","properties":{"type":{"enum":["apiKey"]},"apiKey":{"type":"string"}},"required":["type","apiKey"]}]}},
+    {"filename":"LoginAccountResponse.json","schema":{"title":"LoginAccountResponse","oneOf":[{"type":"object","properties":{"type":{"enum":["chatgptDeviceCode"]},"loginId":{"type":"string"},"verificationUrl":{"type":"string"},"userCode":{"type":"string"}},"required":["type","loginId","verificationUrl","userCode"]},{"type":"object","properties":{"type":{"enum":["apiKey"]},"apiKey":{"type":"string"}},"required":["type","apiKey"]}]}}
+  ]
+}
