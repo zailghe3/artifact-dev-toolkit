@@ -21,7 +21,7 @@ RUN test "$(grep -Ec '^precedence[[:space:]]+' /tmp/gai.conf)" = 5 && \
     grep -Eq '^precedence[[:space:]]+::ffff:0:0/96[[:space:]]+100$' /tmp/gai.conf && \
     ! grep -Eiq 'openai|cloudflare|([0-9]{1,3}\.){3}[0-9]{1,3}' /tmp/gai.conf && \
     install -m 0644 /tmp/gai.conf /etc/gai.conf && rm /tmp/gai.conf && \
-    npm install --global @openai/codex@0.118.0 && \
+    npm install --global @openai/codex@0.147.0 && \
     node /tmp/validate-device-auth-schema.js codex && rm /tmp/validate-device-auth-schema.js && \
     mkdir -p /data/codex && chown -R node:node /data/codex
 WORKDIR /app
