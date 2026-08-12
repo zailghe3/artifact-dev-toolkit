@@ -6,67 +6,101 @@ import {promisify} from "node:util";
 
 const execute=promisify(execFile);
 type Schema=Record<string,unknown>;
+export interface SchemaDocument {filename:string;schema:unknown}
 
 function object(value:unknown):value is Schema{return typeof value==="object"&&value!==null&&!Array.isArray(value)}
-function documentWithTitle(documents:unknown[],title:string){return documents.find(document=>object(document)&&document.title===title)}
+function normalize(documents:unknown[]):SchemaDocument[]{return documents.map((value,index)=>object(value)&&typeof value.filename==="string"&&"schema" in value?{filename:value.filename,schema:value.schema}:{filename:`document-${index}.json`,schema:value})}
+function documentWithTitle(documents:SchemaDocument[],title:string){return documents.find(document=>object(document.schema)&&document.schema.title===title)}
 function properties(schema:unknown){return object(schema)&&object(schema.properties)?schema.properties:undefined}
 function required(schema:unknown,name:string){return object(schema)&&Array.isArray(schema.required)&&schema.required.includes(name)}
-function hasType(schema:unknown,type:string):boolean{
+
+export function hasType(schema:unknown,type:string):boolean{
  if(!object(schema))return false;
- if(schema.type===type)return true;
+ if(schema.type===type||(Array.isArray(schema.type)&&schema.type.includes(type)))return true;
  return [schema.anyOf,schema.oneOf].some(variants=>Array.isArray(variants)&&variants.some(variant=>hasType(variant,type)));
 }
-function discriminatorVariant(schema:unknown,value:string){
- if(!object(schema)||!Array.isArray(schema.oneOf))return undefined;
- return schema.oneOf.find(variant=>{
-  const discriminator=properties(variant)?.type;
+
+function pointerSegment(value:string):string|undefined{
+ if(/~(?![01])/u.test(value))return undefined;
+ return value.replaceAll("~1","/").replaceAll("~0","~");
+}
+function resolveSchema(document:SchemaDocument,value:unknown):Schema|undefined{
+ let current=value;
+ const visited=new Set<string>();
+ for(let depth=0;depth<16;depth++){
+  if(!object(current))return undefined;
+  if(typeof current.$ref!=="string")return current;
+  const reference=current.$ref;
+  if(!reference.startsWith("#/")||visited.has(reference))return undefined;
+  visited.add(reference);
+  let pointed:unknown=document.schema;
+  for(const encoded of reference.slice(2).split("/")){
+   const segment=pointerSegment(encoded);
+   if(segment===undefined||!object(pointed)||!(segment in pointed))return undefined;
+   pointed=pointed[segment];
+  }
+  current=pointed;
+ }
+ return undefined;
+}
+function resolvedVariants(document:SchemaDocument,schema:unknown):Schema[]{
+ const resolved=resolveSchema(document,schema);
+ if(!resolved)return [];
+ const variants=[resolved.oneOf,resolved.anyOf].find(Array.isArray);
+ if(!variants)return [resolved];
+ return variants.map(variant=>resolveSchema(document,variant)).filter((variant):variant is Schema=>variant!==undefined);
+}
+function discriminatorVariant(document:SchemaDocument,schema:unknown,key:string,value:string){
+ return resolvedVariants(document,schema).find(variant=>{
+  const discriminator=properties(variant)?.[key];
   return object(discriminator)&&Array.isArray(discriminator.enum)&&discriminator.enum.includes(value);
  });
 }
-function containsMethodBranch(schema:unknown,method:string):boolean{
- if(Array.isArray(schema))return schema.some(value=>containsMethodBranch(value,method));
- if(!object(schema))return false;
- const discriminator=properties(schema)?.method;
- if(object(discriminator)&&Array.isArray(discriminator.enum)&&discriminator.enum.includes(method))return true;
- return Object.values(schema).some(value=>containsMethodBranch(value,method));
-}
+function requestBranch(document:SchemaDocument,method:string){return discriminatorVariant(document,document.schema,"method",method)}
+function branchParams(document:SchemaDocument,branch:Schema){return resolveSchema(document,properties(branch)?.params)}
 function supportsProperties(schema:unknown,names:string[]){const values=properties(schema);return values!==undefined&&names.every(name=>name in values)}
-function findObject(schema:unknown,predicate:(value:Schema)=>boolean):Schema|undefined{
- if(Array.isArray(schema)){for(const value of schema){const found=findObject(value,predicate);if(found)return found}return undefined}
- if(!object(schema))return undefined;
- if(predicate(schema))return schema;
- for(const value of Object.values(schema)){const found=findObject(value,predicate);if(found)return found}
- return undefined;
-}
+function loginRequestVariant(document:SchemaDocument,schema:unknown){return discriminatorVariant(document,schema,"type","chatgptDeviceCode")}
 
-export function validateDeviceAuthSchemas(documents:unknown[]){
+export function validateDeviceAuthSchemas(input:unknown[]){
+ const documents=normalize(input);
  const clientRequest=documentWithTitle(documents,"ClientRequest");
- if(!clientRequest||!containsMethodBranch(clientRequest,"initialize"))throw new Error("device_auth_schema_missing_initialize_contract");
- const initialize=documentWithTitle(documents,"InitializeParams");
- const clientInfo=documentWithTitle(documents,"ClientInfo")??findObject(initialize,value=>supportsProperties(value,["name","title","version"]));
+ if(!clientRequest)throw new Error("device_auth_schema_missing_initialize_contract");
+
+ const initializeBranch=requestBranch(clientRequest,"initialize");
+ const initialize=initializeBranch&&branchParams(clientRequest,initializeBranch);
+ const clientInfoReference=properties(initialize)?.clientInfo;
+ const clientInfo=resolveSchema(clientRequest,clientInfoReference);
  const clientInfoProperties=properties(clientInfo);
- if(!initialize||!supportsProperties(initialize,["clientInfo"])||!clientInfoProperties||
-    !hasType(clientInfoProperties.name,"string")||!hasType(clientInfoProperties.title,"string")||!hasType(clientInfoProperties.version,"string"))
+ if(!initialize||!supportsProperties(initialize,["clientInfo"])||!required(initialize,"clientInfo")||!clientInfoProperties||
+    !required(clientInfo,"name")||!required(clientInfo,"version")||!hasType(clientInfoProperties.name,"string")||
+    !hasType(clientInfoProperties.version,"string")||("title" in clientInfoProperties&&!hasType(clientInfoProperties.title,"string")))
   throw new Error("device_auth_schema_missing_initialize_contract");
 
- if(!containsMethodBranch(clientRequest,"account/read"))throw new Error("device_auth_schema_missing_account_read_contract");
- const accountRead=documentWithTitle(documents,"GetAccountParams");
+ const accountReadBranch=requestBranch(clientRequest,"account/read");
+ const accountRead=accountReadBranch&&branchParams(clientRequest,accountReadBranch);
  if(!accountRead||!supportsProperties(accountRead,["refreshToken"])||!hasType(properties(accountRead)?.refreshToken,"boolean"))
   throw new Error("device_auth_schema_missing_account_read_contract");
- if(!containsMethodBranch(clientRequest,"account/logout"))throw new Error("device_auth_schema_missing_account_logout_contract");
- if(!containsMethodBranch(clientRequest,"account/login/start"))throw new Error("device_auth_schema_missing_request_contract");
 
+ const logoutBranch=requestBranch(clientRequest,"account/logout");
+ if(!logoutBranch)throw new Error("device_auth_schema_missing_account_logout_contract");
+ const logoutProperty=properties(logoutBranch)?.params;
+ const logoutParams=resolveSchema(clientRequest,logoutProperty);
+ if(logoutProperty===undefined||!logoutParams||!hasType(logoutParams,"null")||required(logoutBranch,"params"))throw new Error("device_auth_schema_missing_account_logout_contract");
+
+ const loginBranch=requestBranch(clientRequest,"account/login/start");
+ const loginBranchSchema=loginBranch&&branchParams(clientRequest,loginBranch);
+ if(!loginBranchSchema||!loginRequestVariant(clientRequest,loginBranchSchema)||!required(loginRequestVariant(clientRequest,loginBranchSchema),"type"))
+  throw new Error("device_auth_schema_missing_request_contract");
  const loginParams=documentWithTitle(documents,"LoginAccountParams");
- const requestVariant=discriminatorVariant(loginParams,"chatgptDeviceCode");
+ const requestVariant=loginParams&&loginRequestVariant(loginParams,loginParams.schema);
  if(!requestVariant||!required(requestVariant,"type"))throw new Error("device_auth_schema_missing_request_contract");
 
  const loginResponse=documentWithTitle(documents,"LoginAccountResponse");
- const responseVariant=discriminatorVariant(loginResponse,"chatgptDeviceCode");
+ const responseVariant=loginResponse&&discriminatorVariant(loginResponse,loginResponse.schema,"type","chatgptDeviceCode");
  if(!responseVariant||!required(responseVariant,"type"))throw new Error("device_auth_schema_missing_response_contract");
  const responseProperties=properties(responseVariant);
  for(const field of ["loginId","verificationUrl","userCode"] as const){
-  if(!responseProperties||!hasType(responseProperties[field],"string")||!required(responseVariant,field))
-   throw new Error(`device_auth_schema_missing_${field}`);
+  if(!responseProperties||!hasType(responseProperties[field],"string")||!required(responseVariant,field))throw new Error(`device_auth_schema_missing_${field}`);
  }
  return true;
 }
@@ -78,7 +112,8 @@ async function generateAndValidate(command:string){
   const files=await readdir(directory,{recursive:true});
   const jsonFiles=files.filter(file=>file.endsWith(".json"));
   if(jsonFiles.length===0)throw new Error("device_auth_schema_not_generated");
-  validateDeviceAuthSchemas(await Promise.all(jsonFiles.map(async file=>JSON.parse(await readFile(join(directory,file),"utf8")))));
+  const documents=await Promise.all(jsonFiles.map(async filename=>({filename,schema:JSON.parse(await readFile(join(directory,filename),"utf8")) as unknown})));
+  validateDeviceAuthSchemas(documents);
  }finally{await rm(directory,{recursive:true,force:true})}
 }
 
