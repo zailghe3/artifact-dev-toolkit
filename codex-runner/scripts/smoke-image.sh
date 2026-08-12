@@ -32,7 +32,7 @@ codex_identity=$(docker run --rm "$image" sh -c '
   test ! -e /usr/bin/codex &&
   ldd /opt/codex/bin/codex
 ')
-if ! grep -Eq 'libc\.so\.6' <<< "$codex_identity"; then
+if grep -Fq 'not found' <<< "$codex_identity" || ! grep -Eq 'libc\.so\.6' <<< "$codex_identity"; then
   echo "The active Codex executable is not dynamically linked to glibc." >&2
   exit 1
 fi
