@@ -60,10 +60,6 @@ function requestBranch(document:SchemaDocument,method:string){return discriminat
 function branchParams(document:SchemaDocument,branch:Schema){return resolveSchema(document,properties(branch)?.params)}
 function supportsProperties(schema:unknown,names:string[]){const values=properties(schema);return values!==undefined&&names.every(name=>name in values)}
 function loginRequestVariant(document:SchemaDocument,schema:unknown){return discriminatorVariant(document,schema,"type","chatgptDeviceCode")}
-function emptyObjectCompatible(schema:Schema){
- if(!hasType(schema,"object"))return false;
- return (!Array.isArray(schema.required)||schema.required.length===0)&&(!(typeof schema.minProperties==="number")||schema.minProperties===0);
-}
 
 export function validateDeviceAuthSchemas(input:unknown[]){
  const documents=normalize(input);
@@ -88,9 +84,8 @@ export function validateDeviceAuthSchemas(input:unknown[]){
  const logoutBranch=requestBranch(clientRequest,"account/logout");
  if(!logoutBranch)throw new Error("device_auth_schema_missing_account_logout_contract");
  const logoutProperty=properties(logoutBranch)?.params;
- // Codex 0.147 permits the Runner's empty params object; a missing params schema means
- // this method has no meaningful params contract.
- if(logoutProperty!==undefined){const logout=resolveSchema(clientRequest,logoutProperty);if(!logout||!emptyObjectCompatible(logout))throw new Error("device_auth_schema_missing_account_logout_contract")}
+ const logoutParams=resolveSchema(clientRequest,logoutProperty);
+ if(logoutProperty===undefined||!logoutParams||!hasType(logoutParams,"null")||required(logoutBranch,"params"))throw new Error("device_auth_schema_missing_account_logout_contract");
 
  const loginBranch=requestBranch(clientRequest,"account/login/start");
  const loginBranchSchema=loginBranch&&branchParams(clientRequest,loginBranch);
