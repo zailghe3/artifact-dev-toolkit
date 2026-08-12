@@ -1,7 +1,51 @@
 import test from "node:test";import assert from "node:assert/strict";import {mkdtemp,writeFile,chmod} from "node:fs/promises";import {tmpdir} from "node:os";import {join} from "node:path";import {EventEmitter} from "node:events";import {PassThrough} from "node:stream";import {loadSecret} from "../dist/configuration.js";import {createRunnerServer} from "../dist/server.js";import {AppServerRequestError,StdioAppServerClient} from "../dist/app-server-client.js";import {diagnoseAuthEnvironment,classifyNetworkFailure,safeHttpResult,EXPECTED_CODEX_VERSION} from "../dist/auth-environment-diagnostics.js";import {validateDeviceAuthSchemas} from "../dist/validate-device-auth-schema.js";
 const mock={async readiness(){return true},async status(){return{connected:true,authMode:"chatgpt",planType:"plus",accessToken:"MUST_NOT_ESCAPE"}},async startDeviceLogin(){return{loginId:"login",verificationUrl:"https://auth.openai.com/device",userCode:"ABCD",accessToken:"MUST_NOT_ESCAPE"}},async logout(){return{refreshToken:"MUST_NOT_ESCAPE"}},async close(){}};
 async function withServer(fn,client=mock,diagnostics){const server=createRunnerServer({host:"127.0.0.1",port:1,sharedSecret:"correct",runnerVersion:"sha-test",codexCommand:"codex",requestBodyLimit:32,deviceAuthCompatible:true},client,diagnostics);await new Promise(r=>server.listen(0,"127.0.0.1",r));const {port}=server.address();try{await fn(`http://127.0.0.1:${port}`)}finally{await new Promise(r=>server.close(r))}}
-test("generated 0.147 App Server schemas must contain related account contracts",()=>{const schema={methods:[{method:"initialize",params:{clientInfo:{name:{},title:{},version:{}}}},{method:"account/read",params:{refreshToken:{}}},{method:"account/logout",params:{}},{method:"account/login/start",params:{type:{const:"chatgptDeviceCode"}},result:{loginId:{},verificationUrl:{},userCode:{}}}]};assert.equal(validateDeviceAuthSchemas([schema]),true);for(const token of ["chatgptDeviceCode","loginId","verificationUrl","userCode","initialize","account/read","account/logout"]){const broken=JSON.parse(JSON.stringify(schema).replace(`\"${token}\"`,`\"missing\"`));assert.throws(()=>validateDeviceAuthSchemas([broken]))}assert.throws(()=>validateDeviceAuthSchemas([{tokens:["initialize","clientInfo","name","title","version","account/read","refreshToken","account/logout"]},{tokens:["account/login/start","chatgptDeviceCode"]},{tokens:["loginId","verificationUrl","userCode"]}]),/loginId/)});
+function deviceAuthSchemas(){
+ const request=(method)=>({type:"object",properties:{method:{enum:[method]}}});
+ return [
+  {title:"ClientRequest",oneOf:[request("initialize"),request("account/read"),request("account/login/start"),request("account/logout")]},
+  {title:"InitializeParams",type:"object",properties:{clientInfo:{$ref:"#/definitions/ClientInfo"}},required:["clientInfo"],definitions:{ClientInfo:{type:"object",properties:{name:{type:"string"},title:{anyOf:[{type:"string"},{type:"null"}]},version:{type:"string"}},required:["name","version"]}}},
+  {title:"GetAccountParams",type:"object",properties:{refreshToken:{type:"boolean"}}},
+  {title:"LoginAccountParams",oneOf:[{type:"object",properties:{type:{enum:["chatgptDeviceCode"]}},required:["type"]},{type:"object",properties:{type:{enum:["apiKey"]},apiKey:{type:"string"}},required:["type","apiKey"]}]},
+  {title:"LoginAccountResponse",oneOf:[{type:"object",properties:{type:{enum:["chatgptDeviceCode"]},loginId:{type:"string"},verificationUrl:{type:"string"},userCode:{type:"string"}},required:["type","loginId","verificationUrl","userCode"]},{type:"object",properties:{type:{enum:["apiKey"]},apiKey:{type:"string"}},required:["type","apiKey"]}]}
+ ];
+}
+function clone(value){return structuredClone(value)}
+function responseVariant(documents){return documents.find(value=>value.title==="LoginAccountResponse").oneOf[0]}
+
+test("split 0.147 App Server schemas contain the device auth contracts",()=>assert.equal(validateDeviceAuthSchemas(deviceAuthSchemas()),true));
+test("device request discriminator must be in the LoginAccountParams variant",()=>{
+ const schemas=deviceAuthSchemas();schemas.find(value=>value.title==="LoginAccountParams").oneOf[0].properties.type.enum=["missing"];
+ schemas.push({title:"Unrelated",token:"chatgptDeviceCode"});
+ assert.throws(()=>validateDeviceAuthSchemas(schemas),/missing_request_contract/);
+});
+for(const field of ["loginId","verificationUrl","userCode"]){
+ test(`device response requires ${field} on its own variant`,()=>{
+  const schemas=deviceAuthSchemas();delete responseVariant(schemas).properties[field];
+  schemas.find(value=>value.title==="LoginAccountResponse").oneOf[1].properties[field]={type:"string"};
+  schemas.push({title:"Unrelated",properties:{[field]:{type:"string"}}});
+  assert.throws(()=>validateDeviceAuthSchemas(schemas),new RegExp(`missing_${field}`));
+ });
+ test(`device response requires ${field} to have string type`,()=>{
+  const schemas=deviceAuthSchemas();responseVariant(schemas).properties[field]={type:"number"};
+  assert.throws(()=>validateDeviceAuthSchemas(schemas),new RegExp(`missing_${field}`));
+ });
+ test(`device response requires ${field} in required`,()=>{
+  const schemas=deviceAuthSchemas();responseVariant(schemas).required=responseVariant(schemas).required.filter(value=>value!==field);
+  assert.throws(()=>validateDeviceAuthSchemas(schemas),new RegExp(`missing_${field}`));
+ });
+}
+test("RPC method tokens outside ClientRequest branches do not establish routing",()=>{
+ for(const method of ["initialize","account/read","account/login/start","account/logout"]){
+  const schemas=deviceAuthSchemas();const request=schemas[0];request.oneOf=request.oneOf.filter(branch=>!branch.properties.method.enum.includes(method));
+  schemas.push({title:"Unrelated",description:`supports ${method}`,token:method});
+  assert.throws(()=>validateDeviceAuthSchemas(schemas));
+ }
+});
+test("malformed schemas fail closed",()=>{
+ for(const malformed of [[],[null],deviceAuthSchemas().map(clone).filter(value=>value.title!=="LoginAccountResponse")])assert.throws(()=>validateDeviceAuthSchemas(malformed));
+});
 test("Runner source pins only exact stable Codex 0.147.0",async()=>{const docker=await import("node:fs/promises").then(fs=>fs.readFile(new URL("../Dockerfile",import.meta.url),"utf8"));assert.equal(EXPECTED_CODEX_VERSION,"0.147.0");assert.match(docker,/npm install --global @openai\/codex@0\.147\.0(?:\s|&&)/);assert.doesNotMatch(docker,/@openai\/codex@(?:latest|[~^*]|0\.147(?:\s|$)|0\.147\.0-)/);assert.doesNotMatch(docker,/@openai\/codex@0\.118\.0/)});
 test("loads direct and Docker secret-file configuration",async()=>{assert.equal(await loadSecret({CODEX_RUNNER_SHARED_SECRET:" direct "})," direct ");const dir=await mkdtemp(join(tmpdir(),"runner-")),file=join(dir,"secret");await writeFile(file,"file secret\n");assert.equal(await loadSecret({CODEX_RUNNER_SHARED_SECRET_FILE:file}),"file secret")});
 test("secret configuration fails closed",async()=>{await assert.rejects(loadSecret({}),/missing/);await assert.rejects(loadSecret({CODEX_RUNNER_SHARED_SECRET:"x",CODEX_RUNNER_SHARED_SECRET_FILE:"x"}),/ambiguous/);await assert.rejects(loadSecret({CODEX_RUNNER_SHARED_SECRET_FILE:"/missing"}),/unreadable/);const dir=await mkdtemp(join(tmpdir(),"runner-")),empty=join(dir,"empty"),unreadable=join(dir,"unreadable");await writeFile(empty,"");await writeFile(unreadable,"x");await chmod(unreadable,0);await assert.rejects(loadSecret({CODEX_RUNNER_SHARED_SECRET_FILE:empty}),/empty/);await assert.rejects(loadSecret({CODEX_RUNNER_SHARED_SECRET_FILE:unreadable},async()=>{throw new Error("denied")}),/unreadable/)});
