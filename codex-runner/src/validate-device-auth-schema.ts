@@ -5,14 +5,18 @@ import {join} from "node:path";
 import {promisify} from "node:util";
 
 const execute=promisify(execFile);
-const required=["chatgptDeviceCode","loginId","verificationUrl","userCode"] as const;
-
 export function validateDeviceAuthSchemas(documents:unknown[]){
  const serialized=documents.map(value=>JSON.stringify(value));
- for(const token of required)if(!serialized.some(document=>document.includes(`\"${token}\"`)))throw new Error(`device_auth_schema_missing_${token}`);
- // The request method and variant must occur in one generated document, rather than
- // merely existing in unrelated definitions.
- if(!serialized.some(document=>document.includes("account/login/start")&&document.includes("chatgptDeviceCode")))throw new Error("device_auth_schema_missing_request_contract");
+ const related=(method:string,tokens:string[])=>serialized.some(document=>document.includes(`\"${method}\"`)&&tokens.every(token=>document.includes(`\"${token}\"`)));
+ // Codex emits bundled protocol documents. Requiring each method and its request /
+ // response vocabulary in the same bundle prevents unrelated token-only fixtures
+ // from passing while remaining independent of generated definition names.
+ if(!related("initialize",["clientInfo","name","title","version"]))throw new Error("device_auth_schema_missing_initialize_contract");
+ if(!related("account/read",["refreshToken"]))throw new Error("device_auth_schema_missing_account_read_contract");
+ if(!related("account/logout",[]))throw new Error("device_auth_schema_missing_account_logout_contract");
+ const login=serialized.find(document=>document.includes('"account/login/start"')&&document.includes('"chatgptDeviceCode"'));
+ if(!login)throw new Error("device_auth_schema_missing_request_contract");
+ for(const field of ["loginId","verificationUrl","userCode"] as const)if(!login.includes(`\"${field}\"`))throw new Error(`device_auth_schema_missing_${field}`);
  return true;
 }
 
