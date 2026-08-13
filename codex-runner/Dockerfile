@@ -35,7 +35,9 @@ WORKDIR /probe
 COPY auth-probe/Cargo.toml ./
 COPY auth-probe/src ./src
 RUN --mount=type=cache,target=/usr/local/cargo/registry --mount=type=cache,target=/usr/local/cargo/git --mount=type=cache,target=/probe/target \
-    cargo build --release && cp target/release/adt-codex-auth-probe /out/adt-codex-auth-probe
+    cargo build --release && \
+    install -D -m 0755 target/release/adt-codex-auth-probe /out/adt-codex-auth-probe && \
+    test -x /out/adt-codex-auth-probe
 
 FROM node:24-bookworm-slim
 ARG CODEX_RUNNER_VERSION=development
@@ -66,6 +68,11 @@ RUN ln -s /opt/codex/bin/codex /usr/local/bin/codex && \
 RUN apt-get update && \
     apt-get install -y --no-install-recommends libssl3 && \
     rm -rf /var/lib/apt/lists/*
+# Validate the probe offline; never execute its live diagnostic during a build.
+RUN test -f /usr/local/bin/adt-codex-auth-probe && \
+    test -x /usr/local/bin/adt-codex-auth-probe && \
+    probe_ldd="$(ldd /usr/local/bin/adt-codex-auth-probe 2>&1)" && \
+    ! printf '%s\n' "$probe_ldd" | grep -Fq 'not found'
 # Prove the copied executable's dynamic dependency closure in the slim image.
 RUN codex_ldd="$(ldd /opt/codex/bin/codex 2>&1)"; codex_ldd_status=$?; \
     missing_sonames="$(printf '%s\n' "$codex_ldd" | sed -nE 's/^[[:space:]]*([A-Za-z0-9_.+-]+)[[:space:]]+=>[[:space:]]+not found[[:space:]]*$/\1/p' | sort -u)"; \
