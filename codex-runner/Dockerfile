@@ -52,8 +52,18 @@ RUN ln -s /opt/codex/bin/codex /usr/local/bin/codex && \
     test "$(command -v codex)" = /usr/local/bin/codex && \
     test ! -e /usr/bin/codex && \
     test ! -e /usr/local/lib/node_modules/@openai/codex
+# Install only the OpenSSL shared-library runtime used by the GNU executable.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends libssl3 && \
+    rm -rf /var/lib/apt/lists/*
 # Prove the copied executable's dynamic dependency closure in the slim image.
-RUN codex_ldd="$(ldd /opt/codex/bin/codex)" || { echo codex_runtime_dependencies_missing >&2; exit 1; }; \
+RUN codex_ldd="$(ldd /opt/codex/bin/codex 2>&1)"; codex_ldd_status=$?; \
+    missing_sonames="$(printf '%s\n' "$codex_ldd" | sed -nE 's/^[[:space:]]*([A-Za-z0-9_.+-]+)[[:space:]]+=>[[:space:]]+not found[[:space:]]*$/\1/p' | sort -u)"; \
+    if test -n "$missing_sonames"; then \
+      printf '%s\n' "$missing_sonames" | sed 's/^/codex_runtime_missing_soname=/' >&2; \
+      exit 1; \
+    fi; \
+    test "$codex_ldd_status" = 0 || { echo codex_runtime_ldd_failed >&2; exit 1; }; \
     printf '%s\n' "$codex_ldd" | grep -Eq 'libc\.so\.6' || { echo codex_runtime_not_glibc_dynamic >&2; exit 1; }; \
     ! printf '%s\n' "$codex_ldd" | grep -Fq 'not found' || { echo codex_runtime_dependencies_missing >&2; exit 1; }
 # Execute the installed CLI and require the exact pinned version.
