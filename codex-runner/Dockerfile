@@ -28,12 +28,22 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     readelf -l /out/codex-package/bin/codex | grep -Eq 'Requesting program interpreter: .*/ld-linux-x86-64\.so\.2' && \
     readelf -d /out/codex-package/bin/codex | grep -Eq 'Shared library: \[libc\.so\.6\]'
 
+# ADT-owned probe is isolated so source changes cannot invalidate the canonical Codex build.
+FROM rust:1.93.1-bookworm AS auth-probe-build
+RUN apt-get update && apt-get install -y --no-install-recommends pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
+WORKDIR /probe
+COPY auth-probe/Cargo.toml ./
+COPY auth-probe/src ./src
+RUN --mount=type=cache,target=/usr/local/cargo/registry --mount=type=cache,target=/usr/local/cargo/git --mount=type=cache,target=/probe/target \
+    cargo build --release && cp target/release/adt-codex-auth-probe /out/adt-codex-auth-probe
+
 FROM node:24-bookworm-slim
 ARG CODEX_RUNNER_VERSION=development
 LABEL org.opencontainers.image.source="https://github.com/zailghe3/artifact-dev-toolkit" \
       org.opencontainers.image.revision="$CODEX_RUNNER_VERSION"
 ENV NODE_ENV=production CODEX_HOME=/data/codex PORT=8789 CODEX_RUNNER_VERSION=$CODEX_RUNNER_VERSION
 COPY --from=codex-gnu-build /out/codex-package /opt/codex
+COPY --from=auth-probe-build /out/adt-codex-auth-probe /usr/local/bin/adt-codex-auth-probe
 COPY gai.conf /tmp/gai.conf
 COPY --from=build /build/dist/validate-device-auth-schema.js /tmp/validate-device-auth-schema.js
 # Validate and install the unchanged image-local address policy.
