@@ -25,7 +25,11 @@ jobs:
         run: npm ci && npm test && npm run typecheck
       - name: Build and smoke test
         run: |
-          docker build --build-arg CODEX_RUNNER_VERSION="$GITHUB_SHA" -t adt-codex-runner:validated codex-runner
+          set -euo pipefail
+          report_resources() { df -h; free -h; }
+          trap 'status=$?; if [ "$status" -ne 0 ]; then report_resources; fi' EXIT
+          report_resources
+          docker build --progress=plain --build-arg CODEX_RUNNER_VERSION="$GITHUB_SHA" -t adt-codex-runner:validated codex-runner
           codex-runner/scripts/smoke-image.sh adt-codex-runner:validated
       - name: Authenticate to Docker Hub
         env: {DOCKERHUB_USERNAME: "${{ vars.DOCKERHUB_USERNAME }}", DOCKERHUB_TOKEN: "${{ secrets.DOCKERHUB_TOKEN }}"}

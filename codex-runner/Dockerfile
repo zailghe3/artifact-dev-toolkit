@@ -11,6 +11,7 @@ RUN npm run build && npm prune --omit=dev
 FROM rust:1.93.1-bookworm AS codex-gnu-build
 ARG TARGETARCH
 ARG CODEX_SOURCE_COMMIT=be6e8eac029b183056b7e4402879f15d2c85f61b
+ENV CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2
 RUN test "$TARGETARCH" = amd64 || { echo 'Codex GNU build supports linux/amd64 only' >&2; exit 1; }
 RUN apt-get update && apt-get install -y --no-install-recommends binutils git python3 pkg-config libssl-dev libcap-dev clang && rm -rf /var/lib/apt/lists/*
 WORKDIR /source
@@ -21,7 +22,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/source/codex-rs/target \
     --mount=type=cache,target=/tmp/codex-package \
-    python3 scripts/build_codex_package.py --target x86_64-unknown-linux-gnu --cargo-profile release --variant codex --package-dir /out/codex-package && \
+    python3 scripts/build_codex_package.py --target x86_64-unknown-linux-gnu --cargo-profile dev-small --variant codex --package-dir /out/codex-package && \
     python3 -c 'import json; p=json.load(open("/out/codex-package/codex-package.json")); expected={"layoutVersion":1,"version":"0.147.0","target":"x86_64-unknown-linux-gnu","variant":"codex","entrypoint":"bin/codex"}; assert all(p.get(k)==v for k,v in expected.items()), "invalid Codex package metadata"' && \
     test -x /out/codex-package/bin/codex && test -d /out/codex-package/codex-resources && test -d /out/codex-package/codex-path && \
     readelf -l /out/codex-package/bin/codex | grep -Eq 'Requesting program interpreter: .*/ld-linux-x86-64\.so\.2' && \
