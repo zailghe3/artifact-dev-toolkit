@@ -36,6 +36,7 @@ ENV NODE_ENV=production CODEX_HOME=/data/codex PORT=8789 CODEX_RUNNER_VERSION=$C
 COPY --from=codex-gnu-build /out/codex-package /opt/codex
 COPY gai.conf /tmp/gai.conf
 COPY --from=build /build/dist/validate-device-auth-schema.js /tmp/validate-device-auth-schema.js
+# Validate and install the unchanged image-local address policy.
 RUN test "$(grep -Ec '^precedence[[:space:]]+' /tmp/gai.conf)" = 5 && \
     grep -Eq '^precedence[[:space:]]+::1/128[[:space:]]+50$' /tmp/gai.conf && \
     grep -Eq '^precedence[[:space:]]+::/0[[:space:]]+40$' /tmp/gai.conf && \
@@ -43,14 +44,28 @@ RUN test "$(grep -Ec '^precedence[[:space:]]+' /tmp/gai.conf)" = 5 && \
     grep -Eq '^precedence[[:space:]]+::/96[[:space:]]+20$' /tmp/gai.conf && \
     grep -Eq '^precedence[[:space:]]+::ffff:0:0/96[[:space:]]+100$' /tmp/gai.conf && \
     ! grep -Eiq 'openai|cloudflare|([0-9]{1,3}\.){3}[0-9]{1,3}' /tmp/gai.conf && \
-    install -m 0644 /tmp/gai.conf /etc/gai.conf && rm /tmp/gai.conf && \
-    ln -s /opt/codex/bin/codex /usr/local/bin/codex && \
-    test "$(command -v codex)" = /usr/local/bin/codex && test ! -e /usr/bin/codex && \
-    test ! -e /usr/local/lib/node_modules/@openai/codex && \
-    test "$(codex --version | sed -E 's/^(codex-cli |codex )?//')" = 0.147.0 && \
-    node /tmp/validate-device-auth-schema.js codex && rm /tmp/validate-device-auth-schema.js && \
-    install -d -m 0755 /etc/codex-runner && printf 'glibc\n' >/etc/codex-runner/codex-native-libc && chmod 0444 /etc/codex-runner/codex-native-libc && \
-    mkdir -p /data/codex && chown -R node:node /data/codex
+    install -m 0644 /tmp/gai.conf /etc/gai.conf && rm /tmp/gai.conf
+# Satisfy Codex 0.147's configured-home contract before executing the CLI.
+RUN mkdir -p /data/codex && test -d /data/codex && chown -R node:node /data/codex
+# Install exactly one authoritative Codex entrypoint without executing it.
+RUN ln -s /opt/codex/bin/codex /usr/local/bin/codex && \
+    test "$(command -v codex)" = /usr/local/bin/codex && \
+    test ! -e /usr/bin/codex && \
+    test ! -e /usr/local/lib/node_modules/@openai/codex
+# Prove the copied executable's dynamic dependency closure in the slim image.
+RUN codex_ldd="$(ldd /opt/codex/bin/codex)" || { echo codex_runtime_dependencies_missing >&2; exit 1; }; \
+    printf '%s\n' "$codex_ldd" | grep -Eq 'libc\.so\.6' || { echo codex_runtime_not_glibc_dynamic >&2; exit 1; }; \
+    ! printf '%s\n' "$codex_ldd" | grep -Fq 'not found' || { echo codex_runtime_dependencies_missing >&2; exit 1; }
+# Execute the installed CLI and require the exact pinned version.
+RUN codex_version="$(codex --version)" && \
+    printf '%s\n' "$codex_version" && \
+    test "$(printf '%s\n' "$codex_version" | sed -E 's/^(codex-cli |codex )?//')" = 0.147.0
+# Generate and validate schemas through the installed GNU CLI.
+RUN node /tmp/validate-device-auth-schema.js codex && rm /tmp/validate-device-auth-schema.js
+# Record only the bounded, build-validated libc classification.
+RUN install -d -m 0755 /etc/codex-runner && \
+    printf 'glibc\n' >/etc/codex-runner/codex-native-libc && \
+    chmod 0444 /etc/codex-runner/codex-native-libc
 WORKDIR /app
 COPY --from=build --chown=node:node /build/package.json /build/package-lock.json ./
 COPY --from=build --chown=node:node /build/dist ./dist
