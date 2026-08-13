@@ -35,7 +35,7 @@ export class StdioAppServerClient implements AppServerClient{
   private initialization?:Promise<void>;
   private id=0;
   private pending=new Map<number,Pending>();
-  constructor(private readonly command="codex",private readonly runnerVersion="development",private readonly timeoutMs=8_000,private readonly spawnProcess:Spawn=spawn){}
+  constructor(private readonly command="codex",private readonly runnerVersion="development",private readonly timeoutMs=8_000,private readonly spawnProcess:Spawn=spawn,private readonly respectSystemProxy=false){}
 
   async readiness(){try{await this.ready();return true}catch{return false}}
   status(){return this.afterReady("account/read",{refreshToken:false})}
@@ -46,7 +46,7 @@ export class StdioAppServerClient implements AppServerClient{
   private ready(){if(this.initialization)return this.initialization;this.start();this.initialization=this.initialize();return this.initialization}
   private start(){
     let child:ChildProcessWithoutNullStreams;
-    try{child=this.spawnProcess(this.command,["app-server"],{stdio:["pipe","pipe","pipe"],env:process.env})}catch{throw new Error("app_server_unavailable")}
+    try{child=this.spawnProcess(this.command,this.respectSystemProxy?["--enable","respect_system_proxy","app-server"]:["app-server"],{stdio:["pipe","pipe","pipe"],env:process.env})}catch{throw new Error("app_server_unavailable")}
     this.process=child;
     this.lines=createInterface({input:child.stdout});
     this.lines.on("line",line=>this.receive(line));
