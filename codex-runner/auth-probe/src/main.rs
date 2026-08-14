@@ -233,7 +233,30 @@ mod tests {
     #[test]
     fn valid_json_control_is_exact_and_non_ceremony() {
         assert_eq!(VALID_JSON_EMPTY_CLIENT_BODY, r#"{"client_id":""}"#);
-        assert!(!VALID_JSON_EMPTY_CLIENT_BODY.contains("device_id"));
+        assert!(!VALID_JSON_EMPTY_CLIENT_BODY.contains('\\'));
+
+        let parsed: serde_json::Value =
+            serde_json::from_str(VALID_JSON_EMPTY_CLIENT_BODY).expect("control body is valid JSON");
+        assert_eq!(parsed, json!({"client_id": ""}));
+        assert_eq!(
+            parsed.as_object().expect("control body is an object").len(),
+            1
+        );
+
+        for unsafe_field in [
+            "device_id",
+            "user_code",
+            "token",
+            "credential",
+            "client_secret",
+            "authorization_code",
+        ] {
+            assert!(!VALID_JSON_EMPTY_CLIENT_BODY.contains(unsafe_field));
+        }
+
+        let escaped_raw_string_regression = r#"{\"client_id\":\"\"}"#;
+        assert_ne!(escaped_raw_string_regression, VALID_JSON_EMPTY_CLIENT_BODY);
+        assert!(serde_json::from_str::<serde_json::Value>(escaped_raw_string_regression).is_err());
     }
     #[test]
     fn serializes_http_fields_in_canonical_camel_case() {
