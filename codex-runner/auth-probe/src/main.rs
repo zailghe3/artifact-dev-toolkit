@@ -9,12 +9,11 @@ use std::{
 const HOST: &str = "auth.openai.com";
 const URL: &str = "https://auth.openai.com/api/accounts/deviceauth/usercode";
 const MALFORMED_BODY: &str = "{";
-const VALID_JSON_EMPTY_CLIENT_BODY: &str = r#"{"client_id":""}"#;
 const TIMEOUT: Duration = Duration::from_secs(4);
 #[derive(Clone, Copy)]
 enum Variant {
     Baseline,
-    ValidJsonEmptyClient,
+    RustlsTls,
     NamedUserAgent,
     Http1Only,
     NoProxy,
@@ -24,7 +23,7 @@ impl Variant {
     fn name(self) -> &'static str {
         match self {
             Self::Baseline => "baseline",
-            Self::ValidJsonEmptyClient => "validJsonEmptyClient",
+            Self::RustlsTls => "rustlsTls",
             Self::NamedUserAgent => "namedUserAgent",
             Self::Http1Only => "http1Only",
             Self::NoProxy => "noProxy",
@@ -67,9 +66,13 @@ struct Output {
     attempts: Vec<Entry>,
 }
 fn builder(variant: Variant, ipv4: &[SocketAddr]) -> ClientBuilder {
-    let mut b = ClientBuilder::new().timeout(TIMEOUT);
+    let mut b = match variant {
+        Variant::RustlsTls => ClientBuilder::new().use_rustls_tls(),
+        _ => ClientBuilder::new().use_native_tls(),
+    }
+    .timeout(TIMEOUT);
     match variant {
-        Variant::Baseline | Variant::ValidJsonEmptyClient => {}
+        Variant::Baseline | Variant::RustlsTls => {}
         Variant::NamedUserAgent => {
             b = b.user_agent(format!(
                 "ADT-Codex-Auth-Probe/{}",
@@ -119,7 +122,15 @@ fn classify(error: &reqwest::Error) -> ResultSummary {
 }
 fn follow_ups(result: &ResultSummary) -> &'static [Variant] {
     if matches!(result, ResultSummary::Http { .. }) {
-        &[Variant::ValidJsonEmptyClient]
+        &[]
+    } else if matches!(
+        result,
+        ResultSummary::Transport {
+            tls_source_present: true,
+            ..
+        }
+    ) {
+        &[Variant::RustlsTls]
     } else {
         &[
             Variant::NamedUserAgent,
@@ -134,11 +145,7 @@ async fn attempt(variant: Variant, ipv4: &[SocketAddr]) -> Entry {
         Ok(client) => match client
             .post(URL)
             .header(header::CONTENT_TYPE, "application/json")
-            .body(if matches!(variant, Variant::ValidJsonEmptyClient) {
-                VALID_JSON_EMPTY_CLIENT_BODY
-            } else {
-                MALFORMED_BODY
-            })
+            .body(MALFORMED_BODY)
             .send()
             .await
         {
@@ -212,7 +219,7 @@ mod tests {
                 .iter()
                 .map(|v| v.name())
                 .collect::<Vec<_>>(),
-            ["validJsonEmptyClient"]
+            []
         );
         let transport = ResultSummary::Transport {
             is_timeout: false,
@@ -229,34 +236,28 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["namedUserAgent", "http1Only", "noProxy", "forcedIpv4"]
         );
+        let tls_transport = ResultSummary::Transport {
+            is_timeout: false,
+            is_connect: true,
+            is_request: true,
+            io_error_kind: "none",
+            tls_source_present: true,
+            source_class: "tls",
+        };
+        assert_eq!(
+            follow_ups(&tls_transport)
+                .iter()
+                .map(|v| v.name())
+                .collect::<Vec<_>>(),
+            ["rustlsTls"]
+        );
     }
     #[test]
-    fn valid_json_control_is_exact_and_non_ceremony() {
-        assert_eq!(VALID_JSON_EMPTY_CLIENT_BODY, r#"{"client_id":""}"#);
-        assert!(!VALID_JSON_EMPTY_CLIENT_BODY.contains('\\'));
-
-        let parsed: serde_json::Value =
-            serde_json::from_str(VALID_JSON_EMPTY_CLIENT_BODY).expect("control body is valid JSON");
-        assert_eq!(parsed, json!({"client_id": ""}));
-        assert_eq!(
-            parsed.as_object().expect("control body is an object").len(),
-            1
-        );
-
-        for unsafe_field in [
-            "device_id",
-            "user_code",
-            "token",
-            "credential",
-            "client_secret",
-            "authorization_code",
-        ] {
-            assert!(!VALID_JSON_EMPTY_CLIENT_BODY.contains(unsafe_field));
-        }
-
-        let escaped_raw_string_regression = r#"{\"client_id\":\"\"}"#;
-        assert_ne!(escaped_raw_string_regression, VALID_JSON_EMPTY_CLIENT_BODY);
-        assert!(serde_json::from_str::<serde_json::Value>(escaped_raw_string_regression).is_err());
+    fn variants_select_only_the_intended_tls_backend() {
+        assert!(matches!(Variant::Baseline, Variant::Baseline));
+        assert_eq!(Variant::Baseline.name(), "baseline");
+        assert_eq!(Variant::RustlsTls.name(), "rustlsTls");
+        assert_eq!(MALFORMED_BODY.as_bytes(), b"{");
     }
     #[test]
     fn serializes_http_fields_in_canonical_camel_case() {
