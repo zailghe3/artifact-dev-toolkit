@@ -47,3 +47,7 @@ Runner protocol 1 reports capabilities so independently deployed ADT and Runner 
 ## Safe device-start diagnostics
 
 Failed device starts keep the stable `device_auth_start_failed` operation code and may include only an allowlisted reason: login disabled, device login not enabled, upstream forbidden, rate limited, unavailable, rejected, transport failure, CA configuration, HTTP-client configuration, internal, or unknown. A strictly parsed HTTP status and finite integer JSON-RPC code may accompany that reason. Raw App Server errors, error data, stderr, response bodies, credentials, codes, and private paths are always discarded.
+
+### Interpreting the Rust auth transport matrix
+
+These bounded results are diagnostic implications, not automatic root-cause claims. A baseline Rust HTTP response shows that generic reqwest transport reaches HTTP; if actual Codex device auth still reports a transport error, investigate Codex auth-route client construction or exact request handling. If baseline transport fails but `namedUserAgent` succeeds, request identity or edge behavior is implicated. If `http1Only` succeeds, HTTP/2 or ALPN behavior is implicated. If `noProxy` succeeds, reqwest/Codex proxy handling is implicated. If `forcedIpv4` succeeds, address-family selection remains implicated. If every Rust variant fails while the Node POST receives HTTP, isolate the investigation to Rust/reqwest-side transport behavior in this environment.
