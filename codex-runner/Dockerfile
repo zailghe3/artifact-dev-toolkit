@@ -64,10 +64,15 @@ RUN ln -s /opt/codex/bin/codex /usr/local/bin/codex && \
     test "$(command -v codex)" = /usr/local/bin/codex && \
     test ! -e /usr/bin/codex && \
     test ! -e /usr/local/lib/node_modules/@openai/codex
-# Install only the OpenSSL shared-library runtime used by the GNU executable.
+# Install only the OpenSSL runtime and Debian system trust store.
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends libssl3 && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get install -y --no-install-recommends libssl3 ca-certificates && \
+    rm -rf /var/lib/apt/lists/* && \
+    dpkg-query -W -f='${Status}\n' ca-certificates | grep -Fxq 'install ok installed' && \
+    test -f /etc/ssl/certs/ca-certificates.crt && \
+    test -r /etc/ssl/certs/ca-certificates.crt && \
+    test -s /etc/ssl/certs/ca-certificates.crt && \
+    grep -m 1 -Fq -- '-----BEGIN CERTIFICATE-----' /etc/ssl/certs/ca-certificates.crt
 # Validate the probe offline; never execute its live diagnostic during a build.
 RUN test -f /usr/local/bin/adt-codex-auth-probe && \
     test -x /usr/local/bin/adt-codex-auth-probe && \
