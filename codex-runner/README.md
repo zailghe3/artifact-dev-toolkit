@@ -80,3 +80,18 @@ control-character escaping, while auth and diagnostic routes retain their 16 KiB
 control-plane limit. The limits are fixed by the Runner and are not Agent options.
 Production job duration defaults to 7,000,000 ms, may be reduced by the operator
 with `CODEX_RUNNER_JOB_DURATION_MS`, and cannot exceed that hard maximum.
+
+Cancellation and timeout share one deferred-interrupt lifecycle. Intent is
+remembered before protocol IDs exist; when the matching thread and turn IDs
+arrive, the Runner interrupts exactly once. A cancellation received before
+execution starts prevents the Codex turn entirely. The global lease is retained
+until the underlying turn quiesces. If timeout interruption does not quiesce
+within the 30-second cleanup deadline, workflow execution is marked unhealthy,
+no later job is admitted, and an operator must restart the Runner/App Server;
+the lease is never released while the old turn may still write.
+
+A job's opaque ID, idempotency digest, fingerprint, and queued provisional state
+are durably recorded before account/model validation. Digest lookup can therefore
+reconcile a lost start response while validation is still pending. Validation
+then moves that same job to execution or a bounded terminal failure; it never
+deletes the idempotency evidence or submits a second turn.
