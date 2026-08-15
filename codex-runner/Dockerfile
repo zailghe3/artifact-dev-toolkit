@@ -46,7 +46,7 @@ RUN test "$(grep -Ec '^precedence[[:space:]]+' /tmp/gai.conf)" = 5 && \
     ! grep -Eiq 'openai|cloudflare|([0-9]{1,3}\.){3}[0-9]{1,3}' /tmp/gai.conf && \
     install -m 0644 /tmp/gai.conf /etc/gai.conf && rm /tmp/gai.conf
 # Satisfy Codex 0.147's configured-home contract before executing the CLI.
-RUN mkdir -p /data/codex && test -d /data/codex && chown -R node:node /data/codex
+RUN mkdir -p /data/codex /data/runner && chown node:node /data/codex /data/runner && chmod 0700 /data/codex /data/runner && test -d /data/codex && test -d /data/runner
 # Install exactly one authoritative Codex entrypoint without executing it.
 RUN ln -s /opt/codex/bin/codex /usr/local/bin/codex && \
     test "$(command -v codex)" = /usr/local/bin/codex && \
@@ -86,6 +86,6 @@ COPY --from=build --chown=node:node /build/package.json /build/package-lock.json
 COPY --from=build --chown=node:node /build/dist ./dist
 ENV CODEX_DEVICE_AUTH_COMPATIBLE=1 CODEX_RUNNER_ADDRESS_POLICY=ipv4_preferred
 USER node
-VOLUME ["/data/codex"]
+VOLUME ["/data/codex", "/data/runner"]
 EXPOSE 8789
 CMD ["node","dist/server.js"]

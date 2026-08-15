@@ -56,6 +56,22 @@
                 "$ref": "#/definitions/TurnInterruptParams"
               }
             }
+          },
+          {
+            "required": [
+              "method",
+              "params"
+            ],
+            "properties": {
+              "method": {
+                "enum": [
+                  "model/list"
+                ]
+              },
+              "params": {
+                "$ref": "#/definitions/ModelListParams"
+              }
+            }
           }
         ],
         "definitions": {
@@ -131,6 +147,12 @@
                 "items": {
                   "$ref": "#/definitions/UserInput"
                 }
+              },
+              "effort": {
+                "type": [
+                  "string",
+                  "null"
+                ]
               }
             }
           },
@@ -165,6 +187,28 @@
               },
               "turnId": {
                 "type": "string"
+              }
+            }
+          },
+          "ModelListParams": {
+            "properties": {
+              "includeHidden": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "limit": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "cursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
               }
             }
           }
@@ -347,6 +391,78 @@
                   "failed",
                   "interrupted"
                 ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "filename": "ModelListResponse.json",
+      "schema": {
+        "title": "ModelListResponse",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/Model"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "definitions": {
+          "Model": {
+            "required": [
+              "id",
+              "model",
+              "displayName",
+              "isDefault",
+              "defaultReasoningEffort",
+              "supportedReasoningEfforts"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "model": {
+                "type": "string"
+              },
+              "displayName": {
+                "type": "string"
+              },
+              "isDefault": {
+                "type": "boolean"
+              },
+              "defaultReasoningEffort": {
+                "type": "string"
+              },
+              "supportedReasoningEfforts": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/ReasoningEffortOption"
+                }
+              }
+            }
+          },
+          "ReasoningEffortOption": {
+            "required": [
+              "reasoningEffort",
+              "description"
+            ],
+            "properties": {
+              "reasoningEffort": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
               }
             }
           }

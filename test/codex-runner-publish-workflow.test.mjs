@@ -39,8 +39,10 @@ test('shared smoke waits independently for HTTP and Codex readiness', () => {
   assert.match(smoke, /\.protocolVersion == 1/);
   assert.match(smoke, /\.codexAvailable == true/);
   assert.match(smoke, /\.deviceAuth == true/);
-  assert.match(smoke, /\.jobExecution == false/);
+  assert.match(smoke, /\.jobExecution == true/);
   assert.match(smoke, /\/v1\/auth\/status[\s\S]*\.connected == false and \.runtime == "app-server-ready"/);
+  assert.match(smoke, /\/v1\/environments[\s\S]*\.environments == \[\]/);
+  assert.match(smoke, /test -w \/data\/runner/);
 });
 
 test('shared smoke never initiates authentication', () => {
