@@ -8,8 +8,9 @@ const publish = read('.github/workflows/publish-codex-runner.yml');
 const smoke = read('codex-runner/scripts/smoke-image.sh');
 const invocation = /codex-runner\/scripts\/smoke-image\.sh adt-codex-runner:(?:pr|validated)/g;
 
-test('PR and publish validation invoke one shared Runner image smoke', () => {
-  assert.equal(verify.match(invocation)?.length, 1);
+test('trusted publication exclusively owns the Runner image smoke', () => {
+  assert.equal(verify.match(invocation)?.length ?? 0, 0);
+  assert.doesNotMatch(verify, /docker build/);
   assert.equal(publish.match(invocation)?.length, 1);
   assert.doesNotMatch(verify, /\/v1\/(?:capabilities|auth\/status)/);
   assert.doesNotMatch(publish, /\/v1\/(?:capabilities|auth\/status)/);

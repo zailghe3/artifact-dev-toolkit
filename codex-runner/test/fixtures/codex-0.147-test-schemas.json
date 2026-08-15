@@ -1,0 +1,357 @@
+{
+  "source": {
+    "version": "0.147.0",
+    "commit": "be6e8eac029b183056b7e4402879f15d2c85f61b"
+  },
+  "documents": [
+    {
+      "filename": "ClientRequest.json",
+      "schema": {
+        "title": "ClientRequest",
+        "oneOf": [
+          {
+            "required": [
+              "method",
+              "params"
+            ],
+            "properties": {
+              "method": {
+                "enum": [
+                  "thread/start"
+                ]
+              },
+              "params": {
+                "$ref": "#/definitions/ThreadStartParams"
+              }
+            }
+          },
+          {
+            "required": [
+              "method",
+              "params"
+            ],
+            "properties": {
+              "method": {
+                "enum": [
+                  "turn/start"
+                ]
+              },
+              "params": {
+                "$ref": "#/definitions/TurnStartParams"
+              }
+            }
+          },
+          {
+            "required": [
+              "method",
+              "params"
+            ],
+            "properties": {
+              "method": {
+                "enum": [
+                  "turn/interrupt"
+                ]
+              },
+              "params": {
+                "$ref": "#/definitions/TurnInterruptParams"
+              }
+            }
+          }
+        ],
+        "definitions": {
+          "ThreadStartParams": {
+            "properties": {
+              "cwd": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "approvalPolicy": {
+                "oneOf": [
+                  {
+                    "$ref": "#/definitions/AskForApproval"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "sandbox": {
+                "oneOf": [
+                  {
+                    "$ref": "#/definitions/SandboxMode"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "ephemeral": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "model": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "AskForApproval": {
+            "type": "string",
+            "enum": [
+              "untrusted",
+              "on-request",
+              "never"
+            ]
+          },
+          "SandboxMode": {
+            "type": "string",
+            "enum": [
+              "read-only",
+              "workspace-write",
+              "danger-full-access"
+            ]
+          },
+          "TurnStartParams": {
+            "required": [
+              "threadId",
+              "input"
+            ],
+            "properties": {
+              "threadId": {
+                "type": "string"
+              },
+              "input": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/UserInput"
+                }
+              }
+            }
+          },
+          "UserInput": {
+            "oneOf": [
+              {
+                "required": [
+                  "type",
+                  "text"
+                ],
+                "properties": {
+                  "type": {
+                    "enum": [
+                      "text"
+                    ]
+                  },
+                  "text": {
+                    "type": "string"
+                  }
+                }
+              }
+            ]
+          },
+          "TurnInterruptParams": {
+            "required": [
+              "threadId",
+              "turnId"
+            ],
+            "properties": {
+              "threadId": {
+                "type": "string"
+              },
+              "turnId": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "filename": "ServerNotification.json",
+      "schema": {
+        "title": "ServerNotification",
+        "oneOf": [
+          {
+            "required": [
+              "method",
+              "params"
+            ],
+            "properties": {
+              "method": {
+                "enum": [
+                  "item/started"
+                ]
+              },
+              "params": {
+                "$ref": "#/definitions/ItemStartedNotification"
+              }
+            }
+          },
+          {
+            "required": [
+              "method",
+              "params"
+            ],
+            "properties": {
+              "method": {
+                "enum": [
+                  "item/completed"
+                ]
+              },
+              "params": {
+                "$ref": "#/definitions/ItemCompletedNotification"
+              }
+            }
+          },
+          {
+            "required": [
+              "method",
+              "params"
+            ],
+            "properties": {
+              "method": {
+                "enum": [
+                  "turn/completed"
+                ]
+              },
+              "params": {
+                "$ref": "#/definitions/TurnCompletedNotification"
+              }
+            }
+          }
+        ],
+        "definitions": {
+          "ItemStartedNotification": {
+            "required": [
+              "threadId",
+              "turnId",
+              "item"
+            ],
+            "properties": {
+              "threadId": {
+                "type": "string"
+              },
+              "turnId": {
+                "type": "string"
+              },
+              "item": {
+                "$ref": "#/definitions/ThreadItem"
+              }
+            }
+          },
+          "ItemCompletedNotification": {
+            "required": [
+              "threadId",
+              "turnId",
+              "item"
+            ],
+            "properties": {
+              "threadId": {
+                "type": "string"
+              },
+              "turnId": {
+                "type": "string"
+              },
+              "item": {
+                "$ref": "#/definitions/ThreadItem"
+              }
+            }
+          },
+          "ThreadItem": {
+            "oneOf": [
+              {
+                "required": [
+                  "type",
+                  "text"
+                ],
+                "properties": {
+                  "type": {
+                    "enum": [
+                      "agentMessage"
+                    ]
+                  },
+                  "text": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "enum": [
+                      "commandExecution"
+                    ]
+                  }
+                }
+              },
+              {
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "enum": [
+                      "fileChange"
+                    ]
+                  }
+                }
+              },
+              {
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "enum": [
+                      "mcpToolCall"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "TurnCompletedNotification": {
+            "required": [
+              "threadId",
+              "turn"
+            ],
+            "properties": {
+              "threadId": {
+                "type": "string"
+              },
+              "turn": {
+                "$ref": "#/definitions/Turn"
+              }
+            }
+          },
+          "Turn": {
+            "required": [
+              "id",
+              "status"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "completed",
+                  "failed",
+                  "interrupted"
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}
