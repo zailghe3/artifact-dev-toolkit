@@ -107,17 +107,18 @@ export function validateDeviceAuthSchemas(input:unknown[]){
 
 /** Build-time guard for the narrow Codex 0.147 health-turn wire contract. */
 export function validateCodexTestSchemas(input:unknown[]){
- const documents=normalize(input),named=(title:string)=>documentWithTitle(documents,title);
- const objectContract=(title:string,fields:string[])=>{const document=named(title);if(!document||!supportsProperties(document.schema,fields))throw new Error(`codex_test_schema_missing_${title}`);return document};
- const thread=objectContract("ThreadStartParams",["cwd","approvalPolicy","sandbox","ephemeral","model"]),turn=objectContract("TurnStartParams",["threadId","input"]),interrupt=objectContract("TurnInterruptParams",["threadId","turnId"]);
- const clientRequest=named("ClientRequest");
- for(const method of ["thread/start","turn/start","turn/interrupt"])if(!clientRequest||!requestBranch(clientRequest,method))throw new Error("codex_test_schema_missing_routed_request");
- if(!required(turn.schema,"threadId")||!required(turn.schema,"input")||!required(interrupt.schema,"threadId")||!required(interrupt.schema,"turnId"))throw new Error("codex_test_schema_missing_turn_contract");
- const threadText=JSON.stringify(thread.schema),notificationText=JSON.stringify([named("ItemStartedNotification")?.schema,named("ItemCompletedNotification")?.schema,named("TurnCompletedNotification")?.schema]);
- const serverNotification=named("ServerNotification");
- for(const method of ["item/started","item/completed","turn/completed"])if(!serverNotification||!requestBranch(serverNotification,method))throw new Error("codex_test_schema_missing_routed_notification");
- for(const token of ["read-only","never"])if(!threadText.includes(`\"${token}\"`))throw new Error("codex_test_schema_missing_safety_contract");
- for(const token of ["threadId","turnId","item","agentMessage","commandExecution","fileChange","mcpToolCall","status","text"])if(!notificationText.includes(`\"${token}\"`))throw new Error("codex_test_schema_missing_notification_contract");
+ const documents=normalize(input),client=documentWithTitle(documents,"ClientRequest"),notifications=documentWithTitle(documents,"ServerNotification");
+ if(!client||!notifications)throw new Error("codex_test_schema_missing_routes");
+ const routed=(document:SchemaDocument,method:string)=>{const branch=requestBranch(document,method),params=branch&&branchParams(document,branch);if(!params)throw new Error(`codex_test_schema_missing_route_${method}`);return params};
+ const accepts=(document:SchemaDocument,schema:unknown,value:string,depth=0):boolean=>depth<4&&resolvedVariants(document,schema).some(variant=>{const resolved=resolveSchema(document,variant);return Boolean(resolved&&(Array.isArray(resolved.enum)&&resolved.enum.includes(value)||accepts(document,resolved,value,depth+1)))});
+ const thread=routed(client,"thread/start"),threadProps=properties(thread);
+ if(!threadProps||!supportsProperties(thread,["cwd","approvalPolicy","sandbox","ephemeral","model"])||!hasType(threadProps.cwd,"string")||!accepts(client,threadProps.approvalPolicy,"never")||!accepts(client,threadProps.sandbox,"read-only")||!hasType(threadProps.ephemeral,"boolean")||required(thread,"model"))throw new Error("codex_test_schema_missing_thread_contract");
+ const turn=routed(client,"turn/start"),turnProps=properties(turn),inputSchema=turnProps&&resolveSchema(client,turnProps.input),textInput=inputSchema&&inputSchema.items,textVariant=textInput&&discriminatorVariant(client,textInput,"type","text"),textProps=(textVariant&&properties(textVariant)) as Record<string,unknown>|undefined;
+ if(!turnProps||!required(turn,"threadId")||!hasType(turnProps.threadId,"string")||!required(turn,"input")||!inputSchema||!hasType(inputSchema,"array")||!textVariant||!required(textVariant,"text")||!textProps||!hasType(textProps["text"],"string"))throw new Error("codex_test_schema_missing_turn_contract");
+ const interrupt=routed(client,"turn/interrupt"),interruptProps=properties(interrupt);if(!interruptProps||!required(interrupt,"threadId")||!required(interrupt,"turnId")||!hasType(interruptProps.threadId,"string")||!hasType(interruptProps.turnId,"string"))throw new Error("codex_test_schema_missing_interrupt_contract");
+ const itemTypes=["agentMessage","commandExecution","fileChange","mcpToolCall"];
+ for(const method of ["item/started","item/completed"]){const params=routed(notifications,method),props=properties(params),item=props&&props.item;if(!props||!required(params,"threadId")||!required(params,"turnId")||!required(params,"item")||!hasType(props.threadId,"string")||!hasType(props.turnId,"string")||itemTypes.some(type=>!discriminatorVariant(notifications,item,"type",type)))throw new Error("codex_test_schema_missing_item_notification");const agent=discriminatorVariant(notifications,item,"type","agentMessage"),agentProps=(agent&&properties(agent)) as Record<string,unknown>|undefined;if(method==="item/completed"&&(!agent||!agentProps||!required(agent,"text")||!hasType(agentProps["text"],"string")))throw new Error("codex_test_schema_missing_agent_text")}
+ const completed=routed(notifications,"turn/completed"),completedProps=properties(completed),completedTurn=completedProps&&resolveSchema(notifications,completedProps.turn),completedTurnProps=properties(completedTurn);if(!completedProps||!required(completed,"threadId")||!required(completed,"turn")||!hasType(completedProps.threadId,"string")||!completedTurn||!completedTurnProps||!required(completedTurn,"id")||!required(completedTurn,"status")||!hasType(completedTurnProps.id,"string"))throw new Error("codex_test_schema_missing_completion_contract");
  return true;
 }
 
