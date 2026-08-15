@@ -110,8 +110,12 @@ export function validateCodexTestSchemas(input:unknown[]){
  const documents=normalize(input),named=(title:string)=>documentWithTitle(documents,title);
  const objectContract=(title:string,fields:string[])=>{const document=named(title);if(!document||!supportsProperties(document.schema,fields))throw new Error(`codex_test_schema_missing_${title}`);return document};
  const thread=objectContract("ThreadStartParams",["cwd","approvalPolicy","sandbox","ephemeral","model"]),turn=objectContract("TurnStartParams",["threadId","input"]),interrupt=objectContract("TurnInterruptParams",["threadId","turnId"]);
+ const clientRequest=named("ClientRequest");
+ for(const method of ["thread/start","turn/start","turn/interrupt"])if(!clientRequest||!requestBranch(clientRequest,method))throw new Error("codex_test_schema_missing_routed_request");
  if(!required(turn.schema,"threadId")||!required(turn.schema,"input")||!required(interrupt.schema,"threadId")||!required(interrupt.schema,"turnId"))throw new Error("codex_test_schema_missing_turn_contract");
  const threadText=JSON.stringify(thread.schema),notificationText=JSON.stringify([named("ItemStartedNotification")?.schema,named("ItemCompletedNotification")?.schema,named("TurnCompletedNotification")?.schema]);
+ const serverNotification=named("ServerNotification");
+ for(const method of ["item/started","item/completed","turn/completed"])if(!serverNotification||!requestBranch(serverNotification,method))throw new Error("codex_test_schema_missing_routed_notification");
  for(const token of ["read-only","never"])if(!threadText.includes(`\"${token}\"`))throw new Error("codex_test_schema_missing_safety_contract");
  for(const token of ["threadId","turnId","item","agentMessage","commandExecution","fileChange","mcpToolCall","status","text"])if(!notificationText.includes(`\"${token}\"`))throw new Error("codex_test_schema_missing_notification_contract");
  return true;

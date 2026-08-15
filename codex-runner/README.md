@@ -1,6 +1,6 @@
 # ADT Codex Runner
 
-The Runner is a private, shared-secret-protected bridge to the pinned Codex App Server. It uses **Codex CLI 0.147.0** from source commit `be6e8eac029b183056b7e4402879f15d2c85f61b`; this PR does not add general Codex jobs or Agents.
+The Runner uses an experimental GNU/glibc build that is neither release-equivalent nor an OpenAI-published GNU prebuilt artifact. It is a private, shared-secret-protected bridge to the pinned Codex App Server. It uses **Codex CLI 0.147.0** from source commit `be6e8eac029b183056b7e4402879f15d2c85f61b`; this PR does not add general Codex jobs or Agents.
 
 ## Authentication and connection readiness
 

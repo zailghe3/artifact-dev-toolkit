@@ -8,7 +8,7 @@ import {join} from "node:path";
 
 export interface AccountSnapshot {connected:boolean;authMode?:string;planType?:string;runtime:"app-server-ready"}
 export interface DeviceCeremony {loginId:string;verificationUrl:string;userCode:string}
-export type CodexTestFailureReason="codex_not_connected"|"app_server_unavailable"|"thread_start_failed"|"turn_start_failed"|"turn_failed"|"timeout"|"unexpected_output"|"unexpected_tool_activity";
+export type CodexTestFailureReason="codex_not_connected"|"app_server_unavailable"|"thread_start_failed"|"turn_start_failed"|"turn_failed"|"timeout"|"unexpected_output"|"unexpected_tool_activity"|"test_in_progress";
 export type CodexTestResult={ok:true;durationMs:number}|{ok:false;reason:CodexTestFailureReason};
 export interface AppServerClient {readiness():Promise<boolean>;status():Promise<unknown>;startDeviceLogin():Promise<unknown>;logout():Promise<unknown>;testCodex?():Promise<CodexTestResult>;close():Promise<void>}
 type Pending={resolve:(value:unknown)=>void;reject:(error:Error)=>void;timer:NodeJS.Timeout};
@@ -42,13 +42,16 @@ export class StdioAppServerClient implements AppServerClient{
   private id=0;
   private pending=new Map<number,Pending>();
   private turnLifecycle?:{threadId:string;turnId?:string;agentText?:string;tool:boolean;resolve:(result:"completed"|"failed"|"tool")=>void};
-  constructor(private readonly command="codex",private readonly runnerVersion="development",private readonly timeoutMs=8_000,private readonly spawnProcess:Spawn=spawn){}
+  private testRunning=false;
+  constructor(private readonly command="codex",private readonly runnerVersion="development",private readonly timeoutMs=8_000,private readonly spawnProcess:Spawn=spawn,private readonly healthTimeoutMs=55_000){}
 
   async readiness(){try{await this.ready();return true}catch{return false}}
   status(){return this.afterReady("account/read",{refreshToken:false})}
   startDeviceLogin(){return this.afterReady("account/login/start",{type:"chatgptDeviceCode"})}
   logout(){return this.afterReady("account/logout")}
   async testCodex():Promise<CodexTestResult>{
+    if(this.testRunning)return{ok:false,reason:"test_in_progress"};
+    this.testRunning=true;
     const started=Date.now();let cwd:string|undefined,threadId:string|undefined,turnId:string|undefined;
     try{
       let status:unknown;try{status=await this.status()}catch{return{ok:false,reason:"app_server_unavailable"}}
@@ -61,13 +64,13 @@ export class StdioAppServerClient implements AppServerClient{
       const prompt=`Return exactly the following text and nothing else:\n${nonce}\nDo not use tools, shell commands, filesystem access, network tools, or make changes.`;
       let turn:unknown;try{turn=await this.afterReady("turn/start",{threadId,input:[{type:"text",text:prompt}]})}catch{return{ok:false,reason:"turn_start_failed"}}
       turnId=this.identifier(turn,"turn");if(!turnId)return{ok:false,reason:"turn_start_failed"};this.turnLifecycle!.turnId=turnId;
-      let timeout:NodeJS.Timeout|undefined;const outcome=await Promise.race([completion,new Promise<"timeout">(resolve=>{timeout=setTimeout(()=>resolve("timeout"),55_000)})]);if(timeout)clearTimeout(timeout);
+      let timeout:NodeJS.Timeout|undefined;const outcome=await Promise.race([completion,new Promise<"timeout">(resolve=>{timeout=setTimeout(()=>resolve("timeout"),this.healthTimeoutMs)})]);if(timeout)clearTimeout(timeout);
       if(outcome==="timeout"){await this.interrupt(threadId,turnId);return{ok:false,reason:"timeout"}}
       if(outcome==="tool"){await this.interrupt(threadId,turnId);return{ok:false,reason:"unexpected_tool_activity"}}
       if(outcome==="failed")return{ok:false,reason:"turn_failed"};
       if(this.turnLifecycle?.agentText!==nonce)return{ok:false,reason:"unexpected_output"};
       return{ok:true,durationMs:Math.min(60_000,Math.max(0,Date.now()-started))};
-    }finally{this.turnLifecycle=undefined;if(cwd)await rm(cwd,{recursive:true,force:true})}
+    }finally{this.turnLifecycle=undefined;this.testRunning=false;if(cwd)await rm(cwd,{recursive:true,force:true})}
   }
   private identifier(value:unknown,key:"thread"|"turn"){const wrapped=value&&typeof value==="object"?(value as Record<string,unknown>)[key]:undefined;return wrapped&&typeof wrapped==="object"&&typeof (wrapped as {id?:unknown}).id==="string"?(wrapped as {id:string}).id:undefined}
   private async interrupt(threadId:string,turnId:string){try{await this.afterReady("turn/interrupt",{threadId,turnId})}catch{/* Interruption is best effort. */}}
@@ -86,7 +89,8 @@ export class StdioAppServerClient implements AppServerClient{
     child.stdin.once("error",()=>this.failProcess());
   }
   private async initialize(){try{await this.request("initialize",{clientInfo:{name:"adt_codex_runner",title:"ADT Codex Runner",version:this.runnerVersion}});this.notify("initialized");}catch{this.failProcess();throw new Error("app_server_initialization_failed")}}
-  private receive(line:string){try{const message=JSON.parse(line) as {id?:number;method?:string;params?:unknown;result?:unknown;error?:unknown};if(typeof message.id==="number"){const pending=this.pending.get(message.id);if(!pending){if(message.method?.includes("requestApproval")||message.method?.includes("requestUserInput"))this.turnLifecycle?.resolve("tool");return}this.pending.delete(message.id);clearTimeout(pending.timer);if(message.error===undefined)pending.resolve(message.result);else pending.reject(appServerError(message.error));return}this.receiveTurnNotification(message.method,message.params)}catch{/* Raw protocol messages are intentionally discarded. */}}
+  private receive(line:string){try{const message=JSON.parse(line) as {id?:unknown;method?:unknown;params?:unknown;result?:unknown;error?:unknown};const hasId=Object.hasOwn(message,"id");if(typeof message.method==="string"){if(hasId)this.receiveServerRequest(message.params);else this.receiveTurnNotification(message.method,message.params);return}if(typeof message.id!=="number")return;const pending=this.pending.get(message.id);if(!pending)return;this.pending.delete(message.id);clearTimeout(pending.timer);if(message.error===undefined)pending.resolve(message.result);else pending.reject(appServerError(message.error))}catch{/* Raw protocol messages are intentionally discarded. */}}
+  private receiveServerRequest(params:unknown){const active=this.turnLifecycle;if(!active||!params||typeof params!=="object")return;const value=params as Record<string,unknown>;if(value.threadId!==active.threadId||(active.turnId&&value.turnId!==undefined&&value.turnId!==active.turnId))return;active.tool=true;active.resolve("tool")}
   private receiveTurnNotification(method:unknown,params:unknown){const active=this.turnLifecycle;if(!active||typeof method!=="string"||!params||typeof params!=="object")return;const value=params as Record<string,unknown>;if(value.threadId!==active.threadId||(active.turnId&&value.turnId!==undefined&&value.turnId!==active.turnId))return;const item=value.item&&typeof value.item==="object"?value.item as Record<string,unknown>:undefined,type=item?.type;if(method==="item/started"&&typeof type==="string"&&!["userMessage","agentMessage","reasoning"].includes(type)){active.tool=true;active.resolve("tool");return}if(method==="item/completed"&&type==="agentMessage"&&typeof item?.text==="string")active.agentText=item.text;if(method==="turn/completed"){const turn=value.turn as Record<string,unknown>|undefined;if(turn&&typeof turn.id==="string"&&!active.turnId)active.turnId=turn.id;active.resolve(turn?.status==="completed"?"completed":"failed")}}
   private request(method:string,params?:unknown):Promise<unknown>{const id=++this.id,message=params===undefined?{method,id}:{method,id,params};return new Promise((resolve,reject)=>{const timer=setTimeout(()=>{this.pending.delete(id);reject(new Error("app_server_request_timeout"));},this.timeoutMs);this.pending.set(id,{resolve,reject,timer});this.write(message).catch(()=>{const pending=this.pending.get(id);if(!pending)return;this.pending.delete(id);clearTimeout(pending.timer);pending.reject(new Error("app_server_unavailable"));this.failProcess();});})}
   private notify(method:string){void this.write({method}).catch(()=>this.failProcess())}
