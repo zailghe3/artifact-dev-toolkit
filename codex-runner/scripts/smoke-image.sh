@@ -13,6 +13,17 @@ secret=ci-smoke-secret
 secret_file=$(mktemp)
 container_name="adt-codex-runner-smoke-${GITHUB_RUN_ID:-local}-$$"
 
+# This is an offline package/filesystem gate. Do not print or inspect certificate
+# contents, and do not execute the live auth probe.
+docker run --rm "$image" sh -c '
+  dpkg-query -W -f="${Status}\n" ca-certificates | grep -Fxq "install ok installed" &&
+  dpkg-query -W -f="${Status}\n" libssl3 | grep -Fxq "install ok installed" &&
+  test -f /etc/ssl/certs/ca-certificates.crt &&
+  test -r /etc/ssl/certs/ca-certificates.crt &&
+  test -s /etc/ssl/certs/ca-certificates.crt &&
+  grep -m 1 -Fq -- "-----BEGIN CERTIFICATE-----" /etc/ssl/certs/ca-certificates.crt
+'
+
 cleanup() {
   docker rm -f "$container_name" >/dev/null 2>&1 || true
   rm -f "$secret_file"
