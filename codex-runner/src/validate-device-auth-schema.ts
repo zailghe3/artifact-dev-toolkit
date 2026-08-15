@@ -105,6 +105,18 @@ export function validateDeviceAuthSchemas(input:unknown[]){
  return true;
 }
 
+/** Build-time guard for the narrow Codex 0.147 health-turn wire contract. */
+export function validateCodexTestSchemas(input:unknown[]){
+ const documents=normalize(input),named=(title:string)=>documentWithTitle(documents,title);
+ const objectContract=(title:string,fields:string[])=>{const document=named(title);if(!document||!supportsProperties(document.schema,fields))throw new Error(`codex_test_schema_missing_${title}`);return document};
+ const thread=objectContract("ThreadStartParams",["cwd","approvalPolicy","sandbox","ephemeral","model"]),turn=objectContract("TurnStartParams",["threadId","input"]),interrupt=objectContract("TurnInterruptParams",["threadId","turnId"]);
+ if(!required(turn.schema,"threadId")||!required(turn.schema,"input")||!required(interrupt.schema,"threadId")||!required(interrupt.schema,"turnId"))throw new Error("codex_test_schema_missing_turn_contract");
+ const threadText=JSON.stringify(thread.schema),notificationText=JSON.stringify([named("ItemStartedNotification")?.schema,named("ItemCompletedNotification")?.schema,named("TurnCompletedNotification")?.schema]);
+ for(const token of ["read-only","never"])if(!threadText.includes(`\"${token}\"`))throw new Error("codex_test_schema_missing_safety_contract");
+ for(const token of ["threadId","turnId","item","agentMessage","commandExecution","fileChange","mcpToolCall","status","text"])if(!notificationText.includes(`\"${token}\"`))throw new Error("codex_test_schema_missing_notification_contract");
+ return true;
+}
+
 async function generateAndValidate(command:string){
  const directory=await mkdtemp(join(tmpdir(),"codex-app-server-schema-"));
  try{
@@ -114,6 +126,7 @@ async function generateAndValidate(command:string){
   if(jsonFiles.length===0)throw new Error("device_auth_schema_not_generated");
   const documents=await Promise.all(jsonFiles.map(async filename=>({filename,schema:JSON.parse(await readFile(join(directory,filename),"utf8")) as unknown})));
   validateDeviceAuthSchemas(documents);
+  validateCodexTestSchemas(documents);
  }finally{await rm(directory,{recursive:true,force:true})}
 }
 

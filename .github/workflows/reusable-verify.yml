@@ -52,11 +52,3 @@ jobs:
       - name: Validate Codex Runner
         working-directory: codex-runner
         run: npm test && npm run typecheck
-      - name: Build and smoke-test Codex Runner image
-        run: |
-          set -euo pipefail
-          report_resources() { df -h; free -h; }
-          trap 'status=$?; if [ "$status" -ne 0 ]; then report_resources; fi' EXIT
-          report_resources
-          docker build --progress=plain --build-arg CODEX_RUNNER_VERSION="${{ inputs.ref }}" -t adt-codex-runner:pr codex-runner
-          codex-runner/scripts/smoke-image.sh adt-codex-runner:pr

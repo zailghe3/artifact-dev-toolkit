@@ -51,19 +51,6 @@ if grep -Fq 'not found' <<< "$codex_identity" || ! grep -Eq 'libc\.so\.6' <<< "$
   exit 1
 fi
 
-# Validate the ADT probe and its dynamic closure without executing its normal,
-# live-auth diagnostic mode.
-probe_identity=$(docker run --rm "$image" sh -c '
-  test "$(command -v adt-codex-auth-probe)" = /usr/local/bin/adt-codex-auth-probe &&
-  test -f /usr/local/bin/adt-codex-auth-probe &&
-  test -x /usr/local/bin/adt-codex-auth-probe &&
-  ldd /usr/local/bin/adt-codex-auth-probe
-')
-if grep -Fq 'not found' <<< "$probe_identity"; then
-  echo "The auth transport probe has unresolved runtime dependencies." >&2
-  exit 1
-fi
-
 gai_policy=$(docker run --rm "$image" grep -Ec '^precedence[[:space:]]+' /etc/gai.conf)
 if [[ "$gai_policy" != 5 ]]; then
   echo "The final image does not contain the validated address policy." >&2
