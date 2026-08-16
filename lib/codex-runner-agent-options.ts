@@ -3,7 +3,9 @@ import type {CodexRunnerSnapshot} from "./workflow-services.ts";
 
 export function validateCodexRunnerOptionsAgainstSnapshot(options:unknown,catalog:CodexRunnerSnapshot){
  const parsed=codexRunnerOptionsSchema.parse(options);
- if(!catalog.configured||!catalog.reachable||!catalog.codexAvailable)throw new Error("connection_unavailable");
+ if(!catalog.configured||!catalog.reachable)throw new Error("connection_unavailable");
+ if(!catalog.capabilitiesAvailable)throw new Error("codex_capabilities_unavailable");
+ if(!catalog.codexAvailable)throw new Error("codex_unavailable");
  if(!catalog.jobExecution)throw new Error("codex_job_execution_unavailable");
  if(!catalog.environmentCatalogAvailable)throw new Error("codex_environment_catalog_unavailable");
  const environment=catalog.environments.find(item=>item.key===parsed.environmentKey);

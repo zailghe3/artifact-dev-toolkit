@@ -26,3 +26,12 @@ test('Agent creation resolves OpenAI connection adapters before persistence and 
  assert.deepEqual(validateAgentAdapterOptions(agent,'openai-responses'),agent);
  assert.throws(()=>validateAgentAdapterOptions({...agent,adapterOptions:{reasoningEffort:'invalid'}},'openai-responses'));
 });
+
+test('Agent POST and PUT preserve granular fail-closed Codex validation for disabled descriptors',async()=>{
+ const routes=await Promise.all([readFile(new URL('../app/api/workflow-agents/route.ts',import.meta.url),'utf8'),readFile(new URL('../app/api/workflow-agents/[id]/route.ts',import.meta.url),'utf8')]);
+ for(const route of routes){
+  assert.match(route,/!connection\|\|\(!connection\.enabled&&connection\.adapter!=="codex-runner"\)/);
+  assert.match(route,/connection\.adapter==="codex-runner"\)await validateCodexRunnerAgentOptions/);
+  assert.ok(route.indexOf('validateAgentForConnection')<route.indexOf('validateCodexRunnerAgentOptions(definition.adapterOptions)'));
+ }
+});
