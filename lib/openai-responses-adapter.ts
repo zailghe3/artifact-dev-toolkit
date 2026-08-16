@@ -4,6 +4,7 @@ import { openAIResponsesOptionsSchema } from "./workflow-adapter.ts";
 import type { ConnectionDescriptor,ResolvedConnection } from "./workflow-connections.ts";
 import {CodexCloudAdapter} from "./codex-cloud-adapter.ts";
 import {UnavailableCodexCloudGateway} from "./codex-cloud-gateway.ts";
+import {CodexRunnerAdapter} from "./codex-runner-adapter.ts";
 
 const ENDPOINT="https://api.openai.com/v1", POLL_AFTER_MS=10_000, DEFAULT_TIMEOUT_MS=30_000;
 type Fetcher=(input:string|URL,init?:RequestInit)=>Promise<Response>;
@@ -98,4 +99,4 @@ export class OpenAIResponsesAdapter implements AgentProviderAdapter {
   }
 }
 
-export function createWorkflowAdapterRegistry(fetcher?:Fetcher):Map<string,AgentProviderAdapter>{const deterministic=new DeterministicTestAdapter(),openai=new OpenAIResponsesAdapter(fetcher),codex=new CodexCloudAdapter(new UnavailableCodexCloudGateway());return new Map<string,AgentProviderAdapter>([[deterministic.kind,deterministic],[openai.kind,openai],[codex.kind,codex]]);}
+export function createWorkflowAdapterRegistry(fetcher?:Fetcher):Map<string,AgentProviderAdapter>{const deterministic=new DeterministicTestAdapter(),openai=new OpenAIResponsesAdapter(fetcher),runner=new CodexRunnerAdapter(),codex=new CodexCloudAdapter(new UnavailableCodexCloudGateway());return new Map<string,AgentProviderAdapter>([[deterministic.kind,deterministic],[openai.kind,openai],[runner.kind,runner],[codex.kind,codex]]);}

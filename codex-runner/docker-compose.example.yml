@@ -5,10 +5,15 @@ services:
     environment:
       CODEX_HOME: /data/codex
       CODEX_RUNNER_SHARED_SECRET_FILE: /run/secrets/codex_runner_shared_secret
+      CODEX_RUNNER_ENVIRONMENTS_FILE: /run/config/codex-environments.json
+      CODEX_RUNNER_STATE_DIR: /data/runner
     secrets:
       - codex_runner_shared_secret
     volumes:
       - codex_home:/data/codex
+      - runner_state:/data/runner
+      - ./codex-environments.json:/run/config/codex-environments.json:ro
+      - /some/host/path:/workspaces/fpo-artifacts
     networks:
       - codex_ingress
 secrets:
@@ -16,6 +21,7 @@ secrets:
     external: true
 volumes:
   codex_home:
+  runner_state:
 networks:
   codex_ingress:
     name: codex_ingress

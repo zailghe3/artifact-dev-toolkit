@@ -95,7 +95,7 @@ for _attempt in {1..20}; do
     .protocolVersion == 1 and
     .codexAvailable == true and
     .deviceAuth == true and
-    .jobExecution == false
+    .jobExecution == true
   ' >/dev/null 2>&1 <<< "$capabilities"; then
     codex_ready=true
     break
@@ -112,5 +112,17 @@ auth_status=$(curl --fail --silent --show-error --max-time 2 \
 if ! jq -e '.connected == false and .runtime == "app-server-ready"' \
   >/dev/null 2>&1 <<< "$auth_status"; then
   echo "Fresh Runner did not report the expected disconnected App Server state." >&2
+  exit 1
+fi
+
+
+environments=$(curl --fail --silent --show-error --max-time 2 \
+  -H "X-Codex-Runner-Secret: $secret" "$base_url/v1/environments")
+if ! jq -e 'keys == ["environments"] and .environments == []' >/dev/null 2>&1 <<< "$environments"; then
+  echo "Fresh Runner did not return the safe empty environment catalog." >&2
+  exit 1
+fi
+if ! docker exec "$container_name" sh -c 'test "$(id -u)" = "1000" && test -d /data/runner && test -r /data/runner && test -w /data/runner && test -x /data/runner && test "$(stat -c %a /data/runner)" = "700"'; then
+  echo "Runner state directory is not securely writable by the runtime user." >&2
   exit 1
 fi
