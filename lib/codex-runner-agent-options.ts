@@ -10,6 +10,7 @@ export function validateCodexRunnerOptionsAgainstSnapshot(options:unknown,catalo
  if(!catalog.environmentCatalogAvailable)throw new Error("codex_environment_catalog_unavailable");
  const environment=catalog.environments.find(item=>item.key===parsed.environmentKey);
  if(!environment?.enabled||!environment.ready)throw new Error("codex_environment_unavailable");
+ if(!catalog.authStatusAvailable)throw new Error("codex_auth_status_unavailable");
  if(!catalog.authenticated)throw new Error("codex_authentication_unavailable");
  if(!catalog.modelCatalogAvailable)throw new Error("codex_model_catalog_unavailable");
  const model=parsed.model?catalog.models.find(item=>item.id===parsed.model):catalog.models.find(item=>item.isDefault);
