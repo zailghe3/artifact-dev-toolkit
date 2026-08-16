@@ -74,9 +74,10 @@ selected, the `model` member is omitted. A configured reasoning effort is sent
 as the exact 0.147.0 `turn/start.effort` field.
 
 Workflow job requests accept at most 1,970,000 HTTP bytes and at most 524,320
-UTF-8 prompt bytes. This covers the existing 65,536-character master prompt plus
-the 262,144-byte workflow input, including four-byte Unicode and worst-case JSON
-control-character escaping, while auth and diagnostic routes retain their 16 KiB
+UTF-8 prompt bytes. The route bound is the smallest rounded envelope above the
+existing 65,536-character master prompt plus 262,144-byte workflow input,
+fixed framing, bounded identity/model fields, and worst-case JSON control-character
+escaping, while auth and diagnostic routes retain their 16 KiB
 control-plane limit. The limits are fixed by the Runner and are not Agent options.
 Production job duration defaults to 7,000,000 ms, may be reduced by the operator
 with `CODEX_RUNNER_JOB_DURATION_MS`, and cannot exceed that hard maximum.

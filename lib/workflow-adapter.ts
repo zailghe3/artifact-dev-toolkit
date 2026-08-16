@@ -13,7 +13,7 @@ export interface AgentProviderAdapter {
   validateConnection(descriptor: ConnectionDescriptor): Promise<{ ok: true } | { ok: false; safeMessage: string }>;
   start(invocation: AdapterInvocation): Promise<AdapterResult>;
   check(taskId: string, invocation: AdapterInvocation): Promise<{ state: "pending"; pollAfterMs?: number; providerState?:string; outputText?:string; taskUrl?:string } | { state: "completed"; outputText: string; externalUrl?: string; taskUrl?:string } | { state: "failed"; category: FailureCategory; retryable: boolean; safeMessage: string }>;
-  cancel?(taskId: string, invocation: AdapterInvocation): Promise<"cancelled" | "already_terminal" | "unsupported">;
+  cancel?(taskId: string, invocation: AdapterInvocation): Promise<"cancelled" | "cancellation_pending" | "already_terminal" | "unsupported">;
   testConnection?(connection:ResolvedConnection):Promise<ConnectionTestResult>;
 }
 
