@@ -149,9 +149,13 @@
                 }
               },
               "effort": {
-                "type": [
-                  "string",
-                  "null"
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/ReasoningEffort"
+                  },
+                  {
+                    "type": "null"
+                  }
                 ]
               }
             }
@@ -211,6 +215,16 @@
                 ]
               }
             }
+          },
+          "ReasoningEffort": {
+            "type": "string",
+            "enum": [
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ]
           }
         }
       }
