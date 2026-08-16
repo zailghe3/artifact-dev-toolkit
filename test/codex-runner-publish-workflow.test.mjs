@@ -8,6 +8,23 @@ const publish = read('.github/workflows/publish-codex-runner.yml');
 const smoke = read('codex-runner/scripts/smoke-image.sh');
 const invocation = /codex-runner\/scripts\/smoke-image\.sh adt-codex-runner:(?:pr|validated)/g;
 
+test('publication prepares both dependency graphs before testing merged Runner source', () => {
+  const rootInstall = publish.indexOf('Install root dependencies required by cross-boundary Runner integration tests');
+  const runnerTest = publish.indexOf('Test exact merged source');
+  const buildAndSmoke = publish.indexOf('Build and smoke test');
+  const login = publish.indexOf('Authenticate to Docker Hub');
+
+  assert.match(publish, /Install canonical npm[\s\S]*packageManager/);
+  assert.ok(rootInstall >= 0 && rootInstall < runnerTest);
+  assert.match(publish.slice(rootInstall, runnerTest), /run:\s*npm ci/);
+  assert.match(
+    publish.slice(runnerTest, buildAndSmoke),
+    /working-directory:\s*codex-runner[\s\S]*run:\s*npm ci && npm test && npm run typecheck/,
+  );
+  assert.match(publish, /cache-dependency-path:\s*\|[\s\S]*package-lock\.json[\s\S]*codex-runner\/package-lock\.json/);
+  assert.ok(runnerTest < buildAndSmoke && buildAndSmoke < login);
+});
+
 test('trusted publication exclusively owns the Runner image smoke', () => {
   assert.equal(verify.match(invocation)?.length ?? 0, 0);
   assert.doesNotMatch(verify, /docker build/);
