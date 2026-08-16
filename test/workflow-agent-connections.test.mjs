@@ -13,7 +13,7 @@ test('Agent pages and connection API use the shared safe workflow catalogue',asy
  for(const source of [create,edit,route])assert.match(source,/listWorkflowConnectionDescriptors/);
  assert.doesNotMatch(create,/listConnectionDescriptors/);assert.doesNotMatch(edit,/listConnectionDescriptors/);
  assert.match(edit,/if\(!value\)notFound\(\)/);assert.match(edit,/connections\.find\(c=>c\.key===value\.definition\.connectionKey\)/);
- assert.match(editor,/disabled=\{!c\.enabled&&c\.key!==initial\?\.connectionKey\}/);assert.match(editor,/\(Not configured\)/);assert.match(editor,/disabled=\{!selected\?\.enabled\}/);
+ assert.match(editor,/c\.adapter!=="codex-runner"/);assert.match(editor,/\(Configuration available\)/);assert.match(editor,/codexBlockers\.length>0/);
  for(const source of [create,edit,route,editor])assert.doesNotMatch(source,/encrypted_credential|credential_iv|Authorization/);
 });
 
