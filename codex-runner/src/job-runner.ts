@@ -11,6 +11,8 @@ export interface CodexJobStartInput{idempotencyKey:string;environmentKey:string;
 export type CodexJobStatus={jobId:string;state:"queued"|"running"}|{jobId:string;state:"completed";outputText:string}|{jobId:string;state:"failed";reason:JobFailureReason}|{jobId:string;state:"cancelled"};
 export type CodexJobCancellation=CodexJobStatus|{jobId:string;state:"cancellation_pending"};
 type RecordState="queued"|"running"|"cancelling"|"completed"|"failed"|"cancelled";
+export type CodexJobOperationalSummary={jobId:string;idempotencyDigest:string;environmentKey:string;state:RecordState;reason?:JobFailureReason;createdAt:string;updatedAt:string};
+export type CodexJobOperationalList={capacity:{maxActive:1;activeJobId:string|null};jobs:CodexJobOperationalSummary[]};
 type JobRecord={schemaVersion:1;revision:number;jobId:string;idempotencyDigest:string;fingerprint:string;environmentKey:string;state:RecordState;outputText?:string;reason?:JobFailureReason;threadId?:string;turnId?:string;createdAt:string;updatedAt:string};
 type RuntimeControl={interruptIntent:boolean;interruptSent:boolean;startedWrite?:Promise<void>;persistenceError?:unknown};
 type PersistenceHook=(snapshot:Readonly<JobRecord>)=>Promise<void>;
@@ -30,6 +32,7 @@ export class PersistentCodexJobRunner{
  private public(value:JobRecord):CodexJobStatus{if(value.state==="completed")return{jobId:value.jobId,state:"completed",outputText:value.outputText??""};if(value.state==="failed")return{jobId:value.jobId,state:"failed",reason:value.reason??"internal_error"};if(value.state==="cancelled")return{jobId:value.jobId,state:"cancelled"};return{jobId:value.jobId,state:value.state==="queued"?"queued":"running"}}
  private exclusive<T>(operation:()=>Promise<T>):Promise<T>{const result=this.admission.then(operation,operation);this.admission=result.then(()=>{},()=>{});return result}
  lookup(token:string){if(!DIGEST.test(token))throw new SafeError("invalid_request",400);const id=this.byDigest.get(token);return id?this.public(this.records.get(id)!):undefined}
+ list(limit:number):CodexJobOperationalList{const jobs=[...this.records.values()].sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)||b.createdAt.localeCompare(a.createdAt)||b.jobId.localeCompare(a.jobId)).slice(0,limit).map(record=>({jobId:record.jobId,idempotencyDigest:record.idempotencyDigest,environmentKey:record.environmentKey,state:record.state,...(record.state==="failed"?{reason:record.reason??"internal_error"}:{}),createdAt:record.createdAt,updatedAt:record.updatedAt}));return{capacity:{maxActive:1,activeJobId:this.activeJob??null},jobs}}
  get(jobId:string){if(!JOB_ID.test(jobId)||!this.records.has(jobId))throw new SafeError("not_found",404);return this.public(this.records.get(jobId)!)}
  start(input:CodexJobStartInput){return this.exclusive(()=>this.admit(input))}
  private async admit(input:CodexJobStartInput){

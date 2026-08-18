@@ -583,3 +583,11 @@ The repository builds `codex-runner/Dockerfile` and trusted `main` publishes `po
 
 
 Device-start failures remain bounded by `device_auth_start_failed` while an allowlisted reason distinguishes disabled or unavailable device login, upstream rejection, forbidden, rate limiting, upstream unavailability, pre-response transport failure, CA configuration, HTTP-client configuration, internal failure, and unknown failure. Only strictly derived numeric status/code metadata may be logged; raw App Server messages and data never cross the Runner boundary.
+
+## Codex Runner operational status
+
+ADT provides a read-only Codex Runner Status page from the connection tile. The authenticated Runner `GET /v1/jobs?limit=N` endpoint is bounded to 100 records and returns only job ID, idempotency digest, environment key, state, allowlisted failure reason, and timestamps, plus the single-active-job capacity. Operational history comes from persisted Runner state. Prompts, output, fingerprints, conversation identifiers, paths, credentials, and private Runner configuration are intentionally excluded.
+
+The Runner admits at most one Workflow Codex job. `queued` is the admitted job's brief starting state, not a waiting backlog; this feature introduces no execution queue. Deployment, restart, and rollout remain operator-owned outside ADT. The browser uses an authenticated no-store ADT proxy and never receives Runner connection configuration. Ambiguous creation remains at-most-once: ADT performs one digest lookup and never automatically repeats the side-effecting POST. Safe transport outcome, elapsed time, and response status are retained for future ambiguous-start diagnosis.
+
+The operational page distinguishes checking, currently loaded, and unavailable states. It never presents an idle Runner or empty history unless a current successful response establishes that fact; after a refresh failure, any retained history is explicitly stale with its last-confirmed time and the current state remains unknown. Links from ambiguous Workflow attempts carry only bounded Workflow coordinates. ADT hashes `runId:stepId:iteration:attempt` server-side, compares that digest with safe Runner summaries, and labels a match or an explicit no-match within the available bounded history. Neither outcome triggers or recommends an automatic retry.

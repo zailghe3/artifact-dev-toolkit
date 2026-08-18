@@ -1,0 +1,7 @@
+import "server-only";
+import {createHash} from "node:crypto";
+export interface WorkflowAttemptCoordinates{runId:string;stepId:string;iteration:number;attempt:number}
+const TOKEN=/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+export function parseWorkflowAttemptCoordinates(value:{runId?:unknown;stepId?:unknown;iteration?:unknown;attempt?:unknown}):WorkflowAttemptCoordinates|undefined{const iteration=typeof value.iteration==="string"&&/^[1-9][0-9]*$/.test(value.iteration)?Number(value.iteration):value.iteration,attempt=typeof value.attempt==="string"&&/^[1-9][0-9]*$/.test(value.attempt)?Number(value.attempt):value.attempt;if(typeof value.runId!=="string"||!TOKEN.test(value.runId)||typeof value.stepId!=="string"||!TOKEN.test(value.stepId)||!Number.isSafeInteger(iteration)||Number(iteration)<1||Number(iteration)>1_000_000||!Number.isSafeInteger(attempt)||Number(attempt)<1||Number(attempt)>1_000)return undefined;return{runId:value.runId,stepId:value.stepId,iteration:Number(iteration),attempt:Number(attempt)}}
+export function codexRunnerAttemptDigest(coordinates:WorkflowAttemptCoordinates){return createHash("sha256").update(`${coordinates.runId}:${coordinates.stepId}:${coordinates.iteration}:${coordinates.attempt}`,"utf8").digest("hex")}
+export function codexRunnerStatusHref(coordinates:WorkflowAttemptCoordinates){const query=new URLSearchParams({runId:coordinates.runId,stepId:coordinates.stepId,iteration:String(coordinates.iteration),attempt:String(coordinates.attempt)});return`/workflows/connections/codex-runner/status?${query}`}
