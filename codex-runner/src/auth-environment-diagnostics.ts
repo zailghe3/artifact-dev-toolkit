@@ -6,9 +6,10 @@ import {connect,type Socket} from "node:net";
 import {connect as tlsConnect,type TLSSocket} from "node:tls";
 import {request as httpsRequest} from "node:https";
 import {execFile} from "node:child_process";
+import {RUNNER_RELEASE} from "./release.js";
 
 const AUTH_HOST="auth.openai.com",AUTH_PORT=443,DEVICE_PATH="/api/accounts/deviceauth/usercode",SYSTEM_CA_BUNDLE="/etc/ssl/certs/ca-certificates.crt",PROBE_TIMEOUT_MS=2_000;
-export const EXPECTED_CODEX_VERSION="0.147.0";
+export const EXPECTED_CODEX_VERSION=RUNNER_RELEASE.codexVersion;
 type Connectivity="ok"|"timeout"|"failed"|"unavailable";
 export type FailureReason="network_unreachable"|"address_unavailable"|"connection_refused"|"connection_reset"|"certificate"|"tls_protocol"|"timeout"|"other";
 export type HttpProbe={responseReceived:boolean;status?:number};

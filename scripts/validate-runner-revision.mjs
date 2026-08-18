@@ -1,0 +1,12 @@
+import {readFile} from "node:fs/promises";
+import {execFileSync} from "node:child_process";
+import {pathToFileURL} from "node:url";
+
+export const RUNTIME_INPUTS=[/^codex-runner\/src\//,/^codex-runner\/(Dockerfile|package\.json|package-lock\.json|gai\.conf|tsconfig\.json|release\.json)$/];
+const keys=["protocolVersion","runnerRevision","codexVersion"],integer=value=>Number.isInteger(value)&&value>=1&&value<=1_000_000;
+export function parseRelease(text){let value;try{value=JSON.parse(text)}catch{throw new Error("malformed release manifest")}if(!value||typeof value!=="object"||Array.isArray(value)||Object.keys(value).length!==keys.length||Object.keys(value).some(key=>!keys.includes(key))||!integer(value.protocolVersion)||!integer(value.runnerRevision)||typeof value.codexVersion!=="string"||value.codexVersion.length>32||!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(value.codexVersion))throw new Error("malformed release manifest");return value}
+export const isRuntimeInput=path=>RUNTIME_INPUTS.some(pattern=>pattern.test(path))&&!/(^|\/)test(s)?\//.test(path)&&!/(^|\/)fixtures?\//.test(path);
+export function validateRunnerRevision({base,current,changedPaths}){if(current.runnerRevision<base.runnerRevision)throw new Error("runnerRevision must not decrease");if(current.protocolVersion!==base.protocolVersion&&!changedPaths.some(path=>/^codex-runner\/test\//.test(path)))throw new Error("protocolVersion changes require Runner protocol tests");if(changedPaths.some(isRuntimeInput)&&current.runnerRevision<=base.runnerRevision)throw new Error("Runner runtime inputs changed without a runnerRevision increase");return true}
+
+export async function main(baseRef=process.argv[2]){const current=parseRelease(await readFile("codex-runner/release.json","utf8"));if(!baseRef)throw new Error("usage: validate-runner-revision.mjs <base-ref>");let baseText;try{baseText=execFileSync("git",["show",`${baseRef}:codex-runner/release.json`],{encoding:"utf8"})}catch{console.log("Base has no Runner release manifest; canonical initial revision is valid.");return}const changedPaths=execFileSync("git",["diff","--name-only",`${baseRef}...HEAD`],{encoding:"utf8"}).trim().split("\n").filter(Boolean);validateRunnerRevision({base:parseRelease(baseText),current,changedPaths});console.log(`Runner revision ${current.runnerRevision} is valid for ${changedPaths.filter(isRuntimeInput).length} runtime input change(s).`)}
+if(import.meta.url===pathToFileURL(process.argv[1]).href)main().catch(error=>{console.error(error.message);process.exitCode=1});

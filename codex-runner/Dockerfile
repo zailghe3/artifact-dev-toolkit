@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 FROM node:24-bookworm-slim AS build
 WORKDIR /build
-COPY package.json package-lock.json tsconfig.json ./
+COPY package.json package-lock.json tsconfig.json release.json ./
 RUN npm ci
 COPY src ./src
 RUN npm run build && npm prune --omit=dev
@@ -9,6 +9,7 @@ RUN npm run build && npm prune --omit=dev
 # rust-v0.147.0 dereferences to this commit. The release used Rust 1.93.1;
 # compilation uses OpenAI's unchanged package builder and supported GNU target.
 FROM rust:1.93.1-bookworm AS codex-gnu-build
+COPY release.json /tmp/release.json
 ARG TARGETARCH
 ARG CODEX_SOURCE_COMMIT=be6e8eac029b183056b7e4402879f15d2c85f61b
 ENV CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2
@@ -23,7 +24,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/source/codex-rs/target \
     --mount=type=cache,target=/tmp/codex-package \
     python3 scripts/build_codex_package.py --target x86_64-unknown-linux-gnu --cargo-profile dev-small --variant codex --package-dir /out/codex-package && \
-    python3 -c 'import json; p=json.load(open("/out/codex-package/codex-package.json")); expected={"layoutVersion":1,"version":"0.147.0","target":"x86_64-unknown-linux-gnu","variant":"codex","entrypoint":"bin/codex"}; assert all(p.get(k)==v for k,v in expected.items()), "invalid Codex package metadata"' && \
+    python3 -c 'import json; p=json.load(open("/out/codex-package/codex-package.json")); expected={"layoutVersion":1,"version":json.load(open("/tmp/release.json"))["codexVersion"],"target":"x86_64-unknown-linux-gnu","variant":"codex","entrypoint":"bin/codex"}; assert all(p.get(k)==v for k,v in expected.items()), "invalid Codex package metadata"' && \
     test -x /out/codex-package/bin/codex && test -d /out/codex-package/codex-resources && test -d /out/codex-package/codex-path && \
     readelf -l /out/codex-package/bin/codex | grep -Eq 'Requesting program interpreter: .*/ld-linux-x86-64\.so\.2' && \
     readelf -d /out/codex-package/bin/codex | grep -Eq 'Shared library: \[libc\.so\.6\]'
@@ -34,6 +35,7 @@ LABEL org.opencontainers.image.source="https://github.com/zailghe3/artifact-dev-
       org.opencontainers.image.revision="$CODEX_RUNNER_VERSION"
 ENV NODE_ENV=production CODEX_HOME=/data/codex PORT=8789 CODEX_RUNNER_VERSION=$CODEX_RUNNER_VERSION
 COPY --from=codex-gnu-build /out/codex-package /opt/codex
+COPY --from=build /build/release.json /tmp/release.json
 COPY gai.conf /tmp/gai.conf
 COPY --from=build /build/dist/validate-device-auth-schema.js /tmp/validate-device-auth-schema.js
 # Validate and install the unchanged image-local address policy.
@@ -74,7 +76,7 @@ RUN codex_ldd="$(ldd /opt/codex/bin/codex 2>&1)"; codex_ldd_status=$?; \
 # Execute the installed CLI and require the exact pinned version.
 RUN codex_version="$(codex --version)" && \
     printf '%s\n' "$codex_version" && \
-    test "$(printf '%s\n' "$codex_version" | sed -E 's/^(codex-cli |codex )?//')" = 0.147.0
+    test "$(printf '%s\n' "$codex_version" | sed -E 's/^(codex-cli |codex )?//')" = "$(node -p 'require("/tmp/release.json").codexVersion')"
 # Generate and validate schemas through the installed GNU CLI.
 RUN node /tmp/validate-device-auth-schema.js codex && rm /tmp/validate-device-auth-schema.js
 # Record only the bounded, build-validated libc classification.
@@ -84,6 +86,7 @@ RUN install -d -m 0755 /etc/codex-runner && \
 WORKDIR /app
 COPY --from=build --chown=node:node /build/package.json /build/package-lock.json ./
 COPY --from=build --chown=node:node /build/dist ./dist
+COPY --from=build --chown=node:node /build/release.json ./release.json
 ENV CODEX_DEVICE_AUTH_COMPATIBLE=1 CODEX_RUNNER_ADDRESS_POLICY=ipv4_preferred
 USER node
 VOLUME ["/data/codex", "/data/runner"]

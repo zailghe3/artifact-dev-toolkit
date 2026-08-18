@@ -9,7 +9,7 @@ const {runnerActionFailure}=require("../lib/codex-runner-actions.ts");
 
 const secrets=["access-client-id-sentinel","access-client-secret-sentinel","runner-shared-secret-sentinel","response-body-sentinel","thrown-error-sentinel","redirect-location-sentinel"];
 const configuration={baseUrl:"https://runner.example.test",accessClientId:secrets[0],accessClientSecret:secrets[1],sharedSecret:secrets[2],production:true};
-const capabilities={protocolVersion:1,runnerVersion:"1.2.3",codexAvailable:true,deviceAuth:true,jobExecution:true};
+const capabilities={protocolVersion:1,runnerRevision:1,runnerVersion:"a".repeat(40),codexVersion:"0.147.0",codexAvailable:true,deviceAuth:true,jobExecution:true};
 
 async function probe(fetcher){
  const logs=[];
@@ -79,7 +79,31 @@ test("preserves successful capabilities and auth status behavior",async()=>{
  const status=await getSafeCodexConnectionStatus({clientFactory:()=>new CodexRunnerClient(configuration,async(_url,options)=>{assert.equal(options.redirect,"manual");return ++call===1?Response.json(capabilities):Response.json({connected:true,authMode:"chatgpt",planType:"plus"})}),logger:value=>logs.push(value)});
  assert.equal(call,2);
  assert.deepEqual(logs,[]);
- assert.deepEqual(status,{state:"connected",label:"Connected to ChatGPT",capabilities,auth:{connected:true,authMode:"chatgpt",planType:"plus"}});
+ assert.deepEqual(status,{state:"connected",label:"Connected to ChatGPT",capabilities:{...capabilities,releaseMetadata:"current"},compatibility:{protocol:"compatible",runnerRevision:"current",codexVersion:"current"},auth:{connected:true,authMode:"chatgpt",planType:"plus"}});
+});
+
+test("legacy protocol-v1 capabilities remain compatible and usable during rollout",async()=>{
+ const legacy={protocolVersion:1,runnerVersion:"b".repeat(40),codexAvailable:true,deviceAuth:true,jobExecution:true};let call=0;
+ const client=new CodexRunnerClient(configuration,async()=>Response.json(++call===1?legacy:{connected:true,authMode:"chatgpt"}));
+ assert.deepEqual(await client.capabilities(),{...legacy,releaseMetadata:"legacy"});call=0;
+ const status=await getSafeCodexConnectionStatus({clientFactory:()=>client,logger:()=>{}});
+ assert.equal(status.state,"connected");assert.equal(status.capabilities.releaseMetadata,"legacy");assert.deepEqual(status.compatibility,{protocol:"compatible",runnerRevision:"unknown",codexVersion:"unknown"});assert.equal(status.capabilities.jobExecution,true);
+});
+
+test("build provenance validation distinguishes production and development ADT",async()=>{
+ const response=runnerVersion=>Response.json({...capabilities,runnerVersion});
+ const make=(production,runnerVersion)=>new CodexRunnerClient({...configuration,production},async()=>response(runnerVersion));
+ assert.equal((await make(true,"a".repeat(40)).capabilities()).runnerVersion,"a".repeat(40));
+ await assert.rejects(make(true,"development").capabilities(),error=>error.category==="invalid_response");
+ assert.equal((await make(false,"a".repeat(40)).capabilities()).runnerVersion,"a".repeat(40));
+ assert.equal((await make(false,"development").capabilities()).runnerVersion,"development");
+ await assert.rejects(make(false,"dev-build").capabilities(),error=>error.category==="invalid_response");
+});
+
+test("capabilities parser rejects malformed release metadata and unsupported protocol",async()=>{
+ const client=value=>new CodexRunnerClient(configuration,async()=>Response.json(value));
+ for(const value of [{...capabilities,runnerRevision:undefined},{...capabilities,runnerRevision:0},{...capabilities,runnerVersion:"abc123"},{...capabilities,codexVersion:"0.147"},{...capabilities,privateConfiguration:"secret"}])await assert.rejects(client(value).capabilities(),error=>error.category==="invalid_response");
+ await assert.rejects(client({...capabilities,protocolVersion:2}).capabilities(),error=>error.category==="runner_update_required");
 });
 
 test("logs invalid_response without including the malformed response body",async()=>{

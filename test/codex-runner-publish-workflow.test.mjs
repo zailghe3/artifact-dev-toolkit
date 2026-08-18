@@ -47,13 +47,17 @@ test('publish stays fail-closed after the shared smoke gate', () => {
 
 test('shared smoke waits independently for HTTP and Codex readiness', () => {
   assert.match(smoke, /set -euo pipefail/);
-  assert.match(smoke, /expected_codex_version=0\.147\.0/);
+  assert.match(smoke, /release_file="\$script_dir\/\.\.\/release\.json"/);
+  assert.match(smoke, /keys == \["codexVersion","protocolVersion","runnerRevision"\]/);
+  assert.doesNotMatch(smoke, /expected_(?:codex_version|runner_revision)=/);
   assert.match(smoke, /node dist\/validate-device-auth-schema\.js codex/);
   assert.match(smoke, /CODEX_RUNNER_SHARED_SECRET_FILE=\/run\/secrets\/runner/);
   assert.doesNotMatch(smoke, /CODEX_HOME/);
   assert.match(smoke, /http_healthy=false[\s\S]*for _attempt in \{1\.\.20\}[\s\S]*http_healthy=true/);
   assert.match(smoke, /codex_ready=false[\s\S]*for _attempt in \{1\.\.20\}[\s\S]*\/v1\/capabilities[\s\S]*codex_ready=true/);
-  assert.match(smoke, /\.protocolVersion == 1/);
+  assert.match(smoke, /\.protocolVersion == \$release\.protocolVersion/);
+  assert.match(smoke, /\.runnerRevision == \$release\.runnerRevision/);
+  assert.match(smoke, /\.codexVersion == \$release\.codexVersion/);
   assert.match(smoke, /\.codexAvailable == true/);
   assert.match(smoke, /\.deviceAuth == true/);
   assert.match(smoke, /\.jobExecution == true/);
