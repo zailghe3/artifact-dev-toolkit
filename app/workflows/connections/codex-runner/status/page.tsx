@@ -1,0 +1,1 @@
+import {CodexRunnerOperationalStatus} from "@/components/CodexRunnerOperationalStatus";import {getSafeCodexConnectionStatus} from "@/lib/codex-runner-status";export default async function Page(){return <CodexRunnerOperationalStatus connection={await getSafeCodexConnectionStatus()}/>}
