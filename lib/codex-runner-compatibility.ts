@@ -14,4 +14,4 @@ export function evaluateRunnerCompatibility(installed:RunnerVersionFacts|undefin
  return{protocol,runnerRevision,codexVersion};
 }
 
-export const shortBuildRevision=(revision:string)=>revision.slice(0,10);
+export const shortBuildRevision=(revision:string)=>revision==="development"?revision:revision.slice(0,10);

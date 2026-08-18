@@ -8,8 +8,18 @@ if [[ $# -ne 1 || -z "$1" ]]; then
 fi
 
 image=$1
-expected_codex_version=0.147.0
-expected_runner_revision=1
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+release_file="$script_dir/../release.json"
+if ! release=$(jq -ce '
+  . as $release | (type == "object" and keys == ["codexVersion","protocolVersion","runnerRevision"] and
+  (.protocolVersion | type == "number" and . == floor and . >= 1 and . <= 1000000) and
+  (.runnerRevision | type == "number" and . == floor and . >= 1 and . <= 1000000) and
+  (.codexVersion | type == "string" and length <= 32 and test("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$")))
+  | if . then $release else error("invalid Runner release manifest") end
+' "$release_file" 2>/dev/null); then
+  echo "Runner release manifest is missing or invalid." >&2
+  exit 1
+fi
 secret=ci-smoke-secret
 secret_file=$(mktemp)
 container_name="adt-codex-runner-smoke-${GITHUB_RUN_ID:-local}-$$"
@@ -36,8 +46,8 @@ fi
 
 version_output=$(docker run --rm "$image" codex --version)
 codex_version=$(printf '%s\n' "$version_output" | sed -E 's/^(codex-cli |codex )?//')
-if [[ "$codex_version" != "$expected_codex_version" ]]; then
-  echo "Expected Codex $expected_codex_version in image, found an unexpected version." >&2
+if [[ "$codex_version" != "$(jq -r .codexVersion <<< "$release")" ]]; then
+  echo "Image contains a Codex version that disagrees with release.json." >&2
   exit 1
 fi
 
@@ -92,10 +102,10 @@ codex_ready=false
 for _attempt in {1..20}; do
   capabilities=$(curl --fail --silent --max-time 2 \
     -H "X-Codex-Runner-Secret: $secret" "$base_url/v1/capabilities" || true)
-  if jq -e --argjson revision "$expected_runner_revision" --arg codex "$expected_codex_version" '
-    .protocolVersion == 1 and
-    .runnerRevision == $revision and
-    .codexVersion == $codex and
+  if jq -e --argjson release "$release" '
+    .protocolVersion == $release.protocolVersion and
+    .runnerRevision == $release.runnerRevision and
+    .codexVersion == $release.codexVersion and
     .codexAvailable == true and
     .deviceAuth == true and
     .jobExecution == true

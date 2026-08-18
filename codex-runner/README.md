@@ -115,6 +115,13 @@ higher (for example after an ADT rollback). These freshness results are
 advisory while protocol and required capabilities remain compatible. An
 unsupported protocol remains fail-closed as `runner_update_required`.
 
+During rollout, ADT also recognizes the exact legacy protocol-v1 capabilities
+shape that predates release metadata. Protocol-v1 connectivity, authentication,
+and job execution remain usable, while revision and Codex freshness are unknown
+and the UI recommends updating the Runner. Partial release metadata or any
+unrecognized capability field still fails closed. This allows ADT to be deployed
+before the operator schedules the corresponding Runner image rollout.
+
 For example:
 
 ```
