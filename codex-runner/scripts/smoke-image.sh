@@ -9,6 +9,7 @@ fi
 
 image=$1
 expected_codex_version=0.147.0
+expected_runner_revision=1
 secret=ci-smoke-secret
 secret_file=$(mktemp)
 container_name="adt-codex-runner-smoke-${GITHUB_RUN_ID:-local}-$$"
@@ -91,8 +92,10 @@ codex_ready=false
 for _attempt in {1..20}; do
   capabilities=$(curl --fail --silent --max-time 2 \
     -H "X-Codex-Runner-Secret: $secret" "$base_url/v1/capabilities" || true)
-  if jq -e '
+  if jq -e --argjson revision "$expected_runner_revision" --arg codex "$expected_codex_version" '
     .protocolVersion == 1 and
+    .runnerRevision == $revision and
+    .codexVersion == $codex and
     .codexAvailable == true and
     .deviceAuth == true and
     .jobExecution == true

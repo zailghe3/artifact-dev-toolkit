@@ -9,7 +9,7 @@ const {runnerActionFailure}=require("../lib/codex-runner-actions.ts");
 
 const secrets=["access-client-id-sentinel","access-client-secret-sentinel","runner-shared-secret-sentinel","response-body-sentinel","thrown-error-sentinel","redirect-location-sentinel"];
 const configuration={baseUrl:"https://runner.example.test",accessClientId:secrets[0],accessClientSecret:secrets[1],sharedSecret:secrets[2],production:true};
-const capabilities={protocolVersion:1,runnerVersion:"1.2.3",codexAvailable:true,deviceAuth:true,jobExecution:true};
+const capabilities={protocolVersion:1,runnerRevision:1,runnerVersion:"a".repeat(40),codexVersion:"0.147.0",codexAvailable:true,deviceAuth:true,jobExecution:true};
 
 async function probe(fetcher){
  const logs=[];
@@ -79,7 +79,13 @@ test("preserves successful capabilities and auth status behavior",async()=>{
  const status=await getSafeCodexConnectionStatus({clientFactory:()=>new CodexRunnerClient(configuration,async(_url,options)=>{assert.equal(options.redirect,"manual");return ++call===1?Response.json(capabilities):Response.json({connected:true,authMode:"chatgpt",planType:"plus"})}),logger:value=>logs.push(value)});
  assert.equal(call,2);
  assert.deepEqual(logs,[]);
- assert.deepEqual(status,{state:"connected",label:"Connected to ChatGPT",capabilities,auth:{connected:true,authMode:"chatgpt",planType:"plus"}});
+ assert.deepEqual(status,{state:"connected",label:"Connected to ChatGPT",capabilities,compatibility:{protocol:"compatible",runnerRevision:"current",codexVersion:"current"},auth:{connected:true,authMode:"chatgpt",planType:"plus"}});
+});
+
+test("capabilities parser rejects malformed release metadata and unsupported protocol",async()=>{
+ const client=value=>new CodexRunnerClient(configuration,async()=>Response.json(value));
+ for(const value of [{...capabilities,runnerRevision:undefined},{...capabilities,runnerRevision:0},{...capabilities,runnerVersion:"abc123"},{...capabilities,codexVersion:"0.147"},{...capabilities,privateConfiguration:"secret"}])await assert.rejects(client(value).capabilities(),error=>error.category==="invalid_response");
+ await assert.rejects(client({...capabilities,protocolVersion:2}).capabilities(),error=>error.category==="runner_update_required");
 });
 
 test("logs invalid_response without including the malformed response body",async()=>{

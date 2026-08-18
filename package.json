@@ -22,6 +22,7 @@
     "toolchain:validate": "node scripts/validate-toolchain.mjs && npm run secrets:validate",
     "maintenance:report": "node scripts/maintenance-report.mjs",
     "secrets:validate": "node scripts/validate-secrets.mjs"
+    ,"runner-revision:validate": "node scripts/validate-runner-revision.mjs"
   },
   "dependencies": {
     "gray-matter": "^4.0.3",

@@ -96,3 +96,39 @@ are durably recorded before account/model validation. Digest lookup can therefor
 reconcile a lost start response while validation is still pending. Validation
 then moves that same job to execution or a bounded terminal failure; it never
 deletes the idempotency evidence or submits a second turn.
+
+## Release compatibility and provenance
+
+`release.json` is the canonical release contract consumed by both ADT and the
+Runner. `protocolVersion` is the wire compatibility generation;
+`runnerRevision` is the monotonically increasing implementation generation;
+and `codexVersion` is the exact packaged Codex CLI. The authenticated
+capabilities response also retains `runnerVersion`, the immutable 40-character
+Git commit embedded by the trusted publication workflow and recorded in OCI
+revision metadata.
+
+ADT and Runner Git commits are **not expected to match** in steady state. An
+ADT-only change does not change `runnerRevision`, so it cannot make an unchanged
+Runner stale. ADT reports **Current** for equal revisions, **Update available**
+when the installed revision is lower, and **Runner newer than ADT** when it is
+higher (for example after an ADT rollback). These freshness results are
+advisory while protocol and required capabilities remain compatible. An
+unsupported protocol remains fail-closed as `runner_update_required`.
+
+For example:
+
+```
+ADT build: abc123…
+Expected Runner revision: 5
+
+Deployed Runner:
+Build: 89d7c464…
+Revision: 5
+Protocol: 1
+
+Result: Compatible · Current
+```
+
+Publication continues to create immutable SHA-tagged images. ADT does not pull,
+restart, redeploy, or alter a home-lab Runner; image rollout timing and
+Portainer/Docker Swarm configuration remain operator-owned.

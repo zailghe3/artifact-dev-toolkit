@@ -1,7 +1,8 @@
 import {CodexRunnerError,getCodexRunnerClient,type RunnerAuthStatus,type RunnerCapabilities} from "./codex-runner-client";
+import {evaluateRunnerCompatibility,type RunnerCompatibility} from "./codex-runner-compatibility";
 
 export type CodexConnectionState="configuration-missing"|"unavailable"|"update-required"|"disconnected"|"waiting"|"connected";
-export interface SafeCodexConnectionStatus{state:CodexConnectionState;label:string;capabilities?:RunnerCapabilities;auth?:RunnerAuthStatus}
+export interface SafeCodexConnectionStatus{state:CodexConnectionState;label:string;capabilities?:RunnerCapabilities;compatibility?:RunnerCompatibility;auth?:RunnerAuthStatus}
 
 type StatusStage="configuration"|"capabilities"|"auth_status";
 type StatusClient=Pick<ReturnType<typeof getCodexRunnerClient>,"capabilities"|"authStatus">;
@@ -32,11 +33,12 @@ export async function getSafeCodexConnectionStatus(dependencies:StatusDependenci
  try{capabilities=await client.capabilities();}
  catch(error){logFailure(logger,"capabilities",error);return safeFailureStatus(error)}
 
- if(!capabilities.codexAvailable)return{state:"unavailable",label:"Runner unavailable",capabilities};
- if(!capabilities.deviceAuth)return{state:"update-required",label:"Runner update required",capabilities};
+ const compatibility=evaluateRunnerCompatibility(capabilities);
+ if(!capabilities.codexAvailable)return{state:"unavailable",label:"Runner unavailable",capabilities,compatibility};
+ if(!capabilities.deviceAuth)return{state:"update-required",label:"Runner update required",capabilities,compatibility};
 
  let auth:RunnerAuthStatus;
  try{auth=await client.authStatus();}
  catch(error){logFailure(logger,"auth_status",error);return safeFailureStatus(error)}
- return auth.connected?{state:"connected",label:"Connected to ChatGPT",capabilities,auth}:{state:"disconnected",label:"Runner ready — ChatGPT not connected",capabilities,auth};
+ return auth.connected?{state:"connected",label:"Connected to ChatGPT",capabilities,compatibility,auth}:{state:"disconnected",label:"Runner ready — ChatGPT not connected",capabilities,compatibility,auth};
 }

@@ -38,6 +38,11 @@ jobs:
         run: npm run toolchain:validate
       - name: Test
         run: npm test
+      - name: Validate Runner revision policy
+        if: github.base_ref != ''
+        run: |
+          git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+          npm run runner-revision:validate -- "origin/${{ github.base_ref }}"
       - name: Lint
         run: npm run lint
       - name: Typecheck
