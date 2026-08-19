@@ -54,15 +54,16 @@ RUN ln -s /opt/codex/bin/codex /usr/local/bin/codex && \
     test "$(command -v codex)" = /usr/local/bin/codex && \
     test ! -e /usr/bin/codex && \
     test ! -e /usr/local/lib/node_modules/@openai/codex
-# Install only the OpenSSL runtime and Debian system trust store.
+# Install the minimal runtime libraries, trust store, and Git workspace tooling.
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends libssl3 ca-certificates && \
+    apt-get install -y --no-install-recommends libssl3 ca-certificates git && \
     rm -rf /var/lib/apt/lists/* && \
     dpkg-query -W -f='${Status}\n' ca-certificates | grep -Fxq 'install ok installed' && \
     test -f /etc/ssl/certs/ca-certificates.crt && \
     test -r /etc/ssl/certs/ca-certificates.crt && \
     test -s /etc/ssl/certs/ca-certificates.crt && \
     grep -m 1 -Fq -- '-----BEGIN CERTIFICATE-----' /etc/ssl/certs/ca-certificates.crt
+RUN test -n "$(command -v git)" && git --version >/dev/null
 # Prove the copied executable's dynamic dependency closure in the slim image.
 RUN codex_ldd="$(ldd /opt/codex/bin/codex 2>&1)"; codex_ldd_status=$?; \
     missing_sonames="$(printf '%s\n' "$codex_ldd" | sed -nE 's/^[[:space:]]*([A-Za-z0-9_.+-]+)[[:space:]]+=>[[:space:]]+not found[[:space:]]*$/\1/p' | sort -u)"; \
