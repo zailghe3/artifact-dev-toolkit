@@ -2,6 +2,12 @@
 
 The Runner uses an experimental GNU/glibc build that is neither release-equivalent nor an OpenAI-published GNU prebuilt artifact. It is a private, shared-secret-protected bridge to the pinned Codex App Server. It uses **Codex CLI 0.147.0** from source commit `be6e8eac029b183056b7e4402879f15d2c85f61b`; workflow jobs use only the bounded interface documented below.
 
+## Workspace contract
+
+A Runner environment is a **pre-provisioned workspace**. The Runner executes Codex in its private configured `cwd`, enforces its configured read-only or workspace-write sandbox, preserves changes, provides Git inspection tooling when the mount is a Git checkout, and returns bounded final text.
+
+ADT and Runner do **not** clone or verify a repository, reset a workspace, pull `main`, create branches, commit, push, create pull requests, or provide GitHub credentials. A persistent workspace may contain modifications from an earlier job. Operators remain responsible for provisioning and deciding when to reset it; Runner deliberately does not destroy uncommitted work.
+
 ## Authentication and connection readiness
 
 ChatGPT device-code authentication works through `account/login/start` and persists in `CODEX_HOME`. Debian `ca-certificates` and `libssl3` are required runtime dependencies. The image validates the canonical `/etc/ssl/certs/ca-certificates.crt` bundle and never weakens certificate or hostname verification.

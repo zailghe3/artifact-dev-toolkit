@@ -1,5 +1,11 @@
 # WF-001 durable sequential workflow architecture
 
+## Codex Runner workspace contract
+
+Codex Runner environments are pre-provisioned workspaces. ADT runs Codex in the Runner-configured private working directory with the Runner-authoritative read-only or workspace-write sandbox, preserves Codex changes, supplies Git for repository-aware inspection when the mount is a checkout, and accepts only bounded final textual output.
+
+Neither ADT nor Runner clones or verifies repositories, resets workspaces, pulls main, creates branches, commits, pushes, creates pull requests, or supplies GitHub credentials. Persistent workspaces can contain changes from earlier jobs, so operators must choose their provisioning and reset policy. Workspace Git diagnostics are advisory and never make an otherwise-ready ordinary directory unhealthy.
+
 WF-001 separates durable concerns deliberately. Git stores maintainer-authored draft Agent and Workflow definitions. A run copies safe immutable snapshots into D1, which stores the cursor, attempts, raw input and output, failures, cancellation and terminal result. Cloudflare Workflows receives only `{ runId }` and reloads canonical state at each durable boundary.
 
 Each attempt uses `<runId>:<stepId>:<iteration>:<attempt>` as its idempotency key. An existing provider task is checked rather than started again. A successful output is written to D1 before the cursor advances; the next invocation consumes that exact stored string. Outputs are never returned from durable workflow steps or written to logs.

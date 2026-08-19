@@ -1,3 +1,3 @@
 import test from "node:test";import assert from "node:assert/strict";import {RUNNER_RELEASE,validateRunnerRelease} from "../dist/release.js";
-test("canonical Runner release loads",()=>assert.deepEqual(RUNNER_RELEASE,{protocolVersion:1,runnerRevision:1,codexVersion:"0.147.0"}));
-test("Runner release validation rejects unknown and malformed values",()=>{for(const value of [{...RUNNER_RELEASE,unknown:true},{...RUNNER_RELEASE,protocolVersion:0},{...RUNNER_RELEASE,runnerRevision:0},{...RUNNER_RELEASE,runnerRevision:1.5},{...RUNNER_RELEASE,codexVersion:"0.147"}])assert.throws(()=>validateRunnerRelease(value),/invalid_runner_release/)});
+test("canonical Runner release loads",()=>assert.deepEqual(RUNNER_RELEASE,{protocolVersion:1,runnerRevision:2,codexVersion:"0.147.0"}));
+test("Runner release validation rejects unknown and malformed values",()=>{for(const value of [{...RUNNER_RELEASE,unknown:true},{...RUNNER_RELEASE,protocolVersion:0},{...RUNNER_RELEASE,runnerRevision:0},{...RUNNER_RELEASE,runnerRevision:2.5},{...RUNNER_RELEASE,codexVersion:"0.147"}])assert.throws(()=>validateRunnerRelease(value),/invalid_runner_release/)});

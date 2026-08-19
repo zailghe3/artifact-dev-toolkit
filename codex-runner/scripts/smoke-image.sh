@@ -43,6 +43,7 @@ if ! docker run --rm "$image" sh -c '
   echo "runner_smoke_system_ca_gate_failed" >&2
   exit 1
 fi
+docker run --rm "$image" sh -c 'test -n "$(command -v git)" && git --version >/dev/null'
 
 version_output=$(docker run --rm "$image" codex --version)
 codex_version=$(printf '%s\n' "$version_output" | sed -E 's/^(codex-cli |codex )?//')
