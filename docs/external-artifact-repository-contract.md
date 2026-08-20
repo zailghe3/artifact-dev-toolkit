@@ -16,7 +16,9 @@ artifacts/
   variations/
 ```
 
-Markdown files may be nested below any supported directory, for example `artifacts/variations/client-a/draft.md`. Every artifact file must use the `.md` extension. Markdown files outside the supported top-level directories are invalid.
+- Markdown files may be nested below any supported directory.
+- Every artifact file uses the `.md` extension.
+- Markdown files outside the supported top-level directories are invalid.
 
 ## Markdown format
 
@@ -41,23 +43,23 @@ Required fields:
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `id` | non-empty string | Globally unique across the complete artifact root, including nested directories. |
+| `id` | non-empty string | Globally unique across the complete artifact root. |
 | `title` | non-empty string | Human-readable title. |
-| `type` | enum | One of `prompt`, `agent`, `snippet`, `template`, `app-idea`. |
-| `status` | enum | One of `production`, `draft`, `archived`. |
-| `tags` | string array | Use `[]` when no tags are present. |
-| `aliases` | string array | Use `[]` when no aliases are present. |
+| `type` | enum | `prompt`, `agent`, `snippet`, `template`, or `app-idea`. |
+| `status` | enum | `production`, `draft`, or `archived`. |
+| `tags` | string array | Use `[]` when empty. |
+| `aliases` | string array | Use `[]` when empty. |
 
 Optional fields:
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `sourceId` | non-empty string | ID of the source artifact for a variation or derivative. |
-| `createdAt` | ISO-8601 datetime | Creation timestamp, including timezone offset such as `Z`. |
+| `sourceId` | non-empty string | Source artifact ID for a variation or derivative. |
+| `createdAt` | ISO-8601 datetime | Creation timestamp including timezone offset. |
 
 Additional front-matter fields are not part of the stable contract and should not be required by consumers.
 
-## Validation expectations
+## Validation
 
 Run validation from the application repository against a checked-out storage repository:
 
@@ -66,10 +68,6 @@ npm run artifacts:validate -- ../private-artifact-storage
 npm run artifacts:validate -- ../private-artifact-storage --root custom-root
 ```
 
-The validator reports file-specific errors for malformed YAML front matter, missing required fields, unsupported `type` or `status` values, duplicate IDs, missing expected directories, and Markdown files stored outside supported top-level directories.
+Validation rejects malformed front matter, missing required fields, unsupported values, duplicate IDs, missing expected directories, and Markdown files outside supported top-level directories.
 
-## Migration guidance for current samples
-
-Copy the existing sample files from the application repository into the storage repository under `artifacts/prompts/`, because all current samples are `type: prompt` production artifacts. Preserve each file's front matter and body, then run validation before configuring any future GitHub-backed reader.
-
-Representative examples for every supported artifact type, including a nested variation, are available in `docs/examples/external-artifact-repository/`.
+Representative examples are available in `docs/examples/external-artifact-repository/`.
