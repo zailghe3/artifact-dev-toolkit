@@ -25,6 +25,8 @@ These instructions apply to Codex and other coding agents working in this reposi
 - Change dependencies only when required by the task.
 - Prefer existing platform capabilities and repository dependencies before adding packages.
 - Generate `package-lock.json` with npm; do not hand-edit lockfile internals.
+- Use the trusted package-lock repair process when repair is needed; do not bypass it with PR-controlled write credentials.
+- When dependencies change and registry access permits, run `npm audit` and `npm audit --omit=dev`; report an unavailable audit as not completed with the reason.
 - Do not use forced upgrades, blanket overrides, or validation bypasses to silence dependency issues.
 - Produce generated files only through declared repository commands.
 - Do not commit incidental validation side effects.
