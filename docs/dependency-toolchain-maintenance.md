@@ -1,75 +1,72 @@
 # Dependency and toolchain maintenance
 
-DEV-006 makes routine dependency and toolchain maintenance reviewable and deterministic without adding repository-modifying reporting bots.
+This document defines the maintenance policy for repository dependencies and the supported toolchain.
 
-## Supported runtime baseline
+## Sources of truth
 
-The supported runtime baseline is Node.js 24 and npm 11.4.2.
+- `.nvmrc` and `.node-version` define the supported Node.js major.
+- `package.json#packageManager` defines the canonical npm version.
+- `package.json#engines` and the root lockfile metadata must remain consistent with those declarations.
+- GitHub Actions should consume the declared Node.js version rather than hard-code a separate runtime baseline.
+- `npm run toolchain:validate` verifies the repository toolchain contract and GitHub Actions policy.
 
-Canonical sources must agree:
+Do not duplicate exact toolchain versions across general documentation when the repository sources above are sufficient.
 
-- `.nvmrc` and `.node-version` declare the Node.js major version.
-- `package.json#engines.node` declares the supported Node.js engine range.
-- `package.json#packageManager` and `package.json#engines.npm` declare the exact npm version.
-- `package-lock.json` root metadata must agree with package metadata when npm records those fields.
-- GitHub Actions workflows must use `node-version-file: .nvmrc` rather than hard-coded Node.js versions.
+## Routine dependency updates
 
-Run `npm run toolchain:validate` before opening maintenance PRs. The command fails on unsupported runtime versions, disagreement between canonical toolchain sources, lockfile/package-manager inconsistency, unpinned third-party actions, stale action release comments, and documentation drift.
+- Dependabot proposes routine compatible updates using the repository configuration.
+- Minor and patch updates may be grouped by compatibility domain.
+- Major dependency and GitHub Actions upgrades require intentional, focused review.
+- Dependency pull requests remain subject to normal sensitive-file and auto-merge policy.
+- Package-lock repair must use the repository's trusted repair process rather than PR-controlled write credentials.
 
-## Dependabot grouping
+The active Dependabot configuration and CI workflows are authoritative for grouping, schedules, sensitive paths, and automation mechanics.
 
-Dependabot is configured for weekly pull requests and groups minor and patch updates by compatibility domain:
+## Compatibility holds
 
-- Next.js, React, React DOM, `eslint-config-next`, and OpenNext Cloudflare.
-- ESLint, TypeScript, `typescript-eslint`, `@typescript-eslint/*`, and `@types/*` packages.
-- Tailwind CSS, `@tailwindcss/*`, and PostCSS.
-- Cloudflare tooling such as Wrangler.
-- Runtime support packages such as Zod, gray-matter, remark, and remark-html.
-- GitHub Actions updates are grouped separately from npm dependencies.
+- Respect documented compatibility holds and technical decisions.
+- Do not upgrade a held dependency merely because a newer version exists.
+- `docs/dev-007-typescript-7-assessment.md` records the current TypeScript 7 decision and reassessment trigger.
+- Reassess a hold when its documented trigger is satisfied or when the relevant ecosystem support materially changes.
 
-Major npm dependency upgrades are ignored by Dependabot so maintainers can initiate them intentionally in dedicated migration PRs. Major GitHub Actions updates likewise remain separately reviewable because action references are sensitive CI/CD changes and must retain full-SHA pins with release comments.
+## Adding or changing dependencies
 
-DEV-007 records the TypeScript 7 migration decision in `docs/dev-007-typescript-7-assessment.md`. TypeScript remains held at the supported 5.9 line until `typescript-eslint` and its parser/compiler-API packages document and declare TypeScript 7 support, after which the full Next.js, ESLint, OpenNext Cloudflare, Wrangler, generated-type, editor, and CI validation matrix must be reassessed.
+For every direct dependency change:
 
-## Sensitive-file and auto-merge protections
+- explain why the change is needed;
+- verify compatibility with the supported runtime, framework, linting, type-checking, Cloudflare, and deployment stack;
+- prefer existing platform capabilities and repository dependencies where practical;
+- avoid deprecated, unmaintained, redundant, or overlapping packages;
+- minimise dependency surface area;
+- remove dependencies made obsolete by the change;
+- generate `package-lock.json` through npm rather than editing lockfile internals.
 
-Dependency PRs do not bypass trusted auto-merge or sensitive-file classification. CI, deployment, dependency manifests, authentication, credentials, durable persistence, migrations, mutation-oriented server APIs, and related security boundaries require manual review. The shared trusted policy is enforced both when auto-merge is enabled and again at the actual `workflow_run` merge boundary. Ordinary low-risk UI, documentation, and test-only changes can retain the owner-only, same-repository automatic path.
+Do not use forced major upgrades, blanket overrides, `npm audit fix --force`, or weakened validation merely to silence findings.
 
-Package-lock write-back is intentionally not performed from PR validation. PR-controlled package code runs only with read permissions and checkout credentials disabled. A maintainer may explicitly dispatch the repair workflow, which regenerates and validates the lockfile from trusted `main`, enforces a size bound and a lockfile-only diff, and publishes a dedicated repair PR.
+## Maintenance report
 
-## Deterministic maintenance report
-
-Run the read-only maintenance report locally with:
+Run:
 
 ```bash
 npm run maintenance:report
 ```
 
-The report covers:
-
-- direct dependencies reported outdated by `npm outdated`;
-- direct packages reported deprecated by `npm view <package> deprecated`;
-- unsupported runtime-version or canonical toolchain disagreement;
-- lockfile/package-manager inconsistency;
-- unpinned third-party GitHub Actions references;
-- stale GitHub Actions release comments.
-
-The scheduled `Dependency maintenance report` workflow runs the same command weekly and on manual dispatch. It has `contents: read` permissions only, writes only to the GitHub Actions job summary, and never creates commits, pull requests, or issues.
+The report provides read-only maintenance signals such as outdated or deprecated direct dependencies and repository toolchain/action-policy issues. Scheduled automation may publish the same information to workflow summaries but must not modify the repository automatically.
 
 ## Exceptions and major upgrades
 
-Record intentional exceptions in the maintenance PR description or in a dedicated documentation update when they affect future maintainers. Include:
+Document intentional exceptions with:
 
-1. the package or tool intentionally held back;
-2. the compatibility reason;
-3. the command output or upstream reference used to verify the decision;
-4. the next review trigger.
+- the package or tool being held;
+- the compatibility reason;
+- evidence used for the decision;
+- the next reassessment trigger.
 
-Initiate major upgrades as normal focused PRs. A major upgrade PR should update package metadata, lockfile, affected workflow/tooling configuration, documentation, and the current application specification when implemented behaviour changes. TypeScript major upgrades must not proceed while a required compiler-API integration such as `typescript-eslint` excludes the target TypeScript major in its documented support range or package peer dependencies.
+Treat major upgrades as focused migration work. Update affected configuration, lockfiles, documentation, tests, and specifications where product behaviour changes.
 
-## Verifying the repository is current
+## Validation
 
-Before merging dependency or toolchain maintenance, run:
+Before merging dependency or toolchain maintenance, run the repository's relevant canonical checks, normally including:
 
 ```bash
 npm ci
@@ -82,4 +79,4 @@ npm run build
 npm run build:worker
 ```
 
-If `npm run maintenance:report` lists outdated or deprecated direct dependencies but the PR intentionally does not update them, document the exception instead of suppressing the report.
+If a maintenance report or audit cannot be completed because of registry, network, authentication, or environment restrictions, report that outcome accurately rather than treating it as passed.

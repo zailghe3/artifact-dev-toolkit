@@ -1,6 +1,10 @@
 # GitHub artifact deployment
 
-Production uses the GitHub backend and the dedicated private repository. Configure these exact settings:
+This document covers production configuration and operator recovery for the GitHub-backed Artifact Library. Implementation mechanics remain authoritative in code and tests.
+
+## Required configuration
+
+Production uses the GitHub backend and a dedicated private artifact repository.
 
 ```text
 ARTIFACT_REPOSITORY=github
@@ -14,42 +18,94 @@ GITHUB_ARTIFACT_REPOSITORY_NAME=fpo-artifacts
 SESSION_SECRET
 ```
 
-## Catalogue KV cache
+The branch and artifact root are optional and default to `main` and `artifacts`.
 
-Production also requires a dedicated Workers KV namespace bound as `ARTIFACT_CATALOGUE_CACHE`; authentication D1 is never used for artifact bodies. Create it manually with `npx wrangler kv namespace create ARTIFACT_CATALOGUE_CACHE` (or in the Cloudflare dashboard), then add the returned production namespace `id` to the matching `kv_namespaces` entry in `wrangler.jsonc` in the deployment configuration. The repository intentionally contains no fabricated production ID. This is a manual prerequisite; do not deploy until the binding resolves. A separate preview namespace may be configured with `preview_id` when remote preview testing is wanted.
+Never commit `.env`, `.dev.vars`, PEM keys, secret values, OAuth tokens, or session data.
 
-The cache defaults to 300 seconds. `ARTIFACT_CATALOGUE_FRESHNESS_SECONDS` can override it and is clamped to 30–3600 seconds. Keys are versioned and scoped to repository ID, owner/name, branch, and artifact root. Immutable revision-keyed chunks (about 1.5 MB maximum, split only at artifact boundaries) hold validated artifacts and their file SHAs; a small current pointer is published only after every chunk write succeeds. Cloudflare KV is eventually consistent, so another isolate may briefly observe the prior complete pointer. Both versions remain safe and refresh work is single-flight within an isolate.
+## GitHub App
 
-Direct-write invalidation first advances a repository generation marker and then removes the pointer. Generation comparison protects refreshes within one isolate, but Workers KV is eventually consistent and is not a globally atomic compare-and-swap lock. Publication therefore performs a lightweight GitHub base-revision check immediately before and after writing the pointer; repository verification errors retain their repository category and are never reported as KV failures. Each pointer carries a private publication-attempt identifier, so an uncertain KV write cannot mistake its own unverified pointer for an independent competing publisher. An uncertain pointer write that is not superseded by a genuine validated competitor follows the same cleanup path: generation advances, the isolate remains dirty, and pointer deletion is attempted before degraded content is returned. A changed or temporarily unverifiable final base does likewise unless a fully validated, demonstrably newer independent publication is visible. Cleanup propagation remains eventual rather than atomic. Another location may still briefly observe a prior complete snapshot while KV changes propagate. Orphaned immutable chunks are harmless. Cache reads and writes that fail do not turn healthy GitHub reads or successful GitHub writes into failures: fresh GitHub content is returned as `degraded`, safe stable events are logged, and the UI distinguishes cache degradation from stale GitHub content. Concurrent isolates may idempotently write the same deterministic revision chunks; contention counts as a competing publication only when the complete validated pointer has a different attempt identifier, the intended generation, and equal-or-newer refresh time. Manual refresh precedence is ordinary read, forced revision check, then full rebuild, with stronger work queued rather than downgraded.
+- Callback URL: `https://fpo-adt.florian-pouchet.workers.dev/auth/github/callback`.
+- Required permissions: **Contents: read and write**, **Pull requests: read and write**, and **Metadata: read-only**.
+- Install the App with selected-repository access to `zailghe3/fpo-artifacts`.
+- Permission upgrades may require administrator approval before the installation becomes usable.
+- The application never changes GitHub App permissions automatically.
 
-Authorized fresh reads avoid GitHub downloads. Stale reads check only the base ref; an unchanged revision republishes freshness metadata without loading blobs. A stale last-known-good snapshot is served only for network, 429, or 5xx failures and is visibly marked. Access, configuration, not-found, encoding, path, duplicate-ID, and content failures fail closed. Malformed KV values are logged without bodies and treated as misses.
+GitHub-downloaded PKCS#1 and PKCS#8 private keys are supported. Encrypted keys, public keys, and certificates are not.
 
-The library's **Refresh** control forces a base revision check; **Full rebuild** redownloads and validates the catalogue for corruption recovery. Successful direct creates, updates, and draft variations remove only the current pointer so the next authorized read rebuilds; immutable history remains. Proposal branches and pull requests do not invalidate the base catalogue. A merged proposal is discovered after freshness expiry or manual refresh. Operational recovery is: verify GitHub availability and binding identity, use Full rebuild, and only then delete corrupt namespace values if necessary. No webhook, cache-key browser API, resource provisioning, or automatic deployment is included.
+## Cloudflare secrets
 
-Local `ARTIFACT_REPOSITORY=file` development never requires KV and does not render cache refresh controls; the protected refresh handler returns a safe unsupported response if called. Current Wrangler deploys can [automatically provision resources whose IDs are omitted](https://developers.cloudflare.com/workers/wrangler/configuration/#provision-resources). The production workflow therefore runs `node scripts/validate-production-bindings.mjs` before building or deploying and refuses an omitted/empty KV `id`. This PR is **not production-deployable and must not close DATA-003** until an operator has provisioned the real namespace and committed its public production namespace ID to `kv_namespaces`. Codex does not provision that resource.
+Configure required Worker secrets through the Cloudflare dashboard or Wrangler.
 
-The branch and artifact root remain optional and default to `main` and `artifacts`. The GitHub App callback URL is exactly `https://fpo-adt.florian-pouchet.workers.dev/auth/github/callback`. Give the App **Contents: read and write**, **Pull requests: read and write**, and **Metadata: read-only** permissions, then install it with selected-repository access to `zailghe3/fpo-artifacts`. Upgrading an existing App from read-only Contents access requires an organisation or repository administrator to approve the new installation permissions; GitHub may leave the installation pending until that approval is complete. Make this change and obtain approval manually before deploying write or proposal features—the application does not modify the App configuration.
-
-Wrangler declares all six sensitive/identity settings as required Worker secrets. Set each through the Cloudflare dashboard or, while authenticated to the correct account, with `npx wrangler secret put NAME`. Generate independent values for token encryption and session signing:
+Generate independent secrets for token encryption and session signing, for example:
 
 ```bash
 openssl rand -base64 32 # GITHUB_TOKEN_ENCRYPTION_KEY
 openssl rand -base64 48 # SESSION_SECRET
 ```
 
-GitHub-downloaded PKCS#1 (`BEGIN RSA PRIVATE KEY`) keys and PKCS#8 (`BEGIN PRIVATE KEY`) keys are both supported. Encrypted keys, public keys, and certificates are not. Never commit `.env`, `.dev.vars`, PEM keys, secret values, OAuth tokens, or session data.
+Production validation checks required secret configuration before deployment.
 
-Reads use short-lived installation tokens restricted to the configured immutable repository ID and `Contents: read`. Direct writes receive separately memoized `Contents: write` tokens. Proposal branches, Git Data commits, and pull requests receive separately memoized tokens with `Contents: write` and `Pull requests: write`. Metadata remains read-only at the App installation. No static repository token is supported, and installation tokens are not stored in D1. Authorization is rechecked after seven minutes. The deployment runs Wrangler's required-secret validation and then a smoke test which checks only that OAuth initiation returns a GitHub authorization redirect with state and S256 PKCE; it does not log in to GitHub.
+## Catalogue cache
 
-Direct artifact creates and updates use the same repository-restricted installation token and GitHub Contents API. A `403` from a write is surfaced as the safe `write_permission_required` API category; operators should verify both the App permission and installation approval. The application never changes App permissions, creates branches, or deploys automatically as part of a write.
+Production requires a Workers KV namespace bound as `ARTIFACT_CATALOGUE_CACHE`.
 
-## Protected operational diagnostics
+- Provision the namespace manually before deployment.
+- Commit the real production namespace ID to the matching `kv_namespaces` entry in `wrangler.jsonc`.
+- Do not use a fabricated or omitted production ID.
+- A separate preview namespace may be configured when remote preview testing is required.
+- `ARTIFACT_CATALOGUE_FRESHNESS_SECONDS` may override catalogue freshness within the application-supported bounds.
+- Local `ARTIFACT_REPOSITORY=file` development does not require KV.
 
-After a user has successfully authorized the configured repository, `/diagnostics` provides a private operational view and `/api/diagnostics` provides the same safe model with private/no-store caching. Access relies on the stored, identity-bound repository authorization so temporary GitHub or KV outages do not hide recovery information. It does not extend sessions, change authorization, mint persistent credentials, refresh the catalogue, modify permissions, or expose a public health endpoint.
+The application keeps revision-scoped validated catalogue snapshots and fails safely when repository truth cannot be established. Temporary cache failure may degrade freshness or performance without turning a healthy GitHub read into an application failure.
 
-Operators should use the page to compare stored and observational live authorization, inspect permission metadata returned for the existing read/write/proposal token scopes, verify the base revision, inspect the existing DATA-003 snapshot without writing KV, and identify safe file-level validation errors. Correct configuration or repository files and use the library's existing manual refresh control; retry only unavailable/rate-limited checks. Never copy secrets into issue reports: diagnostic output deliberately contains only secret state labels and excludes tokens, keys, bodies, raw upstream responses, cache keys, and publication/generation data.
-## Protected diagnostics failure handling
+Implementation details for chunking, publication, concurrency, invalidation, and eventual-consistency handling belong in the cache implementation and tests rather than this operator guide.
 
-Diagnostics binds stored authorization to the public owner and repository even when an unrelated secret is malformed. Missing public identity permits configuration-only reporting; it never enables repository, KV-identity, or validation reads. Temporary GitHub authorization outages may use a matching stored context for bounded observation, while a definitive identity, user, allowlist, or installation denial stops before credentials, repository calls, cache inspection, and scanning. Diagnostics is observational and does not refresh, revoke, extend, or downgrade a session.
+## Repository access
 
-Permission results include a safe reason rather than treating every failed probe as denial. DATA-003 cache diagnostics share the ordinary catalogue snapshot validator and remain read-only. Repository-wide 403, 429, and 5xx scan failures remain access, rate-limit, or availability failures; only file-specific blob/contract problems are counted as invalid artifacts. Normal pages map typed repository, branch, permission, availability, cache-binding, cache-corruption, and invalid-content errors to specific operational guidance, while unexpected exceptions reach the generic application boundary.
+- Reads use repository-restricted installation credentials with Contents read access.
+- Direct artifact writes require Contents write access.
+- Production proposals require Contents write and Pull requests write access.
+- No static repository token is supported.
+- Installation credentials remain server-side and are not persisted as long-lived repository tokens.
+
+A write permission failure should be resolved by checking both the GitHub App permission and the installed repository approval.
+
+## Deployment validation
+
+Before production deployment:
+
+- verify required Worker secrets;
+- verify the production KV binding resolves to the intended namespace;
+- verify GitHub App permissions and repository installation;
+- run the repository's production binding and build validation;
+- deploy only from the trusted production workflow or an approved operator recovery path.
+
+The application does not provision production Cloudflare resources or GitHub permissions as part of normal runtime behaviour.
+
+## Catalogue recovery
+
+Use the application controls in this order:
+
+1. Verify GitHub availability, repository access, and cache binding identity.
+2. Use **Refresh** for a normal repository revision check.
+3. Use **Full rebuild** when a complete catalogue reload is required.
+4. Delete corrupt namespace values only as a last-resort operator action after the binding and repository have been verified.
+
+A failed refresh should not discard an otherwise safe last-known-good catalogue.
+
+## Protected diagnostics
+
+After repository authorisation, `/diagnostics` and `/api/diagnostics` expose bounded private operational information.
+
+Use diagnostics to inspect:
+
+- stored and live repository authorisation;
+- effective repository permissions;
+- current base revision;
+- catalogue/cache state;
+- artifact validation failures;
+- safe recovery guidance.
+
+Diagnostics must not expose tokens, keys, artifact bodies, raw upstream responses, cache contents, or private publication data.
+
+Diagnostics is observational unless the user explicitly invokes a supported recovery action. Temporary GitHub or cache outages should remain distinguishable from definitive authorisation, configuration, or content failures.

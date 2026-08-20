@@ -52,16 +52,17 @@ test('maintenance report script covers dependency and action drift domains', () 
   assert.match(script, /packageManager/);
 });
 
-test('maintenance documentation explains baseline grouping exceptions and verification', () => {
+test('maintenance documentation points to canonical toolchain sources and explains policy', () => {
   for (const text of [
-    'Node.js 24 and npm 11.4.2',
-    'Dependabot grouping',
-    'Major npm dependency upgrades are ignored',
+    '.nvmrc',
+    'package.json#packageManager',
+    'npm run toolchain:validate',
+    'Dependabot proposes routine compatible updates',
+    'Major dependency and GitHub Actions upgrades require intentional, focused review',
     'npm run maintenance:report',
-    'contents: read',
-    'never creates commits, pull requests, or issues',
-    'Record intentional exceptions',
+    'Document intentional exceptions',
   ]) {
     assert.match(docs, new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }
+  assert.match(docs, /Do not duplicate exact toolchain versions across general documentation/);
 });

@@ -1,40 +1,35 @@
 # ADT Codex Runner
 
-The Runner uses an experimental GNU/glibc build that is neither release-equivalent nor an OpenAI-published GNU prebuilt artifact. It is a private, shared-secret-protected bridge to the pinned Codex App Server. It uses **Codex CLI 0.147.0** from source commit `be6e8eac029b183056b7e4402879f15d2c85f61b`; workflow jobs use only the bounded interface documented below.
+The ADT Codex Runner is an independently deployed, shared-secret-protected bridge to the pinned Codex App Server. It provides bounded Codex execution for ADT Agent Workflows.
+
+The packaged Codex binary is an experimental GNU/glibc build. It is neither release-equivalent nor an OpenAI-published GNU prebuilt artifact.
+
+`release.json` is the canonical source for the packaged Codex version, protocol version, and Runner revision. Build and protocol implementation details remain authoritative in source, tests, and publication workflows.
 
 ## Workspace contract
 
-A Runner environment is a **pre-provisioned workspace**. The Runner executes Codex in its private configured `cwd`, enforces its configured read-only or workspace-write sandbox, preserves changes, provides Git inspection tooling when the mount is a Git checkout, and returns bounded final text.
+A Runner environment is a pre-provisioned workspace.
 
-ADT and Runner do **not** clone or verify a repository, reset a workspace, pull `main`, create branches, commit, push, create pull requests, or provide GitHub credentials. A persistent workspace may contain modifications from an earlier job. Operators remain responsible for provisioning and deciding when to reset it; Runner deliberately does not destroy uncommitted work.
+- The Runner executes Codex in an operator-configured private working directory.
+- Each environment is `read-only` or `workspace-write`.
+- Changes in persistent workspaces are preserved until the operator resets them.
+- Git tooling is available when the workspace is a Git checkout.
+- ADT and Runner do not automatically clone, reset, pull, branch, commit, push, or create pull requests for ordinary workflow jobs.
+- GitHub credentials are not supplied to ordinary Runner jobs.
+- Workspace provisioning and reset policy remain operator responsibilities.
 
-## Authentication and connection readiness
+## Authentication and readiness
 
-ChatGPT device-code authentication works through `account/login/start` and persists in `CODEX_HOME`. Debian `ca-certificates` and `libssl3` are required runtime dependencies. The image validates the canonical `/etc/ssl/certs/ca-certificates.crt` bundle and never weakens certificate or hostname verification.
+- ChatGPT/Codex authentication belongs to the Runner and persists under `CODEX_HOME`.
+- ADT does not store the Runner's ChatGPT/Codex credential.
+- Connection state, authentication state, model discovery, environment readiness, and job readiness are distinct conditions.
+- **Test Codex** performs a bounded authenticated model-turn health check; it is separate from normal workflow execution.
+- Health and diagnostic routes expose bounded status only and must not return prompts, model output, reasoning, credentials, protocol IDs, raw upstream errors, or private paths.
+- Certificate and hostname verification must not be weakened for connectivity troubleshooting.
 
-“Connected” confirms the App Server's `account/read` authentication state. The explicitly clicked **Test Codex** action additionally proves that one authenticated model turn completes. `POST /v1/codex/test` accepts no prompt or request body and returns only `{ "ok": true, "durationMs": 1840 }` or `{ "ok": false, "reason": "<bounded-enum>" }`. It remains a health check, distinct from general workflow jobs. `/v1/capabilities` reports `jobExecution: true` because this binary implements the version 1 jobs protocol; configured workspace readiness remains separate.
+## Environment configuration
 
-The test creates a new empty `/tmp/adt-codex-test-*` directory and sends Codex 0.147 `thread/start` with `cwd`, `ephemeral: true`, `approvalPolicy: "never"`, and `sandbox: "read-only"`, without a model override. It sends exactly one `turn/start` text input containing a server-generated cryptographic nonce. It consumes the matching `item/completed` agent message and `turn/completed` notification. Any side-effect item or approval request fails closed and triggers `turn/interrupt`; the absolute Runner deadline is 52 seconds, including setup and cleanup; two seconds are reserved for best-effort interruption and temporary-directory cleanup, with no retry. This guarantees the bounded Runner response by 52 seconds, leaving eight seconds of margin inside ADT's 60-second transport timeout. The directory is always removed. Nonces, prompts, output, reasoning, account data, and thread/turn IDs never cross the HTTP boundary or logs.
-
-## Operational authentication diagnostics
-
-`GET /v1/diagnostics/auth-environment` retains bounded operational checks for Runner/App Server readiness, exact Codex version, native libc and address policy, ordered resolver family, kernel IPv6 state, IPv4/IPv6 DNS/TCP/verified TLS, the system and optional custom CA configuration, proxy presence, and Codex-home access. A single non-mutating `HEAD /api/accounts/deviceauth/usercode` check reports whether the exact route returned an HTTP response; HTTP 405 means the route is reachable.
-
-Diagnostics do not POST, request a device code, send `client_id`, read response bodies, or run transport A/B experiments. Logs contain only bounded environment classifications and no addresses, URLs, certificates, headers, bodies, raw errors, credentials, or Codex protocol output.
-
-The glibc build and `/etc/gai.conf` IPv4-preferred resolver policy remain intentional because production advertises IPv6 while its IPv6 path is unavailable.
-
-## CI and publication
-
-Pull requests and generic main verification run source validation, root tests/lint/typecheck/builds, and Runner tests/typecheck. They do not build the final Runner Docker image. On trusted `main`, **Publish Codex Runner** is the single owner of the expensive final image build and offline smoke. It tests exact merged source, builds, checks the image (including CA packages/bundle, GNU/glibc Codex, address policy, schemas, startup, health, capabilities, and disconnected state), and only then authenticates to Docker Hub and pushes immutable SHA and `latest` tags. A build or smoke failure occurs before login/push, leaving the previously published image available.
-
-The smoke test never performs live OpenAI authentication or model inference. Persistent BuildKit caching is not configured; cold builds remain authoritative and reproducible.
-
-## Workflow environments and persistent jobs
-
-Workflow execution uses Runner-owned local environments. Set
-`CODEX_RUNNER_ENVIRONMENTS_FILE=/run/config/codex-environments.json` and mount a
-strict version 1 document read-only:
+Set `CODEX_RUNNER_ENVIRONMENTS_FILE` to a read-only JSON configuration file using schema version 1.
 
 ```json
 {
@@ -49,99 +44,74 @@ strict version 1 document read-only:
 }
 ```
 
-Keys use ADT definition-id syntax and are limited to 80 characters; names are
-limited to 120. `cwd` must be an existing absolute directory. The only sandbox
-values are `read-only` and `workspace-write`; workflow approval policy is always
-`never`. The path is private to the Runner and is never part of its public API.
-An absent environment file is valid and produces an empty catalog.
+- `key` is the public stable identifier stored by ADT.
+- `name` is the operator-facing display name.
+- `cwd` is private Runner configuration and must be an existing absolute directory.
+- `sandbox` is `read-only` or `workspace-write`.
+- Workflow approval policy is always non-interactive.
+- An absent environment file is valid and produces an empty catalogue.
+- The public environment descriptor never exposes private filesystem paths.
 
-Set `CODEX_RUNNER_STATE_DIR=/data/runner` and mount `/data` persistently with
-ownership for the non-root container user. Job records are mode 0600 and are
-atomically renamed into a mode 0700 directory. Active jobs found after restart
-become terminal `runner_restarted` failures and are never submitted again. The
-v1 implementation globally serializes jobs, which is stricter than one active
-job per environment.
+For Docker or Portainer, mount workspaces and the environment file explicitly. Give the non-root container user only the filesystem permissions required by the selected sandbox. Do not use world-writable workspace permissions.
 
-For Docker/Portainer, mount an operator-selected repository directory at (for
-example) `/workspaces/fpo-artifacts`, mount the JSON configuration at
-`/run/config/codex-environments.json:ro`, and configure both variables above.
-Ensure the container user can read the mount and, for `workspace-write`, create
-and remove files there. Do not use world-writable permissions.
+## Persistent job state
 
-The public environment descriptor contains only `key`, `name`, `enabled`,
-`ready`, and the finite `sandbox` classification. Model discovery retains only
-`id`, `displayName`, `isDefault`, `defaultReasoningEffort`, and the ordered
-`reasoningEffort`/`description` entries returned by Codex 0.147.0.
+Set `CODEX_RUNNER_STATE_DIR` to persistent storage owned by the non-root Runner user.
 
-The catalog `id` is the stable selection token stored by ADT. The Runner keeps
-Codex's separate canonical `model` field private and, when an explicit model is
-selected, sends that canonical value as `thread/start.model`. With Codex default
-selected, the `model` member is omitted. A configured reasoning effort is sent
-as the exact 0.147.0 `turn/start.effort` field.
+- Job identity and idempotency state are persisted before execution can create external work.
+- Matching replays resolve to the same accepted job.
+- Conflicting replays do not execute.
+- Active jobs found after Runner restart become terminal restart failures and are not silently resubmitted.
+- The current Runner serializes workflow jobs globally rather than providing a general waiting queue.
+- Temporary polling failure does not recreate an accepted job.
+- Cancellation targets the existing accepted job.
+- If an interrupted Codex turn cannot be confirmed quiescent, the Runner fails closed and requires operator recovery rather than admitting potentially conflicting work.
 
-Workflow job requests accept at most 1,970,000 HTTP bytes and at most 524,320
-UTF-8 prompt bytes. The route bound is the smallest rounded envelope above the
-existing 65,536-character master prompt plus 262,144-byte workflow input,
-fixed framing, bounded identity/model fields, and worst-case JSON control-character
-escaping, while auth and diagnostic routes retain their 16 KiB
-control-plane limit. The limits are fixed by the Runner and are not Agent options.
-Production job duration defaults to 7,000,000 ms, may be reduced by the operator
-with `CODEX_RUNNER_JOB_DURATION_MS`, and cannot exceed that hard maximum.
+Exact limits, timeout values, state-file mechanics, and protocol fields are implementation details defined by source and tests.
 
-Cancellation and timeout share one deferred-interrupt lifecycle. Intent is
-remembered before protocol IDs exist; when the matching thread and turn IDs
-arrive, the Runner interrupts exactly once. A cancellation received before
-execution starts prevents the Codex turn entirely. The global lease is retained
-until the underlying turn quiesces. If timeout interruption does not quiesce
-within the 30-second cleanup deadline, workflow execution is marked unhealthy,
-no later job is admitted, and an operator must restart the Runner/App Server;
-the lease is never released while the old turn may still write.
+## Models and Agent options
 
-A job's opaque ID, idempotency digest, fingerprint, and queued provisional state
-are durably recorded before account/model validation. Digest lookup can therefore
-reconcile a lost start response while validation is still pending. Validation
-then moves that same job to execution or a bounded terminal failure; it never
-deletes the idempotency evidence or submits a second turn.
+- ADT uses the Runner's live model catalogue.
+- Agents store only safe public environment and model-selection values supported by the Runner.
+- Private working directories, credentials, sandbox overrides, and authentication material are not Agent fields.
+- Selecting a connection or model in the editor does not guarantee current executability; save and execution validation fail closed against live readiness.
 
-## Release compatibility and provenance
+## Diagnostics
 
-`release.json` is the canonical release contract consumed by both ADT and the
-Runner. `protocolVersion` is the wire compatibility generation;
-`runnerRevision` is the monotonically increasing implementation generation;
-and `codexVersion` is the exact packaged Codex CLI. The authenticated
-capabilities response also retains `runnerVersion`, the immutable 40-character
-Git commit embedded by the trusted publication workflow and recorded in OCI
-revision metadata.
+`GET /v1/diagnostics/auth-environment` provides bounded operational diagnostics for authentication and transport readiness.
 
-ADT and Runner Git commits are **not expected to match** in steady state. An
-ADT-only change does not change `runnerRevision`, so it cannot make an unchanged
-Runner stale. ADT reports **Current** for equal revisions, **Update available**
-when the installed revision is lower, and **Runner newer than ADT** when it is
-higher (for example after an ADT rollback). These freshness results are
-advisory while protocol and required capabilities remain compatible. An
-unsupported protocol remains fail-closed as `runner_update_required`.
+Diagnostics may report safe classifications for:
 
-During rollout, ADT also recognizes the exact legacy protocol-v1 capabilities
-shape that predates release metadata. Protocol-v1 connectivity, authentication,
-and job execution remain usable, while revision and Codex freshness are unknown
-and the UI recommends updating the Runner. Partial release metadata or any
-unrecognized capability field still fails closed. This allows ADT to be deployed
-before the operator schedules the corresponding Runner image rollout.
+- Runner/App Server readiness;
+- packaged Codex/version consistency;
+- runtime/network family state;
+- DNS, TCP, TLS, CA, and proxy readiness;
+- Codex-home access;
+- fixed-path reachability checks.
 
-For example:
+Diagnostics must not expose addresses, credentials, response bodies, arbitrary headers, certificates, raw socket/TLS errors, raw App Server errors, or Codex protocol output.
 
-```
-ADT build: abc123…
-Expected Runner revision: 5
+## CI and publication
 
-Deployed Runner:
-Build: 89d7c464…
-Revision: 5
-Protocol: 1
+- Normal repository verification validates Runner source and tests.
+- The trusted main publication workflow owns the final Runner image build and offline smoke validation.
+- Publication pushes immutable source-SHA tags and `latest` only after successful build and smoke checks.
+- The smoke path does not perform live OpenAI authentication or model inference.
+- ADT CI may build and publish Runner images but does not deploy, restart, or reconfigure the operator's home Runner.
 
-Result: Compatible · Current
-```
+## Release compatibility
 
-Publication continues to create immutable SHA-tagged images. ADT does not pull,
-restart, redeploy, or alter a home-lab Runner; image rollout timing and
-Portainer/Docker Swarm configuration remain operator-owned.
+`release.json` defines:
+
+- `protocolVersion` — wire compatibility generation;
+- `runnerRevision` — Runner implementation generation;
+- `codexVersion` — packaged Codex CLI version.
+
+ADT and Runner Git commits are not expected to match. Compatibility is determined by protocol and required capabilities; revision differences provide rollout/freshness information.
+
+- Equal supported revisions are current.
+- An older installed revision may show an update available.
+- A newer Runner may remain compatible with an older ADT deployment.
+- Unsupported protocol or required capability remains fail-closed.
+
+Image rollout timing, Docker/Portainer configuration, mounts, persistent storage, and service lifecycle remain operator-owned.
