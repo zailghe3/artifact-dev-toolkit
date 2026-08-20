@@ -37,17 +37,19 @@ Artifact Library helps authorised users find, reuse, create, edit, and safely ma
 
 | Document | Purpose |
 | --- | --- |
+| [Repository instructions](AGENTS.md) | Repository-wide Codex and contributor conventions |
 | [Current application specification](specs/000-current-application-spec.md) | High-level implemented Artifact Toolkit behaviour and product invariants |
 | [Agent Workflows specification](specs/agent-workflows.md) | Current Agent, Workflow, Run, provider, and Codex Runner behaviour |
 | [External artifact repository contract](docs/external-artifact-repository-contract.md) | Artifact repository layout, metadata, and validation contract |
-| [GitHub artifact deployment](docs/github-artifact-deployment.md) | Production architecture, configuration, and operations |
+| [GitHub artifact deployment](docs/github-artifact-deployment.md) | Production configuration and operator recovery |
 | [Development workflow](docs/development-workflow.md) | Maintainer workflow and delivery process |
-| [Dependency and toolchain maintenance](docs/dependency-toolchain-maintenance.md) | Runtime baseline and dependency maintenance policy |
-| [Codex Runner](codex-runner/README.md) | Runner deployment, protocol, workspace, and operational reference |
+| [Dependency and toolchain maintenance](docs/dependency-toolchain-maintenance.md) | Dependency and toolchain maintenance policy |
+| [Codex Runner](codex-runner/README.md) | Runner configuration, workspace, jobs, compatibility, and operations |
 
 ## Documentation boundaries
 
-- `specs/` describes current product behaviour and stable safety or lifecycle invariants.
+- `AGENTS.md` defines durable repository-wide agent and contributor conventions.
+- `specs/` describes current product behaviour and stable safety or lifecycle invariants; `specs/AGENTS.md` defines its writing conventions.
 - `docs/` contains external contracts, maintainer processes, deployment guidance, templates, examples, and historical technical records.
-- `codex-runner/README.md` contains implementation and operational detail specific to the independently deployed Runner.
+- `codex-runner/README.md` contains operational detail specific to the independently deployed Runner.
 - Source code and tests remain authoritative for implementation mechanics.
