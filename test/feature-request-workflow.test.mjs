@@ -35,40 +35,41 @@ test('valid pending JSON passes validation and renders the execution contract an
   assert.match(rendered, /The current application specification has been reviewed/);
 });
 
-test('rendered feature issues include the shared Codex contract exactly once', async () => {
+test('rendered feature issues include the shared Codex contract exactly once and delegate repository rules', async () => {
   const { renderFeatureIssue } = await import('../scripts/render-feature-issue.mjs');
   const rendered = renderFeatureIssue(validRequest);
   assert.equal((rendered.match(/## Codex execution contract/g) ?? []).length, 1);
-  assert.match(rendered, /normal functional implementation PRs, not include unrelated dependency, framework, runtime, compiler, linting, deployment-tool, or GitHub Actions upgrades/);
+  assert.match(rendered, /Repository-wide engineering and documentation conventions are defined by the applicable `AGENTS\.md` files/);
+  assert.match(rendered, /treat the issue as the source of truth for objective, required behaviour, scope, out-of-scope boundaries, and acceptance criteria/);
 });
 
-test('Codex contract captures functional validation, dependency, lockfile, and PR reporting requirements', () => {
+test('Codex contract keeps issue-specific requirements while AGENTS owns repository-wide rules', () => {
   const contract = execFileSync('cat', ['.github/ISSUE_TEMPLATE/shared/codex-execution-contract.md'], { encoding: 'utf8' });
+  const agents = execFileSync('cat', ['AGENTS.md'], { encoding: 'utf8' });
 
-  for (const command of [
-    'npm ci',
-    'npm run toolchain:validate',
-    'npm test',
-    'npm run lint',
-    'npm run typecheck',
-    'npm run build',
-    'npm run build:worker',
-    'git diff --check',
+  for (const text of [
+    'read the complete issue before changing code',
+    'read the relevant current specification before implementation',
+    'update the relevant specification in the same pull request when implemented behaviour changes',
+    'run the repository checks relevant to the changed area',
+    'report validation accurately as passed, failed, inapplicable, or not completed because of an environment restriction',
+    '`Closes #<issue-number>`',
+    'verify after opening the pull request',
   ]) {
-    assert.match(contract, new RegExp(command.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.match(contract, new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }
 
-  assert.match(contract, /`Closes #<issue-number>`/);
-  assert.match(contract, /passed, failed, not run because inapplicable, or not run or incomplete because of an environment restriction/);
-  assert.match(contract, /never report a failed or unavailable command as passed/);
-  assert.match(contract, /not include unrelated dependency, framework, runtime, compiler, linting, deployment-tool, or GitHub Actions upgrades/);
-  assert.match(contract, /docs\/dependency-toolchain-maintenance\.md/);
-  assert.match(contract, /docs\/dev-007-typescript-7-assessment\.md/);
-  assert.match(contract, /`npm audit` and `npm audit --omit=dev`/);
-  assert.match(contract, /report it as \*\*not completed\*\* with the reason/);
-  assert.match(contract, /never describe an unavailable audit as passed or clean/);
-  assert.match(contract, /generate `package-lock\.json` through npm rather than manually editing lockfile internals/);
-  assert.match(contract, /package-lock repair architecture that resets validation side effects and restores only the npm-regenerated lockfile/);
+  for (const text of [
+    'Do not add unrelated dependency, framework, runtime, compiler, deployment-tool, or GitHub Actions upgrades.',
+    'Respect documented compatibility holds and maintenance decisions.',
+    'Generate `package-lock.json` with npm; do not hand-edit lockfile internals.',
+    'Use the trusted package-lock repair process when repair is needed',
+    '`npm audit` and `npm audit --omit=dev`',
+    'report an unavailable audit as not completed with the reason',
+    'Do not weaken tests, linting, type checking, build validation, workflow security, deployment checks, or security controls merely to make a change pass.',
+  ]) {
+    assert.match(agents, new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  }
 });
 
 test('invalid JSON fails clearly with the file-specific CLI validator', () => {
@@ -135,15 +136,15 @@ test('Codex feature-request instructions use permanent canonical files and group
   const instructions = execFileSync('cat', ['docs/codex-create-feature-request.md'], { encoding: 'utf8' });
   assert.match(instructions, /feature-request\/<request-id>/);
   assert.match(instructions, /requests\/features\/<request-id>\.json/);
-  assert.match(instructions, /When several feature requests are agreed together, place all corresponding JSON files in one pull request/);
+  assert.match(instructions, /When several requests are agreed together, put them in one pull request unless the user explicitly asks for separate PRs/);
   assert.doesNotMatch(instructions, /requests\/features\/pending\/<request-id>\.json/);
 });
 
 test('Codex feature-request instructions forbid implementation and direct issue creation', () => {
   const instructions = execFileSync('cat', ['docs/codex-create-feature-request.md'], { encoding: 'utf8' });
-  assert.match(instructions, /Do not implement the feature itself\./);
+  assert.match(instructions, /Do not implement the feature\./);
   assert.match(instructions, /Do not create the GitHub issue directly\./);
-  assert.match(instructions, /Let the post-merge workflow create the GitHub issue/);
+  assert.match(instructions, /Let the post-merge workflow create the issue from the permanent request record\./);
 });
 
 test('ChatGPT prompt template is copy-pasteable and stops after opening a PR', () => {
@@ -155,15 +156,14 @@ test('ChatGPT prompt template is copy-pasteable and stops after opening a PR', (
   assert.match(template, /"requestId": "<request-id>"/);
 });
 
-test('development workflow documents final feature planning automation', () => {
+test('development workflow documents the stable feature planning flow', () => {
   const workflow = execFileSync('cat', ['docs/development-workflow.md'], { encoding: 'utf8' });
-  assert.match(workflow, /Discuss and agree one or more features/);
-  assert.match(workflow, /one issue per JSON is created automatically/);
-  assert.match(workflow, /Feature JSON files remain permanently/);
-  assert.match(workflow, /immutable `requestId`/);
-  assert.match(workflow, /mode: all/);
-  assert.match(workflow, /no pending-to-processed branch or pull-request lifecycle/i);
-  assert.match(workflow, /No personal access token/);
+  assert.match(workflow, /Discuss and agree feature\(s\)/);
+  assert.match(workflow, /Codex writes requests\/features\/<request-id>\.json/);
+  assert.match(workflow, /merge creates the corresponding GitHub issue/);
+  assert.match(workflow, /Request JSON files remain permanent design records/);
+  assert.match(workflow, /immutable request ID/);
+  assert.match(workflow, /Recovery workflows may safely retry missing issue creation without recreating existing issues/);
 });
 
 test('issue creation uses immutable marker, searches open and closed issues, and never moves files', async () => {
