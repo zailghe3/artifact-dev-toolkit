@@ -39,10 +39,21 @@ for (const workflow of ['.github/workflows/reusable-validate-feature-requests.ym
   if (/npm install -g npm@\d/.test(body)) fail(`${workflow} must install npm from package.json packageManager.`);
 }
 
-for (const path of ['README.md', 'docs/development-workflow.md', 'docs/codex-create-feature-request.md', '.github/ISSUE_TEMPLATE/shared/codex-execution-contract.md', '.github/ISSUE_TEMPLATE/feature.yml']) {
+const requiredToolchainDocs = [
+  'docs/development-workflow.md',
+  'docs/codex-create-feature-request.md',
+  '.github/ISSUE_TEMPLATE/shared/codex-execution-contract.md',
+  '.github/ISSUE_TEMPLATE/feature.yml',
+];
+
+for (const path of requiredToolchainDocs) {
   const body = read(path);
   if (!body.includes('Node.js 24') && !body.includes('Node.js `${nodeVersion}`')) fail(`${path} must document Node.js 24.`);
   if (!body.includes('npm 11') && !body.includes('npm `${npmVersion}`')) fail(`${path} must document npm 11.`);
+}
+
+for (const path of ['README.md', ...requiredToolchainDocs]) {
+  const body = read(path);
   if (/Node\.js 22|npm 10\.9\.7|node-version:\s*22/.test(body)) fail(`${path} still references the previous Node.js/npm baseline.`);
 }
 
