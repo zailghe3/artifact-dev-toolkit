@@ -1,0 +1,139 @@
+# Architecture
+
+This document is a navigation map for the current system. It describes major domains, sources of truth, persistence boundaries, trust boundaries, and where deeper contracts live. It is not a product specification or an implementation design.
+
+## System shape
+
+```text
+Authorised browser
+    |
+    v
+Artifact Toolkit application
+Next.js -> OpenNext -> Cloudflare Worker
+    |
+    +--> GitHub App / configured artifact repository
+    |       - reusable artifacts
+    |       - Agent and Workflow definitions
+    |
+    +--> Cloudflare D1
+    |       - application sessions
+    |       - encrypted provider connection state
+    |       - durable Workflow run and attempt state
+    |
+    +--> Cloudflare KV
+    |       - validated artifact catalogue cache
+    |
+    +--> Cloudflare Workflows
+    |       - durable Agent Workflow execution driver
+    |
+    +--> OpenAI Responses API
+    |       - supported model-based Agent execution
+    |
+    +--> independently deployed Codex Runner
+            - Codex authentication
+            - operator-provisioned workspaces
+            - bounded Codex jobs
+            - Runner-local durable job state
+```
+
+Exact bindings, schemas, versions, limits, identifiers, protocols, retries, and deployment mechanics remain authoritative in configuration, source, tests, migrations, and component documentation.
+
+## Major product domains
+
+### Artifact Library
+
+- Loads validated reusable artifacts from the configured GitHub repository.
+- Supports catalogue search, detail, copy, creation, editing, variations, deletion, refresh, and diagnostics.
+- Draft and archived changes may be written directly after validation.
+- Production changes and deletions become reviewable GitHub pull requests rather than direct production mutations.
+- Repository revision checks protect against stale or ambiguous writes.
+
+Current behaviour is defined by [`specs/000-current-application-spec.md`](specs/000-current-application-spec.md). The external repository format is defined by [`docs/external-artifact-repository-contract.md`](docs/external-artifact-repository-contract.md).
+
+### Authentication and repository authorisation
+
+- Users authenticate with GitHub.
+- Application access is constrained to authorised users of the configured repository.
+- GitHub App credentials and other secrets remain server-side.
+- Protected routes authenticate and authorise before private repository or provider work.
+
+Authentication, repository access, session persistence, and privileged mutation form security boundaries. Changes that cross them require explicit failure-path and denied-path analysis.
+
+### Agent and Workflow definitions
+
+- Connections identify supported execution providers without exposing credentials.
+- Agents bind a connection, master prompt reference, and supported provider options.
+- Workflows define ordered Agent steps.
+- Definitions are persisted through the configured GitHub-backed definition repository and use repository revisions for optimistic concurrency.
+
+Current product behaviour is defined by [`specs/agent-workflows.md`](specs/agent-workflows.md).
+
+### Durable Workflow execution
+
+- Runs snapshot the definitions used for one execution.
+- Cloudflare Workflows drives durable sequential execution.
+- D1 persists run, step, attempt, provider-task, retry, cancellation, and reconciliation state.
+- Successful textual output is persisted before it can become the next step's input.
+- Ambiguous external work is reconciled rather than blindly recreated.
+
+The product invariants are in [`specs/agent-workflows.md`](specs/agent-workflows.md); migrations, source, and tests are authoritative for storage and transition mechanics.
+
+### Provider connections
+
+- OpenAI Responses is a server-side execution provider.
+- Provider credentials are encrypted at rest and never belong in Agent or Workflow definitions.
+- Live provider readiness is distinct from saved configuration.
+- External task creation, polling, retry, cancellation, and ambiguous outcomes are trust and billing boundaries.
+
+### Codex Runner
+
+- Codex Runner is independently deployed from the application.
+- The Runner owns its ChatGPT/Codex authentication, private workspace paths, sandbox configuration, and durable Runner job state.
+- ADT references only safe Runner environment identifiers and supported public options.
+- Ordinary Workflow jobs do not automatically perform Git publication actions.
+- Runner reachability, protocol compatibility, authentication, environment readiness, model readiness, and job readiness are separate conditions.
+
+Operational detail belongs in [`codex-runner/README.md`](codex-runner/README.md).
+
+## Sources of truth and persistence
+
+| Concern | Primary source of truth |
+| --- | --- |
+| Product behaviour and stable invariants | `specs/` |
+| Repository-wide agent/contributor rules | `AGENTS.md` and scoped `AGENTS.md` files |
+| Repeatable Codex procedures | `.agents/skills/` |
+| Artifact content and Git-backed definitions | configured GitHub repository |
+| Artifact repository layout and metadata | `docs/external-artifact-repository-contract.md` plus validation code |
+| Application sessions and durable Workflow/provider state | D1 schema, migrations, and source |
+| Catalogue acceleration | KV cache; GitHub remains authoritative |
+| Durable Workflow orchestration | Cloudflare Workflow implementation plus persisted run state |
+| Codex authentication, workspaces, and Runner jobs | independently deployed Codex Runner |
+| Toolchain and commands | `.nvmrc`, `package.json`, repository scripts, workflows |
+| Deployment configuration | committed configuration and deployment workflows |
+
+## Important trust and state boundaries
+
+- **Browser -> application:** treat browser input as untrusted; authorisation remains server-side.
+- **Application -> GitHub:** validate exact repository targets, revisions, permissions, and mutation intent.
+- **Application -> D1/KV/Workflows:** durable state transitions must remain deterministic and safe under retries, interruption, and stale observations.
+- **Application -> OpenAI/provider APIs:** provider creation may be billable or side-effecting; ambiguous outcomes must not cause blind duplicate work.
+- **Application -> Codex Runner:** expose only bounded safe configuration and diagnostics; never transfer the Runner's ChatGPT/Codex credential to ADT.
+- **Runner -> workspace:** filesystem access is controlled by the operator-provisioned environment and selected sandbox.
+- **ADT repository -> artifact repository:** application code and reusable artifact content are separate repositories and must not be mutated interchangeably without explicit task scope.
+
+## Where to look
+
+- Product behaviour: `specs/000-current-application-spec.md` and `specs/agent-workflows.md`.
+- Repository agent rules: `AGENTS.md`; specification-writing rules: `specs/AGENTS.md`.
+- Repeatable agent workflows: `.agents/skills/`.
+- Human development process: `docs/development-workflow.md`.
+- Feature-request hand-off: `.agents/skills/feature-request-creation/SKILL.md` and `docs/codex-create-feature-request.md`.
+- Artifact storage contract: `docs/external-artifact-repository-contract.md`.
+- Production configuration and recovery: `docs/github-artifact-deployment.md`.
+- Dependency/toolchain policy: `docs/dependency-toolchain-maintenance.md`.
+- Codex Runner operations: `codex-runner/README.md`.
+- Exact internal behaviour: source, tests, schemas, migrations, configuration, and workflows.
+
+## Keeping this map current
+
+Update this document when a change materially alters a major component, source-of-truth boundary, persistence responsibility, trust boundary, or external-system relationship. Do not update it for ordinary internal refactors that preserve those relationships.
