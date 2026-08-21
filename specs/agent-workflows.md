@@ -124,6 +124,9 @@
 - Workspace provisioning and reset policy remain operator responsibilities.
 - The application may expose bounded workspace diagnostics such as readiness, Git availability, repository presence, current revision, and clean/modified state.
 - Workspace diagnostics must not expose private paths, repository remotes, filenames, credentials, or arbitrary command output.
+- Local execution sandbox health is an advisory signal independent of workspace readiness and Codex authentication.
+- The application may show bounded sandbox availability, backend, and safe failure classification without changing Agent save, Workflow admission, or environment readiness.
+- Sandbox preflight must be non-destructive, must not contact provider or repository services, and must not change Runner security settings.
 
 ## 14. Codex Runner job behaviour
 
@@ -144,6 +147,7 @@
 - After an operational refresh failure, retained history must be clearly identified as stale rather than presented as current state.
 - Empty or idle state is shown only when a current successful observation establishes it.
 - Deployment, restart, image rollout, mounts, persistent storage, and Runner lifecycle remain operator-owned.
+- Operators diagnose sandbox prerequisites before changing container privileges or capabilities.
 - Artifact Toolkit CI may build or publish Runner artifacts, but normal application behaviour does not deploy or restart the external Runner.
 - Detailed Runner deployment and protocol guidance belongs in [`codex-runner/README.md`](../codex-runner/README.md).
 
