@@ -6,6 +6,7 @@ When Codex is launched with the full GitHub issue URL, Codex must:
 
 - read the complete issue before changing code;
 - verify that the issue belongs to `zailghe3/artifact-dev-toolkit`;
+- treat the issue as the source of truth for objective, required behaviour, scope, out-of-scope boundaries, and acceptance criteria;
 - treat the objective, required behaviour, behavioural requirements and invariants, technical constraints, out-of-scope boundaries, and acceptance criteria as the binding feature contract;
 - treat the current gap and implementation-context sections as planning-time context that must be revalidated against current `main` rather than as a frozen implementation plan;
 - compare the binding feature contract with current `main`, current specifications, and relevant canonical contracts before editing;
