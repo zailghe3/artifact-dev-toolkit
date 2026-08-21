@@ -11,6 +11,8 @@ body:
 
         Assign a Feature ID before implementation using the repository convention, such as `DEV-001`. The Feature ID identifies the product capability independently from the GitHub issue number; the GitHub issue number remains the canonical work-item tracker.
 
+        Describe the durable outcome and observable constraints rather than predicting the internal implementation. Current implementation context may be useful, but Codex will revalidate it against current `main` before editing.
+
   # Keep this block synchronized with .github/ISSUE_TEMPLATE/shared/codex-execution-contract.md.
   # `npm run issue:validate` detects drift because GitHub issue forms cannot include external Markdown files.
   - type: markdown
@@ -25,6 +27,13 @@ body:
         - read the complete issue before changing code;
         - verify that the issue belongs to `zailghe3/artifact-dev-toolkit`;
         - treat the issue as the source of truth for objective, required behaviour, scope, out-of-scope boundaries, and acceptance criteria;
+        - treat the objective, required behaviour, behavioural requirements and invariants, technical constraints, out-of-scope boundaries, and acceptance criteria as the binding feature contract;
+        - treat the current gap and implementation-context sections as planning-time context that must be revalidated against current `main` rather than as a frozen implementation plan;
+        - compare the binding feature contract with current `main`, current specifications, and relevant canonical contracts before editing;
+        - stop without modifying code and report that no implementation is needed if current `main` already satisfies the binding feature contract;
+        - stop without modifying code and report that the issue needs re-baselining if its objective remains valid but planning-time assumptions are materially stale, contradictory, or unsafe to apply to the current architecture;
+        - stop without modifying code and report the conflict if the issue has been superseded by or conflicts with newer canonical product requirements;
+        - do not recreate obsolete implementation mechanics merely because planning-time context or an older requirement described them;
         - stop without modifying code if the issue cannot be retrieved, belongs to another repository, is materially incomplete, or conflicts with the task context;
         - never substitute another issue, prior task, inferred feature, or remembered requirement;
         - remain within the stated scope and avoid unrelated improvements or upgrades;
@@ -53,8 +62,8 @@ body:
     id: objective
     attributes:
       label: Objective
-      description: What outcome should this change achieve?
-      placeholder: Describe the user or product outcome, not only the technical change.
+      description: What durable outcome should this change achieve even if earlier features are implemented differently?
+      placeholder: Describe the user or product outcome, not the technical approach.
     validations:
       required: true
 
@@ -69,8 +78,8 @@ body:
   - type: textarea
     id: current-behaviour
     attributes:
-      label: Current behaviour
-      description: What does the application do today?
+      label: Current gap at planning time
+      description: Describe the product or capability gap observed now. Avoid a detailed implementation inventory; Codex will re-establish current state before implementation.
     validations:
       required: true
 
@@ -78,7 +87,7 @@ body:
     id: required-behaviour
     attributes:
       label: Required behaviour
-      description: Describe the expected behaviour after implementation.
+      description: Describe the stable end-state behaviour that must remain true regardless of internal implementation.
     validations:
       required: true
 
@@ -86,25 +95,25 @@ body:
     id: user-experience
     attributes:
       label: User experience
-      description: Describe screens, actions, messages, and interaction flow.
+      description: Describe user-visible screens, actions, messages, and interaction flow where these are part of the feature contract.
 
   - type: textarea
     id: functional-requirements
     attributes:
-      label: Functional requirements
-      description: List the detailed requirements Codex must implement.
+      label: Behavioural requirements and invariants
+      description: List observable requirements, domain rules, safety properties, and stable invariants. Avoid file, function, route, helper, algorithm, or storage prescriptions unless externally contractual.
       placeholder: |
-        1. Requirement one
-        2. Requirement two
-        3. Requirement three
+        1. Required behaviour or invariant one
+        2. Required behaviour or invariant two
+        3. Required behaviour or invariant three
     validations:
       required: true
 
   - type: textarea
     id: technical-considerations
     attributes:
-      label: Technical considerations
-      description: Note relevant architecture, storage, security, deployment, migration, or compatibility constraints.
+      label: Technical constraints
+      description: Note architecture, security, compatibility, deployment, migration, or operational constraints that must be respected. Do not use this section as an implementation plan.
 
   - type: textarea
     id: out-of-scope
@@ -116,12 +125,12 @@ body:
     id: acceptance-criteria
     attributes:
       label: Acceptance criteria
-      description: Provide observable, testable completion criteria.
+      description: Provide observable or stable contract-level evidence that the required outcome is satisfied; prefer black-box checks over implementation assertions.
       placeholder: |
-        - [ ] Expected behaviour is implemented
-        - [ ] Relevant error and edge cases are handled
-        - [ ] Typecheck and build succeed
-        - [ ] Current application specification is updated to reflect the implemented behaviour
+        - [ ] Required user-visible behaviour is demonstrated
+        - [ ] Relevant failure and safety invariants are exercised
+        - [ ] Relevant repository validation succeeds
+        - [ ] Current application specification is updated when behaviour changes
     validations:
       required: true
 
@@ -145,5 +154,5 @@ body:
   - type: textarea
     id: codex-guidance
     attributes:
-      label: Codex implementation guidance
-      description: Optional instructions for Codex, including files to review or constraints to preserve.
+      label: Implementation context — revalidate against current main
+      description: Optional non-binding context such as existing areas worth inspecting or known traps. Do not prescribe an internal solution unless that mechanism is itself required by the feature contract.

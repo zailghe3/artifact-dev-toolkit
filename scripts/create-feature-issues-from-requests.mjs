@@ -4,7 +4,7 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { renderFeatureIssue } from './render-feature-issue.mjs';
-import { validateFeatureRequestData } from './feature-request-validation.mjs';
+import { requestStatusFor, validateFeatureRequestData } from './feature-request-validation.mjs';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const featureRequestDir = 'requests/features';
@@ -107,11 +107,23 @@ export function loadAndRenderRequest(requestPath) {
     throw new Error(`${requestPath} must contain a requestId matching its canonical file name.`);
   }
   validateFeatureRequestData(data);
-  return { data, requestId, body: `${issueMarker(requestId)}\n\n${renderFeatureIssue(data)}` };
+  return {
+    data,
+    requestId,
+    requestStatus: requestStatusFor(data),
+    body: `${issueMarker(requestId)}\n\n${renderFeatureIssue(data)}`,
+  };
+}
+
+function plannedResult(request) {
+  console.log(`Skipped ${request.path}; requestStatus is planned, so no implementation issue is created.`);
+  return { path: request.path, requestId: request.requestId, status: 'planned' };
 }
 
 function createIssueFromLoaded(request, { ghExec = gh } = {}) {
-  const { data, requestId, body, path: requestPath } = request;
+  const { data, requestId, requestStatus, body, path: requestPath } = request;
+  if (requestStatus !== 'ready') return plannedResult(request);
+
   const existingIssue = findExistingIssue(requestId, { ghExec });
   if (existingIssue) {
     console.log(`Skipped ${requestPath}; marker already exists in ${existingIssue.url}.`);
@@ -151,6 +163,11 @@ export function processRequests(paths, { dryRun = false, ghExec = gh } = {}) {
   const requests = validateSelectedRequests(paths);
   const results = [];
   for (const request of requests) {
+    if (request.requestStatus !== 'ready') {
+      results.push(plannedResult(request));
+      continue;
+    }
+
     const existingIssue = findExistingIssue(request.requestId, { ghExec });
     if (existingIssue) {
       console.log(`Skipped ${request.path}; marker already exists in ${existingIssue.url}.`);

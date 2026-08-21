@@ -6,9 +6,13 @@ This repository uses a lightweight product-development workflow for a single mai
 
 ```text
 Idea or problem
-→ clarify objective, scope, UX, constraints, and acceptance criteria
-→ create an implementation-ready GitHub issue
+→ clarify durable objective, scope, UX, constraints, and acceptance criteria
+→ create canonical feature request record(s)
+→ keep future-dependent requests planned
+→ re-baseline the next request against current main and promote it to ready
+→ merge creates the corresponding implementation-ready GitHub issue
 → give Codex the full issue URL
+→ Codex revalidates the issue against current main
 → Codex follows repository guidance and applicable Skills
 → Codex implements and opens a pull request
 → CI validates
@@ -20,15 +24,16 @@ Idea or problem
 
 Before implementation, clarify:
 
-- the user problem and intended outcome;
-- current and required behaviour;
+- the user problem and intended durable outcome;
+- the product or capability gap at planning time;
+- required end-state behaviour;
 - user experience;
-- functional requirements;
+- behavioural requirements and stable invariants;
 - architecture, security, compatibility, and deployment constraints;
 - edge cases and explicit out-of-scope boundaries;
 - observable acceptance criteria.
 
-Do not hand unresolved product decisions to Codex.
+Do not hand unresolved product decisions to Codex. Do not compensate for uncertainty by prescribing a speculative future implementation.
 
 ## Repository scaffolding
 
@@ -44,7 +49,8 @@ Do not hand unresolved product decisions to Codex.
 - Feature IDs identify capabilities independently from GitHub issue numbers.
 - GitHub issues remain the canonical implementation work items.
 - Implementation-ready issues must be understandable without product-chat history or undocumented assumptions.
-- `status:ready-for-codex` means the objective, scope, requirements, constraints, and acceptance criteria are sufficiently defined for implementation.
+- Issues should describe the desired end state and durable constraints rather than predict the internal implementation.
+- `status:ready-for-codex` means the issue has been generated from a ready request whose binding contract was revalidated against the repository state at promotion time.
 - Pull requests include the Feature ID and an issue closing reference such as `Closes #123`.
 
 ## Automated feature-request creation
@@ -53,21 +59,29 @@ For programmatic ChatGPT-to-Codex hand-off:
 
 ```text
 Discuss and agree feature(s)
-→ ChatGPT supplies structured request data
+→ ChatGPT supplies outcome-focused structured request data
 → Codex uses $feature-request-creation
 → Codex writes requests/features/<request-id>.json
+→ each request is planned or ready
 → Codex opens a request-only PR
 → CI validates
-→ merge creates the corresponding GitHub issue
+→ merge stores every request permanently
+→ ready requests create GitHub issues
+→ planned requests wait until re-baselined and promoted
 ```
 
 - The authoritative Codex procedure is [`.agents/skills/feature-request-creation/SKILL.md`](../.agents/skills/feature-request-creation/SKILL.md).
 - [`codex-create-feature-request.md`](codex-create-feature-request.md) is the maintainer-facing overview.
 - Request JSON files remain permanent design records under `requests/features/`.
-- Codex must not implement the feature while creating the request.
+- New records explicitly use `requestStatus: "planned"` or `requestStatus: "ready"`; historical records without the field remain ready for backward compatibility.
+- A planned record preserves a durable feature intention without creating an implementation issue.
+- Promotion from planned to ready is a re-baselining step: inspect current `main`, remove already-satisfied or stale requirements, then update the same canonical record.
+- Dependencies between planned features should be stated as required capabilities or invariants rather than predicted outcomes of earlier Feature IDs.
+- For a ready request, merge creates the corresponding GitHub issue; merging a planned request does not create one.
+- Codex must not implement the feature while creating or promoting the request.
 - Codex must not create the GitHub issue directly.
 - The post-merge workflow uses the immutable request ID to avoid duplicate issue creation.
-- Recovery workflows may safely retry missing issue creation without recreating existing issues.
+- Recovery workflows may safely retry missing issue creation without recreating existing issues; planned requests remain intentionally skipped.
 
 ## Codex implementation
 
@@ -86,7 +100,14 @@ Codex must follow:
 - the complete GitHub issue;
 - the issue-specific Codex execution contract embedded in the feature issue.
 
-The issue is the source of truth for implementation scope. Material scope changes should be agreed before implementation continues. Stable repository rules and procedures should not be recopied into every launch prompt.
+Before editing, Codex revalidates the binding issue contract against current `main`, current specifications, and current canonical contracts. The possible outcomes are:
+
+- **still current** — implement the binding contract;
+- **already satisfied** — stop without a code change and report that no implementation is needed;
+- **re-baseline required** — the objective remains valid but planning-time assumptions are materially stale or contradictory, so stop before editing;
+- **superseded/conflicting** — stop and report the newer canonical requirement or conflict.
+
+Planning-time current-state descriptions and implementation context are not instructions to recreate obsolete mechanics. Material scope changes should be agreed and reflected in the canonical request/issue before implementation continues. Stable repository rules and procedures should not be recopied into every launch prompt.
 
 ## Pull request expectations
 
@@ -122,7 +143,7 @@ The workflow files and tests are authoritative for trigger mechanics, permission
 
 - Failed PR validation: fix the branch and rerun through a new push.
 - Package-lock drift: use the repository's trusted package-lock repair process rather than hand-editing the lockfile.
-- Failed feature issue creation: use the feature-request recovery workflow; immutable request IDs prevent duplicate issues.
+- Failed feature issue creation: use the feature-request recovery workflow; immutable request IDs prevent duplicate issues and planned requests remain skipped until promotion.
 - Failed production deployment: use the repository's manual deployment recovery workflow against the intended verified commit.
 
 ## Related documentation
@@ -130,7 +151,7 @@ The workflow files and tests are authoritative for trigger mechanics, permission
 - [`AGENTS.md`](../AGENTS.md) — repository-wide Codex/contributor rules and Skill routing.
 - [`ARCHITECTURE.md`](../ARCHITECTURE.md) — system map and durable boundaries.
 - [`specs/AGENTS.md`](../specs/AGENTS.md) — specification-writing conventions.
-- [`.agents/skills/feature-request-creation/SKILL.md`](../.agents/skills/feature-request-creation/SKILL.md) — feature-request procedure.
+- [`.agents/skills/feature-request-creation/SKILL.md`](../.agents/skills/feature-request-creation/SKILL.md) — outcome shaping, request lifecycle, and feature-request procedure.
 - [`.agents/skills/implementation-strategy/SKILL.md`](../.agents/skills/implementation-strategy/SKILL.md) — cross-boundary implementation planning.
 - [`.agents/skills/code-change-verification/SKILL.md`](../.agents/skills/code-change-verification/SKILL.md) — final implementation verification.
 - [`.agents/skills/spec-sync/SKILL.md`](../.agents/skills/spec-sync/SKILL.md) — current-state specification synchronization.

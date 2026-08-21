@@ -62,6 +62,22 @@ When Codex repeatedly misunderstands a rule, needs the same procedural explanati
 
 Prefer improving the appropriate scaffold over making every future prompt longer.
 
+## Feature-design durability
+
+Treat a future feature as a contract for a desired end state, not a forecast of how the repository will look when that feature is eventually implemented.
+
+When shaping a feature:
+
+- separate the durable outcome from a proposed implementation approach;
+- ask whether each requirement would still need to be true if earlier planned features were implemented differently but correctly;
+- ask whether each requirement would still need to be true if this feature’s internal implementation were replaced while preserving its intended behaviour;
+- keep user-visible behaviour, domain rules, external contracts, security/trust boundaries, failure semantics, data-integrity rules, compatibility constraints and other stable invariants explicit;
+- prefer black-box or stable contract-level acceptance criteria;
+- avoid freezing file names, function names, internal routes, helper names, algorithms, storage mechanisms, branch naming, internal error codes, exact API sequences or component structure unless they are themselves part of the required external contract;
+- express dependencies as capabilities or invariants that must exist at implementation time, not as predicted implementation results of earlier Feature IDs.
+
+Implementation-specific observations can still be useful as non-binding context, but they must be clearly separated from the feature contract and revalidated against current `main` later.
+
 ## Working modes
 
 ### 1. Design / brainstorming
@@ -75,6 +91,8 @@ When I am exploring an idea, stay at the level of:
 - feature boundaries;
 - sequencing into incremental, independently useful capabilities.
 
+For a sequence of future features, distinguish the durable product intentions from details that cannot be known until earlier work has landed. Do not make later features artificially implementation-ready by inventing assumptions about earlier implementations.
+
 Do not jump into implementation details or produce a Codex prompt unless I ask for one.
 
 For descriptive/design responses, lead with key points and recommendations rather than implementation detail. Go deeper when I ask.
@@ -83,19 +101,32 @@ For descriptive/design responses, lead with key points and recommendations rathe
 
 In ADT, when I ask to **create a feature** or **create features**, this normally means creating the canonical feature request before implementation.
 
+Before producing the Codex prompt:
+
+- apply the feature-design durability rules above;
+- compare later features in a batch with earlier proposed outcomes and remove avoidable overlap or predicted repair work;
+- keep separate features independently useful and independently testable;
+- classify each canonical request as `ready` only when it has been revalidated against current `main` and does not depend on unresolved predecessor outcomes;
+- classify later or context-dependent features as `planned` when their durable outcome is worth preserving but their residual implementation scope should be re-baselined later;
+- do not add speculative implementation detail merely to justify a `ready` status.
+
 Return **one complete, copy-pasteable Codex prompt** that:
 
 - targets the latest `zailghe3/artifact-dev-toolkit` state;
 - explicitly invokes `$feature-request-creation`;
-- contains the complete agreed feature-request JSON payload for every requested feature inline;
-- tells Codex to preserve the agreed intent and adapt representation/schema details only if the current canonical schema requires it;
+- contains the complete agreed feature-request JSON payload for every requested feature inline, including explicit `requestStatus` values;
+- describes objectives as durable outcomes, `currentBehaviour` as the planning-time gap, `functionalRequirements` as behavioural requirements/invariants, `technicalConsiderations` as constraints rather than a solution plan, and `acceptanceCriteria` as observable evidence;
+- keeps any `codexGuidance` non-binding and suitable for revalidation against current `main`;
+- tells Codex to preserve the agreed product intent while applying the Skill’s outcome-stability, predecessor-independence, overlap and lifecycle rules;
 - keeps actual feature implementation out of scope.
 
-Do not re-copy the Skill’s branch, duplicate-search, validation, rendering, issue-creation, or PR mechanics into the prompt unless the current task genuinely overrides them.
+Do not re-copy the Skill’s branch, duplicate-search, validation, rendering, issue-creation, promotion, or PR mechanics into the prompt unless the current task genuinely overrides them.
 
 Do not give me standalone JSON followed by a separate Codex prompt.
 
 Feature design/request creation and feature implementation are distinct stages unless I explicitly ask to combine them and the current repository workflow supports doing so safely.
+
+When a planned request is later selected for implementation, re-baseline the canonical request against current `main` before promoting it to `ready`; remove already-satisfied requirements and stale implementation assumptions rather than carrying them forward.
 
 ### 3. Implementation
 
@@ -106,6 +137,8 @@ For a normal implementation, prefer a minimal launcher such as:
 `Implement this issue: <full current GitHub issue URL>`
 
 Add only task-specific clarification that is not already represented by the issue, applicable `AGENTS.md`, `ARCHITECTURE.md`, repo-local Skills, specifications, or repository contracts.
+
+The issue execution contract is responsible for comparing the binding feature outcome with current `main` before edits. If the issue is already satisfied, materially stale and in need of re-baselining, or superseded by newer canonical requirements, do not instruct Codex to manufacture changes merely to close the old issue.
 
 ChatGPT should not silently expand the agreed feature while writing the implementation prompt.
 

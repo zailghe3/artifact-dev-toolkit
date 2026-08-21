@@ -13,7 +13,7 @@ These instructions apply to Codex and other coding agents working in this reposi
 
 ## Mandatory skill usage
 
-- Use `$feature-request-creation` when asked to create, submit, or formalise one or more canonical ADT feature requests before implementation.
+- Use `$feature-request-creation` when asked to create, submit, formalise, re-baseline, or promote one or more canonical ADT feature requests before implementation.
 - Use `$implementation-strategy` before editing when implementation crosses authentication, authorisation, secrets, repository mutation, persistence, migrations, durable Workflow state, concurrency, idempotency, retry/cancellation, stale state, GitHub integration, Cloudflare runtime/deployment, provider APIs, Codex Runner, or multiple major components.
 - Use `$code-change-verification` after functional code, test, executable configuration, build, or workflow changes and before reporting an implementation or correction pull request complete.
 - Use `$spec-sync` when implemented product behaviour or a stable product invariant changes; apply it before final verification.
