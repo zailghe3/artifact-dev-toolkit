@@ -18,7 +18,7 @@ const agent={id:'planning-agent',name:'Planning Agent'};
 const codexConnection={key:'codex-primary',name:'Codex',adapter:'codex-runner',enabled:false,capabilities:{asynchronous:true,cancellation:true}};
 const snapshot=(overrides={})=>({configured:true,reachable:true,capabilitiesAvailable:true,codexAvailable:true,jobExecution:true,environmentCatalogAvailable:true,authenticated:true,authStatusAvailable:true,modelCatalogAvailable:true,available:true,environments:[{key:'dev',name:'Development',enabled:true,ready:true,sandbox:'workspace-write'},{key:'offline',name:'Offline',enabled:true,ready:false,sandbox:'read-only'}],models:[{id:'model-a',displayName:'Model A',isDefault:true,defaultReasoningEffort:'medium',supportedReasoningEfforts:[{reasoningEffort:'high',description:'First'},{reasoningEffort:'low',description:'Second'}]}],...overrides});
 const savedAgent=(adapterOptions={})=>({id:'saved',name:'Saved',description:'',masterPrompt:'Act.',connectionKey:'codex-primary',adapterOptions});
-const saveDisabled=html=><button[^>]*disabled=""[^>]*>Save Agent<\/button>/.test(html);
+const saveDisabled=html=>/<button[^>]*disabled=""[^>]*>Save Agent<\/button>/.test(html);
 
 test('shared definition ID generation is normalized, bounded, and schema-compatible',()=>{
  assert.equal(definitionIdFromName('Todo List Planner'),'todo-list-planner');

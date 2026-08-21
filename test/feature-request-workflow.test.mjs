@@ -106,7 +106,7 @@ test('changed request discovery returns added and modified canonical files but n
 
     writeFileSync(join(root, 'requests', 'features', 'modified.json'), '{"changed":true}\n');
     rmSync(join(root, 'requests', 'features', 'removed.json'));
-    writeFileSync(join(root, 'requests', 'features', 'added.json'), '{}\n');
+    writeFileSync(join(root, 'requests', 'features', 'added.json'), '{"new":true}\n');
     writeFileSync(join(root, 'requests', 'features', 'nested', 'ignored.json'), '{}\n');
     git(root, 'add', '-A');
     git(root, 'commit', '-qm', 'changes');
