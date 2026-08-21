@@ -37,18 +37,24 @@ Artifact Library helps authorised users find, reuse, create, edit, and safely ma
 
 | Document | Purpose |
 | --- | --- |
-| [Repository instructions](AGENTS.md) | Repository-wide Codex and contributor conventions |
+| [Repository instructions](AGENTS.md) | Repository-wide Codex/contributor conventions and Skill routing |
+| [Architecture](ARCHITECTURE.md) | Major domains, sources of truth, persistence, trust boundaries, and system relationships |
 | [Current application specification](specs/000-current-application-spec.md) | High-level implemented Artifact Toolkit behaviour and product invariants |
 | [Agent Workflows specification](specs/agent-workflows.md) | Current Agent, Workflow, Run, provider, and Codex Runner behaviour |
+| [Development workflow](docs/development-workflow.md) | Maintainer workflow, Codex hand-off, and repository scaffolding |
+| [ADT collaboration context](docs/templates/adt-collaboration-context.md) | Reusable ChatGPT collaboration/base-prompt template |
 | [External artifact repository contract](docs/external-artifact-repository-contract.md) | Artifact repository layout, metadata, and validation contract |
 | [GitHub artifact deployment](docs/github-artifact-deployment.md) | Production configuration and operator recovery |
-| [Development workflow](docs/development-workflow.md) | Maintainer workflow and delivery process |
 | [Dependency and toolchain maintenance](docs/dependency-toolchain-maintenance.md) | Dependency and toolchain maintenance policy |
 | [Codex Runner](codex-runner/README.md) | Runner configuration, workspace, jobs, compatibility, and operations |
 
+Repo-local Codex Skills are stored under `.agents/skills/`; root `AGENTS.md` defines when they are mandatory.
+
 ## Documentation boundaries
 
-- `AGENTS.md` defines durable repository-wide agent and contributor conventions.
+- `AGENTS.md` defines durable repository-wide agent/contributor conventions and routes repeatable work to Skills.
+- `ARCHITECTURE.md` is the concise map of major system relationships and durable boundaries, not a product specification or implementation design.
+- `.agents/skills/` contains focused repeatable Codex procedures; deterministic mechanics remain in repository scripts and CI rather than being duplicated in Skill prose.
 - `specs/` describes current product behaviour and stable safety or lifecycle invariants; `specs/AGENTS.md` defines its writing conventions.
 - `docs/` contains external contracts, maintainer processes, deployment guidance, templates, examples, and historical technical records.
 - `codex-runner/README.md` contains operational detail specific to the independently deployed Runner.
