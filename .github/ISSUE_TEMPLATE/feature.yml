@@ -18,7 +18,7 @@ body:
       value: |
         ## Codex execution contract
 
-        This issue is intended to be a self-sufficient implementation contract. Repository-wide engineering and documentation conventions are defined by the applicable `AGENTS.md` files and also apply.
+        This issue is intended to be a self-sufficient implementation contract. Repository-wide engineering and documentation conventions are defined by the applicable `AGENTS.md` files; mandatory task procedures may additionally be defined by repo-local Skills. Both also apply.
 
         When Codex is launched with the full GitHub issue URL, Codex must:
 
@@ -28,6 +28,7 @@ body:
         - stop without modifying code if the issue cannot be retrieved, belongs to another repository, is materially incomplete, or conflicts with the task context;
         - never substitute another issue, prior task, inferred feature, or remembered requirement;
         - remain within the stated scope and avoid unrelated improvements or upgrades;
+        - follow mandatory Skill routing declared by the applicable `AGENTS.md` files;
         - read the relevant current specification before implementation;
         - update the relevant specification in the same pull request when implemented behaviour changes;
         - preserve the repository's documented compatibility and security constraints;

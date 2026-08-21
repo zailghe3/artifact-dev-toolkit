@@ -2,6 +2,23 @@
 
 These instructions apply to Codex and other coding agents working in this repository.
 
+## Repository map
+
+- Use [`ARCHITECTURE.md`](ARCHITECTURE.md) as the system map for major domains, sources of truth, persistence, trust boundaries, and external-system relationships.
+- Read `ARCHITECTURE.md` before implementation that crosses major components, persistence boundaries, trust boundaries, or external systems.
+- Product behaviour and stable product invariants live under `specs/`; specification-writing rules live in `specs/AGENTS.md`.
+- Repeatable Codex procedures live under `.agents/skills/` and should be loaded only when their trigger applies.
+- Human delivery process and operational guidance live under `docs/`; Codex Runner operations live in `codex-runner/README.md`.
+- Exact implementation mechanics remain authoritative in source, tests, schemas, migrations, configuration, and workflows.
+
+## Mandatory skill usage
+
+- Use `$feature-request-creation` when asked to create, submit, or formalise one or more canonical ADT feature requests before implementation.
+- Use `$implementation-strategy` before editing when implementation crosses authentication, authorisation, secrets, repository mutation, persistence, migrations, durable Workflow state, concurrency, idempotency, retry/cancellation, stale state, GitHub integration, Cloudflare runtime/deployment, provider APIs, Codex Runner, or multiple major components.
+- Use `$code-change-verification` after functional code, test, executable configuration, build, or workflow changes and before reporting an implementation or correction pull request complete.
+- Use `$spec-sync` when implemented product behaviour or a stable product invariant changes; apply it before final verification.
+- Do not invoke a Skill merely because it exists. Follow its stated trigger and boundaries.
+
 ## Scope and sources of truth
 
 - Treat the current task or GitHub issue as the scope boundary.

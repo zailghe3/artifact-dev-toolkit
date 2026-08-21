@@ -22,7 +22,7 @@ export function isProductionPath(path) {
 }
 export function isDocumentationOrRequestPath(path) {
   const p = normalize(path);
-  return p.startsWith('docs/') || p.startsWith('specs/') || p.startsWith('requests/features/') || p === 'README.md' || /^[^/]+\.md$/.test(p);
+  return p.startsWith('docs/') || p.startsWith('specs/') || p.startsWith('.agents/skills/') || p.startsWith('requests/features/') || p === 'README.md' || /^[^/]+\.md$/.test(p);
 }
 
 function unique(values) { return [...new Set(values.filter(Boolean).map(normalize))].sort(); }
@@ -57,7 +57,7 @@ function parseInput(path) {
 function writeOutput(name, value) {
   const out = process.env.GITHUB_OUTPUT;
   const stringValue = typeof value === 'boolean' ? String(value) : String(value ?? '');
-  if (out) appendFileSync(out, `${name}<<EOF\n${stringValue}\nEOF\n`);
+  if (out) appendFileSync(out, `${name}<<EOF\n${stringValue}\nEOF` + '\n');
   else console.log(`${name}=${JSON.stringify(stringValue)}`);
 }
 if (process.argv[1] === new URL(import.meta.url).pathname) {

@@ -2,9 +2,11 @@
 
 Repository: https://github.com/zailghe3/artifact-dev-toolkit
 
-Follow `docs/codex-create-feature-request.md` exactly.
+Use `$feature-request-creation` for this task. Follow `docs/codex-create-feature-request.md` exactly.
 
-Create a branch, write the canonical feature request JSON, validate it, dry-run render it, run relevant checks, open a non-draft pull request, and stop after the pull request is open.
+Treat the structured feature data below as the agreed product input. Preserve its intent and adapt only representation or schema details required by the current canonical repository schema.
+
+The Skill owns repository inspection, duplicate detection, branch/file creation, validation, dry-run rendering, and pull-request mechanics. Create the canonical request record(s), open a non-draft pull request, and stop after the pull request is open.
 
 Do not implement the feature. Do not create the GitHub issue directly.
 
