@@ -77,6 +77,7 @@ Discuss and agree feature(s)
 - A planned record preserves a durable feature intention without creating an implementation issue.
 - Promotion from planned to ready is a re-baselining step: inspect current `main`, remove already-satisfied or stale requirements, then update the same canonical record.
 - Dependencies between planned features should be stated as required capabilities or invariants rather than predicted outcomes of earlier Feature IDs.
+- For a ready request, merge creates the corresponding GitHub issue; merging a planned request does not create one.
 - Codex must not implement the feature while creating or promoting the request.
 - Codex must not create the GitHub issue directly.
 - The post-merge workflow uses the immutable request ID to avoid duplicate issue creation.
