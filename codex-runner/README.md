@@ -91,7 +91,7 @@ Diagnostics may report safe classifications for:
 
 Diagnostics must not expose addresses, credentials, response bodies, arbitrary headers, certificates, raw socket/TLS errors, raw App Server errors, or Codex protocol output.
 
-`GET /v1/environments/<key>/sandbox-diagnostics` runs Codex's model-free Linux sandbox command with a fixed no-op in the configured workspace. The three-second, bounded-output probe is non-destructive and advisory: it contacts neither OpenAI nor GitHub and does not alter workspace, Git, or Runner security settings. Its response and failure log contain only an allowlisted status, Bubblewrap backend, and semantic reason.
+`GET /v1/environments/<key>/sandbox-diagnostics` runs pinned Codex 0.147's debug sandbox command with an explicit `sandbox_mode` matching the environment and a fixed `true` no-op. This direct command path has no model turn or managed permissions profile; the Runner supplies no network, Git, approval, authentication, or mutation operation. The three-second, 8 KiB byte-bounded probe is non-destructive and advisory. Its response and failure log contain only an allowlisted status, semantic reason, and a backend only when process output identifies it safely.
 
 - Successful Codex authentication does not prove that local tool execution works.
 - Filesystem and Git readiness do not prove that the local execution sandbox can initialize.

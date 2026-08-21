@@ -21,15 +21,19 @@ export function classifySandboxFailure(output:string):SandboxDiagnosticReason{
  return"unknown";
 }
 
+function backendFromOutput(output:string):SandboxDiagnostics["backend"]{return /\b(?:bwrap|bubblewrap)\b/i.test(output)?"bubblewrap":"unknown"}
+export function sandboxProbeArguments(environment:RunnerEnvironment){return["-c",`sandbox_mode=${JSON.stringify(environment.sandbox)}`,"sandbox","--","true"]}
+
 /** Runs Codex's pinned, model-free Linux sandbox subcommand with a fixed no-op. */
 export function diagnoseSandbox(environment:RunnerEnvironment,codexCommand:string,spawnProbe:SpawnProbe=spawn,timeoutMs=SANDBOX_DIAGNOSTIC_TIMEOUT_MS):Promise<SandboxDiagnostics>{return new Promise(resolve=>{
- let settled=false,timedOut=false,output="";
+ let settled=false;const chunks:Buffer[]=[];let capturedBytes=0;
  let child:ChildProcess;
- try{child=spawnProbe(codexCommand,["sandbox","linux","--","true"],{cwd:environment.cwd,stdio:["ignore","pipe","pipe"]});}catch{return resolve({environmentKey:environment.key,status:"unavailable",backend:"bubblewrap",reason:"sandbox_helper_unavailable"})}
- const finish=(reason:SandboxDiagnosticReason,status:"available"|"unavailable"|"unknown")=>{if(settled)return;settled=true;clearTimeout(timer);resolve({environmentKey:environment.key,status,backend:"bubblewrap",reason})};
- const capture=(chunk:Buffer|string)=>{if(output.length<SANDBOX_DIAGNOSTIC_OUTPUT_LIMIT)output+=(Buffer.isBuffer(chunk)?chunk.toString("utf8"):chunk).slice(0,SANDBOX_DIAGNOSTIC_OUTPUT_LIMIT-output.length)};
+ try{child=spawnProbe(codexCommand,sandboxProbeArguments(environment),{cwd:environment.cwd,stdio:["ignore","pipe","pipe"]});}catch{return resolve({environmentKey:environment.key,status:"unavailable",backend:"unknown",reason:"sandbox_helper_unavailable"})}
+ const output=()=>Buffer.concat(chunks,capturedBytes).toString("utf8");
+ const finish=(reason:SandboxDiagnosticReason,status:"available"|"unavailable"|"unknown",backend:SandboxDiagnostics["backend"]="unknown")=>{if(settled)return;settled=true;clearTimeout(timer);child.stdout?.off("data",capture);child.stderr?.off("data",capture);resolve({environmentKey:environment.key,status,backend,reason})};
+ const capture=(chunk:Buffer|string)=>{if(capturedBytes>=SANDBOX_DIAGNOSTIC_OUTPUT_LIMIT)return;const bytes=Buffer.isBuffer(chunk)?chunk:Buffer.from(chunk),part=bytes.subarray(0,SANDBOX_DIAGNOSTIC_OUTPUT_LIMIT-capturedBytes);chunks.push(part);capturedBytes+=part.byteLength};
+ const timer=setTimeout(()=>{try{child.kill("SIGKILL")}catch{/* Best-effort termination; settlement is independent of close. */}finish("timeout","unavailable")},timeoutMs);
  child.stdout?.on("data",capture);child.stderr?.on("data",capture);
  child.on("error",error=>finish((error as NodeJS.ErrnoException).code==="ENOENT"?"sandbox_helper_unavailable":"unknown","unavailable"));
- child.on("close",code=>{if(timedOut)return finish("timeout","unavailable");if(code===0)return finish("ok","available");const reason=classifySandboxFailure(output);finish(reason,reason==="unknown"?"unknown":"unavailable")});
- const timer=setTimeout(()=>{timedOut=true;child.kill("SIGKILL")},timeoutMs);
+ child.on("close",code=>{const captured=output(),backend=backendFromOutput(captured);if(code===0)return finish("ok","available",backend);const reason=classifySandboxFailure(captured);finish(reason,reason==="unknown"?"unknown":"unavailable",backend)});
  })}
