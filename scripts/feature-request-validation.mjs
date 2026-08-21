@@ -17,6 +17,23 @@ function normalizeBodyValue(value) {
   return String(value).trim();
 }
 
+export function requestStatusFor(data) {
+  const lifecycle = featureSchema.requestLifecycle ?? {};
+  const field = lifecycle.field ?? 'requestStatus';
+  const allowedValues = Array.isArray(lifecycle.allowedValues) && lifecycle.allowedValues.length > 0
+    ? lifecycle.allowedValues
+    : ['planned', 'ready'];
+  const defaultValue = lifecycle.defaultValue ?? 'ready';
+  const hasExplicitStatus = Object.prototype.hasOwnProperty.call(data ?? {}, field);
+  const status = hasExplicitStatus ? String(data[field] ?? '').trim() : defaultValue;
+
+  if (!allowedValues.includes(status)) {
+    throw new Error(`Invalid ${field}: expected one of ${allowedValues.join(', ')}.`);
+  }
+
+  return status;
+}
+
 export function parseFeatureRequestFile(filePath) {
   try {
     return JSON.parse(readFileSync(resolve(process.cwd(), filePath), 'utf8'));
@@ -34,6 +51,8 @@ export function validateFeatureRequestData(data) {
   if (!requestId) {
     throw new Error('Missing required orchestration field: requestId.');
   }
+
+  requestStatusFor(data);
 
   const missing = featureSchema.fields
     .filter((field) => field.required && normalizeBodyValue(valueFor(data, field)).length === 0)
