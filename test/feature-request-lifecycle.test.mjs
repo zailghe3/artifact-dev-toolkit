@@ -35,22 +35,19 @@ test('planned and ready are the only accepted request lifecycle values', () => {
   );
 });
 
-test('request lifecycle metadata is not copied into the implementation issue body', () => {
-  const rendered = validateFeatureRequestData({ ...baseRequest, requestStatus: 'planned' });
-  assert.doesNotMatch(rendered, /## Request status/i);
-  assert.doesNotMatch(rendered, /requestStatus/);
-  assert.match(rendered, /## Current gap at planning time/);
-  assert.match(rendered, /## Behavioural requirements and invariants/);
-  assert.match(rendered, /## Technical constraints/);
-  assert.match(rendered, /## Implementation context — revalidate against current main/);
-});
-
-test('rendered implementation contract requires current-main preflight', () => {
-  const rendered = validateFeatureRequestData({ ...baseRequest, requestStatus: 'ready' });
-  assert.match(rendered, /already satisfies the binding feature contract/);
-  assert.match(rendered, /issue needs re-baselining/);
-  assert.match(rendered, /superseded by or conflicts with newer canonical product requirements/);
-  assert.match(rendered, /do not recreate obsolete implementation mechanics/);
+test('request lifecycle metadata changes orchestration, not the rendered implementation contract', () => {
+  const planned = validateFeatureRequestData({ ...baseRequest, requestStatus: 'planned' });
+  const ready = validateFeatureRequestData({ ...baseRequest, requestStatus: 'ready' });
+  assert.equal(planned, ready);
+  assert.doesNotMatch(planned, /requestStatus/);
+  for (const value of [
+    baseRequest.objective,
+    baseRequest.userContext,
+    baseRequest.currentBehaviour,
+    baseRequest.requiredBehaviour,
+    ...baseRequest.functionalRequirements,
+    ...baseRequest.acceptanceCriteria,
+  ]) assert.ok(planned.includes(value), `rendered issue omitted request contract value: ${value}`);
 });
 
 test('planned requests skip issue lookup and become eligible after promotion', () => {

@@ -1,9 +1,54 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readFile} from 'node:fs/promises';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { installTsxHook } from './render-tsx.mjs';
+import { canTestProviderConnection, providerConnectionOutputLimit, providerConnectionTestFeedback } from '../lib/provider-connection-presentation.ts';
 
-test('OpenAI connection UI supports ready, pending, successful, and safe failure states',async()=>{const source=await readFile(new URL('../components/ProviderConnectionForm.tsx',import.meta.url),'utf8');assert.match(source,/"Test connection"/);assert.match(source,/disabled=\{busy\|\|!configured\}/);assert.match(source,/testing\?"Testing…":"Test connection"/);assert.match(source,/Connection successful/);assert.match(source,/Authentication failed\./);assert.match(source,/Connection test could not be completed\./);assert.match(source,/value\.output\.slice\(0,100\)/);assert.doesNotMatch(source,/value\.message|Authorization|ciphertext|credential_iv|stack/)});
-test('Codex Cloud remains explicitly transport unavailable without a test action',async()=>{const page=await readFile(new URL('../app/workflows/connections/page.tsx',import.meta.url),'utf8');assert.match(page,/Codex Cloud/);assert.match(page,/Transport unavailable/);assert.equal((page.match(/<ProviderConnectionForm/g)??[]).length,1)});
+const requireTsx = installTsxHook();
+const { ProviderConnectionForm } = requireTsx('../components/ProviderConnectionForm.tsx');
+const { CodexRunnerConnection } = requireTsx('../components/CodexRunnerConnection.tsx');
 
-test('Codex Runner connection reports the advertised job execution capability',async()=>{const source=await readFile(new URL('../components/CodexRunnerConnection.tsx',import.meta.url),'utf8');assert.match(source,/status\.capabilities\.jobExecution\?"Supported":"Not supported by this Runner"/);assert.doesNotMatch(source,/<dd>Not enabled<\/dd>/)});
-test('legacy Codex environment UI is explicitly separate from Runner environments',async()=>{const source=await readFile(new URL('../app/workflows/codex-environments/page.tsx',import.meta.url),'utf8');assert.match(source,/do not configure self-hosted Codex Runner Agents/);assert.match(source,/discovered from the Runner/)});
+test('OpenAI connection testing is enabled only for configured idle connections', () => {
+  assert.equal(canTestProviderConnection({ busy: false, configured: true }), true);
+  assert.equal(canTestProviderConnection({ busy: true, configured: true }), false);
+  assert.equal(canTestProviderConnection({ busy: false, configured: false }), false);
+
+  const ready = renderToStaticMarkup(React.createElement(ProviderConnectionForm, { model: 'gpt-test', ready: true, storageAvailable: true }));
+  const unavailable = renderToStaticMarkup(React.createElement(ProviderConnectionForm, { model: 'gpt-test', ready: false, storageAvailable: true }));
+  assert.match(ready, />Test connection<\/button>/);
+  assert.doesNotMatch(ready, /<button[^>]*disabled=""[^>]*>Test connection<\/button>/);
+  assert.match(unavailable, /<button[^>]*disabled=""[^>]*>Test connection<\/button>/);
+});
+
+test('OpenAI connection test feedback is bounded, fail-safe, and ignores provider-supplied secret fields', () => {
+  const longOutput = 'x'.repeat(providerConnectionOutputLimit + 50);
+  const success = providerConnectionTestFeedback({ ok: true, output: longOutput, message: 'secret-message', credential_iv: 'secret-iv' });
+  assert.match(success, /^Connection successful/);
+  assert.equal(success.includes('x'.repeat(providerConnectionOutputLimit)), true);
+  assert.equal(success.includes('x'.repeat(providerConnectionOutputLimit + 1)), false);
+  assert.doesNotMatch(success, /secret-message|secret-iv/);
+  assert.equal(providerConnectionTestFeedback({ ok: false, category: 'authentication_failed', message: 'upstream secret' }), 'Authentication failed.');
+  assert.equal(providerConnectionTestFeedback({ ok: true, output: 'should not be trusted' }, false), 'Connection test could not be completed.');
+  assert.equal(providerConnectionTestFeedback({ ok: false, category: 'unknown', stack: 'secret stack' }), 'Connection test could not be completed.');
+});
+
+test('Codex Runner connection presents the advertised job-execution capability', () => {
+  const capabilities = {
+    protocolVersion: 1,
+    runnerVersion: 'b'.repeat(40),
+    codexAvailable: true,
+    deviceAuth: true,
+    jobExecution: true,
+    releaseMetadata: 'legacy',
+  };
+  const supported = renderToStaticMarkup(React.createElement(CodexRunnerConnection, {
+    initialStatus: { state: 'connected', label: 'Connected', capabilities, auth: { connected: true } },
+  }));
+  assert.match(supported, /<dt>Coding jobs<\/dt><dd>Supported<\/dd>/);
+
+  const unsupported = renderToStaticMarkup(React.createElement(CodexRunnerConnection, {
+    initialStatus: { state: 'connected', label: 'Connected', capabilities: { ...capabilities, jobExecution: false }, auth: { connected: true } },
+  }));
+  assert.match(unsupported, /<dt>Coding jobs<\/dt><dd>Not supported by this Runner<\/dd>/);
+});

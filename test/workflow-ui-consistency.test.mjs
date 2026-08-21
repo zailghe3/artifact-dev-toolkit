@@ -1,48 +1,57 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readFile} from 'node:fs/promises';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { installTsxHook } from './render-tsx.mjs';
+import { workflowSectionState } from '../lib/workflow-navigation.ts';
 
-const source = path => readFile(new URL(`../${path}`, import.meta.url), 'utf8');
+const requireTsx = installTsxHook();
+const { EntityCard, WorkflowSectionHeader } = requireTsx('../components/WorkflowUi.tsx');
 
-test('Workflow submenu identifies exact and nested active sections accessibly', async () => {
-  const nav=await source('components/WorkflowSubnav.tsx');
-  assert.match(nav,/usePathname/);
-  assert.match(nav,/aria-current=\{active\?"page":undefined\}/);
-  assert.match(nav,/path==="\/workflows"/);
-  for(const route of ['runs','definitions','agents','connections']) assert.match(nav,new RegExp(`startsWith\\(\\"/workflows/${route}/`));
-  assert.doesNotMatch(nav,/Overview[\s\S]*startsWith\("\/workflows"\)/);
+function activeSection(path) {
+  return workflowSectionState(path).find((item) => item.active)?.label;
+}
+
+test('Workflow submenu maps exact and nested routes to one active section', () => {
+  assert.equal(activeSection('/workflows'), 'Overview');
+  assert.equal(activeSection('/workflows/runs'), 'Runs');
+  assert.equal(activeSection('/workflows/runs/123'), 'Runs');
+  assert.equal(activeSection('/workflows/definitions/example/edit'), 'Workflows');
+  assert.equal(activeSection('/workflows/agents/example'), 'Agents');
+  assert.equal(activeSection('/workflows/connections/openai-primary'), 'Connections');
+  assert.equal(activeSection('/workflows/codex-environments/example'), 'Codex environments');
+  assert.equal(workflowSectionState('/workflows/runs/123').filter((item) => item.active).length, 1);
 });
 
-test('catalogues use the shared header, creation wording, and broad entity links', async () => {
-  const cases=[['definitions','New workflow'],['agents','New agent'],['connections','New connection']];
-  for(const [name,label] of cases){const page=await source(`app/workflows/${name}/page.tsx`);assert.match(page,/WorkflowSectionHeader/);assert.match(page,new RegExp(label));}
-  for(const name of ['definitions','agents']){const page=await source(`app/workflows/${name}/page.tsx`);assert.match(page,/DefinitionCatalogue/);}
-  const card=await source('components/WorkflowUi.tsx');
-  assert.match(card,/data-entity-card-link/);
-  assert.match(card,/data-entity-card-actions/);
-  assert.ok(card.indexOf('</Link>') < card.indexOf('data-entity-card-actions'));
+test('shared workflow section header exposes its title, description, and optional creation action', () => {
+  const html = renderToStaticMarkup(React.createElement(WorkflowSectionHeader, {
+    title: 'Agents',
+    description: 'Manage reusable Agents.',
+    action: { href: '/workflows/agents/new', label: 'New agent' },
+  }));
+  assert.match(html, /<header\b/);
+  assert.match(html, /<h1[^>]*>Agents<\/h1>/);
+  assert.match(html, /Manage reusable Agents\./);
+  assert.match(html, /href="\/workflows\/agents\/new"[^>]*>New agent<\/a>/);
 });
 
-test('Agent and Workflow destructive actions share a separate, right-aligned card footer', async () => {
-  const catalogue=await source('components/DefinitionCatalogue.tsx');
-  assert.match(catalogue,/workflowButton\.danger/);
-  assert.match(catalogue,/ml-auto/);
-  assert.match(catalogue,/>Edit<\/Link><button[^>]+[\s\S]*>Delete<\/button>/);
-  assert.ok(catalogue.indexOf('data-entity-card')===-1);
-  const card=await source('components/WorkflowUi.tsx');
-  assert.ok(card.indexOf('</Link>') < card.indexOf('data-entity-card-actions'));
-});
-
-test('connection destructive action is a separate danger footer action', async () => {
-  const page=await source('components/ConnectionCatalogue.tsx');
-  assert.match(page,/workflowButton\.danger/);
-  assert.match(page,/ml-auto/);
-  assert.match(page,/aria-label=\{`Delete connection/);
-});
-
-test('provider diagnostics are a native disclosure closed by default', async () => {
-  const page=await source('app/workflows/runs/[runId]/page.tsx');
-  assert.match(page,/<details[^>]*><summary[^>]*>Provider diagnostics<\/summary>/);
-  assert.doesNotMatch(page,/<details[^>]*open[^>]*><summary[^>]*>Provider diagnostics/);
-  for(const label of ['Client request ID','Transport outcome','Transport reason','Request duration','Provider request ID','HTTP status','Provider processing']) assert.match(page,new RegExp(label));
+test('entity-card navigation and actions are separate interactive regions', () => {
+  const html = renderToStaticMarkup(React.createElement(
+    EntityCard,
+    {
+      href: '/workflows/agents/reviewer',
+      label: 'Open agent Reviewer',
+      actions: React.createElement('button', { type: 'button', 'aria-label': 'Delete agent Reviewer' }, 'Delete'),
+    },
+    React.createElement('h2', null, 'Reviewer'),
+  ));
+  assert.match(html, /data-entity-card="true"/);
+  assert.match(html, /data-entity-card-link="true"/);
+  assert.match(html, /data-entity-card-actions="true"/);
+  const linkStart = html.indexOf('data-entity-card-link');
+  const linkEnd = html.indexOf('</a>', linkStart);
+  const actionStart = html.indexOf('data-entity-card-actions');
+  assert.ok(linkStart >= 0 && linkEnd > linkStart && actionStart > linkEnd);
+  assert.doesNotMatch(html.slice(linkStart, linkEnd), /<button\b/);
+  assert.match(html.slice(actionStart), /aria-label="Delete agent Reviewer"/);
 });

@@ -4,12 +4,12 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { isDocumentationOrRequestPath } from '../scripts/classify-changes.mjs';
 
-const expectedSkills = [
+const requiredSkills = new Set([
   'code-change-verification',
   'feature-request-creation',
   'implementation-strategy',
   'spec-sync',
-];
+]);
 
 function parseSkillFrontmatter(content) {
   const match = content.match(/^---\n([\s\S]*?)\n---\n/);
@@ -22,15 +22,20 @@ function parseSkillFrontmatter(content) {
   return fields;
 }
 
-test('repository contains the architecture map and expected repo-local skills', () => {
+function discoveredSkills() {
+  return readdirSync('.agents/skills').filter((directory) => existsSync(join('.agents', 'skills', directory, 'SKILL.md'))).sort();
+}
+
+test('repository contains the architecture map and required repo-local skills', () => {
   assert.equal(existsSync('ARCHITECTURE.md'), true);
   assert.equal(existsSync('.agents/skills'), true);
-  assert.deepEqual(readdirSync('.agents/skills').sort(), expectedSkills);
+  const discovered = new Set(discoveredSkills());
+  for (const required of requiredSkills) assert.equal(discovered.has(required), true, `missing required Skill: ${required}`);
 });
 
-test('repo-local skills have valid minimal metadata and unique directory-matching names', () => {
+test('every repo-local skill has valid minimal metadata and a unique directory-matching name', () => {
   const names = new Set();
-  for (const directory of expectedSkills) {
+  for (const directory of discoveredSkills()) {
     const skillPath = join('.agents', 'skills', directory, 'SKILL.md');
     const frontmatter = parseSkillFrontmatter(readFileSync(skillPath, 'utf8'));
     assert.equal(frontmatter.name, directory);
@@ -40,8 +45,8 @@ test('repo-local skills have valid minimal metadata and unique directory-matchin
   }
 });
 
-test('repo-local skills are non-deployable documentation inputs', () => {
-  for (const directory of expectedSkills) {
+test('every repo-local skill is a non-deployable documentation input', () => {
+  for (const directory of discoveredSkills()) {
     assert.equal(isDocumentationOrRequestPath(`.agents/skills/${directory}/SKILL.md`), true);
   }
 });
