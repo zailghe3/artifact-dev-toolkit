@@ -1,0 +1,62 @@
+version: "3.8"
+services:
+  codex-runner-controller:
+    image: ghcr.io/zailghe3/artifact-dev-toolkit/codex-runner:RUNNER_REVISION_4_IMMUTABLE
+    environment:
+      CODEX_RUNNER_ROLE: controller
+      CODEX_RUNNER_SHARED_SECRET_FILE: /run/secrets/runner_shared_secret
+      CODEX_RUNNER_EXECUTOR_SHARED_SECRET_FILE: /run/secrets/executor_shared_secret
+      CODEX_RUNNER_EXECUTOR_REDEPLOY_WEBHOOK_FILE: /run/secrets/executor_redeploy_webhook
+      CODEX_RUNNER_EXECUTOR_URL: http://codex-runner-executor:8790
+      CODEX_RUNNER_ENVIRONMENTS_FILE: /run/config/codex-environments.json
+      CODEX_RUNNER_STATE_DIR: /data/runner
+    volumes:
+      - codex-runner-state:/data/runner
+    secrets: [runner_shared_secret, executor_shared_secret, executor_redeploy_webhook]
+    configs:
+      - source: codex_environments
+        target: /run/config/codex-environments.json
+    networks:
+      codex-ingress:
+        aliases: [codex-runner]
+      codex-runner-control-overlay: {}
+  codex-runner-executor:
+    image: ghcr.io/zailghe3/artifact-dev-toolkit/codex-runner:RUNNER_REVISION_4_IMMUTABLE
+    environment:
+      CODEX_RUNNER_ROLE: executor
+      PORT: "8790"
+      CODEX_RUNNER_EXECUTOR_SHARED_SECRET_FILE: /run/secrets/executor_shared_secret
+      CODEX_RUNNER_WORKSPACE_ROOT: /workspaces
+      HTTP_PROXY: http://codex-runner-egress-proxy:3128
+      HTTPS_PROXY: http://codex-runner-egress-proxy:3128
+      ALL_PROXY: http://codex-runner-egress-proxy:3128
+      NO_PROXY: localhost,127.0.0.1,codex-runner-controller,codex-runner-executor
+    cap_drop: [ALL]
+    volumes:
+      - codex-runner-config:/data/codex
+      - codex-runner-workspace:/workspaces
+    secrets: [executor_shared_secret]
+    networks: [codex-runner-control-overlay, codex-runner-egress-overlay]
+  codex-runner-egress-proxy:
+    image: ubuntu/squid:6.10-24.10_edge
+    configs:
+      - source: codex_runner_squid
+        target: /etc/squid/squid.conf
+    cap_drop: [ALL]
+    networks: [codex-runner-egress-overlay, codex-runner-uplink-overlay]
+secrets:
+  runner_shared_secret: {external: true}
+  executor_shared_secret: {external: true}
+  executor_redeploy_webhook: {external: true}
+configs:
+  codex_environments: {file: ./environments.json}
+  codex_runner_squid: {file: ./squid.conf}
+volumes:
+  codex-runner-config: {}
+  codex-runner-state: {}
+  codex-runner-workspace: {}
+networks:
+  codex-ingress: {external: true}
+  codex-runner-control-overlay: {driver: overlay, internal: true}
+  codex-runner-egress-overlay: {driver: overlay, internal: true}
+  codex-runner-uplink-overlay: {driver: overlay}

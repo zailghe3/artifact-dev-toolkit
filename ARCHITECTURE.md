@@ -30,10 +30,9 @@ Next.js -> OpenNext -> Cloudflare Worker
     |       - supported model-based Agent execution
     |
     +--> independently deployed Codex Runner
-            - Codex authentication
-            - operator-provisioned workspaces
-            - bounded Codex jobs
-            - Runner-local durable job state
+            - ADT-facing controller and durable job/control state
+            - isolated Codex executor and operator-provisioned workspaces
+            - trusted egress proxy between executor and public Internet
 ```
 
 Exact bindings, schemas, versions, limits, identifiers, protocols, retries, and deployment mechanics remain authoritative in configuration, source, tests, migrations, and component documentation.
@@ -88,7 +87,8 @@ The product invariants are in [`specs/agent-workflows.md`](specs/agent-workflows
 ### Codex Runner
 
 - Codex Runner is independently deployed from the application.
-- The Runner owns its ChatGPT/Codex authentication, private workspace paths, sandbox configuration, and durable Runner job state.
+- In split Swarm mode the controller owns durable job/control state and the environment catalogue, while an independently isolated executor owns Codex authentication and private workspaces.
+- Docker mounts and networks, plus the trusted egress proxy, form the split-mode execution boundary; the controller never executes model-generated commands.
 - ADT references only safe Runner environment identifiers and supported public options.
 - Ordinary Workflow jobs do not automatically perform Git publication actions.
 - Runner reachability, protocol compatibility, authentication, environment readiness, model readiness, and job readiness are separate conditions.
@@ -107,7 +107,8 @@ Operational detail belongs in [`codex-runner/README.md`](codex-runner/README.md)
 | Application sessions and durable Workflow/provider state | D1 schema, migrations, and source |
 | Catalogue acceleration | KV cache; GitHub remains authoritative |
 | Durable Workflow orchestration | Cloudflare Workflow implementation plus persisted run state |
-| Codex authentication, workspaces, and Runner jobs | independently deployed Codex Runner |
+| Codex authentication and workspaces | isolated Codex Runner executor |
+| Runner jobs, idempotency, and emergency latch | Codex Runner controller |
 | Toolchain and commands | `.nvmrc`, `package.json`, repository scripts, workflows |
 | Deployment configuration | committed configuration and deployment workflows |
 
@@ -118,7 +119,8 @@ Operational detail belongs in [`codex-runner/README.md`](codex-runner/README.md)
 - **Application -> D1/KV/Workflows:** durable state transitions must remain deterministic and safe under retries, interruption, and stale observations.
 - **Application -> OpenAI/provider APIs:** provider creation may be billable or side-effecting; ambiguous outcomes must not cause blind duplicate work.
 - **Application -> Codex Runner:** expose only bounded safe configuration and diagnostics; never transfer the Runner's ChatGPT/Codex credential to ADT.
-- **Runner -> workspace:** filesystem access is controlled by the operator-provisioned environment and selected sandbox.
+- **Runner controller -> executor:** use the private, separately authenticated control API; never transfer ADT or redeploy credentials.
+- **Executor -> workspace/Internet:** filesystem and network access are controlled by container mounts, isolated overlays, and the trusted egress proxy.
 - **ADT repository -> artifact repository:** application code and reusable artifact content are separate repositories and must not be mutated interchangeably without explicit task scope.
 
 ## Where to look

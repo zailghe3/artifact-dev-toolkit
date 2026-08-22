@@ -6,6 +6,54 @@ The packaged Codex binary is an experimental GNU/glibc build. It is neither rele
 
 `release.json` is the canonical source for the packaged Codex version, protocol version, and Runner revision. Build and protocol implementation details remain authoritative in source, tests, and publication workflows.
 
+## Runtime roles and Swarm boundary
+
+The same image supports three explicit roles through `CODEX_RUNNER_ROLE`:
+
+- `integrated` is the default, backwards-compatible single-container service. It retains Codex's `read-only` and `workspace-write` Bubblewrap modes and never selects full access.
+- `controller` owns the public `/v1` API, ADT shared secret, environment catalogue, durable job/idempotency state, persistent emergency latch, and optional Portainer redeploy webhook. It does not start Codex or mount `CODEX_HOME` or workspaces.
+- `executor` exposes only a bounded internal API, runs one Codex execution at a time, and owns `CODEX_HOME` and `/workspaces`. It receives neither the ADT secret nor controller storage or redeploy webhook.
+
+Controller and executor use the separate file-backed `CODEX_RUNNER_EXECUTOR_SHARED_SECRET_FILE`. The internal protocol uses short authenticated requests: execution start returns an opaque execution ID and executor generation; the controller polls status/result and separately requests interruption. An executor generates a fresh opaque generation at every process start. Loss or replacement is never treated as permission to replay a possibly side-effecting turn.
+
+Codex 0.147.0's generated `ThreadStartParams` fixture in this repository explicitly defines `danger-full-access` in `SandboxMode`. Only the executor maps an admitted `workspace-write` environment to that value, always with approval policy `never`. Bubblewrap is intentionally not nested in split Swarm mode because Swarm cannot apply the per-service unconfined settings needed for nested namespaces. Docker's normal seccomp/AppArmor policy, capabilities, mounts, service identity, and network topology are the execution boundary. Do not set `CODEX_UNSAFE_ALLOW_NO_SANDBOX`, privileged mode, `SYS_ADMIN`, unconfined node policy, or mount the Docker socket.
+
+`read-only` environments fail closed in split mode. Full access cannot truthfully enforce a read-only workspace without an outer read-only mount, and the controller does not silently weaken that contract. Integrated mode retains existing behavior.
+
+The accepted residual risk is that commands with executor full access can read Codex authentication material under `CODEX_HOME`. No undocumented credential workaround is used. The executor therefore must not contain any control-plane or infrastructure credential.
+
+## Split deployment and egress
+
+`docker-stack.split.example.yml` demonstrates the intended Portainer/Swarm layout:
+
+- ingress plus controller;
+- internal control overlay plus controller and executor;
+- internal egress overlay plus executor and Squid;
+- non-internal uplink overlay plus Squid only.
+
+`internal: true` disables external routing for an overlay. It is unrelated to Compose `external: true`, which says that the network lifecycle is operator-owned. The controller alias `codex-runner` lets an existing tunnel origin such as `codex-runner:8789` continue to resolve after migration. Executor and proxy ports are not published.
+
+The example uses Ubuntu's version-tagged Squid 6.10 image and the repository-owned `squid.conf`. Squid permits ordinary public HTTP(S) destinations while its destination ACL rejects loopback, carrier-grade NAT, RFC1918, link-local, documentation, multicast, reserved, unique-local IPv6, and IPv6 link-local destinations after resolution. Access logging is disabled so URLs, queries, and credentials are not intentionally recorded. Operators should resolve the shown fixed tag to an approved immutable digest during deployment and use an immutable Runner SHA tag/digest, especially for emergency restarts. The proxy is itself trusted: application policy does not protect against compromise of the proxy process.
+
+`cap_drop: ALL` is shown for executor and proxy and no capabilities are added. Validate it with the exact host/storage setup before rollout. The executor has no uplink network, so removing proxy variables does not create a direct Internet route.
+
+## Emergency stop
+
+Authenticated `POST /v1/control/emergency-stop` first persists the latch, then rejects new admission, cooperatively interrupts/reconciles active work, and finally makes a bounded best-effort POST to the file-backed redeploy webhook. The URL is never returned or logged, redirects are not followed, and only a 2xx response is success. Missing or failed webhook invocation leaves the latch set and reports only a safe reason.
+
+`POST /v1/control/resume` is separate. When a generation was known at stop time, resume requires a healthy, idle executor with a different generation. Controller restart reloads the latch before admission. If redeploy fails, the operator must restart the executor through Portainer, verify the fresh idle generation, and then resume. Normal Cancel remains cooperative. Docker/Portainer remains the resource-monitoring source because the Runner does not receive Docker API access.
+
+## Migration from integrated storage
+
+Before changing the operator-managed stack:
+
+1. Back up and preserve Codex auth/config currently stored in the existing `/data/codex` volume for the executor.
+2. Copy `/data/codex/runner-state` into a distinct controller volume mounted at `/data/runner`.
+3. Expose the existing `/data/codex/environments.json` as immutable controller configuration at `/run/config/codex-environments.json`.
+4. Mount only `CODEX_HOME` and workspaces into the executor. Never mount controller state or environment configuration there, and never mount executor storage into the controller.
+
+The repository does not automate this migration or deploy the home-lab stack. Operators may substitute NFS-backed named volumes, but must provide their own server/export settings rather than embedding private infrastructure in the stack file.
+
 ## Workspace contract
 
 A Runner environment is a pre-provisioned workspace.
