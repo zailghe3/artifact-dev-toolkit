@@ -114,6 +114,8 @@
 - An Agent may select only provider options that the live Runner reports as supported.
 - Interactive approval requests are not part of normal Workflow execution.
 - The Runner returns only bounded final agent text to the Workflow.
+- Split deployments isolate the ADT-facing control plane from the process allowed to execute model-generated commands.
+- The executor never receives the ADT Runner credential, durable controller state, or infrastructure restart credential.
 
 ## 13. Codex Runner workspace boundary
 
@@ -124,7 +126,7 @@
 - Workspace provisioning and reset policy remain operator responsibilities.
 - The application may expose bounded workspace diagnostics such as readiness, Git availability, repository presence, current revision, and clean/modified state.
 - Workspace diagnostics must not expose private paths, repository remotes, filenames, credentials, or arbitrary command output.
-- Local execution sandbox health is an advisory signal independent of workspace readiness and Codex authentication.
+- Execution-boundary health is an advisory signal independent of workspace readiness and Codex authentication.
 - The application may show bounded sandbox availability, backend, and safe failure classification without changing Agent save, Workflow admission, or environment readiness.
 - Sandbox preflight must be non-destructive, must not contact provider or repository services, and must not change Runner security settings.
 
@@ -138,6 +140,7 @@
 - A Runner restart does not silently resubmit previously active Codex work.
 - Cancellation targets the existing accepted job rather than creating replacement work.
 - Temporary polling failure does not cause an accepted Runner job to be recreated.
+- Executor replacement makes work associated with the prior executor generation terminal and never causes side-effecting work to replay.
 
 ## 15. Runner readiness and operations
 
@@ -147,6 +150,7 @@
 - After an operational refresh failure, retained history must be clearly identified as stale rather than presented as current state.
 - Empty or idle state is shown only when a current successful observation establishes it.
 - Deployment, restart, image rollout, mounts, persistent storage, and Runner lifecycle remain operator-owned.
+- An authenticated, persistent emergency stop rejects admission until a deliberate safe resume; restart-trigger failure never clears the latch.
 - Operators diagnose sandbox prerequisites before changing container privileges or capabilities.
 - Artifact Toolkit CI may build or publish Runner artifacts, but normal application behaviour does not deploy or restart the external Runner.
 - Detailed Runner deployment and protocol guidance belongs in [`codex-runner/README.md`](../codex-runner/README.md).
