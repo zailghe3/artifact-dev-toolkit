@@ -7,6 +7,15 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Artifact Library",
   description: "A fast searchable library for prompts, agents, snippets, templates, and app ideas.",
+  appleWebApp: {
+    capable: true,
+    title: "ADT",
+    statusBarStyle: "black-translucent",
+  },
+};
+
+export const viewport = {
+  themeColor: "#020617",
 };
 
 const themeInitScript = `
