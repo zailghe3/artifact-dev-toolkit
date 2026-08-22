@@ -5,14 +5,14 @@ services:
     environment:
       CODEX_RUNNER_ROLE: controller
       CODEX_RUNNER_SHARED_SECRET_FILE: /run/secrets/runner_shared_secret
-      CODEX_RUNNER_EXECUTOR_SHARED_SECRET_FILE: /run/secrets/executor_shared_secret
+      CODEX_RUNNER_EXECUTOR_SIGNING_PRIVATE_KEY_FILE: /run/secrets/executor_signing_private_key
       CODEX_RUNNER_EXECUTOR_REDEPLOY_WEBHOOK_FILE: /run/secrets/executor_redeploy_webhook
       CODEX_RUNNER_EXECUTOR_URL: http://codex-runner-executor:8790
       CODEX_RUNNER_ENVIRONMENTS_FILE: /run/config/codex-environments.json
       CODEX_RUNNER_STATE_DIR: /data/runner
     volumes:
       - codex-runner-state:/data/runner
-    secrets: [runner_shared_secret, executor_shared_secret, executor_redeploy_webhook]
+    secrets: [runner_shared_secret, executor_signing_private_key, executor_redeploy_webhook]
     configs:
       - source: codex_environments
         target: /run/config/codex-environments.json
@@ -25,17 +25,30 @@ services:
     environment:
       CODEX_RUNNER_ROLE: executor
       PORT: "8790"
-      CODEX_RUNNER_EXECUTOR_SHARED_SECRET_FILE: /run/secrets/executor_shared_secret
+      CODEX_RUNNER_EXECUTOR_VERIFYING_PUBLIC_KEY_FILE: /run/config/executor-verifying-public-key.pem
       CODEX_RUNNER_WORKSPACE_ROOT: /workspaces
       HTTP_PROXY: http://codex-runner-egress-proxy:3128
       HTTPS_PROXY: http://codex-runner-egress-proxy:3128
       ALL_PROXY: http://codex-runner-egress-proxy:3128
       NO_PROXY: localhost,127.0.0.1,codex-runner-controller,codex-runner-executor
     cap_drop: [ALL]
+    read_only: true
+    tmpfs:
+      - /tmp:size=268435456,mode=1777
+      - /run:size=16777216,mode=0755
     volumes:
       - codex-runner-config:/data/codex
       - codex-runner-workspace:/workspaces
-    secrets: [executor_shared_secret]
+    configs:
+      - source: executor_verifying_public_key
+        target: /run/config/executor-verifying-public-key.pem
+        mode: 0444
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 4G
+          pids: 512
     networks: [codex-runner-control-overlay, codex-runner-egress-overlay]
   codex-runner-egress-proxy:
     image: ubuntu/squid:6.10-24.10_edge
@@ -46,10 +59,11 @@ services:
     networks: [codex-runner-egress-overlay, codex-runner-uplink-overlay]
 secrets:
   runner_shared_secret: {external: true}
-  executor_shared_secret: {external: true}
+  executor_signing_private_key: {external: true}
   executor_redeploy_webhook: {external: true}
 configs:
   codex_environments: {file: ./environments.json}
+  executor_verifying_public_key: {file: ./executor-verifying-public-key.pem}
   codex_runner_squid: {file: ./squid.conf}
 volumes:
   codex-runner-config: {}

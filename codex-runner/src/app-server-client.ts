@@ -12,7 +12,8 @@ export type CodexTestFailureReason="codex_not_connected"|"app_server_unavailable
 export type CodexTestResult={ok:true;durationMs:number}|{ok:false;reason:CodexTestFailureReason};
 export interface SafeCodexModel{id:string;threadModel:string;displayName:string;isDefault:boolean;defaultReasoningEffort:string;supportedReasoningEfforts:{reasoningEffort:string;description:string}[]}
 export type WorkflowTurnResult={ok:true;outputText:string;threadId:string;turnId:string}|{ok:false;reason:"runner_restarted"|"thread_start_failed"|"turn_start_failed"|"turn_failed"|"interaction_required"|"output_too_large";threadId?:string;turnId?:string};
-export interface AppServerClient {readiness():Promise<boolean>;status():Promise<unknown>;startDeviceLogin():Promise<unknown>;logout():Promise<unknown>;testCodex?(sandbox?:"read-only"|"danger-full-access"):Promise<CodexTestResult>;listModels?():Promise<SafeCodexModel[]>;runWorkflowTurn?(input:{cwd:string;sandbox:"read-only"|"workspace-write"|"danger-full-access";prompt:string;model?:string;reasoningEffort?:string;onStarted?:(threadId:string,turnId:string)=>void}):Promise<WorkflowTurnResult>;interruptWorkflowTurn?(threadId:string,turnId:string):Promise<void>;close():Promise<void>}
+export const EXECUTOR_CODEX_CONFIG_OVERRIDES=["allow_login_shell=false",'web_search="disabled"','shell_environment_policy.inherit="none"','shell_environment_policy.exclude=["*KEY*","*SECRET*","*TOKEN*","*PASSWORD*","*CREDENTIAL*","*AUTH*"]'] as const;
+export interface AppServerClient {readiness():Promise<boolean>;status():Promise<unknown>;startDeviceLogin():Promise<unknown>;logout():Promise<unknown>;testCodex?(sandbox?:"read-only"|"danger-full-access"):Promise<CodexTestResult>;listModels?():Promise<SafeCodexModel[]>;runWorkflowTurn?(input:{cwd:string;sandbox:"read-only"|"workspace-write"|"danger-full-access";prompt:string;model?:string;reasoningEffort?:string;onStarted?:(threadId:string,turnId:string)=>void}):Promise<WorkflowTurnResult>;observeWorkflowTurn?(generation:string,executionId:string):Promise<WorkflowTurnResult>;reconcileUnknownExecution?():Promise<WorkflowTurnResult>;interruptWorkflowTurn?(threadId:string,turnId:string):Promise<void>;close():Promise<void>}
 type Pending={resolve:(value:unknown)=>void;reject:(error:Error)=>void;timer:NodeJS.Timeout};
 type Spawn=typeof spawn;
 class HealthDeadlineError extends Error{constructor(){super("health_deadline")}}
@@ -48,7 +49,7 @@ export class StdioAppServerClient implements AppServerClient{
   private turnLifecycle?:{threadId:string;turnId?:string;agentText?:string;tool:boolean;resolve:(result:"completed"|"failed"|"tool")=>void};
   private testRunning=false;
   private workflowLifecycle?:{threadId:string;turnId?:string;agentText?:string;resolve:(result:"completed"|"failed"|"interaction")=>void};
-  constructor(private readonly command="codex",private readonly runnerVersion="development",private readonly timeoutMs=8_000,private readonly spawnProcess:Spawn=spawn,private readonly healthTimeoutMs=52_000,private readonly cleanupReserveMs=2_000){}
+  constructor(private readonly command="codex",private readonly runnerVersion="development",private readonly timeoutMs=8_000,private readonly spawnProcess:Spawn=spawn,private readonly healthTimeoutMs=52_000,private readonly cleanupReserveMs=2_000,private readonly configOverrides:string[]=[]){ }
 
   async readiness(){try{await this.ready();return true}catch{return false}}
   status(){return this.afterReady("account/read",{refreshToken:false})}
@@ -96,7 +97,8 @@ export class StdioAppServerClient implements AppServerClient{
   private ready(){if(this.initialization)return this.initialization;this.start();this.initialization=this.initialize();return this.initialization}
   private start(){
     let child:ChildProcessWithoutNullStreams;
-    try{child=this.spawnProcess(this.command,["app-server"],{stdio:["pipe","pipe","pipe"],env:process.env})}catch{throw new Error("app_server_unavailable")}
+    const args=this.configOverrides.flatMap(value=>["-c",value]);
+    try{child=this.spawnProcess(this.command,[...args,"app-server"],{stdio:["pipe","pipe","pipe"],env:process.env})}catch{throw new Error("app_server_unavailable")}
     this.process=child;
     this.lines=createInterface({input:child.stdout});
     this.lines.on("line",line=>this.receive(line));

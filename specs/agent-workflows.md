@@ -115,7 +115,7 @@
 - Interactive approval requests are not part of normal Workflow execution.
 - The Runner returns only bounded final agent text to the Workflow.
 - Split deployments isolate the ADT-facing control plane from the process allowed to execute model-generated commands.
-- The executor never receives the ADT Runner credential, durable controller state, or infrastructure restart credential.
+- The executor never receives the ADT Runner credential, a credential capable of authenticating controller requests, durable controller state, or infrastructure restart credential.
 
 ## 13. Codex Runner workspace boundary
 

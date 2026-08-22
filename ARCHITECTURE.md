@@ -119,7 +119,7 @@ Operational detail belongs in [`codex-runner/README.md`](codex-runner/README.md)
 - **Application -> D1/KV/Workflows:** durable state transitions must remain deterministic and safe under retries, interruption, and stale observations.
 - **Application -> OpenAI/provider APIs:** provider creation may be billable or side-effecting; ambiguous outcomes must not cause blind duplicate work.
 - **Application -> Codex Runner:** expose only bounded safe configuration and diagnostics; never transfer the Runner's ChatGPT/Codex credential to ADT.
-- **Runner controller -> executor:** use the private, separately authenticated control API; never transfer ADT or redeploy credentials.
+- **Runner controller -> executor:** authenticate the private control API with controller-held signing material and an executor-held verifier; never place a request-signing, ADT, or redeploy credential in the full-access executor.
 - **Executor -> workspace/Internet:** filesystem and network access are controlled by container mounts, isolated overlays, and the trusted egress proxy.
 - **ADT repository -> artifact repository:** application code and reusable artifact content are separate repositories and must not be mutated interchangeably without explicit task scope.
 

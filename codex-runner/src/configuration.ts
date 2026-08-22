@@ -1,9 +1,10 @@
 import { readFile } from "node:fs/promises";
+import {createPrivateKey,createPublicKey} from "node:crypto";
 export const JOB_REQUEST_BODY_LIMIT=1_970_000;
 export const JOB_PROMPT_UTF8_LIMIT=524_320;
 
 export type RunnerRole="integrated"|"controller"|"executor";
-export interface RunnerConfiguration { role?:RunnerRole;host:string; port:number; sharedSecret?:string;executorSecret?:string;executorBaseUrl?:string;workspaceRoot?:string;redeployWebhook?:string;runnerVersion:string; codexCommand:string; requestBodyLimit:number; jobRequestBodyLimit:number; deviceAuthCompatible:boolean;environmentsFile?:string;stateDirectory:string;jobDurationMs:number }
+export interface RunnerConfiguration { role?:RunnerRole;host:string; port:number; sharedSecret?:string;executorSigningPrivateKey?:string;executorVerifyingPublicKey?:string;executorBaseUrl?:string;workspaceRoot?:string;redeployWebhook?:string;runnerVersion:string; codexCommand:string; requestBodyLimit:number; jobRequestBodyLimit:number; deviceAuthCompatible:boolean;environmentsFile?:string;stateDirectory:string;jobDurationMs:number }
 
 export async function loadSecret(environment:NodeJS.ProcessEnv=process.env, read=readFile):Promise<string>{
   const direct=environment.CODEX_RUNNER_SHARED_SECRET;
@@ -21,8 +22,11 @@ export async function loadConfiguration(environment:NodeJS.ProcessEnv=process.en
   if(!Number.isInteger(port)||port<1||port>65535)throw new Error("invalid_port");if(!Number.isInteger(jobDurationMs)||jobDurationMs<1_000||jobDurationMs>7_000_000)throw new Error("invalid_job_duration");
   const role=(environment.CODEX_RUNNER_ROLE??"integrated") as RunnerRole;if(!["integrated","controller","executor"].includes(role))throw new Error("invalid_runner_role");
   const readNamed=async(directName:string,fileName:string,label:string)=>{const direct=environment[directName],file=environment[fileName];if(direct!==undefined&&file!==undefined)throw new Error(`ambiguous_${label}_configuration`);let value=direct;if(file!==undefined){try{value=(await readFile(file,"utf8")).replace(/\r?\n$/,"")}catch{throw new Error(`${label}_file_unreadable`)}}if(!value)throw new Error(`${label}_missing`);return value};
-  const sharedSecret=role==="executor"?undefined:await loadSecret(environment),executorSecret=role==="integrated"?undefined:await readNamed("CODEX_RUNNER_EXECUTOR_SHARED_SECRET","CODEX_RUNNER_EXECUTOR_SHARED_SECRET_FILE","executor_secret");
+  const sharedSecret=role==="executor"?undefined:await loadSecret(environment);
+  const executorSigningPrivateKey=role==="controller"?await readNamed("CODEX_RUNNER_EXECUTOR_SIGNING_PRIVATE_KEY","CODEX_RUNNER_EXECUTOR_SIGNING_PRIVATE_KEY_FILE","executor_signing_private_key"):undefined;
+  const executorVerifyingPublicKey=role==="executor"?await readNamed("CODEX_RUNNER_EXECUTOR_VERIFYING_PUBLIC_KEY","CODEX_RUNNER_EXECUTOR_VERIFYING_PUBLIC_KEY_FILE","executor_verifying_public_key"):undefined;
+  try{if(executorSigningPrivateKey&&createPrivateKey(executorSigningPrivateKey).asymmetricKeyType!=="ed25519")throw new Error();if(executorVerifyingPublicKey&&createPublicKey(executorVerifyingPublicKey).asymmetricKeyType!=="ed25519")throw new Error()}catch{throw new Error("invalid_executor_authentication_key")}
   const executorBaseUrl=role==="controller"?(environment.CODEX_RUNNER_EXECUTOR_URL??"http://codex-runner-executor:8790"):undefined;if(executorBaseUrl){const url=new URL(executorBaseUrl);if(url.protocol!=="http:"||url.username||url.password||url.pathname!=="/"||url.search||url.hash)throw new Error("invalid_executor_url")}
   let redeployWebhook:string|undefined;if(role==="controller"&&(environment.CODEX_RUNNER_EXECUTOR_REDEPLOY_WEBHOOK||environment.CODEX_RUNNER_EXECUTOR_REDEPLOY_WEBHOOK_FILE))redeployWebhook=await readNamed("CODEX_RUNNER_EXECUTOR_REDEPLOY_WEBHOOK","CODEX_RUNNER_EXECUTOR_REDEPLOY_WEBHOOK_FILE","executor_redeploy_webhook");
-  return{role,host:environment.HOST??"0.0.0.0",port,sharedSecret,executorSecret,executorBaseUrl,workspaceRoot:environment.CODEX_RUNNER_WORKSPACE_ROOT??"/workspaces",redeployWebhook,runnerVersion:environment.CODEX_RUNNER_VERSION??"development",codexCommand:environment.CODEX_COMMAND??"codex",requestBodyLimit:16_384,jobRequestBodyLimit:JOB_REQUEST_BODY_LIMIT,deviceAuthCompatible:environment.CODEX_DEVICE_AUTH_COMPATIBLE==="1",environmentsFile:environment.CODEX_RUNNER_ENVIRONMENTS_FILE,stateDirectory:environment.CODEX_RUNNER_STATE_DIR??"/data/runner",jobDurationMs};
+  return{role,host:environment.HOST??"0.0.0.0",port,sharedSecret,executorSigningPrivateKey,executorVerifyingPublicKey,executorBaseUrl,workspaceRoot:environment.CODEX_RUNNER_WORKSPACE_ROOT??"/workspaces",redeployWebhook,runnerVersion:environment.CODEX_RUNNER_VERSION??"development",codexCommand:environment.CODEX_COMMAND??"codex",requestBodyLimit:16_384,jobRequestBodyLimit:JOB_REQUEST_BODY_LIMIT,deviceAuthCompatible:environment.CODEX_DEVICE_AUTH_COMPATIBLE==="1",environmentsFile:environment.CODEX_RUNNER_ENVIRONMENTS_FILE,stateDirectory:environment.CODEX_RUNNER_STATE_DIR??"/data/runner",jobDurationMs};
 }
