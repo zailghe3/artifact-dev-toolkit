@@ -1,7 +1,7 @@
 version: "3.8"
 services:
   codex-runner-controller:
-    image: ghcr.io/zailghe3/artifact-dev-toolkit/codex-runner:RUNNER_REVISION_4_IMMUTABLE
+    image: poulti/adt-codex-runner:REPLACE_WITH_MERGED_GIT_SHA
     environment:
       CODEX_RUNNER_ROLE: controller
       CODEX_RUNNER_SHARED_SECRET_FILE: /run/secrets/runner_shared_secret
@@ -21,7 +21,7 @@ services:
         aliases: [codex-runner]
       codex-runner-control-overlay: {}
   codex-runner-executor:
-    image: ghcr.io/zailghe3/artifact-dev-toolkit/codex-runner:RUNNER_REVISION_4_IMMUTABLE
+    image: poulti/adt-codex-runner:REPLACE_WITH_MERGED_GIT_SHA
     environment:
       CODEX_RUNNER_ROLE: executor
       PORT: "8790"
