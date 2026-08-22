@@ -37,6 +37,16 @@ These instructions apply to Codex and other coding agents working in this reposi
 - Preserve explicit contracts, deterministic behaviour, least privilege, secure defaults, and clear failure modes.
 - Do not weaken tests, linting, type checking, build validation, workflow security, deployment checks, or security controls merely to make a change pass.
 
+## Testing
+
+- Prefer tests of observable behaviour, stable contracts, security invariants, and externally meaningful state transitions over tests of implementation text or structure.
+- When the implementation can be replaced without changing required behaviour, the corresponding behavioural tests should normally continue to pass.
+- Avoid asserting exact documentation prose, source-code fragments, helper names, styling tokens, file layout, or control-flow syntax unless that exact representation is itself a contract.
+- Before adding a source-inspection test, first use or introduce a behavioural seam such as an exported pure function, rendered component, route/service boundary, or semantic policy validator when practical.
+- Do not duplicate an invariant with prose or source assertions once the same invariant is covered at a stronger behavioural or semantic boundary.
+- For security-sensitive declarative configuration such as workflow permissions, immutable pins, secrets, schemas, and migrations, exact structural assertions are appropriate when the structure is the enforced boundary.
+- When a source-inspection assertion is unavoidable, keep it focused on the durable invariant and avoid incidental wording, step names, or implementation sequencing.
+
 ## Dependencies and generated files
 
 - Change dependencies only when required by the task.
