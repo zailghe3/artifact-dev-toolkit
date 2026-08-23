@@ -1,0 +1,76 @@
+version: "3.8"
+services:
+  codex-runner-controller:
+    image: poulti/adt-codex-runner:REPLACE_WITH_MERGED_GIT_SHA
+    environment:
+      CODEX_RUNNER_ROLE: controller
+      CODEX_RUNNER_SHARED_SECRET_FILE: /run/secrets/runner_shared_secret
+      CODEX_RUNNER_EXECUTOR_SIGNING_PRIVATE_KEY_FILE: /run/secrets/executor_signing_private_key
+      CODEX_RUNNER_EXECUTOR_REDEPLOY_WEBHOOK_FILE: /run/secrets/executor_redeploy_webhook
+      CODEX_RUNNER_EXECUTOR_URL: http://codex-runner-executor:8790
+      CODEX_RUNNER_ENVIRONMENTS_FILE: /run/config/codex-environments.json
+      CODEX_RUNNER_STATE_DIR: /data/runner
+    volumes:
+      - codex-runner-state:/data/runner
+    secrets: [runner_shared_secret, executor_signing_private_key, executor_redeploy_webhook]
+    configs:
+      - source: codex_environments
+        target: /run/config/codex-environments.json
+    networks:
+      codex-ingress:
+        aliases: [codex-runner]
+      codex-runner-control-overlay: {}
+  codex-runner-executor:
+    image: poulti/adt-codex-runner:REPLACE_WITH_MERGED_GIT_SHA
+    environment:
+      CODEX_RUNNER_ROLE: executor
+      PORT: "8790"
+      CODEX_RUNNER_EXECUTOR_VERIFYING_PUBLIC_KEY_FILE: /run/config/executor-verifying-public-key.pem
+      CODEX_RUNNER_WORKSPACE_ROOT: /workspaces
+      HTTP_PROXY: http://codex-runner-egress-proxy:3128
+      HTTPS_PROXY: http://codex-runner-egress-proxy:3128
+      ALL_PROXY: http://codex-runner-egress-proxy:3128
+      NO_PROXY: localhost,127.0.0.1,codex-runner-controller,codex-runner-executor
+    cap_drop: [ALL]
+    read_only: true
+    tmpfs:
+      - /tmp:size=268435456,mode=1777
+      - /run:size=16777216,mode=0755
+    volumes:
+      - codex-runner-config:/data/codex
+      - codex-runner-workspace:/workspaces
+    configs:
+      - source: executor_verifying_public_key
+        target: /run/config/executor-verifying-public-key.pem
+        mode: 0444
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 4G
+          pids: 512
+    networks: [codex-runner-control-overlay, codex-runner-egress-overlay]
+  codex-runner-egress-proxy:
+    image: ubuntu/squid:6.6-24.04_edge@sha256:8a3baed477e2c282ab8aa5edad442f69873246964f225c5c2ae8364b6610963c
+    configs:
+      - source: codex_runner_squid
+        target: /etc/squid/squid.conf
+    cap_drop: [ALL]
+    networks: [codex-runner-egress-overlay, codex-runner-uplink-overlay]
+secrets:
+  runner_shared_secret: {external: true}
+  executor_signing_private_key: {external: true}
+  executor_redeploy_webhook: {external: true}
+configs:
+  codex_environments: {file: ./environments.json}
+  executor_verifying_public_key: {file: ./executor-verifying-public-key.pem}
+  codex_runner_squid: {file: ./squid.conf}
+volumes:
+  codex-runner-config: {}
+  codex-runner-state: {}
+  codex-runner-workspace: {}
+networks:
+  codex-ingress: {external: true}
+  codex-runner-control-overlay: {driver: overlay, internal: true}
+  codex-runner-egress-overlay: {driver: overlay, internal: true}
+  codex-runner-uplink-overlay: {driver: overlay}

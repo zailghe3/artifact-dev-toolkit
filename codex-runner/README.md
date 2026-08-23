@@ -6,6 +6,71 @@ The packaged Codex binary is an experimental GNU/glibc build. It is neither rele
 
 `release.json` is the canonical source for the packaged Codex version, protocol version, and Runner revision. Build and protocol implementation details remain authoritative in source, tests, and publication workflows.
 
+## Runtime roles and Swarm boundary
+
+The same image supports three explicit roles through `CODEX_RUNNER_ROLE`:
+
+- `integrated` is the default, backwards-compatible single-container service. It retains Codex's `read-only` and `workspace-write` Bubblewrap modes and never selects full access.
+- `controller` owns the public `/v1` API, ADT shared secret, environment catalogue, durable job/idempotency state, persistent emergency latch, and optional Portainer redeploy webhook. It does not start Codex or mount `CODEX_HOME` or workspaces.
+- `executor` exposes only a bounded internal API, runs one Codex execution at a time, and owns `CODEX_HOME` and `/workspaces`. It receives neither the ADT secret nor controller storage or redeploy webhook.
+
+The controller signs every internal request with an Ed25519 private key from `CODEX_RUNNER_EXECUTOR_SIGNING_PRIVATE_KEY_FILE`; the executor receives only `CODEX_RUNNER_EXECUTOR_VERIFYING_PUBLIC_KEY_FILE`. Signatures bind the method, path, exact body, timestamp, and one-use nonce. The executor rejects stale and replayed requests, and executor-visible material cannot mint controller requests. Execution start returns an opaque execution ID and executor generation; the controller polls that identity and separately requests interruption. An executor generates a fresh opaque generation at every process start. Observation failure is not replacement and never permits replay of a possibly side-effecting turn.
+
+Generate the pair outside the stack with `openssl genpkey -algorithm ED25519 -out executor-signing-private-key.pem` and `openssl pkey -in executor-signing-private-key.pem -pubout -out executor-verifying-public-key.pem`. Store only the private PEM as the controller Swarm secret. Supply only the public PEM to the executor configuration.
+
+Internal responses are byte-bounded and exact-shape validated. Executor transport loss, a missing ephemeral execution, or a changed generation reconciles the existing controller job durably as `runner_restarted`; it does not mark controller storage unhealthy. Capacity is released only after that terminal record is written, so a healthy replacement executor can accept later work without restarting the controller while idempotent lookup continues to return the original record.
+
+Codex 0.147.0's generated `ThreadStartParams` fixture in this repository explicitly defines `danger-full-access` in `SandboxMode`. Only the executor maps an admitted `workspace-write` environment to that value, always with approval policy `never`. Bubblewrap is intentionally not nested in split Swarm mode because Swarm cannot apply the per-service unconfined settings needed for nested namespaces. Docker's normal seccomp/AppArmor policy, capabilities, mounts, service identity, and network topology are the execution boundary. Do not set `CODEX_UNSAFE_ALLOW_NO_SANDBOX`, privileged mode, `SYS_ADMIN`, unconfined node policy, or mount the Docker socket.
+
+Executor App Server launches apply Runner-owned highest-precedence overrides: login shells and web search are disabled, inherited command environment is empty, and an explicit allowlist restores only core command variables plus validated HTTP(S)/all/no-proxy settings from the executor deployment. Secret-, token-, key-, password-, credential-, and auth-like names remain excluded, and repository configuration cannot loosen these launch overrides.
+
+`read-only` environments fail closed in split mode. Full access cannot truthfully enforce a read-only workspace without an outer read-only mount, and the controller does not silently weaken that contract. Integrated mode retains existing behavior.
+
+In controller mode environment parsing is configuration-only. Every environment listing and admission performs a bounded executor probe against the canonical cwd; the executor proves read/execute/write access and containment below `/workspaces`. Missing, unwritable, outside-root, read-only, or unreachable workspaces report `ready: false` and are not admitted.
+
+The accepted residual risk is that commands with executor full access can read Codex authentication material under `CODEX_HOME`. No undocumented credential workaround is used. The executor therefore must not contain any control-plane or infrastructure credential.
+
+## Split deployment and egress
+
+`docker-stack.split.example.yml` demonstrates the intended Portainer/Swarm layout:
+
+- ingress plus controller;
+- internal control overlay plus controller and executor;
+- internal egress overlay plus executor and Squid;
+- non-internal uplink overlay plus Squid only.
+
+`internal: true` disables external routing for an overlay. It is unrelated to Compose `external: true`, which says that the network lifecycle is operator-owned. The controller alias `codex-runner` lets an existing tunnel origin such as `codex-runner:8789` continue to resolve after migration. Executor and proxy ports are not published.
+
+The repository-owned `squid.conf` allows public HTTP(S) only after destination-address ACLs reject loopback, carrier-grade NAT, RFC1918, link-local, documentation, multicast, reserved, unique-local IPv6, and IPv6 link-local targets. This supports OpenAI, GitHub, package registries, and ordinary public development sites without giving the executor a direct uplink. Access logging is disabled so URLs, queries, and credentials are not intentionally recorded. Use the trusted publication image `poulti/adt-codex-runner:<merged Git SHA>` for both controller and executor. The example keeps finite executor CPU, memory, and PID limits, a read-only root filesystem, and bounded writable temporary filesystems; operators may tune the finite limits but must not remove them. The proxy is itself trusted: application policy does not protect against compromise of the proxy process.
+
+Broad public proxy access permits data exfiltration and is not a data-loss-prevention boundary. Because full-access commands can read `CODEX_HOME`, that exposure is an accepted residual risk for this iteration. Additional egress restriction requires an explicit operator policy change.
+
+The proxy uses Canonical verified-publisher `ubuntu/squid:6.6-24.04_edge`, based on Ubuntu 24.04 LTS and supported through May 2029, pinned to the verified multi-platform index digest `sha256:8a3baed477e2c282ab8aa5edad442f69873246964f225c5c2ae8364b6610963c`. The proxy remains part of the trusted boundary and operators must validate the pinned image with their Swarm platform before rollout.
+
+Runner status derives only a bounded coarse activity category/count, last safe activity timestamp, and duration from Codex lifecycle events. It never projects event payloads, commands, arguments, output, prompts, reasoning, or file content. The proxy has no management interface in this topology, so proxy health and allow/deny telemetry remain unavailable; use Docker/Portainer for resource and service monitoring.
+
+`cap_drop: ALL` is shown for executor and proxy and no capabilities are added. Validate it with the exact host/storage setup before rollout. The executor has no uplink network, so removing proxy variables does not create a direct Internet route.
+
+## Emergency stop
+
+Authenticated `POST /v1/control/emergency-stop` first persists the latch, then rejects new admission, cooperatively interrupts/reconciles active work, and finally makes a bounded best-effort POST to the file-backed redeploy webhook. The URL is never returned or logged, redirects are not followed, and only a 2xx response is success. Missing or failed webhook invocation leaves the latch set and reports only a safe reason.
+
+`POST /v1/control/resume` is separate. When a generation was known at stop time, resume requires a healthy, idle executor with a different generation. Controller restart reloads the latch before admission. If redeploy fails, the operator must restart the executor through Portainer, verify the fresh idle generation, and then resume. Normal Cancel remains cooperative. Docker/Portainer remains the resource-monitoring source because the Runner does not receive Docker API access.
+
+Split-mode cancellation and deadlines have a bounded quiescence grace period. A turn that remains active is durably reconciled without replay and triggers the same controller-owned hard-restart hook; integrated mode retains its existing local fail-closed behavior.
+
+## Migration from integrated storage
+
+Before changing the operator-managed stack:
+
+1. Back up and preserve Codex auth/config currently stored in the existing `/data/codex` volume for the executor.
+2. Copy `/data/codex/runner-state` into a distinct controller volume mounted at `/data/runner`.
+3. Expose the existing `/data/codex/environments.json` as immutable controller configuration at `/run/config/codex-environments.json`.
+4. Mount only `CODEX_HOME` and workspaces into the executor. Never mount controller state or environment configuration there, and never mount executor storage into the controller.
+5. After verifying the controller copy and backup, remove old `/data/codex/runner-state` and `environments.json` copies from executor storage or mark them explicitly stale and non-authoritative. The executor must not depend on them.
+
+The repository does not automate this migration or deploy the home-lab stack. Operators may substitute NFS-backed named volumes, but must provide their own server/export settings rather than embedding private infrastructure in the stack file.
+
 ## Workspace contract
 
 A Runner environment is a pre-provisioned workspace.

@@ -3,8 +3,8 @@ import type {RunnerEnvironment} from "./environments.js";
 
 export const SANDBOX_DIAGNOSTIC_TIMEOUT_MS=3_000;
 export const SANDBOX_DIAGNOSTIC_OUTPUT_LIMIT=8_192;
-export type SandboxDiagnosticReason="ok"|"sandbox_helper_unavailable"|"user_namespace_unavailable"|"uid_mapping_denied"|"pid_namespace_unavailable"|"network_namespace_unavailable"|"loopback_configuration_denied"|"proc_unavailable"|"permission_denied"|"sandbox_initialization_failed"|"timeout"|"unknown";
-export interface SandboxDiagnostics{environmentKey:string;status:"available"|"unavailable"|"unknown";backend:"bubblewrap"|"unknown";reason:SandboxDiagnosticReason}
+export type SandboxDiagnosticReason="ok"|"read_only_not_supported"|"execution_probe_failed"|"sandbox_helper_unavailable"|"user_namespace_unavailable"|"uid_mapping_denied"|"pid_namespace_unavailable"|"network_namespace_unavailable"|"loopback_configuration_denied"|"proc_unavailable"|"permission_denied"|"sandbox_initialization_failed"|"timeout"|"unknown";
+export interface SandboxDiagnostics{environmentKey:string;status:"available"|"unavailable"|"unknown";backend:"bubblewrap"|"container"|"unknown";reason:SandboxDiagnosticReason}
 type SpawnProbe=(command:string,args:string[],options:{cwd:string;stdio:["ignore","pipe","pipe"]})=>ChildProcess;
 
 export function classifySandboxFailure(output:string):SandboxDiagnosticReason{
