@@ -160,6 +160,7 @@
 
 - Workflow state is visible without exposing provider secrets or private execution content beyond authorised run output.
 - Logs and diagnostics use bounded safe categories and identifiers.
+- Runner status may derive bounded activity category, count, timestamp, and duration signals from provider lifecycle events, but never exposes their payloads.
 - Raw provider error bodies, credentials, tokens, reasoning, private paths, and arbitrary upstream headers are excluded.
 - Provider-side failure must not be misrepresented as an application authorisation problem when the distinction is known.
 - Ambiguous external outcomes remain explicit rather than being reported as successful, failed, or safely retryable without evidence.

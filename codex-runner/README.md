@@ -45,7 +45,9 @@ The repository-owned `squid.conf` allows public HTTP(S) only after destination-a
 
 Broad public proxy access permits data exfiltration and is not a data-loss-prevention boundary. Because full-access commands can read `CODEX_HOME`, that exposure is an accepted residual risk for this iteration. Additional egress restriction requires an explicit operator policy change.
 
-The checked-in example must not be deployed until its Canonical Squid reference is replaced with a currently supported, registry-verified immutable digest. The development environment used for this correction could not reach Canonical or Docker Hub to resolve that digest; retaining the visibly unpinned reference is an explicit blocking marker, not an approval of the Ubuntu 24.10 image.
+The proxy uses Canonical verified-publisher `ubuntu/squid:6.6-24.04_edge`, based on Ubuntu 24.04 LTS and supported through May 2029, pinned to the verified multi-platform index digest `sha256:8a3baed477e2c282ab8aa5edad442f69873246964f225c5c2ae8364b6610963c`. The proxy remains part of the trusted boundary and operators must validate the pinned image with their Swarm platform before rollout.
+
+Runner status derives only a bounded coarse activity category/count, last safe activity timestamp, and duration from Codex lifecycle events. It never projects event payloads, commands, arguments, output, prompts, reasoning, or file content. The proxy has no management interface in this topology, so proxy health and allow/deny telemetry remain unavailable; use Docker/Portainer for resource and service monitoring.
 
 `cap_drop: ALL` is shown for executor and proxy and no capabilities are added. Validate it with the exact host/storage setup before rollout. The executor has no uplink network, so removing proxy variables does not create a direct Internet route.
 
