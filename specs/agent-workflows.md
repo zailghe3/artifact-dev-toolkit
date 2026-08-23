@@ -116,6 +116,7 @@
 - The Runner returns only bounded final agent text to the Workflow.
 - Split deployments isolate the ADT-facing control plane from the process allowed to execute model-generated commands.
 - The executor never receives the ADT Runner credential, a credential capable of authenticating controller requests, durable controller state, or infrastructure restart credential.
+- Split-mode public network access traverses the trusted egress boundary; broad public access and executor-readable Codex authentication material remain an explicit residual data-exfiltration risk rather than a data-loss-prevention guarantee.
 
 ## 13. Codex Runner workspace boundary
 

@@ -90,6 +90,5 @@ COPY --from=build --chown=node:node /build/dist ./dist
 COPY --from=build --chown=node:node /build/release.json ./release.json
 ENV CODEX_DEVICE_AUTH_COMPATIBLE=1 CODEX_RUNNER_ADDRESS_POLICY=ipv4_preferred
 USER node
-VOLUME ["/data/codex", "/data/runner"]
 EXPOSE 8789
 CMD ["node","dist/server.js"]
