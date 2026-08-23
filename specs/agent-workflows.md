@@ -151,7 +151,7 @@
 - After an operational refresh failure, retained history must be clearly identified as stale rather than presented as current state.
 - Empty or idle state is shown only when a current successful observation establishes it.
 - Deployment, restart, image rollout, mounts, persistent storage, and Runner lifecycle remain operator-owned.
-- An authenticated, persistent emergency stop rejects admission until a deliberate safe resume; restart-trigger failure never clears the latch.
+- An authenticated, persistent emergency stop rejects admission until a deliberate safe resume; resume cannot clear the latch before the hard-restart phase has durably completed, and restart-trigger failure never clears it.
 - Operators diagnose sandbox prerequisites before changing container privileges or capabilities.
 - Artifact Toolkit CI may build or publish Runner artifacts, but normal application behaviour does not deploy or restart the external Runner.
 - Detailed Runner deployment and protocol guidance belongs in [`codex-runner/README.md`](../codex-runner/README.md).
