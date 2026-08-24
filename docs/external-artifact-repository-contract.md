@@ -4,7 +4,7 @@ This contract defines the human-editable private repository that stores Artifact
 
 ## Transitional repository layout
 
-The authoritative branch is `main`. During the repository-flattening compatibility phase, existing writes remain under the configured legacy root (`artifacts/` by default). The root may be any normalized, repository-relative path, including a multi-segment path such as `team/artifacts/`. Readers and the validator also recognise the future root-level directories shown below.
+The authoritative branch is `main`. During Phase 2, readers and the validator recognise both the configured legacy compatibility root (`artifacts/` by default) and the ordinary root-level directories shown below. The legacy root may be any normalized, repository-relative path, including a multi-segment path such as `team/artifacts/`.
 
 ```text
 artifacts/
@@ -27,11 +27,14 @@ workflows/
   *.workflow.json
 ```
 
-- Markdown files may be nested below any supported directory. Root-level `agents/` is reserved for executable Agent definitions; legacy Markdown Agent artifacts remain under `artifacts/agents/`.
+- Markdown files may be nested below any supported directory. Root-level `agents/` is reserved for executable Agent definitions; Markdown Agent artifacts remain under the configured legacy root's `agents/` directory until Phase 4.
 - Every artifact file uses the `.md` extension.
 - Markdown files outside the supported top-level directories are invalid.
 - Artifact, executable Agent, and Workflow IDs must each be unique across their legacy and future locations. A collision makes that domain invalid rather than selecting one file by precedence.
-- Existing create, edit, delete, variation, proposal, Agent-definition, and Workflow-definition writes continue to use legacy paths. Root-level compatibility content is visibly read-only even when it carries a lifecycle status; view, copy, search, and detail access remain available.
+- New prompt, snippet, template, and app-idea Markdown is written to its root-level type directory. New Markdown Agent artifacts continue to use the configured legacy root.
+- Existing status-bearing Markdown is mutated at its exact physical path in either layout. Statusless root-level Markdown remains visibly read-only and has no implied lifecycle state.
+- New variations are ordinary same-type artifacts in the applicable new-write directory and carry `sourceId`. The legacy `variations/` directory remains read and exact-path mutation compatibility only.
+- Executable `agents/*.agent.json` and `workflows/*.workflow.json` definitions are unchanged. Legacy `_adt/agents` and `_adt/workflows` definitions have not moved.
 
 ## Markdown format
 
@@ -59,7 +62,7 @@ Required fields:
 | `id` | non-empty string | Globally unique across the complete artifact root. |
 | `title` | non-empty string | Human-readable title. |
 | `type` | enum | `prompt`, `agent`, `snippet`, `template`, or `app-idea`. |
-| `status` | enum | `production`, `draft`, or `archived`. Required for legacy Markdown. Optional only for root-level compatibility Markdown. |
+| `status` | enum | `production`, `draft`, or `archived`. Required on all application-created Markdown in Phase 2. Statusless root-level compatibility Markdown may be read but not mutated. |
 | `tags` | string array | Use `[]` when empty. |
 | `aliases` | string array | Use `[]` when empty. |
 

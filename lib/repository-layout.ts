@@ -34,6 +34,27 @@ export function isSupportedArtifactPath(filePath: string, legacyRoot = "artifact
   return classifyArtifactPath(filePath, legacyRoot) !== undefined && filePath.replace(/\\/g, "/").endsWith(".md");
 }
 
+const artifactTypeDirectories = {
+  prompt: "prompts",
+  agent: "agents",
+  snippet: "snippets",
+  template: "templates",
+  "app-idea": "app-ideas",
+} as const;
+
+/** Return the trusted Phase 2 write target for a newly-created Artifact Library item. */
+export function canonicalArtifactWritePath(type: keyof typeof artifactTypeDirectories, id: string, legacyRoot = "artifacts") {
+  const root = safeRootSegments(legacyRoot)?.join("/");
+  if (!root || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id)) return undefined;
+  const directory = artifactTypeDirectories[type];
+  return type === "agent" ? `${root}/${directory}/${id}.md` : `${directory}/${id}.md`;
+}
+
+/** Existing mutations may target either layout, but only an exact supported Markdown path. */
+export function isSupportedArtifactMutationPath(filePath: string, legacyRoot = "artifacts") {
+  return isSupportedArtifactPath(filePath, legacyRoot);
+}
+
 export function isArtifactMarkdownCandidate(filePath: string, legacyRoot = "artifacts") {
   const normalized = filePath.replace(/\\/g, "/").replace(/^\/+/, "");
   const root = safeRootSegments(legacyRoot)?.join("/");

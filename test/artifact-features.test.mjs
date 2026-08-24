@@ -157,9 +157,10 @@ test('artifact IDs must be unique even when artifacts have different types and p
 });
 
 test('compatibility presentation never invents lifecycle status', () => {
-  assert.equal(isCompatibilityReadOnly({ layout: 'future', status: 'production' }), true);
+  assert.equal(isCompatibilityReadOnly({ layout: 'future', status: 'production' }), false);
   assert.equal(isCompatibilityReadOnly({ layout: 'legacy' }), true);
   assert.equal(isCompatibilityReadOnly({ layout: 'legacy', status: 'draft' }), false);
   assert.equal(artifactLifecycleLabel({ layout: 'future' }), 'Compatibility · read-only');
+  assert.equal(artifactLifecycleLabel({ layout: 'future', status: 'production' }), 'production');
   assert.equal(artifactLifecycleLabel({ layout: 'legacy', status: 'archived' }), 'archived');
 });

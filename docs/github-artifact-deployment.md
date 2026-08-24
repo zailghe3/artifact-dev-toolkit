@@ -18,7 +18,7 @@ GITHUB_ARTIFACT_REPOSITORY_NAME=fpo-artifacts
 SESSION_SECRET
 ```
 
-The branch and artifact root are optional and default to `main` and `artifacts`.
+The branch and artifact root are optional and default to `main` and `artifacts`. During the layout transition, `GITHUB_ARTIFACT_REPOSITORY_ROOT` identifies the legacy compatibility root for reads and retained Markdown Agent writes; it does not prefix new ordinary Artifact Library writes.
 
 Never commit `.env`, `.dev.vars`, PEM keys, secret values, OAuth tokens, or session data.
 

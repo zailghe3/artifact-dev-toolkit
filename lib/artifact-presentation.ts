@@ -1,8 +1,8 @@
 import type { Artifact } from "./artifact-repository.ts";
 
-/** Future-layout and statusless migration content has no mutable lifecycle in Phase 1. */
+/** Statusless migration content has no mutable lifecycle until Phase 3. */
 export function isCompatibilityReadOnly(artifact: Pick<Artifact, "layout" | "status">) {
-  return artifact.layout === "future" || artifact.status === undefined;
+  return artifact.status === undefined;
 }
 
 export function artifactLifecycleLabel(artifact: Pick<Artifact, "layout" | "status">) {

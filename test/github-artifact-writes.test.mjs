@@ -13,7 +13,7 @@ const existingMarkdown = `---\nid: new-prompt\ntitle: New Prompt\ndescription: '
 const source = { ...metadata, id: 'source-prompt', title: 'Source Prompt', status: 'production', aliases: ['starter'], body: 'Source body', excerpt: 'Source body', path: 'artifacts/prompts/source-prompt.md' };
 const json = (value, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
 
-function fake({ files = {}, writeStatus = 200, writeValue, now, randomBytes, credentialProvider } = {}) {
+function fake({ files = {}, writeStatus = 200, writeValue, now, randomBytes, credentialProvider, rootPath = 'artifacts' } = {}) {
   const calls = [];
   const diagnostics = [];
   const entries = Object.entries(files);
@@ -29,30 +29,42 @@ function fake({ files = {}, writeStatus = 200, writeValue, now, randomBytes, cre
     const requestedPath = decodeURIComponent(pathname.split('/contents/')[1]);
     return json(writeValue ?? { content: { path: requestedPath, sha: 'new-blob' }, commit: { sha: 'commit-1', html_url: 'https://github.example/commit/1' } }, writeStatus);
   };
-  return { calls, diagnostics, repository: new GitHubArtifactRepository({ owner: 'owner', repo: 'repo', branch: 'main', rootPath: 'artifacts', credentialProvider: credentialProvider ?? (async (capability) => ({ token: 'installation-secret', permissions: capability === 'read' ? { contents: 'read' } : capability === 'write' ? { contents: 'write' } : { contents: 'write', pullRequests: 'write' } })), fetch, sleep: async () => {}, logger: { info(value) { diagnostics.push(value); }, error(value) { diagnostics.push(value); } }, now, randomBytes }) };
+  return { calls, diagnostics, repository: new GitHubArtifactRepository({ owner: 'owner', repo: 'repo', branch: 'main', rootPath, credentialProvider: credentialProvider ?? (async (capability) => ({ token: 'installation-secret', permissions: capability === 'read' ? { contents: 'read' } : capability === 'write' ? { contents: 'write' } : { contents: 'write', pullRequests: 'write' } })), fetch, sleep: async () => {}, logger: { info(value) { diagnostics.push(value); }, error(value) { diagnostics.push(value); } }, now, randomBytes }) };
 }
 
 test('create serializes canonical Markdown, sends one Contents API write, and returns commit metadata', async () => {
   const runtime = fake();
   const result = await runtime.repository.create({ metadata, body: '  Useful body  ', actorLogin: 'octocat' });
   const write = runtime.calls.find((call) => call.options.method === 'PUT');
-  assert.ok(write.url.endsWith('/repos/owner/repo/contents/artifacts/prompts/new-prompt.md'));
+  assert.ok(write.url.endsWith('/repos/owner/repo/contents/prompts/new-prompt.md'));
   const payload = JSON.parse(write.options.body);
   assert.equal(payload.message, 'Create artifact new-prompt (requested by @octocat)');
   assert.equal(Buffer.from(payload.content, 'base64').toString(), '---\nid: new-prompt\ntitle: New Prompt\ndescription: \'\'\ntype: prompt\nstatus: draft\ntags:\n  - writing\naliases: []\n---\nUseful body\n');
-  assert.deepEqual(result, { artifactId: 'new-prompt', path: 'artifacts/prompts/new-prompt.md', fileSha: 'new-blob', commitSha: 'commit-1', commitUrl: 'https://github.example/commit/1', repositoryRevision: 'commit-1' });
+  assert.deepEqual(result, { artifactId: 'new-prompt', path: 'prompts/new-prompt.md', fileSha: 'new-blob', commitSha: 'commit-1', commitUrl: 'https://github.example/commit/1', repositoryRevision: 'commit-1' });
   assert.equal(JSON.stringify(result).includes('installation-secret'), false);
   assert.equal(payload.message.includes('installation-secret'), false);
 });
 
-test('createVariation persists canonical draft Markdown under variations with source metadata and attribution', async () => {
+test('new artifacts use Phase 2 canonical targets independently of the legacy root', async () => {
+  for (const [type, directory] of [['prompt', 'prompts'], ['snippet', 'snippets'], ['template', 'templates'], ['app-idea', 'app-ideas']]) {
+    const runtime = fake({ rootPath: 'team/legacy/artifacts' });
+    const id = `new-${type}`;
+    const result = await runtime.repository.create({ metadata: { ...metadata, id, type }, body: 'Body', actorLogin: 'octocat' });
+    assert.equal(result.path, `${directory}/${id}.md`);
+  }
+  const agent = fake({ rootPath: 'team/legacy/artifacts' });
+  const result = await agent.repository.create({ metadata: { ...metadata, id: 'new-agent', type: 'agent' }, body: 'Body', actorLogin: 'octocat' });
+  assert.equal(result.path, 'team/legacy/artifacts/agents/new-agent.md');
+});
+
+test('createVariation persists a same-type root artifact with source metadata and attribution', async () => {
   const sourceSnapshot = structuredClone(source);
   const runtime = fake({ now: () => new Date('2026-08-02T17:03:05.123Z'), randomBytes: () => Uint8Array.from([0xa1, 0xb2, 0xc3, 0xd4]) });
   const result = await runtime.repository.createVariation({ source: { ...source, tags: ['writing', 'writing', 'variation'] }, title: '  Focused Draft  ', body: '  Revised body  ', actorLogin: 'octocat' });
   const id = 'focused-draft-2026-08-02-170305-a1b2c3d4';
   assert.equal(result.id, id);
   const write = runtime.calls.find((call) => call.options.method === 'PUT');
-  assert.ok(write.url.endsWith(`/repos/owner/repo/contents/artifacts/variations/${id}.md`));
+  assert.ok(write.url.endsWith(`/repos/owner/repo/contents/prompts/${id}.md`));
   const payload = JSON.parse(write.options.body);
   assert.equal(payload.message, `Create variation ${id} from source-prompt (requested by @octocat)`);
   assert.equal(payload.branch, 'main');
@@ -61,7 +73,7 @@ test('createVariation persists canonical draft Markdown under variations with so
   assert.match(markdown, /title: Focused Draft\ndescription: ''\ntype: prompt\nstatus: draft/);
   assert.match(markdown, /tags:\n  - writing\n  - variation\naliases:\n  - starter\nsourceId: source-prompt\ncreatedAt: '2026-08-02T17:03:05.123Z'/);
   assert.ok(markdown.endsWith('Revised body\n'));
-  assert.deepEqual(result, { id, path: `artifacts/variations/${id}.md`, fileSha: 'new-blob', commitSha: 'commit-1', commitUrl: 'https://github.example/commit/1', repositoryRevision: 'commit-1' });
+  assert.deepEqual(result, { id, path: `prompts/${id}.md`, fileSha: 'new-blob', commitSha: 'commit-1', commitUrl: 'https://github.example/commit/1', repositoryRevision: 'commit-1' });
   assert.deepEqual(source, sourceSnapshot);
   assert.equal(payload.message.includes('Revised body'), false);
   assert.doesNotMatch(JSON.stringify(runtime.diagnostics), /installation-secret|Revised body|octocat/);
@@ -76,6 +88,18 @@ test('variation IDs use deterministic injected time and collision-resistant rand
   assert.equal(b.id, 'client-a-discovery-2026-08-02-170305-04050607');
   assert.notEqual(a.id, b.id);
   assert.match(a.id, /^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+});
+
+test('variations use their same-type target while Markdown Agent variations stay legacy', async () => {
+  for (const [type, directory] of [['snippet', 'snippets'], ['template', 'templates'], ['app-idea', 'app-ideas']]) {
+    const runtime = fake({ rootPath: 'team/artifacts', now: () => new Date('2026-08-02T17:03:05.000Z'), randomBytes: () => Uint8Array.from([0, 1, 2, 3]) });
+    const result = await runtime.repository.createVariation({ source: { ...source, type }, body: 'Body', actorLogin: 'octocat' });
+    assert.match(result.path, new RegExp(`^${directory}/`));
+  }
+  const runtime = fake({ rootPath: 'team/artifacts', now: () => new Date('2026-08-02T17:03:05.000Z'), randomBytes: () => Uint8Array.from([0, 1, 2, 3]) });
+  const result = await runtime.repository.createVariation({ source: { ...source, type: 'agent' }, body: 'Body', actorLogin: 'octocat' });
+  assert.match(result.path, /^team\/artifacts\/agents\//);
+  assert.equal(runtime.calls.some(({ url }) => url.includes('/variations/')), false);
 });
 
 test('createVariation uses typed write safeguards before issuing a Contents API write', async () => {
@@ -96,7 +120,7 @@ test('createVariation uses typed write safeguards before issuing a Contents API 
 test('variation rejects occupied paths, oversized content, and write failures without retrying PUT', async () => {
   const generation = { now: () => new Date('2026-08-02T12:00:00Z'), randomBytes: () => Uint8Array.from([1, 2, 3, 4]) };
   const id = 'focused-draft-2026-08-02-120000-01020304';
-  const occupied = fake({ files: { [`artifacts/variations/${id}.md`]: existingMarkdown }, ...generation });
+  const occupied = fake({ files: { [`prompts/${id}.md`]: existingMarkdown }, ...generation });
   await assert.rejects(occupied.repository.createVariation({ source, title: 'Focused Draft', body: 'Body', actorLogin: 'octocat' }), ArtifactDuplicateError);
   assert.equal(occupied.calls.some((call) => call.options.method === 'PUT'), false);
 
@@ -112,7 +136,7 @@ test('variation rejects occupied paths, oversized content, and write failures wi
 });
 
 test('create rejects an occupied target path without writing', async () => {
-  const runtime = fake({ files: { 'artifacts/prompts/new-prompt.md': existingMarkdown } });
+  const runtime = fake({ files: { 'prompts/new-prompt.md': existingMarkdown } });
   await assert.rejects(runtime.repository.create({ metadata, body: 'Body', actorLogin: 'octocat' }), ArtifactDuplicateError);
   assert.equal(runtime.calls.some((call) => call.options.method === 'PUT'), false);
 });
@@ -140,6 +164,23 @@ test('update uses the supplied current SHA and succeeds', async () => {
   const payload = JSON.parse(runtime.calls.find((call) => call.options.method === 'PUT').options.body);
   assert.equal(payload.sha, 'blob-0');
   assert.equal(payload.message, 'Update artifact new-prompt (requested by @octocat)');
+});
+
+test('status-bearing root artifacts update and delete at their exact observed path and SHA', async () => {
+  const rootMarkdown = existingMarkdown.replace('Old body', 'Root body');
+  const updated = fake({ files: { 'prompts/new-prompt.md': rootMarkdown } });
+  const update = await updated.repository.update({ id: metadata.id, metadata, body: 'Updated', currentFileSha: 'blob-0', actorLogin: 'octocat' });
+  const put = updated.calls.find(({ options }) => options.method === 'PUT');
+  assert.ok(put.url.endsWith('/contents/prompts/new-prompt.md'));
+  assert.equal(JSON.parse(put.options.body).sha, 'blob-0');
+  assert.equal(update.path, 'prompts/new-prompt.md');
+
+  const deleted = fake({ files: { 'prompts/new-prompt.md': rootMarkdown }, writeValue: { content: null, commit: { sha: 'commit-1', html_url: 'https://github.com/owner/repo/commit/1' } } });
+  const deletion = await deleted.repository.delete({ id: metadata.id, currentFileSha: 'blob-0', actorLogin: 'octocat' });
+  const remove = deleted.calls.find(({ options }) => options.method === 'DELETE');
+  assert.ok(remove.url.endsWith('/contents/prompts/new-prompt.md'));
+  assert.equal(JSON.parse(remove.options.body).sha, 'blob-0');
+  assert.equal(deletion.path, 'prompts/new-prompt.md');
 });
 
 test('update rejects a stale SHA before sending a write', async () => {
@@ -218,7 +259,7 @@ test('creation is draft-only and normalizes before deriving its canonical path',
   const runtime = fake();
   const result = await runtime.repository.create({ metadata: { ...metadata, id: ' new-prompt ', title: ' Trimmed ', tags: [' one ', 'one'] }, body: 'Body', actorLogin: 'octocat' });
   const write = runtime.calls.find((call) => call.options.method === 'PUT'); const payload = JSON.parse(write.options.body); const markdown = Buffer.from(payload.content, 'base64').toString();
-  assert.ok(write.url.endsWith('/artifacts/prompts/new-prompt.md')); assert.equal(result.artifactId, 'new-prompt'); assert.match(markdown, /id: new-prompt/); assert.match(markdown, /title: Trimmed/);
+  assert.ok(write.url.endsWith('/prompts/new-prompt.md')); assert.equal(result.artifactId, 'new-prompt'); assert.match(markdown, /id: new-prompt/); assert.match(markdown, /title: Trimmed/);
   const rejected = fake(); await assert.rejects(rejected.repository.create({ metadata: { ...metadata, status: 'production' }, body: 'Body', actorLogin: 'octocat' }), ArtifactWriteValidationError); assert.equal(rejected.calls.length, 0);
 });
 
