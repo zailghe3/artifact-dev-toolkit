@@ -28,6 +28,8 @@
 - Each workflow has bounded step count and execution limits.
 - Workflow definitions are separate from run history.
 - A run uses an immutable snapshot of the definitions selected at launch.
+- The safe connection snapshot includes Git provenance and any secret reference needed for later server-side resolution, but never the resolved credential.
+- Later Git connection changes do not alter an existing run's snapshotted runtime, model, or secret reference.
 - Changes to an Agent or Workflow do not rewrite the configuration of an already-created run.
 - Definition reads support non-conflicting legacy and root-level locations during repository migration.
 - New definitions use the root-level executable definition namespaces.
@@ -84,6 +86,10 @@
 
 - Agents reference connections by stable application-visible identity.
 - Multiple named connections may use the same provider.
+- Git connection definitions are canonical for their stable IDs and contain only non-secret configuration plus a validated server-side secret reference.
+- D1 provider connections remain a temporary fallback only for IDs without a Git definition.
+- A Git-defined connection never falls back to same-ID D1 state when its secret is unavailable or its definition is invalid.
+- Git-defined connections are read-only in the current Connection interface.
 - Provider credentials remain server-side.
 - Credentials are never stored in Agent or Workflow definitions.
 - Credentials, private provider configuration, prompts, workflow input, outputs, and reasoning must not leak through diagnostics or logs.
@@ -92,7 +98,7 @@
 
 ## 10. OpenAI Responses connection
 
-- Artifact Toolkit supports an OpenAI Responses connection for model-based agent execution.
+- Artifact Toolkit supports an OpenAI Responses connection for model-based agent execution through the existing `openai-responses` runtime.
 - The configured Agent master prompt is supplied as provider instructions.
 - Workflow input is supplied as the agent input without framework summarisation.
 - Provider conversation state and tools are not implicitly enabled by the workflow framework.

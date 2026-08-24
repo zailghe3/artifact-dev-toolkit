@@ -19,7 +19,7 @@ test('Agent pages and connection API use the shared safe workflow catalogue',asy
 
 test('Agent creation resolves OpenAI connection adapters before persistence and rejects malformed options',async()=>{
  const route=await readFile(new URL('../app/api/workflow-agents/route.ts',import.meta.url),'utf8');
- assert.match(route,/listWorkflowConnectionDescriptors\(\)/);
+ assert.match(route,/listWorkflowConnectionDescriptors\([^)]*\)/);
  assert.match(route,/validateAgentForConnection\(base,connection\)/);
  assert.match(route,/createAgent\(definition\)/);
  const agent={schemaVersion:1,id:'openai-agent',name:'OpenAI agent',description:'',status:'draft',masterPrompt:'Respond carefully.',connectionKey:'openai-primary',adapterOptions:{reasoningEffort:'medium',verbosity:'medium'}};

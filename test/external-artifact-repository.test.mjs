@@ -192,3 +192,13 @@ test('unsafe configured roots are rejected before repository traversal', async (
     assert.match(errorText(result), /safe repository-relative path/);
   }
 });
+
+test('connection namespace validates canonical non-secret definitions and remains optional', async()=>{
+ const root=await createRepository({'prompts/valid.md':markdown('id: valid\ntitle: Valid\ntype: prompt')});
+ assert.equal((await validateExternalArtifactRepository(root)).valid,true);
+ await mkdir(path.join(root,'connections'),{recursive:true});
+ await writeFile(path.join(root,'connections','openai-primary.connection.json'),JSON.stringify({schemaVersion:1,id:'openai-primary',name:'OpenAI Responses',runtime:'openai-responses',provider:'openai',model:'gpt-5',credential:{secretRef:'OPENAI_PRIMARY_API_KEY'}}));
+ assert.equal((await validateExternalArtifactRepository(root)).valid,true);
+ await writeFile(path.join(root,'connections','unsafe.connection.json'),JSON.stringify({schemaVersion:1,id:'unsafe',name:'Unsafe',runtime:'openai-responses',provider:'openai',model:'gpt-5',credential:{secretRef:'env.key'},apiKey:'forbidden'}));
+ const invalid=await validateExternalArtifactRepository(root);assert.equal(invalid.valid,false);assert.match(errorText(invalid),/secretRef|Unrecognized key/);
+});
