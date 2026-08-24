@@ -20,6 +20,16 @@ async function createRepository(files) {
   return root;
 }
 
+async function createRepositoryAtRoot(artifactRoot, files) {
+  const root = await mkdtemp(path.join(tmpdir(), 'artifact-repository-layout-'));
+  for (const [relativePath, body] of Object.entries(files)) {
+    const target = path.join(root, relativePath);
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, body);
+  }
+  return { root, validate: () => validateExternalArtifactRepository(root, { artifactRoot }) };
+}
+
 function markdown(frontMatter, body = 'Body') {
   return `---\n${frontMatter.trim()}\n---\n\n${body}\n`;
 }
@@ -121,4 +131,68 @@ test('compatibility validation accepts non-conflicting mixed layouts and rejects
   const duplicate = await validateExternalArtifactRepository(root);
   assert.equal(duplicate.valid, false);
   assert.match(errorText(duplicate), /Duplicate artifact id "legacy".*artifacts\/prompts\/legacy\.md/);
+});
+
+test('overlapping single-segment root classifies each path once using the complete legacy path', async () => {
+  const repository = await createRepositoryAtRoot('prompts', {
+    'prompts/prompts/legacy.md': markdown('id: legacy\ntitle: Legacy\ntype: prompt\nstatus: draft'),
+    'prompts/future.md': markdown('id: future\ntitle: Future\ntype: prompt'),
+  });
+  const result = await repository.validate();
+  assert.equal(result.valid, true, errorText(result));
+  assert.equal(result.artifactCount, 2);
+
+  await writeFile(path.join(repository.root, 'prompts/prompts/legacy.md'), markdown('id: legacy\ntitle: Legacy\ntype: prompt'));
+  const statuslessLegacy = await repository.validate();
+  assert.equal(statuslessLegacy.valid, false);
+  assert.match(errorText(statuslessLegacy), /prompts\/prompts\/legacy\.md: status:/);
+  assert.doesNotMatch(errorText(statuslessLegacy), /Duplicate artifact id/);
+});
+
+test('overlapping nested root does not rediscover legacy Markdown through its future root', async () => {
+  const repository = await createRepositoryAtRoot('prompts/team', {
+    'prompts/team/prompts/legacy.md': markdown('id: nested\ntitle: Nested\ntype: prompt\nstatus: production'),
+    'prompts/future.md': markdown('id: future\ntitle: Future\ntype: prompt'),
+  });
+  const result = await repository.validate();
+  assert.equal(result.valid, true, errorText(result));
+  assert.equal(result.artifactCount, 2);
+  assert.doesNotMatch(errorText(result), /Duplicate artifact id/);
+});
+
+test('normal multi-segment and reserved-name roots use runtime layout classification', async () => {
+  for (const [artifactRoot, legacyPath] of [
+    ['team/artifacts', 'team/artifacts/prompts/legacy.md'],
+    ['artifacts', 'artifacts/prompts/legacy.md'],
+  ]) {
+    const repository = await createRepositoryAtRoot(artifactRoot, {
+      [legacyPath]: markdown('id: legacy\ntitle: Legacy\ntype: prompt\nstatus: archived'),
+      'prompts/future.md': markdown('id: future\ntitle: Future\ntype: prompt'),
+    });
+    const result = await repository.validate();
+    assert.equal(result.valid, true, `${artifactRoot}: ${errorText(result)}`);
+    assert.equal(result.artifactCount, 2);
+  }
+});
+
+test('distinct legacy and future paths still report a global logical ID collision', async () => {
+  const repository = await createRepositoryAtRoot('prompts', {
+    'prompts/prompts/legacy.md': markdown('id: collision\ntitle: Legacy\ntype: prompt\nstatus: production'),
+    'prompts/future.md': markdown('id: collision\ntitle: Future\ntype: prompt'),
+  });
+  const result = await repository.validate();
+  assert.equal(result.valid, false);
+  assert.match(errorText(result), /Duplicate artifact id "collision"/);
+  assert.match(errorText(result), /prompts\/prompts\/legacy\.md/);
+  assert.match(errorText(result), /prompts\/future\.md/);
+});
+
+test('unsafe configured roots are rejected before repository traversal', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'unsafe-artifact-root-'));
+  for (const artifactRoot of ['../artifacts', 'team/../artifacts', 'team//artifacts', '.', '']) {
+    const result = await validateExternalArtifactRepository(root, { artifactRoot });
+    assert.equal(result.valid, false, artifactRoot);
+    assert.equal(result.artifactCount, 0);
+    assert.match(errorText(result), /safe repository-relative path/);
+  }
 });
