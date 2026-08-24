@@ -64,6 +64,7 @@ Authentication, repository access, session persistence, and privileged mutation 
 - Agents bind a connection, master prompt reference, and supported provider options.
 - Workflows define ordered Agent steps.
 - Definitions are persisted through the configured GitHub-backed definition repository and use repository revisions for optimistic concurrency.
+- Root-level executable definition paths are canonical while temporary legacy-layout compatibility preserves exact-path, revision-aware mutation during repository migration.
 
 Current product behaviour is defined by [`specs/agent-workflows.md`](specs/agent-workflows.md).
 

@@ -14,8 +14,7 @@ test('live Codex validation fails closed for independent Runner readiness dimens
 test('auth discovery and confirmed disconnection have distinct safe HTTP feedback',async()=>{for(const [code,message] of [['codex_auth_status_unavailable','ChatGPT connection status is unavailable.'],['codex_authentication_unavailable','ChatGPT is not connected on the Codex Runner.']]){const response=workflowError(new Error(code));assert.equal(response.status,422);assert.deepEqual(await response.json(),{code,error:message})}});
 
 test('definition compatibility errors have stable safe HTTP responses',async()=>{
-  const {DefinitionCompatibilityReadOnlyError,DefinitionLayoutCollisionError}=require('../lib/workflow-definition-repository.ts');
+  const {DefinitionLayoutCollisionError}=require('../lib/workflow-definition-repository.ts');
   let response=workflowError(new DefinitionLayoutCollisionError('reviewer',['_adt/agents/reviewer.agent.json','agents/reviewer.agent.json']));
   assert.equal(response.status,409);assert.deepEqual(await response.json(),{code:'definition_layout_collision',error:'A definition ID exists in both repository layouts.',identity:'reviewer',paths:['_adt/agents/reviewer.agent.json','agents/reviewer.agent.json']});
-  response=workflowError(new DefinitionCompatibilityReadOnlyError());assert.equal(response.status,409);assert.deepEqual(await response.json(),{code:'compatibility_content_read_only',error:'Compatibility definitions are read-only.'});
 });
