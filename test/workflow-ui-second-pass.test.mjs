@@ -12,7 +12,7 @@ const requireTsx=installTsxHook();
 const {WorkflowRunsTable}=requireTsx('../components/WorkflowRunsTable.tsx');
 const {WorkflowAgentPromptSelector}=requireTsx('../components/WorkflowAgentPromptSelector.tsx');
 
-const artifact=(id,type,status,title,body=`body ${id}`)=>({id,type,status,title,description:'',tags:[],aliases:[],body,excerpt:`excerpt ${id}`,path:`artifacts/${id}.md`});
+const artifact=(id,type,title,body=`body ${id}`)=>({id,type,title,description:'',tags:[],aliases:[],body,excerpt:`excerpt ${id}`,path:`artifacts/${id}.md`});
 
 test('run table behavior exposes stable columns, newest-first default sorting, and sortable state transitions',()=>{
  assert.deepEqual(workflowRunColumns.map(column=>column.key),['workflowName','status','startedAt','completedAt','currentStepId']);
@@ -34,28 +34,28 @@ test('run table renders semantic sortable headers and run navigation from behavi
  assert.match(html,/href="\/workflows\/runs\/run-1"[^>]*>Review<\/a>/);
 });
 
-test('prompt catalogue filters types, ignores legacy lifecycle values, orders by title, bounds results, and returns metadata only',()=>{
+test('statusless prompt catalogue filters types, orders by title, bounds results, and returns metadata only',()=>{
  const results=searchWorkflowAgentPrompts([
-  artifact('draft','prompt','draft','Draft'),artifact('prod','prompt','production','Production'),artifact('old','prompt','archived','Old'),artifact('template','template','production','Template'),artifact('agent','agent','draft','Agent'),artifact('snippet','snippet','draft','Snippet'),
+  artifact('draft','prompt','Draft'),artifact('prod','prompt','Production'),artifact('old','prompt','Old'),artifact('template','template','Template'),artifact('agent','agent','Agent'),artifact('snippet','snippet','Snippet'),
  ],'');
  assert.deepEqual(results.map(x=>x.id),['draft','old','prod']);
  assert.equal('body' in results[0],false);
- assert.equal(searchWorkflowAgentPrompts(Array.from({length:20},(_,i)=>artifact(`p-${i}`,'prompt','draft',`Prompt ${i}`)),'').length,15);
+ assert.equal(searchWorkflowAgentPrompts(Array.from({length:20},(_,i)=>artifact(`p-${i}`,'prompt',`Prompt ${i}`)),'').length,15);
 });
 
 test('prompt selection and copying preserve reference semantics without exposing invalid artifact content',()=>{
  assert.deepEqual(workflowAgentPromptSelection({id:'prompt-a'}),{source:'artifact',artifactId:'prompt-a'});
  assert.deepEqual(workflowAgentPromptSelection(undefined),{source:'custom',text:''});
- assert.deepEqual(copiedWorkflowAgentPrompt({artifact:artifact('prompt-a','prompt','production','Prompt','Act safely.')}),{source:'custom',text:'Act safely.'});
- assert.equal(copiedWorkflowAgentPrompt({artifact:artifact('template-a','template','production','Template')}),undefined);
- assert.equal(copiedWorkflowAgentPrompt({artifact:artifact('prompt-a','prompt','production','Prompt','x'.repeat(AGENT_MASTER_PROMPT_MAX_LENGTH+1))}),undefined);
+ assert.deepEqual(copiedWorkflowAgentPrompt({artifact:artifact('prompt-a','prompt','Prompt','Act safely.')}),{source:'custom',text:'Act safely.'});
+ assert.equal(copiedWorkflowAgentPrompt({artifact:artifact('template-a','template','Template')}),undefined);
+ assert.equal(copiedWorkflowAgentPrompt({artifact:artifact('prompt-a','prompt','Prompt','x'.repeat(AGENT_MASTER_PROMPT_MAX_LENGTH+1))}),undefined);
 });
 
-test('legacy archived prompt references remain normally describable',()=>{
- const archived=artifact('old','prompt','archived','Old prompt');
+test('statusless prompt references remain normally describable',()=>{
+ const archived=artifact('old','prompt','Old prompt');
  assert.deepEqual(workflowAgentPromptDescriptor(archived),{id:'old',title:'Old prompt',description:'',tags:[],excerpt:'excerpt old'});
  assert.deepEqual(searchWorkflowAgentPrompts([archived],'').map(x=>x.id),['old']);
- assert.equal(workflowAgentPromptDescriptor(artifact('not-prompt','template','production','Template')),undefined);
+ assert.equal(workflowAgentPromptDescriptor(artifact('not-prompt','template','Template')),undefined);
 });
 
 test('prompt keyboard actions are defined by interaction outcomes rather than component source',()=>{

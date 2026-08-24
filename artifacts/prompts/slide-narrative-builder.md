@@ -2,7 +2,6 @@
 id: slide-narrative-builder
 title: Slide Narrative Builder
 type: prompt
-status: production
 tags: [consulting, slides, narrative]
 aliases: [deck, storyline, slide story]
 ---

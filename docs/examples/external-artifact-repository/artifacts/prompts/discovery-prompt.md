@@ -2,7 +2,6 @@
 id: discovery-prompt
 title: Discovery Prompt
 type: prompt
-status: production
 tags: [discovery]
 aliases: [intake]
 ---

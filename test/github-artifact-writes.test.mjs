@@ -10,7 +10,7 @@ import { MAX_SERIALIZED_ARTIFACT_BYTES, serializeArtifactMarkdown } from '../lib
 
 const metadata = { id: 'new-prompt', title: 'New Prompt', description: '', type: 'prompt', tags: ['writing'], aliases: [] };
 const existingMarkdown = `---\nid: new-prompt\ntitle: New Prompt\ndescription: ''\ntype: prompt\ntags: [writing]\naliases: []\n---\n\nOld body\n`;
-const legacyMarkdown = (status, body = 'Legacy body') => `---\nid: new-prompt\ntitle: New Prompt\ndescription: ''\ntype: prompt\nstatus: ${status}\ntags: [writing]\naliases: []\n---\n\n${body}\n`;
+const statusMarkdown = (status) => `---\nid: new-prompt\ntitle: New Prompt\ndescription: ''\ntype: prompt\nstatus: ${status}\ntags: [writing]\naliases: []\n---\n\nInvalid body\n`;
 const source = { ...metadata, id: 'source-prompt', title: 'Source Prompt', aliases: ['starter'], body: 'Source body', excerpt: 'Source body', path: 'artifacts/prompts/source-prompt.md' };
 const json = (value, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
 
@@ -169,18 +169,14 @@ test('update uses the supplied current SHA and succeeds', async () => {
   assert.equal(payload.message, 'Update artifact new-prompt (requested by @octocat)');
 });
 
-test('legacy lifecycle values parse canonically and do not affect exact-path update semantics', async () => {
-  for (const status of ['draft', 'production', 'archived']) {
-    const runtime = fake({ files: { 'prompts/new-prompt.md': legacyMarkdown(status) } });
-    const loaded = await runtime.repository.findById('new-prompt');
-    assert.equal('status' in loaded, false);
-    const update = await runtime.repository.update({ id: metadata.id, metadata, body: `Updated ${status}`, currentFileSha: 'blob-0', actorLogin: 'octocat' });
-    const put = runtime.calls.find(({ options }) => options.method === 'PUT');
-    const payload = JSON.parse(put.options.body);
-    assert.ok(put.url.endsWith('/contents/prompts/new-prompt.md'));
-    assert.equal(payload.sha, 'blob-0');
-    assert.equal(update.path, 'prompts/new-prompt.md');
-    assert.doesNotMatch(Buffer.from(payload.content, 'base64').toString(), /^status:/m);
+test('status-bearing repository content fails before an update mutation', async () => {
+  for (const status of ['draft', 'production', 'archived', 'other']) {
+    const runtime = fake({ files: { 'prompts/new-prompt.md': statusMarkdown(status) } });
+    await assert.rejects(runtime.repository.update({ id: metadata.id, metadata, body: 'Updated', currentFileSha: 'blob-0', actorLogin: 'octocat' }), ArtifactRepositoryContentError);
+    assert.equal(runtime.calls.some(({ options }) => options.method === 'PUT'), false);
+    const deletion = fake({ files: { 'prompts/new-prompt.md': statusMarkdown(status) } });
+    await assert.rejects(deletion.repository.delete({ id: metadata.id, currentFileSha: 'blob-0', actorLogin: 'octocat' }), ArtifactRepositoryContentError);
+    assert.equal(deletion.calls.some(({ options }) => options.method === 'DELETE'), false);
   }
 });
 
@@ -281,7 +277,7 @@ test('direct deletion uses exact nested path, SHA, branch and attributable singl
   assert.deepEqual(result, { artifactId: 'new-prompt', path: 'artifacts/prompts/nested/item.md', commitSha: 'deleted-commit', commitUrl: 'https://github.com/owner/repo/commit/deleted', repositoryRevision: 'deleted-commit' });
 });
 
-test('stale SHA blocks deletion while genuine legacy production Markdown deletes directly', async () => {const path='prompts/new-prompt.md';const stale=fake({files:{[path]:legacyMarkdown('production')}});await assert.rejects(stale.repository.delete({id:metadata.id,currentFileSha:'stale',actorLogin:'octocat'}),ArtifactWriteConflictError);assert.equal(stale.calls.some(call=>call.options.method==='DELETE'),false);const production=fake({files:{[path]:legacyMarkdown('production')},writeValue:{content:null,commit:{sha:'deleted',html_url:'https://github.com/owner/repo/commit/deleted'}}});const result=await production.repository.delete({id:metadata.id,currentFileSha:'blob-0',actorLogin:'octocat'});const remove=production.calls.find(call=>call.options.method==='DELETE');assert.ok(remove.url.endsWith('/contents/prompts/new-prompt.md'));assert.equal(JSON.parse(remove.options.body).sha,'blob-0');assert.equal(result.path,path);assert.equal(production.calls.some(call=>/pulls|git\/refs|artifact-delete/.test(call.url)),false)});
+test('stale SHA blocks deletion while valid statusless Markdown deletes at its exact path', async () => {const path='prompts/new-prompt.md';const stale=fake({files:{[path]:existingMarkdown}});await assert.rejects(stale.repository.delete({id:metadata.id,currentFileSha:'stale',actorLogin:'octocat'}),ArtifactWriteConflictError);assert.equal(stale.calls.some(call=>call.options.method==='DELETE'),false);const current=fake({files:{[path]:existingMarkdown},writeValue:{content:null,commit:{sha:'deleted',html_url:'https://github.com/owner/repo/commit/deleted'}}});const result=await current.repository.delete({id:metadata.id,currentFileSha:'blob-0',actorLogin:'octocat'});const remove=current.calls.find(call=>call.options.method==='DELETE');assert.ok(remove.url.endsWith('/contents/prompts/new-prompt.md'));assert.equal(JSON.parse(remove.options.body).sha,'blob-0');assert.equal(result.path,path);assert.equal(current.calls.some(call=>/pulls|git\/refs|artifact-delete/.test(call.url)),false)});
 
 test('direct deletion maps changed state, authentication, permission and availability without retrying', async () => {
   for (const [status, ErrorType] of [[401, ArtifactWriteAuthenticationError], [403, ArtifactWritePermissionError], [404, ArtifactWriteConflictError], [409, ArtifactWriteConflictError], [422, ArtifactWriteConflictError], [429, ArtifactRepositoryUnavailableError], [503, ArtifactRepositoryUnavailableError]]) {

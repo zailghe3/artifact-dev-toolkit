@@ -43,7 +43,7 @@ Exact bindings, schemas, versions, limits, identifiers, protocols, retries, and 
 
 - Loads validated reusable artifacts from the configured GitHub repository.
 - Supports catalogue search, detail, copy, creation, editing, variations, deletion, refresh, and diagnostics.
-- Artifact Library Markdown has no lifecycle state; legacy status values are read-compatible only.
+- Artifact Library Markdown has no lifecycle state; top-level `status` metadata is invalid.
 - Validated edits and deletions are direct repository mutations.
 - Repository revision checks protect against stale or ambiguous writes.
 

@@ -61,7 +61,7 @@
 - An artifact present on the configured canonical branch is active catalogue content; Artifact Library Markdown has no lifecycle state.
 - Users can create, preview, edit, vary, and delete artifacts without lifecycle metadata.
 - New and updated Markdown omits the retired `status` field while retaining `type`.
-- Legacy `draft`, `production`, and `archived` values are accepted temporarily on read and have no effect on presentation, search, variation, editing, or deletion.
+- Top-level Artifact Library `status` metadata is invalid and is not stripped or synthesized during reads.
 - Every edit and deletion is a direct Git mutation tied to the artifact's exact observed path and file revision.
 - Stale or ambiguous mutations fail safely; successful writes invalidate stale catalogue state.
 - Variations are distinct artifacts that retain their source relationship through `sourceId`.
@@ -82,7 +82,7 @@
 - Artifact IDs are unique within the configured artifact repository.
 - Repository content is validated before it becomes part of the application catalogue.
 - During repository-layout migration, the library reads non-conflicting legacy and root-level artifacts, creates ordinary artifacts in their root-level namespaces, and mutates artifacts at their exact source paths.
-- A logical identity present in both repository layouts fails closed. Statusless Markdown is canonical; legacy lifecycle values are ignored after compatibility parsing.
+- A logical identity present in both repository layouts fails closed. Statusless Markdown is canonical, and top-level Artifact Library `status` metadata is invalid.
 - Invalid paths, malformed metadata, duplicate identities, unsupported content, and unsafe artifact data are rejected.
 - The canonical repository layout, metadata schema, and validation rules are defined by the [External Artifact Repository Contract](../docs/external-artifact-repository-contract.md).
 - The application specification should not duplicate that contract.

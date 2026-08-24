@@ -52,7 +52,6 @@ test('valid metadata accepts required fields, defaulted arrays, ISO timestamps w
 id: minimal
 title: Minimal Prompt
 type: prompt
-status: production
 createdAt: '2026-07-12T09:30:00+01:00'
 extraField: allowed-for-forward-compatibility
 `),
@@ -70,7 +69,6 @@ test('invalid metadata reports intended Zod 4 contract categories', async () => 
     'prompts/missing-required.md': markdown(`
 id: missing-required
 type: prompt
-status: production
 `),
     'agents/bad-status.md': markdown(`
 id: bad-status
@@ -82,7 +80,6 @@ status: proposed
 id: bad-created-at
 title: Bad Timestamp
 type: snippet
-status: draft
 createdAt: '2026-07-12T09:30:00'
 `),
     'templates/malformed-yaml.md': `---\nid: malformed\ntitle: [unterminated\n---\nBody\n`,
@@ -112,18 +109,18 @@ test('invalid external artifact repository reports file-specific contract errors
   assert.match(errors, /duplicate-app\.md: Duplicate artifact id "duplicate-id"/);
 });
 
-test('compatibility validation accepts future-only status-bearing and statusless Markdown', async () => {
+test('validation accepts future-only statusless Markdown', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'future-artifact-repository-'));
   await mkdir(path.join(root, 'prompts'), { recursive: true });
   await writeFile(path.join(root, 'prompts/statusless.md'), markdown('id: statusless\ntitle: Statusless\ntype: prompt\ntags: []\naliases: []'));
-  await writeFile(path.join(root, 'prompts/status.md'), markdown('id: status\ntitle: Status\ntype: prompt\nstatus: production\ntags: []\naliases: []'));
+  await writeFile(path.join(root, 'prompts/second.md'), markdown('id: second\ntitle: Second\ntype: prompt\ntags: []\naliases: []'));
   const result = await validateExternalArtifactRepository(root);
   assert.equal(result.valid, true, errorText(result));
   assert.equal(result.artifactCount, 2);
 });
 
-test('compatibility validation accepts non-conflicting mixed layouts and rejects cross-layout IDs', async () => {
-  const root = await createRepository({ 'prompts/legacy.md': markdown('id: legacy\ntitle: Legacy\ntype: prompt\nstatus: draft') });
+test('validation accepts statusless non-conflicting mixed layouts and rejects cross-layout IDs', async () => {
+  const root = await createRepository({ 'prompts/legacy.md': markdown('id: legacy\ntitle: Legacy\ntype: prompt') });
   await mkdir(path.join(root, 'prompts'), { recursive: true });
   await writeFile(path.join(root, 'prompts/root.md'), markdown('id: root\ntitle: Root\ntype: prompt'));
   assert.equal((await validateExternalArtifactRepository(root)).valid, true);
@@ -135,7 +132,7 @@ test('compatibility validation accepts non-conflicting mixed layouts and rejects
 
 test('overlapping single-segment root classifies each path once using the complete legacy path', async () => {
   const repository = await createRepositoryAtRoot('prompts', {
-    'prompts/prompts/legacy.md': markdown('id: legacy\ntitle: Legacy\ntype: prompt\nstatus: draft'),
+    'prompts/prompts/legacy.md': markdown('id: legacy\ntitle: Legacy\ntype: prompt'),
     'prompts/future.md': markdown('id: future\ntitle: Future\ntype: prompt'),
   });
   const result = await repository.validate();
@@ -150,7 +147,7 @@ test('overlapping single-segment root classifies each path once using the comple
 
 test('overlapping nested root does not rediscover legacy Markdown through its future root', async () => {
   const repository = await createRepositoryAtRoot('prompts/team', {
-    'prompts/team/prompts/legacy.md': markdown('id: nested\ntitle: Nested\ntype: prompt\nstatus: production'),
+    'prompts/team/prompts/legacy.md': markdown('id: nested\ntitle: Nested\ntype: prompt'),
     'prompts/future.md': markdown('id: future\ntitle: Future\ntype: prompt'),
   });
   const result = await repository.validate();
@@ -165,7 +162,7 @@ test('normal multi-segment and reserved-name roots use runtime layout classifica
     ['artifacts', 'artifacts/prompts/legacy.md'],
   ]) {
     const repository = await createRepositoryAtRoot(artifactRoot, {
-      [legacyPath]: markdown('id: legacy\ntitle: Legacy\ntype: prompt\nstatus: archived'),
+      [legacyPath]: markdown('id: legacy\ntitle: Legacy\ntype: prompt'),
       'prompts/future.md': markdown('id: future\ntitle: Future\ntype: prompt'),
     });
     const result = await repository.validate();
@@ -176,7 +173,7 @@ test('normal multi-segment and reserved-name roots use runtime layout classifica
 
 test('distinct legacy and future paths still report a global logical ID collision', async () => {
   const repository = await createRepositoryAtRoot('prompts', {
-    'prompts/prompts/legacy.md': markdown('id: collision\ntitle: Legacy\ntype: prompt\nstatus: production'),
+    'prompts/prompts/legacy.md': markdown('id: collision\ntitle: Legacy\ntype: prompt'),
     'prompts/future.md': markdown('id: collision\ntitle: Future\ntype: prompt'),
   });
   const result = await repository.validate();

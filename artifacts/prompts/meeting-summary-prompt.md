@@ -2,7 +2,6 @@
 id: meeting-summary-prompt
 title: Meeting Summary Prompt
 type: prompt
-status: production
 tags: [productivity, meetings, summary]
 aliases: [minutes, notes, recap]
 ---

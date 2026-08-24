@@ -1,6 +1,6 @@
 import matter from "gray-matter";
 import { z } from "zod";
-import { artifactStatusSchema, artifactTypeSchema } from "./artifact-schemas.ts";
+import { artifactTypeSchema } from "./artifact-schemas.ts";
 import { classifyArtifactPath, LEGACY_ARTIFACT_DIRECTORIES } from "./repository-layout.ts";
 
 export const ALLOWED_ARTIFACT_DIRECTORIES = LEGACY_ARTIFACT_DIRECTORIES;
@@ -18,15 +18,11 @@ export const artifactFrontMatterSchema = z.object({
   aliases: z.array(z.string()).default([]),
   sourceId: z.string().trim().min(1).optional(),
   createdAt: z.union([z.string().datetime({ offset: true }), z.date()]).optional(),
+  // Artifact Library lifecycle status is retired. Keep the surrounding Zod
+  // object non-strict so unrelated additional metadata retains its existing
+  // handling, while explicitly rejecting this former compatibility field.
+  status: z.never().optional(),
 });
-
-const legacyCompatibleArtifactFrontMatterSchema = artifactFrontMatterSchema.extend({ status: artifactStatusSchema.optional() });
-export const compatibleArtifactFrontMatterSchema = z.preprocess((input) => {
-  const parsed = legacyCompatibleArtifactFrontMatterSchema.parse(input);
-  const canonical = { ...parsed } as typeof parsed & { status?: unknown };
-  delete canonical.status;
-  return canonical;
-}, artifactFrontMatterSchema);
 
 export type ArtifactMetadata = z.infer<typeof artifactFrontMatterSchema>;
 export type ArtifactModel = ArtifactMetadata & { body: string; excerpt: string; path: string; layout?: "legacy" | "future" };
@@ -95,7 +91,7 @@ export function parseArtifactMarkdown(raw: string, filePath: string, resolvedLay
   if (!String(parsed.matter ?? "").trim()) throw new ArtifactMarkdownParseError("invalid_front_matter");
   try {
     const layout = resolvedLayout ?? classifyArtifactPath(filePath) ?? "legacy";
-    const data = compatibleArtifactFrontMatterSchema.parse(parsed.data);
+    const data = artifactFrontMatterSchema.parse(parsed.data);
     const normalizeList = (values: string[]) => Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
     return { ...data, tags: normalizeList(data.tags), aliases: normalizeList(data.aliases), createdAt: data.createdAt instanceof Date ? data.createdAt.toISOString() : data.createdAt, body: parsed.content.trim(), excerpt: toExcerpt(parsed.content), path: filePath, layout };
   } catch (error) {

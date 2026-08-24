@@ -7,7 +7,7 @@ import { getPublicRepositoryConfiguration, storedRepositoryMatchesPublicConfigur
 import { CatalogueCacheUnavailableError, CatalogueSnapshotCorruptError } from '../lib/artifact-catalogue.ts';
 
 const response = (value, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
-const valid = `---\nid: valid-one\ntitle: Valid one\ntype: prompt\nstatus: draft\ntags: []\naliases: []\n---\n\nSafe body`;
+const valid = `---\nid: valid-one\ntitle: Valid one\ntype: prompt\ntags: []\naliases: []\n---\n\nSafe body`;
 const duplicate = valid.replaceAll('valid-one', 'duplicate-one').replaceAll('Valid one', 'Duplicate');
 
 test('diagnostics scan collects invalid files and duplicate IDs without returning bodies', async () => {
