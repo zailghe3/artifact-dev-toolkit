@@ -15,6 +15,10 @@ function safeRootSegments(value: string) {
   return normalized && segments.every((segment) => Boolean(segment) && segment !== "." && segment !== "..") ? segments : undefined;
 }
 
+export function normalizeRepositoryRoot(value: string) {
+  return safeRootSegments(value)?.join("/");
+}
+
 export function classifyArtifactPath(filePath: string, legacyRoot = "artifacts"): RepositoryLayout | undefined {
   const segments = safeSegments(filePath);
   if (!segments) return undefined;
