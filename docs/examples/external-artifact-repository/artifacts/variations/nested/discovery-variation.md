@@ -2,7 +2,6 @@
 id: discovery-variation
 title: Discovery Prompt Variation
 type: prompt
-status: draft
 tags: [discovery, variation]
 aliases: [intake]
 sourceId: discovery-prompt

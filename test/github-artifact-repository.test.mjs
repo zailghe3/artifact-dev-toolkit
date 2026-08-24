@@ -71,7 +71,6 @@ test('GitHubArtifactRepository lists nested Markdown artifacts as sorted Artifac
 id: beta
 title: Beta Prompt
 type: prompt
-status: draft
 tags: [beta]
 aliases: []
 `, 'Beta body with   whitespace.'),
@@ -79,7 +78,6 @@ aliases: []
 id: alpha
 title: Alpha Variation
 type: snippet
-status: production
 tags: []
 aliases: [first]
 `, 'Alpha body.'),
@@ -101,7 +99,6 @@ test('GitHubArtifactRepository findById returns one parsed artifact', async () =
 id: wanted
 title: Wanted
 type: prompt
-status: production
 tags: []
 aliases: []
 `),
@@ -118,7 +115,6 @@ test('findByIdWithRevision returns the matching nested tree-entry SHA', async ()
 id: wanted
 title: Wanted
 type: prompt
-status: production
 tags: []
 aliases: []
 `),
@@ -130,7 +126,7 @@ aliases: []
 });
 
 test('findByIdWithRevision fails closed when the matching tree SHA is missing', async () => {
-  const source = markdown(`id: wanted\ntitle: Wanted\ntype: prompt\nstatus: draft\ntags: []\naliases: []`);
+  const source = markdown(`id: wanted\ntitle: Wanted\ntype: prompt\ntags: []\naliases: []`);
   const fetch = async (url) => new URL(String(url)).pathname.endsWith('/git/trees/main')
     ? jsonResponse({ truncated: false, tree: [{ path: 'artifacts/prompts/a.md', type: 'blob' }] })
     : jsonResponse({ encoding: 'base64', size: Buffer.byteLength(source), content: base64(source) });
@@ -151,7 +147,6 @@ test('GitHubArtifactRepository rejects duplicate IDs with file-specific diagnost
 id: duplicate
 title: A
 type: prompt
-status: production
 tags: []
 aliases: []
 `),
@@ -159,7 +154,6 @@ aliases: []
 id: duplicate
 title: B
 type: snippet
-status: production
 tags: []
 aliases: []
 `),
@@ -173,7 +167,6 @@ test('GitHubArtifactRepository reports malformed artifacts with the source file 
     'artifacts/prompts/bad.md': markdown(`
 id: bad
 type: prompt
-status: production
 tags: []
 aliases: []
 `),
@@ -202,7 +195,7 @@ test('repository API responses preserve access, content, and availability catego
 test('blob loading is bounded to four requests and remains complete and sorted', async () => {
   const fixtures = Object.fromEntries(Array.from({ length: 12 }, (_, index) => [
     `artifacts/prompts/${String(index).padStart(2, '0')}.md`,
-    markdown(`id: item-${index}\ntitle: ${String(12 - index).padStart(2, '0')} title\ntype: prompt\nstatus: draft\ntags: []\naliases: []`),
+    markdown(`id: item-${index}\ntitle: ${String(12 - index).padStart(2, '0')} title\ntype: prompt\ntags: []\naliases: []`),
   ]));
   const baseFetch = createFetch(fixtures);
   let active = 0;
@@ -225,8 +218,8 @@ test('a temporary blob HTTP failure retries only that blob with secret-free diag
   const responseSecret = 'response-body-secret-DISTINCTIVE';
   const runtime = quietRuntime();
   const baseFetch = createFetch({
-    'artifacts/prompts/a.md': markdown('id: a\ntitle: A\ntype: prompt\nstatus: draft\ntags: []\naliases: []'),
-    'artifacts/prompts/b.md': markdown('id: b\ntitle: B\ntype: prompt\nstatus: draft\ntags: []\naliases: []'),
+    'artifacts/prompts/a.md': markdown('id: a\ntitle: A\ntype: prompt\ntags: []\naliases: []'),
+    'artifacts/prompts/b.md': markdown('id: b\ntitle: B\ntype: prompt\ntags: []\naliases: []'),
   });
   let failedBlobAttempts = 0;
   const fetch = async (url, options) => {
@@ -245,7 +238,7 @@ test('a temporary blob HTTP failure retries only that blob with secret-free diag
 
 test('a temporary blob network failure recovers', async () => {
   const runtime = quietRuntime();
-  const baseFetch = createFetch({ 'artifacts/prompts/a.md': markdown('id: a\ntitle: A\ntype: prompt\nstatus: draft\ntags: []\naliases: []') });
+  const baseFetch = createFetch({ 'artifacts/prompts/a.md': markdown('id: a\ntitle: A\ntype: prompt\ntags: []\naliases: []') });
   let attempts = 0;
   const fetch = async (url, options) => {
     if (String(url).includes('/git/blobs/') && ++attempts === 1) throw new TypeError('network failed with private URL data');
@@ -258,7 +251,7 @@ test('a temporary blob network failure recovers', async () => {
 test('a temporary blob response body failure retries safely and recovers', async () => {
   const secret = 'body-read-secret-DISTINCTIVE';
   const runtime = quietRuntime();
-  const baseFetch = createFetch({ 'artifacts/prompts/a.md': markdown('id: a\ntitle: A\ntype: prompt\nstatus: draft\ntags: []\naliases: []') });
+  const baseFetch = createFetch({ 'artifacts/prompts/a.md': markdown('id: a\ntitle: A\ntype: prompt\ntags: []\naliases: []') });
   let attempts = 0;
   const fetch = async (url, options) => {
     if (String(url).includes('/git/blobs/') && ++attempts === 1) {
@@ -276,7 +269,7 @@ test('a temporary blob response body failure retries safely and recovers', async
 
 test('blob response body retry exhaustion is unavailable and returns no partial list', async () => {
   const runtime = quietRuntime();
-  const baseFetch = createFetch({ 'artifacts/prompts/a.md': markdown('id: a\ntitle: A\ntype: prompt\nstatus: draft\ntags: []\naliases: []') });
+  const baseFetch = createFetch({ 'artifacts/prompts/a.md': markdown('id: a\ntitle: A\ntype: prompt\ntags: []\naliases: []') });
   let attempts = 0;
   const fetch = async (url, options) => {
     if (String(url).includes('/git/blobs/')) {
@@ -295,7 +288,7 @@ test('blob response body retry exhaustion is unavailable and returns no partial 
 
 test('malformed successful response JSON remains non-retryable content', async () => {
   const runtime = quietRuntime();
-  const baseFetch = createFetch({ 'artifacts/prompts/a.md': markdown('id: a\ntitle: A\ntype: prompt\nstatus: draft\ntags: []\naliases: []') });
+  const baseFetch = createFetch({ 'artifacts/prompts/a.md': markdown('id: a\ntitle: A\ntype: prompt\ntags: []\naliases: []') });
   let attempts = 0;
   const fetch = async (url, options) => {
     if (String(url).includes('/git/blobs/')) {
@@ -328,7 +321,7 @@ test('a temporary tree response body failure retries without logging a path', as
 
 test('blob retry exhaustion returns no partial list and logs safe final classification', async () => {
   const runtime = quietRuntime();
-  const baseFetch = createFetch({ 'artifacts/prompts/a.md': markdown('id: a\ntitle: A\ntype: prompt\nstatus: draft\ntags: []\naliases: []') });
+  const baseFetch = createFetch({ 'artifacts/prompts/a.md': markdown('id: a\ntitle: A\ntype: prompt\ntags: []\naliases: []') });
   let attempts = 0;
   const fetch = async (url, options) => {
     if (String(url).includes('/git/blobs/')) { attempts++; return new Response('sensitive body', { status: 503 }); }
@@ -344,7 +337,7 @@ test('blob retry exhaustion returns no partial list and logs safe final classifi
 
 test('Retry-After rate limiting uses injected sleep and then recovers', async () => {
   const runtime = quietRuntime();
-  const baseFetch = createFetch({ 'artifacts/prompts/a.md': markdown('id: a\ntitle: A\ntype: prompt\nstatus: draft\ntags: []\naliases: []') });
+  const baseFetch = createFetch({ 'artifacts/prompts/a.md': markdown('id: a\ntitle: A\ntype: prompt\ntags: []\naliases: []') });
   let attempts = 0;
   const fetch = async (url, options) => {
     if (String(url).includes('/git/blobs/') && ++attempts === 1) return new Response('', { status: 429, headers: { 'retry-after': '2' } });
@@ -356,14 +349,14 @@ test('Retry-After rate limiting uses injected sleep and then recovers', async ()
 
 test('permanent blob failures and invalid content are not retried', async () => {
   for (const [status, ErrorType] of [[403, ArtifactRepositoryAccessError], [404, ArtifactRepositoryContentError]]) {
-    const baseFetch = createFetch({ 'artifacts/prompts/a.md': markdown('id: a\ntitle: A\ntype: prompt\nstatus: draft\ntags: []\naliases: []') });
+    const baseFetch = createFetch({ 'artifacts/prompts/a.md': markdown('id: a\ntitle: A\ntype: prompt\ntags: []\naliases: []') });
     let attempts = 0;
     const fetch = async (url, options) => String(url).includes('/git/blobs/') ? (attempts++, new Response('', { status })) : baseFetch(url, options);
     await assert.rejects(repository(fetch, quietRuntime()).list(), ErrorType);
     assert.equal(attempts, 1);
   }
   for (const invalidBlob of [
-    { encoding: 'base64', content: base64(markdown('id: missing-title\ntype: prompt\nstatus: draft\ntags: []\naliases: []')) },
+    { encoding: 'base64', content: base64(markdown('id: missing-title\ntype: prompt\ntags: []\naliases: []')) },
     { encoding: 'utf-8', content: 'not supported' },
   ]) {
     let attempts = 0;
@@ -377,8 +370,8 @@ test('permanent blob failures and invalid content are not retried', async () => 
 
 test('repeated library loading remains complete and stable', async () => {
   const fetch = createFetch({
-    'artifacts/prompts/b.md': markdown('id: b\ntitle: B\ntype: prompt\nstatus: draft\ntags: []\naliases: []'),
-    'artifacts/prompts/a.md': markdown('id: a\ntitle: A\ntype: prompt\nstatus: draft\ntags: []\naliases: []'),
+    'artifacts/prompts/b.md': markdown('id: b\ntitle: B\ntype: prompt\ntags: []\naliases: []'),
+    'artifacts/prompts/a.md': markdown('id: a\ntitle: A\ntype: prompt\ntags: []\naliases: []'),
   });
   const repo = repository(fetch, quietRuntime());
   assert.deepEqual(await repo.list(), await repo.list());
@@ -405,8 +398,8 @@ test('installation credential failures preserve access and availability categori
 test('one installation credential is reused for the tree and every blob', async () => {
   let credentials = 0;
   const fetch = createFetch({
-    'artifacts/prompts/a.md': markdown('id: a\ntitle: A\ntype: prompt\nstatus: draft\ntags: []\naliases: []'),
-    'artifacts/agents/b.md': markdown('id: b\ntitle: B\ntype: agent\nstatus: draft\ntags: []\naliases: []'),
+    'artifacts/prompts/a.md': markdown('id: a\ntitle: A\ntype: prompt\ntags: []\naliases: []'),
+    'artifacts/agents/b.md': markdown('id: b\ntitle: B\ntype: agent\ntags: []\naliases: []'),
   });
   let tokenPromise;
   const repo = repository(fetch, { credentialProvider: (capability) => tokenPromise ??= Promise.resolve({ token: `token-${++credentials}`, permissions: capability === 'read' ? { contents: 'read' } : capability === 'write' ? { contents: 'write' } : { contents: 'write', pullRequests: 'write' } }) });
@@ -418,7 +411,7 @@ test('one installation credential is reused for the tree and every blob', async 
 test('compatibility reads future-only and non-conflicting mixed artifacts without losing source identity', async () => {
   const fetch = createFetch({
     'prompts/root.md': markdown('id: root\ntitle: Root\ntype: prompt\ntags: []\naliases: []'),
-    'artifacts/snippets/legacy.md': markdown('id: legacy\ntitle: Legacy\ntype: snippet\nstatus: draft\ntags: []\naliases: []'),
+    'artifacts/snippets/legacy.md': markdown('id: legacy\ntitle: Legacy\ntype: snippet\ntags: []\naliases: []'),
   });
   const repo = repository(fetch);
   const artifacts = await repo.list();
@@ -430,11 +423,11 @@ test('compatibility reads future-only and non-conflicting mixed artifacts withou
   assert.equal(resolved.currentFileSha, 'sha-1');
 });
 
-test('compatibility accepts status-bearing root Markdown and fails closed on cross-layout artifact IDs', async () => {
-  const status = await repository(createFetch({ 'snippets/root.md': markdown('id: root\ntitle: Root\ntype: snippet\nstatus: archived\ntags: []\naliases: []') })).list();
+test('layout compatibility accepts statusless root Markdown and fails closed on cross-layout artifact IDs', async () => {
+  const status = await repository(createFetch({ 'snippets/root.md': markdown('id: root\ntitle: Root\ntype: snippet\ntags: []\naliases: []') })).list();
   assert.equal('status' in status[0], false);
   const duplicate = createFetch({
-    'artifacts/prompts/old.md': markdown('id: same\ntitle: Old\ntype: prompt\nstatus: draft\ntags: []\naliases: []'),
+    'artifacts/prompts/old.md': markdown('id: same\ntitle: Old\ntype: prompt\ntags: []\naliases: []'),
     'prompts/new.md': markdown('id: same\ntitle: New\ntype: prompt\ntags: []\naliases: []'),
   });
   await assert.rejects(repository(duplicate).list(), /Duplicate artifact id "same".*prompts\/new\.md.*artifacts\/prompts\/old\.md|Duplicate artifact id "same"/);
@@ -444,7 +437,7 @@ test('configured legacy roots preserve complete normalized paths and coexist wit
   for (const rootPath of ['artifacts', '/custom/', '/team/artifacts/']) {
     const root = rootPath.replace(/^\/+|\/+$/g, '');
     const items = await repository(createFetch({
-      [`${root}/prompts/legacy.md`]: markdown('id: legacy\ntitle: Legacy\ntype: prompt\nstatus: draft\ntags: []\naliases: []'),
+      [`${root}/prompts/legacy.md`]: markdown('id: legacy\ntitle: Legacy\ntype: prompt\ntags: []\naliases: []'),
       'snippets/future.md': markdown('id: future\ntitle: Future\ntype: snippet\ntags: []\naliases: []'),
     }), { rootPath }).list();
     assert.deepEqual(items.map(({ id, layout }) => [id, layout]), [['future', 'future'], ['legacy', 'legacy']]);
@@ -453,7 +446,7 @@ test('configured legacy roots preserve complete normalized paths and coexist wit
 
 test('a configured legacy root overlapping a future directory is classified by its complete path first', async () => {
   const items = await repository(createFetch({
-    'prompts/prompts/legacy.md': markdown('id: legacy\ntitle: Legacy\ntype: prompt\nstatus: draft\ntags: []\naliases: []'),
+    'prompts/prompts/legacy.md': markdown('id: legacy\ntitle: Legacy\ntype: prompt\ntags: []\naliases: []'),
     'snippets/future.md': markdown('id: future\ntitle: Future\ntype: snippet\ntags: []\naliases: []'),
   }), { rootPath: 'prompts' }).list();
   assert.equal(items.find(item => item.id === 'legacy').layout, 'legacy');
@@ -462,6 +455,6 @@ test('a configured legacy root overlapping a future directory is classified by i
 
 test('configured roots reject traversal and empty path segments', async () => {
   for (const path of ['team/artifacts/../prompts/unsafe.md', 'team/artifacts//prompts/unsafe.md']) {
-    await assert.rejects(repository(createFetch({ [path]: markdown('id: unsafe\ntitle: Unsafe\ntype: prompt\nstatus: draft\ntags: []\naliases: []') }), { rootPath: 'team/artifacts' }).list(), ArtifactRepositoryContentError);
+    await assert.rejects(repository(createFetch({ [path]: markdown('id: unsafe\ntitle: Unsafe\ntype: prompt\ntags: []\naliases: []') }), { rootPath: 'team/artifacts' }).list(), ArtifactRepositoryContentError);
   }
 });

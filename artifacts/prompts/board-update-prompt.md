@@ -2,7 +2,6 @@
 id: board-update-prompt
 title: Board Update Prompt
 type: prompt
-status: production
 tags: [consulting, executive, board]
 aliases: [board memo, exec update, steering committee]
 ---

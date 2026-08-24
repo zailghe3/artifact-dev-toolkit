@@ -5,7 +5,7 @@ import { parseArtifactMarkdown } from '../lib/artifact-contract.ts';
 
 const access={owner:'o',repo:'r',repositoryId:1};
 const metadata={id:'example',title:'Example',description:'',type:'prompt',tags:['one'],aliases:[],sourceId:'source',createdAt:'2026-08-24T00:00:00.000Z'};
-const stored=parseArtifactMarkdown(`---\nid: example\ntitle: Example\ntype: prompt\nstatus: production\ntags: [one]\naliases: []\nsourceId: source\ncreatedAt: 2026-08-24T00:00:00.000Z\n---\nStored body\n`,'prompts/example.md','future');
+const stored=parseArtifactMarkdown(`---\nid: example\ntitle: Example\ntype: prompt\ntags: [one]\naliases: []\nsourceId: source\ncreatedAt: 2026-08-24T00:00:00.000Z\n---\nStored body\n`,'prompts/example.md','future');
 const request=(value)=>new Request('https://example.test/api/artifacts/preview',{method:'POST',body:typeof value==='string'?value:JSON.stringify(value)});
 const dependencies=(overrides={})=>({authorize:async()=>({access,session:{login:'octocat'}}),loadArtifact:async()=>({artifact:stored,currentFileSha:'observed-sha'}),...overrides});
 
@@ -15,4 +15,4 @@ test('statusless create preview renders canonical metadata without mutation',asy
 
 test('edit preview requires the exact observed SHA and performs no mutation',async()=>{let loads=0;const deps=dependencies({loadArtifact:async()=>{loads++;return {artifact:stored,currentFileSha:'observed-sha'}}});let response=await handleLifecyclePreview(request({metadata,body:'Updated',currentFileSha:'stale-sha'}),'example',deps);assert.equal(response.status,409);assert.equal((await response.json()).code,'write_conflict');response=await handleLifecyclePreview(request({metadata,body:'Updated',currentFileSha:'observed-sha'}),'example',deps);assert.equal(response.status,200);const value=await response.json();assert.equal('status' in value.metadata,false);assert.equal(loads,2)});
 
-test('legacy stored status does not weaken immutable edit-preview metadata',async()=>{for(const change of [{id:'renamed'},{type:'template'},{sourceId:'other'},{createdAt:'2026-08-25T00:00:00.000Z'}]){const response=await handleLifecyclePreview(request({metadata:{...metadata,...change},body:'Updated',currentFileSha:'observed-sha'}),'example',dependencies());assert.equal(response.status,400);assert.equal((await response.json()).code,'validation_failed')}});
+test('statusless stored artifact preserves immutable edit-preview metadata',async()=>{for(const change of [{id:'renamed'},{type:'template'},{sourceId:'other'},{createdAt:'2026-08-25T00:00:00.000Z'}]){const response=await handleLifecyclePreview(request({metadata:{...metadata,...change},body:'Updated',currentFileSha:'observed-sha'}),'example',dependencies());assert.equal(response.status,400);assert.equal((await response.json()).code,'validation_failed')}});

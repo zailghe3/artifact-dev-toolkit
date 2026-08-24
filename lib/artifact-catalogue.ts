@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { artifactFrontMatterSchema, compatibleArtifactFrontMatterSchema, validateUniqueArtifactIds } from "./artifact-contract.ts";
+import { artifactFrontMatterSchema, validateUniqueArtifactIds } from "./artifact-contract.ts";
 import { classifyArtifactPath } from "./repository-layout.ts";
 import { ArtifactRepositoryUnavailableError, type Artifact, type ArtifactRepository, type ArtifactWithRevision } from "./artifact-repository.ts";
 
@@ -113,7 +113,7 @@ export class ArtifactCatalogueService {
   }
 
   private result(snapshot: Snapshot, cacheState: CatalogueCacheState): ResolvedCatalogue { return { artifacts: snapshot.entries.map(entry => entry.artifact), fileShas: Object.fromEntries(snapshot.entries.map(entry => [entry.artifact.id, entry.fileSha])), revision: snapshot.revision, refreshedAt: snapshot.refreshedAt, cacheState }; }
-  private validateSnapshot(snapshot: Snapshot) { shaSchema.parse(snapshot.revision); for (const entry of snapshot.entries) { const parsed = artifactSchema.parse(entry.artifact); shaSchema.parse(entry.fileSha); const layout = classifyArtifactPath(parsed.path, this.options.identity.root); if (!layout || !parsed.path.replace(/\\/g, "/").endsWith(".md")) throw new Error("Invalid cached artifact path."); if (parsed.layout && parsed.layout !== layout) throw new Error("Cached artifact layout contradicts its path."); compatibleArtifactFrontMatterSchema.parse(parsed); } validateUniqueArtifactIds(snapshot.entries.map(entry => entry.artifact)); }
+  private validateSnapshot(snapshot: Snapshot) { shaSchema.parse(snapshot.revision); for (const entry of snapshot.entries) { const parsed = artifactSchema.parse(entry.artifact); shaSchema.parse(entry.fileSha); const layout = classifyArtifactPath(parsed.path, this.options.identity.root); if (!layout || !parsed.path.replace(/\\/g, "/").endsWith(".md")) throw new Error("Invalid cached artifact path."); if (parsed.layout && parsed.layout !== layout) throw new Error("Cached artifact layout contradicts its path."); artifactFrontMatterSchema.parse(parsed); } validateUniqueArtifactIds(snapshot.entries.map(entry => entry.artifact)); }
   private async readGeneration(): Promise<{ value?: string; failed: boolean }> { try { const raw = await this.options.cache.get(generationKey(this.options.identity)); if (!raw) return { failed: false }; return { value: generationSchema.parse(JSON.parse(raw)).generation, failed: false }; } catch { safeLog(this.logger, "error", "artifact_catalogue_cache_read_failure", this.options.identity, { category: "generation_read" }); return { failed: true }; } }
   private async readSnapshot(): Promise<{ snapshot?: Snapshot; generation?: string; publicationId?: string; failed: boolean; corrupt?: boolean }> {
     let raw: string | null; try { raw = await this.options.cache.get(pointerKey(this.options.identity)); } catch { safeLog(this.logger, "error", "artifact_catalogue_cache_read_failure", this.options.identity, { category: "pointer_read" }); return { failed: true }; }

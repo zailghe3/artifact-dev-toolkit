@@ -5,7 +5,7 @@ import {
   DEFAULT_ARTIFACT_BRANCH,
   DEFAULT_ARTIFACT_ROOT,
   formatZodIssue,
-  compatibleArtifactFrontMatterSchema,
+  artifactFrontMatterSchema,
   validateArtifactPath,
   type ArtifactMetadata as ExternalArtifactMetadata,
   type ArtifactRepositoryValidationError,
@@ -62,7 +62,7 @@ export async function validateExternalArtifactRepository(checkoutDir: string, op
     try { parsed = matter(await fs.readFile(file, "utf8"), {}); } catch (error) { errors.push({ file: displayPath, reason: `Unable to parse Markdown front matter: ${(error as Error).message}` }); continue; }
     if (!String(parsed.matter ?? "").trim()) { errors.push({ file: displayPath, reason: "Missing YAML front matter." }); continue; }
     try {
-      const data = compatibleArtifactFrontMatterSchema.parse(parsed.data);
+      const data = artifactFrontMatterSchema.parse(parsed.data);
       artifactCount += 1;
       const previous = ids.get(data.id);
       if (previous) errors.push({ file: displayPath, reason: `Duplicate artifact id "${data.id}" already used by ${previous}.` });

@@ -2,7 +2,6 @@
 id: copilot-coding-prompt
 title: Copilot Coding Prompt
 type: prompt
-status: production
 tags: [development, copilot, coding]
 aliases: [github copilot, code assistant, implementation prompt]
 ---

@@ -2,7 +2,6 @@
 id: research-agent
 title: Research Agent
 type: agent
-status: draft
 tags: [research]
 aliases: []
 ---

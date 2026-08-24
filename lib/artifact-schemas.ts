@@ -1,6 +1,5 @@
 import { z } from "zod";
 
-export const artifactStatusSchema = z.enum(["production", "draft", "archived"]);
 export const artifactTypeSchema = z.enum(["prompt", "agent", "snippet", "template", "app-idea"]);
 
 export const artifactMetadataSchema = z.object({

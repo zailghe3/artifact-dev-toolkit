@@ -127,7 +127,7 @@ test('slug generation normalizes punctuation, separators, unsupported characters
 });
 
 test('artifact parsing defaults empty metadata arrays and normalizes body-derived excerpts', () => {
-  const artifact = parseArtifactMarkdown('---\nid: sample\ntitle: Sample\ntype: prompt\nstatus: draft\n---\n\n First line.\n\nSecond   line. \n', 'artifacts/prompts/nested/sample.md');
+  const artifact = parseArtifactMarkdown('---\nid: sample\ntitle: Sample\ntype: prompt\n---\n\n First line.\n\nSecond   line. \n', 'artifacts/prompts/nested/sample.md');
   assert.deepEqual(artifact.tags, []);
   assert.deepEqual(artifact.aliases, []);
   assert.equal(artifact.body, 'First line.\n\nSecond   line.');

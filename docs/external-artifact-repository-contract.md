@@ -4,7 +4,7 @@ This contract defines the human-editable private repository that stores Artifact
 
 ## Transitional repository layout
 
-The authoritative branch is `main`. The retained transitional layout reads the configured legacy compatibility root (`artifacts/` by default) alongside ordinary root-level type directories. Phase 3A changes Artifact Library status semantics without moving those directories.
+The authoritative branch is `main`. The retained transitional layout reads the configured legacy compatibility root (`artifacts/` by default) alongside ordinary root-level type directories. Phase 3 completes Artifact Library lifecycle removal without moving those directories.
 
 ```text
 artifacts/
@@ -36,7 +36,7 @@ workflows/
 
 ## Markdown format
 
-Canonical Phase 3A Markdown has no lifecycle status. `type` remains required.
+Canonical Artifact Library Markdown has no lifecycle status. `type` remains required.
 
 ```markdown
 ---
@@ -64,14 +64,13 @@ Derivatives additionally use `sourceId`.
 
 Optional canonical fields are `description` (string), `sourceId` (non-empty string), and `createdAt` (ISO-8601 datetime with an offset).
 
-## Phase 3A read compatibility
+## Lifecycle invariant
 
-- Legacy Artifact Library Markdown may temporarily carry `status: draft`, `status: production`, or `status: archived` in any supported Markdown location.
-- Readers validate those legacy values but do not expose or synthesize lifecycle state.
-- Legacy status has no effect on visibility, mutability, variation eligibility, or direct revision-aware edit/delete behaviour.
-- ADT never writes `status`; a normal edit serializes the canonical statusless form.
-- Deletion from the active branch is the archive mechanism and Git history provides recovery.
-- Existing storage-repository files may retain status until the separate Phase 3B cleanup. This contract does not claim that cleanup has occurred.
+- Top-level Artifact Library `status` is not part of the repository contract and makes Markdown invalid.
+- Readers do not strip lifecycle metadata or synthesize lifecycle state.
+- ADT writes statusless Markdown and requires `type`.
+- Artifact visibility and revision-aware mutation are independent of lifecycle state.
+- Deletion removes content from the active branch; Git history provides recovery.
 
 Additional front-matter fields are not stable contract fields and must not be required by consumers.
 
@@ -82,4 +81,4 @@ npm run artifacts:validate -- ../private-artifact-storage
 npm run artifacts:validate -- ../private-artifact-storage --root custom-root
 ```
 
-Validation accepts statusless and transitional mixed Markdown repositories. It rejects malformed canonical metadata, invalid legacy status values, duplicate IDs, unsafe or unsupported paths, oversized/unsafe content where applicable, and repository corruption. Agent and Workflow JSON validation is independent and unchanged.
+Validation accepts statusless Markdown across the transitional repository layouts. It rejects top-level Artifact Library `status`, malformed canonical metadata, duplicate IDs, unsafe or unsupported paths, oversized/unsafe content where applicable, and repository corruption. Agent and Workflow JSON validation is independent and unchanged.
