@@ -6,7 +6,7 @@ export function normalizeEditorValues(values: string[]) { return Array.from(new 
 export type CanonicalEditorSnapshot = { title: string; description: string; tags: string[]; aliases: string[]; body: string };
 type LiveEditorSnapshot = CanonicalEditorSnapshot & { invalid: boolean };
 export function canonicalEditorSnapshot(values: { title: string; description: string; tags: string[]; aliases: string[]; body: string }): CanonicalEditorSnapshot {
-  const metadata = normalizeArtifactMetadata({ id: "editor", type: "prompt", status: "draft", title: values.title, description: values.description ?? "", tags: values.tags, aliases: values.aliases });
+  const metadata = normalizeArtifactMetadata({ id: "editor", type: "prompt", title: values.title, description: values.description ?? "", tags: values.tags, aliases: values.aliases });
   return { title: metadata.title, description: metadata.description, tags: metadata.tags, aliases: metadata.aliases, body: values.body.trim() };
 }
 export function liveEditorSnapshot(values: { title: unknown; description: unknown; tags: unknown; aliases: unknown; body: unknown }): LiveEditorSnapshot {
@@ -41,13 +41,12 @@ export function directWriteCompleted(state: EditorLifecycleState, fileSha: unkno
     ? { activeFileSha, persistedTitle: canonicalTitle, completedCreation: creating || state.completedCreation, deleted: false }
     : undefined;
 }
-export function proposalCompleted(state: EditorLifecycleState): EditorLifecycleState { return state; }
 export function directDeletionCompleted(state: EditorLifecycleState): EditorLifecycleState { return { ...state, deleted: true }; }
 export function editorRequestAllowed(state: EditorLifecycleState, operation: "preview" | "save" | "delete") {
   return !state.deleted && !(state.completedCreation && (operation === "preview" || operation === "save"));
 }
-export function editorDeletionSnapshot(state: EditorLifecycleState, artifact: Pick<Artifact, "id" | "status">): DeletionSnapshot | undefined {
+export function editorDeletionSnapshot(state: EditorLifecycleState, artifact: Pick<Artifact, "id">): DeletionSnapshot | undefined {
   return state.activeFileSha && state.persistedTitle
-    ? { id: artifact.id, status: artifact.status, title: state.persistedTitle, currentFileSha: state.activeFileSha }
+    ? { id: artifact.id, title: state.persistedTitle, currentFileSha: state.activeFileSha }
     : undefined;
 }

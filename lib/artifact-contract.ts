@@ -14,17 +14,22 @@ export const artifactFrontMatterSchema = z.object({
   title: z.string().trim().min(1),
   description: z.string().max(2000).default(""),
   type: artifactTypeSchema,
-  status: artifactStatusSchema,
   tags: z.array(z.string()).default([]),
   aliases: z.array(z.string()).default([]),
   sourceId: z.string().trim().min(1).optional(),
   createdAt: z.union([z.string().datetime({ offset: true }), z.date()]).optional(),
 });
 
-export const compatibleArtifactFrontMatterSchema = artifactFrontMatterSchema.extend({ status: artifactStatusSchema.optional() });
+const legacyCompatibleArtifactFrontMatterSchema = artifactFrontMatterSchema.extend({ status: artifactStatusSchema.optional() });
+export const compatibleArtifactFrontMatterSchema = z.preprocess((input) => {
+  const parsed = legacyCompatibleArtifactFrontMatterSchema.parse(input);
+  const canonical = { ...parsed } as typeof parsed & { status?: unknown };
+  delete canonical.status;
+  return canonical;
+}, artifactFrontMatterSchema);
 
 export type ArtifactMetadata = z.infer<typeof artifactFrontMatterSchema>;
-export type ArtifactModel = Omit<ArtifactMetadata, "status"> & { status?: ArtifactMetadata["status"]; body: string; excerpt: string; path: string; layout?: "legacy" | "future" };
+export type ArtifactModel = ArtifactMetadata & { body: string; excerpt: string; path: string; layout?: "legacy" | "future" };
 export type ArtifactRepositoryValidationError = { file: string; reason: string };
 export type ArtifactRepositoryValidationResult = { valid: boolean; artifactCount: number; errors: ArtifactRepositoryValidationError[] };
 export class ArtifactMarkdownParseError extends Error {
@@ -49,7 +54,6 @@ export function serializeArtifactMarkdown(metadata: unknown, body: string): stri
     title: data.title,
     description: data.description,
     type: data.type,
-    status: data.status,
     tags: data.tags,
     aliases: data.aliases,
     ...(data.sourceId ? { sourceId: data.sourceId } : {}),
@@ -91,9 +95,7 @@ export function parseArtifactMarkdown(raw: string, filePath: string, resolvedLay
   if (!String(parsed.matter ?? "").trim()) throw new ArtifactMarkdownParseError("invalid_front_matter");
   try {
     const layout = resolvedLayout ?? classifyArtifactPath(filePath) ?? "legacy";
-    const data = layout === "future"
-      ? compatibleArtifactFrontMatterSchema.parse(parsed.data)
-      : normalizeArtifactMetadata(parsed.data);
+    const data = compatibleArtifactFrontMatterSchema.parse(parsed.data);
     const normalizeList = (values: string[]) => Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
     return { ...data, tags: normalizeList(data.tags), aliases: normalizeList(data.aliases), createdAt: data.createdAt instanceof Date ? data.createdAt.toISOString() : data.createdAt, body: parsed.content.trim(), excerpt: toExcerpt(parsed.content), path: filePath, layout };
   } catch (error) {

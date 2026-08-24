@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { canonicalEditorSnapshot, directDeletionCompleted, directWriteCompleted, editorDeletionSnapshot, editorRequestAllowed, editorValuesAreDirty, initialEditorLifecycle, liveEditorValuesAreDirty, proposalCompleted, validFileSha, validatedCanonicalEditorSnapshot } from '../lib/artifact-editor-helpers.ts';
+import { canonicalEditorSnapshot, directDeletionCompleted, directWriteCompleted, editorDeletionSnapshot, editorRequestAllowed, editorValuesAreDirty, initialEditorLifecycle, liveEditorValuesAreDirty, validFileSha, validatedCanonicalEditorSnapshot } from '../lib/artifact-editor-helpers.ts';
 import { deletionConfirmation, deletionRequest } from '../lib/deletion-ui.ts';
 
 test('direct edits advance the active revision used by later operations', () => {
   const loaded = initialEditorLifecycle('abcdef12', 'Original title');
-  const snapshot = editorDeletionSnapshot(loaded, { id: 'artifact-id', status: 'production' });
+  const snapshot = editorDeletionSnapshot(loaded, { id: 'artifact-id' });
   assert.match(deletionConfirmation(snapshot).heading, /Original title \(artifact-id\)/);
-  assert.deepEqual(deletionRequest(snapshot), { endpoint: '/api/artifacts/artifact-id/deletion-proposal', method: 'POST', body: { currentFileSha: 'abcdef12' } });
+  assert.deepEqual(deletionRequest(snapshot), { endpoint: '/api/artifacts/artifact-id', method: 'DELETE', body: { currentFileSha: 'abcdef12' } });
   const saved = directWriteCompleted(loaded, '1234567abc', 'Saved title', false);
   assert.equal(saved?.activeFileSha, '1234567abc');
   assert.equal(editorRequestAllowed(saved, 'preview'), true);
@@ -24,9 +24,8 @@ test('creation locks its form and deletion permanently blocks mutations', () => 
   for (const operation of ['preview', 'save', 'delete']) assert.equal(editorRequestAllowed(deleted, operation), false);
 });
 
-test('proposal success retains the base SHA and malformed direct results do not advance', () => {
+test('malformed direct results do not advance the base SHA', () => {
   const loaded = initialEditorLifecycle('abcdef12', 'Original title');
-  assert.strictEqual(proposalCompleted(loaded), loaded);
   assert.equal(directWriteCompleted(loaded, undefined, 'Saved title', false), undefined);
   assert.equal(directWriteCompleted(loaded, 'unsafe sha', 'Saved title', false), undefined);
   assert.equal(validFileSha('1234567'), '1234567');
@@ -36,8 +35,7 @@ test('unsaved edits and previews retain the persisted deletion identity and acti
   const loaded = initialEditorLifecycle('abcdef12', 'Original title');
   const editableTitle = 'Unsaved title';
   assert.equal(editableTitle, 'Unsaved title');
-  assert.equal(proposalCompleted(loaded).persistedTitle, 'Original title');
-  const snapshot = editorDeletionSnapshot(proposalCompleted(loaded), { id: 'artifact-id', status: 'draft' });
+  const snapshot = editorDeletionSnapshot(loaded, { id: 'artifact-id' });
   assert.match(deletionConfirmation(snapshot).heading, /Original title \(artifact-id\)/);
   assert.deepEqual(deletionRequest(snapshot).body, { currentFileSha: 'abcdef12' });
 });
@@ -46,23 +44,22 @@ test('a validated direct save advances persisted deletion identity and active SH
   const loaded = initialEditorLifecycle('abcdef12', 'Original title');
   const saved = directWriteCompleted(loaded, '12345678', 'Saved title', false);
   assert.equal(saved?.persistedTitle, 'Saved title');
-  const snapshot = editorDeletionSnapshot(saved, { id: 'artifact-id', status: 'draft' });
+  const snapshot = editorDeletionSnapshot(saved, { id: 'artifact-id' });
   assert.match(deletionConfirmation(snapshot).heading, /Saved title \(artifact-id\)/);
   assert.deepEqual(deletionRequest(snapshot).body, { currentFileSha: '12345678' });
 });
 
-test('proposal and failed response transitions never advance persisted identity', () => {
+test('failed response transitions never advance persisted identity', () => {
   const loaded = initialEditorLifecycle('abcdef12', 'Original title');
   for (const failure of [
     directWriteCompleted(loaded, undefined, 'Proposed title', false),
     directWriteCompleted(loaded, '12345678', undefined, false),
     directWriteCompleted(loaded, '12345678', '', false),
   ]) assert.equal(failure, undefined);
-  assert.strictEqual(proposalCompleted(loaded), loaded);
   assert.equal(loaded.persistedTitle, 'Original title');
-  const snapshot = editorDeletionSnapshot(loaded, { id: 'artifact-id', status: 'production' });
+  const snapshot = editorDeletionSnapshot(loaded, { id: 'artifact-id' });
   assert.match(deletionConfirmation(snapshot).heading, /Original title \(artifact-id\)/);
-  assert.deepEqual(deletionRequest(snapshot), { endpoint: '/api/artifacts/artifact-id/deletion-proposal', method: 'POST', body: { currentFileSha: 'abcdef12' } });
+  assert.deepEqual(deletionRequest(snapshot), { endpoint: '/api/artifacts/artifact-id', method: 'DELETE', body: { currentFileSha: 'abcdef12' } });
 });
 
 test('canonical dirty state clears after reverting every editable value', () => {
@@ -105,7 +102,7 @@ test('direct-save snapshots apply shared title, list, and body normalization', (
   assert.equal(editorValuesAreDirty(saved, saved), false);
 });
 
-test('preview, failed save, and proposal do not advance the persisted editor snapshot', () => {
+test('preview and failed save do not advance the persisted editor snapshot', () => {
   const persisted = canonicalEditorSnapshot({ title: 'Base', tags: [], aliases: [], body: 'Base body' });
   const edited = canonicalEditorSnapshot({ ...persisted, body: 'Proposed body' });
   assert.equal(editorValuesAreDirty(edited, persisted), true);

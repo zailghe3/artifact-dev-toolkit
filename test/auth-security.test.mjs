@@ -349,17 +349,16 @@ test("repository authorisation requires app and signed-in user access to the exa
   ]);
   const readOne = okStatus.installationCredentialProvider("read");
   const readTwo = okStatus.installationCredentialProvider("read");
-  const [readCredential, repeatedReadCredential, writeCredential, proposalCredential] = await Promise.all([readOne, readTwo, okStatus.installationCredentialProvider("write"), okStatus.installationCredentialProvider("proposal")]);
+  const [readCredential, repeatedReadCredential, writeCredential] = await Promise.all([readOne, readTwo, okStatus.installationCredentialProvider("write")]);
   assert.equal(readOne, readTwo);
   assert.equal(readCredential, repeatedReadCredential);
-  assert.deepEqual([readCredential.permissions, writeCredential.permissions, proposalCredential.permissions], [{ contents: "read" }, { contents: "write" }, { contents: "write", pullRequests: "write" }]);
+  assert.deepEqual([readCredential.permissions, writeCredential.permissions], [{ contents: "read" }, { contents: "write" }]);
   const tokenRequests = calls.slice(2).map(call => JSON.parse(call.body));
-  assert.equal(tokenRequests.length, 3);
-  assert.deepEqual(tokenRequests.map(request => request.repository_ids), [[99], [99], [99]]);
+  assert.equal(tokenRequests.length, 2);
+  assert.deepEqual(tokenRequests.map(request => request.repository_ids), [[99], [99]]);
   assert.deepEqual(tokenRequests.map(request => request.permissions).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))), [
     { contents: "read" },
     { contents: "write" },
-    { contents: "write", pull_requests: "write" },
   ].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))));
   assert.deepEqual(createRepositoryAuthorizationRecord(okStatus, 1234), { state: "authorized", owner: "owner", repo: "private-artifacts", login: "OctoCat", githubId: 123, repositoryId: 99, installationId: 77, checkedAt: 1234 });
 });

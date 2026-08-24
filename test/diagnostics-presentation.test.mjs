@@ -55,8 +55,6 @@ test('each isolated degraded or failing condition has an accurate anchored contr
     ['unknown Contents write', d => { d.permissions.contentsWrite.effective = 'unknown'; }, 'Contents write permission could not be verified.', '#permissions-write'],
     ['denied Contents read', d => { d.permissions.contentsRead.effective = false; }, 'Contents read permission is not granted.', '#permissions'],
     ['denied Contents write', d => { d.permissions.contentsWrite.effective = false; }, 'Contents write permission is not granted.', '#permissions-write'],
-    ['unknown proposal', d => { d.permissions.pullRequestsWrite.effective = 'unknown'; }, 'Production proposal permission could not be verified.', '#permissions-proposal'],
-    ['denied proposal', d => { d.permissions.pullRequestsWrite.effective = false; }, 'The production proposal credential was denied.', '#permissions-proposal'],
     ['live authorization unavailable', d => { d.authorization.liveState = 'temporarily_unavailable'; }, 'Live repository authorization is temporarily unavailable.', '#authorization'],
     ...[
       ['stale', 'Catalogue data is stale.'],

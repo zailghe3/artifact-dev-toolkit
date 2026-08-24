@@ -43,8 +43,8 @@ Exact bindings, schemas, versions, limits, identifiers, protocols, retries, and 
 
 - Loads validated reusable artifacts from the configured GitHub repository.
 - Supports catalogue search, detail, copy, creation, editing, variations, deletion, refresh, and diagnostics.
-- Draft and archived changes may be written directly after validation.
-- Production changes and deletions become reviewable GitHub pull requests rather than direct production mutations.
+- Artifact Library Markdown has no lifecycle state; legacy status values are read-compatible only.
+- Validated edits and deletions are direct repository mutations.
 - Repository revision checks protect against stale or ambiguous writes.
 
 Current behaviour is defined by [`specs/000-current-application-spec.md`](specs/000-current-application-spec.md). The external repository format is defined by [`docs/external-artifact-repository-contract.md`](docs/external-artifact-repository-contract.md).

@@ -5,14 +5,12 @@ import { normalizeArtifactMetadata, parseArtifactMarkdown, toExcerpt, validateAr
 import { slugify } from '../lib/artifact-repository.ts';
 import { markdownToHtml } from '../lib/markdown.ts';
 import { searchArtifacts } from '../lib/search.ts';
-import { artifactLifecycleLabel, isCompatibilityReadOnly } from '../lib/artifact-presentation.ts';
 
 const artifacts = [
   {
     id: 'deploy-checklist',
     title: 'Production Deploy Checklist',
     type: 'template',
-    status: 'production',
     tags: ['release', 'operations'],
     aliases: ['ship list'],
     body: 'Verify the worker build before launch.',
@@ -21,7 +19,6 @@ const artifacts = [
     id: 'review-agent',
     title: 'Review Assistant',
     type: 'agent',
-    status: 'draft',
     tags: ['quality', 'release'],
     aliases: ['code checker'],
     body: 'Reviews a production change for safety.',
@@ -30,7 +27,6 @@ const artifacts = [
     id: 'worker-prompt',
     title: 'Worker Troubleshooter',
     type: 'prompt',
-    status: 'production',
     tags: ['cloudflare', 'diagnostics'],
     aliases: ['edge helper'],
     body: 'Investigate a failed deployment.',
@@ -43,24 +39,21 @@ test('empty and whitespace-only searches return every artifact in its existing o
   assert.deepEqual(searchArtifacts(artifacts, '').map(({ id }) => id), ['deploy-checklist', 'review-agent', 'worker-prompt']);
 });
 
-test('search is case-insensitive and ignores leading, trailing, and repeated whitespace', () => {
-  assert.deepEqual(searchArtifacts(artifacts, '  PrOdUcTiOn   RELEASE  ').map(({ id }) => id), ['deploy-checklist', 'review-agent']);
-});
+test('search is case-insensitive and ignores leading, trailing, and repeated whitespace', () => { assert.deepEqual(searchArtifacts(artifacts, ' RELEASE ').map(({ id }) => id), ['deploy-checklist', 'review-agent']); });
 
 test('multiple search terms use AND semantics rather than OR semantics', () => {
-  assert.deepEqual(searchArtifacts(artifacts, 'production release').map(({ id }) => id), ['deploy-checklist', 'review-agent']);
+  assert.deepEqual(searchArtifacts(artifacts, 'safety release').map(({ id }) => id), ['review-agent']);
   assert.deepEqual(searchArtifacts(artifacts, 'cloudflare release'), []);
 });
 
 test('search terms can match across different artifact fields', () => {
-  assert.deepEqual(searchArtifacts(artifacts, 'assistant draft safety quality').map(({ id }) => id), ['review-agent']);
+  assert.deepEqual(searchArtifacts(artifacts, 'assistant safety quality').map(({ id }) => id), ['review-agent']);
 });
 
-test('search matches title, type, status, tag, alias, and body fields', () => {
+test('search matches title, type, tag, alias, and body fields', () => {
   const cases = [
     ['troubleshooter', 'worker-prompt'],
     ['template', 'deploy-checklist'],
-    ['draft', 'review-agent'],
     ['diagnostics', 'worker-prompt'],
     ['checker', 'review-agent'],
     ['launch', 'deploy-checklist'],
@@ -74,7 +67,7 @@ test('an unmatched search returns an empty array', () => {
 
 test('search preserves input order without mutating the input array or its artifacts', () => {
   const input = Object.freeze([artifacts[2], artifacts[0], artifacts[1]].map((artifact) => Object.freeze({ ...artifact, tags: Object.freeze([...artifact.tags]), aliases: Object.freeze([...artifact.aliases]) })));
-  assert.deepEqual(searchArtifacts(input, 'production').map(({ id }) => id), ['worker-prompt', 'deploy-checklist', 'review-agent']);
+  assert.deepEqual(searchArtifacts(input, 'release').map(({ id }) => id), ['deploy-checklist', 'review-agent']);
   assert.deepEqual(input.map(({ id }) => id), ['worker-prompt', 'deploy-checklist', 'review-agent']);
 });
 
@@ -140,7 +133,7 @@ test('artifact parsing defaults empty metadata arrays and normalizes body-derive
   assert.equal(artifact.body, 'First line.\n\nSecond   line.');
   assert.equal(artifact.excerpt, 'First line. Second line.');
   assert.equal(toExcerpt(` ${'word '.repeat(50)}`).length, 180);
-  assert.equal(normalizeArtifactMetadata({ id: ' x ', title: ' X ', type: 'prompt', status: 'draft' }).id, 'x');
+  assert.equal(normalizeArtifactMetadata({ id: ' x ', title: ' X ', type: 'prompt' }).id, 'x');
 });
 
 test('artifact paths allow supported nested directories and reject invalid top-level directories', () => {
@@ -154,13 +147,4 @@ test('artifact IDs must be unique even when artifacts have different types and p
     () => validateUniqueArtifactIds([{ id: 'shared', path: 'artifacts/prompts/a.md' }, { id: 'shared', path: 'artifacts/agents/b.md' }]),
     /Duplicate artifact id "shared".*artifacts\/agents\/b\.md.*artifacts\/prompts\/a\.md/,
   );
-});
-
-test('compatibility presentation never invents lifecycle status', () => {
-  assert.equal(isCompatibilityReadOnly({ layout: 'future', status: 'production' }), false);
-  assert.equal(isCompatibilityReadOnly({ layout: 'legacy' }), true);
-  assert.equal(isCompatibilityReadOnly({ layout: 'legacy', status: 'draft' }), false);
-  assert.equal(artifactLifecycleLabel({ layout: 'future' }), 'Compatibility · read-only');
-  assert.equal(artifactLifecycleLabel({ layout: 'future', status: 'production' }), 'production');
-  assert.equal(artifactLifecycleLabel({ layout: 'legacy', status: 'archived' }), 'archived');
 });

@@ -144,8 +144,7 @@ test('overlapping single-segment root classifies each path once using the comple
 
   await writeFile(path.join(repository.root, 'prompts/prompts/legacy.md'), markdown('id: legacy\ntitle: Legacy\ntype: prompt'));
   const statuslessLegacy = await repository.validate();
-  assert.equal(statuslessLegacy.valid, false);
-  assert.match(errorText(statuslessLegacy), /prompts\/prompts\/legacy\.md: status:/);
+  assert.equal(statuslessLegacy.valid, true, errorText(statuslessLegacy));
   assert.doesNotMatch(errorText(statuslessLegacy), /Duplicate artifact id/);
 });
 

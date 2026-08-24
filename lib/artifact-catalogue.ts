@@ -6,7 +6,7 @@ import { ArtifactRepositoryUnavailableError, type Artifact, type ArtifactReposit
 export const DEFAULT_CATALOGUE_FRESHNESS_SECONDS = 300;
 export const MIN_CATALOGUE_FRESHNESS_SECONDS = 30;
 export const MAX_CATALOGUE_FRESHNESS_SECONDS = 3600;
-const schemaVersion = 1;
+const schemaVersion = 2;
 const maxChunkBytes = 1_500_000;
 
 export interface CatalogueCacheBinding { get(key: string): Promise<string | null>; put(key: string, value: string): Promise<void>; delete(key: string): Promise<void>; }
@@ -25,7 +25,7 @@ type RefreshOptions = { force?: boolean; full?: boolean; manual?: boolean };
 type Flight = { level: number; promise: Promise<ResolvedCatalogue> };
 
 const shaSchema = z.string().regex(/^[a-f0-9]{7,64}$/i);
-const artifactSchema = compatibleArtifactFrontMatterSchema.extend({ body: z.string(), excerpt: z.string(), path: z.string(), layout: z.enum(["legacy", "future"]).optional() });
+const artifactSchema = artifactFrontMatterSchema.extend({ body: z.string(), excerpt: z.string(), path: z.string(), layout: z.enum(["legacy", "future"]).optional() });
 const pointerSchema = z.object({ schemaVersion: z.literal(schemaVersion), repositoryId: z.number().int().positive(), owner: z.string(), repository: z.string(), branch: z.string(), root: z.string(), revision: shaSchema, refreshedAt: z.string().datetime(), generation: z.string().optional(), publicationId: z.string().optional(), chunks: z.array(z.string().min(1)).min(1) });
 const chunkSchema = z.object({ schemaVersion: z.literal(schemaVersion), repositoryId: z.number().int().positive(), owner: z.string(), repository: z.string(), branch: z.string(), root: z.string(), revision: shaSchema, index: z.number().int().nonnegative(), entries: z.array(z.object({ artifact: artifactSchema, fileSha: shaSchema })) });
 const generationSchema = z.object({ schemaVersion: z.literal(schemaVersion), generation: z.string().min(1) });
@@ -113,7 +113,7 @@ export class ArtifactCatalogueService {
   }
 
   private result(snapshot: Snapshot, cacheState: CatalogueCacheState): ResolvedCatalogue { return { artifacts: snapshot.entries.map(entry => entry.artifact), fileShas: Object.fromEntries(snapshot.entries.map(entry => [entry.artifact.id, entry.fileSha])), revision: snapshot.revision, refreshedAt: snapshot.refreshedAt, cacheState }; }
-  private validateSnapshot(snapshot: Snapshot) { shaSchema.parse(snapshot.revision); for (const entry of snapshot.entries) { const parsed = artifactSchema.parse(entry.artifact); shaSchema.parse(entry.fileSha); const layout = classifyArtifactPath(parsed.path, this.options.identity.root); if (!layout || !parsed.path.replace(/\\/g, "/").endsWith(".md")) throw new Error("Invalid cached artifact path."); if (parsed.layout && parsed.layout !== layout) throw new Error("Cached artifact layout contradicts its path."); (layout === "legacy" ? artifactFrontMatterSchema : compatibleArtifactFrontMatterSchema).parse(parsed); } validateUniqueArtifactIds(snapshot.entries.map(entry => entry.artifact)); }
+  private validateSnapshot(snapshot: Snapshot) { shaSchema.parse(snapshot.revision); for (const entry of snapshot.entries) { const parsed = artifactSchema.parse(entry.artifact); shaSchema.parse(entry.fileSha); const layout = classifyArtifactPath(parsed.path, this.options.identity.root); if (!layout || !parsed.path.replace(/\\/g, "/").endsWith(".md")) throw new Error("Invalid cached artifact path."); if (parsed.layout && parsed.layout !== layout) throw new Error("Cached artifact layout contradicts its path."); compatibleArtifactFrontMatterSchema.parse(parsed); } validateUniqueArtifactIds(snapshot.entries.map(entry => entry.artifact)); }
   private async readGeneration(): Promise<{ value?: string; failed: boolean }> { try { const raw = await this.options.cache.get(generationKey(this.options.identity)); if (!raw) return { failed: false }; return { value: generationSchema.parse(JSON.parse(raw)).generation, failed: false }; } catch { safeLog(this.logger, "error", "artifact_catalogue_cache_read_failure", this.options.identity, { category: "generation_read" }); return { failed: true }; } }
   private async readSnapshot(): Promise<{ snapshot?: Snapshot; generation?: string; publicationId?: string; failed: boolean; corrupt?: boolean }> {
     let raw: string | null; try { raw = await this.options.cache.get(pointerKey(this.options.identity)); } catch { safeLog(this.logger, "error", "artifact_catalogue_cache_read_failure", this.options.identity, { category: "pointer_read" }); return { failed: true }; }

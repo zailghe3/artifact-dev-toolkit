@@ -2,14 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   ArtifactDuplicateError, ArtifactRepositoryAccessError, ArtifactRepositoryConfigurationError, ArtifactRepositoryContentError, ArtifactRepositoryUnavailableError, ArtifactSecretRejectedError,
-  ArtifactProductionDeleteRequiresProposalError, ArtifactWriteAuthenticationError, ArtifactWriteConflictError, ArtifactWritePermissionError, ArtifactWriteResponseError,
+ArtifactWriteAuthenticationError, ArtifactWriteConflictError, ArtifactWritePermissionError, ArtifactWriteResponseError,
   ArtifactWriteValidationError, GitHubArtifactRepository,
   ArtifactWriteTooLargeError,
 } from '../lib/artifact-repository.ts';
 import { MAX_SERIALIZED_ARTIFACT_BYTES, serializeArtifactMarkdown } from '../lib/artifact-contract.ts';
 
 const metadata = { id: 'new-prompt', title: 'New Prompt', description: '', type: 'prompt', status: 'draft', tags: ['writing'], aliases: [] };
-const existingMarkdown = `---\nid: new-prompt\ntitle: New Prompt\ndescription: ''\ntype: prompt\nstatus: draft\ntags: [writing]\naliases: []\n---\n\nOld body\n`;
+const existingMarkdown = `---\nid: new-prompt\ntitle: New Prompt\ndescription: ''\ntype: prompt\ntags: [writing]\naliases: []\n---\n\nOld body\n`;
 const source = { ...metadata, id: 'source-prompt', title: 'Source Prompt', status: 'production', aliases: ['starter'], body: 'Source body', excerpt: 'Source body', path: 'artifacts/prompts/source-prompt.md' };
 const json = (value, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
 
@@ -39,7 +39,7 @@ test('create serializes canonical Markdown, sends one Contents API write, and re
   assert.ok(write.url.endsWith('/repos/owner/repo/contents/prompts/new-prompt.md'));
   const payload = JSON.parse(write.options.body);
   assert.equal(payload.message, 'Create artifact new-prompt (requested by @octocat)');
-  assert.equal(Buffer.from(payload.content, 'base64').toString(), '---\nid: new-prompt\ntitle: New Prompt\ndescription: \'\'\ntype: prompt\nstatus: draft\ntags:\n  - writing\naliases: []\n---\nUseful body\n');
+  assert.equal(Buffer.from(payload.content, 'base64').toString(), '---\nid: new-prompt\ntitle: New Prompt\ndescription: \'\'\ntype: prompt\ntags:\n  - writing\naliases: []\n---\nUseful body\n');
   assert.deepEqual(result, { artifactId: 'new-prompt', path: 'prompts/new-prompt.md', fileSha: 'new-blob', commitSha: 'commit-1', commitUrl: 'https://github.example/commit/1', repositoryRevision: 'commit-1' });
   assert.equal(JSON.stringify(result).includes('installation-secret'), false);
   assert.equal(payload.message.includes('installation-secret'), false);
@@ -70,7 +70,7 @@ test('createVariation persists a same-type root artifact with source metadata an
   assert.equal(payload.branch, 'main');
   const markdown = Buffer.from(payload.content, 'base64').toString();
   assert.match(markdown, new RegExp(`id: ${id}`));
-  assert.match(markdown, /title: Focused Draft\ndescription: ''\ntype: prompt\nstatus: draft/);
+  assert.match(markdown, /title: Focused Draft\ndescription: ''\ntype: prompt/);
   assert.match(markdown, /tags:\n  - writing\n  - variation\naliases:\n  - starter\nsourceId: source-prompt\ncreatedAt: '2026-08-02T17:03:05.123Z'/);
   assert.ok(markdown.endsWith('Revised body\n'));
   assert.deepEqual(result, { id, path: `prompts/${id}.md`, fileSha: 'new-blob', commitSha: 'commit-1', commitUrl: 'https://github.example/commit/1', repositoryRevision: 'commit-1' });
@@ -255,17 +255,17 @@ test('nested update still rejects stale revisions and invalid existing paths bef
   assert.equal(invalid.calls.some((call) => call.options.method === 'PUT'), false);
 });
 
-test('creation is draft-only and normalizes before deriving its canonical path', async () => {
+test('creation is statusless and normalizes before deriving its canonical path', async () => {
   const runtime = fake();
   const result = await runtime.repository.create({ metadata: { ...metadata, id: ' new-prompt ', title: ' Trimmed ', tags: [' one ', 'one'] }, body: 'Body', actorLogin: 'octocat' });
   const write = runtime.calls.find((call) => call.options.method === 'PUT'); const payload = JSON.parse(write.options.body); const markdown = Buffer.from(payload.content, 'base64').toString();
   assert.ok(write.url.endsWith('/prompts/new-prompt.md')); assert.equal(result.artifactId, 'new-prompt'); assert.match(markdown, /id: new-prompt/); assert.match(markdown, /title: Trimmed/);
-  const rejected = fake(); await assert.rejects(rejected.repository.create({ metadata: { ...metadata, status: 'production' }, body: 'Body', actorLogin: 'octocat' }), ArtifactWriteValidationError); assert.equal(rejected.calls.length, 0);
+  assert.doesNotMatch(markdown, /^status:/m);
 });
 
-test('updates enforce immutable type, status, source relationship, and creation timestamp', async () => {
+test('updates enforce immutable type, source relationship, and creation timestamp', async () => {
   const stored = serializeArtifactMarkdown({ ...metadata, sourceId: 'source', createdAt: '2026-01-01T00:00:00.000Z' }, 'old');
-  for (const change of [{ type: 'agent' }, { status: 'archived' }, { sourceId: 'other' }, { createdAt: '2026-01-02T00:00:00.000Z' }]) {
+  for (const change of [{ type: 'agent' }, { sourceId: 'other' }, { createdAt: '2026-01-02T00:00:00.000Z' }]) {
     const runtime = fake({ files: { 'artifacts/prompts/nested/item.md': stored } });
     await assert.rejects(runtime.repository.update({ id: metadata.id, metadata: { ...metadata, sourceId: 'source', createdAt: '2026-01-01T00:00:00.000Z', ...change }, body: 'new', currentFileSha: 'blob-0', actorLogin: 'octocat' }), ArtifactWriteValidationError);
     assert.equal(runtime.calls.some((call) => call.options.method === 'PUT'), false);
@@ -280,11 +280,7 @@ test('direct deletion uses exact nested path, SHA, branch and attributable singl
   assert.deepEqual(result, { artifactId: 'new-prompt', path: 'artifacts/prompts/nested/item.md', commitSha: 'deleted-commit', commitUrl: 'https://github.com/owner/repo/commit/deleted', repositoryRevision: 'deleted-commit' });
 });
 
-test('deletion rejects stale SHA and production status before mutation', async () => {
-  const draft = fake({ files: { 'artifacts/prompts/item.md': existingMarkdown } }); await assert.rejects(draft.repository.delete({ id: metadata.id, currentFileSha: 'stale', actorLogin: 'octocat' }), ArtifactWriteConflictError);
-  const production = fake({ files: { 'artifacts/prompts/item.md': existingMarkdown.replace('status: draft', 'status: production') } }); await assert.rejects(production.repository.delete({ id: metadata.id, currentFileSha: 'blob-0', actorLogin: 'octocat' }), ArtifactProductionDeleteRequiresProposalError);
-  assert.equal(draft.calls.some((call) => call.options.method === 'DELETE'), false); assert.equal(production.calls.some((call) => call.options.method === 'DELETE'), false);
-});
+test('deletion rejects stale SHA while legacy production deletes directly', async () => { const stale=fake({files:{'artifacts/prompts/item.md':existingMarkdown}});await assert.rejects(stale.repository.delete({id:metadata.id,currentFileSha:'stale',actorLogin:'octocat'}),ArtifactWriteConflictError);const production=fake({files:{'artifacts/prompts/item.md':existingMarkdown.replace('status: draft','status: production')},writeValue:{content:null,commit:{sha:'deleted',html_url:'https://github.com/owner/repo/commit/deleted'}}});await production.repository.delete({id:metadata.id,currentFileSha:'blob-0',actorLogin:'octocat'});assert.equal(stale.calls.some(call=>call.options.method==='DELETE'),false);assert.equal(production.calls.some(call=>call.options.method==='DELETE'),true)});
 
 test('direct deletion maps changed state, authentication, permission and availability without retrying', async () => {
   for (const [status, ErrorType] of [[401, ArtifactWriteAuthenticationError], [403, ArtifactWritePermissionError], [404, ArtifactWriteConflictError], [409, ArtifactWriteConflictError], [422, ArtifactWriteConflictError], [429, ArtifactRepositoryUnavailableError], [503, ArtifactRepositoryUnavailableError]]) {

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { artifactFrontMatterSchema } from "./artifact-contract.ts";
 import { noStoreHeaders, type SessionRecord } from "./auth-core.ts";
-import { ArtifactSecretRejectedError, ArtifactWriteTooLargeError, ArtifactWriteValidationError, prepareArtifactWrite, validateImmutableLifecycleMetadata, type ArtifactWithRevision } from "./artifact-repository.ts";
+import { ArtifactSecretRejectedError, ArtifactWriteTooLargeError, ArtifactWriteValidationError, prepareArtifactWrite, validateImmutableArtifactMetadata, type ArtifactWithRevision } from "./artifact-repository.ts";
 import { markdownToHtml } from "./markdown.ts";
 import type { RepositoryAccessContext } from "./repository-authorization.ts";
 
@@ -18,14 +18,12 @@ export async function handleLifecyclePreview(request: Request, id: string | unde
   if (!payload.success) return json({ error: "Artifact input is invalid", code: "validation_failed" }, 400);
   try {
     const { metadata } = prepareArtifactWrite(payload.data.metadata, payload.data.body);
-    if (!id) {
-      if (metadata.status !== "draft") throw new ArtifactWriteValidationError();
-    } else {
+    if (id) {
       if (!dependencies.loadArtifact || !payload.data.currentFileSha || metadata.id !== id) throw new ArtifactWriteValidationError();
       const stored = await dependencies.loadArtifact(authorization.access, id);
       if (!stored) return json({ error: "Artifact not found", code: "artifact_not_found" }, 404);
       if (stored.currentFileSha !== payload.data.currentFileSha) return json({ error: "Artifact changed since it was loaded", code: "write_conflict" }, 409);
-      validateImmutableLifecycleMetadata(stored.artifact, metadata);
+      validateImmutableArtifactMetadata(stored.artifact, metadata);
     }
     return json({ metadata, bodyHtml: await markdownToHtml(payload.data.body) }, 200);
   } catch (error) {

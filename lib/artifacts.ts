@@ -1,13 +1,13 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { ArtifactCatalogueService, CatalogueCacheUnavailableError, type ArtifactCatalogueResult, type CatalogueCacheBinding } from "@/lib/artifact-catalogue";
-import { createArtifactRepository, getArtifactRepositoryBackend, type Artifact, type ArtifactStatus, type CreateArtifactInput, type UpdateArtifactInput, type ProposeArtifactUpdateInput, type DeleteArtifactInput } from "@/lib/artifact-repository";
+import { createArtifactRepository, getArtifactRepositoryBackend, type Artifact, type CreateArtifactInput, type UpdateArtifactInput, type DeleteArtifactInput } from "@/lib/artifact-repository";
 import type { RepositoryAccessContext } from "@/lib/repository-authorization";
 import { completeWriteWithInvalidation } from "@/lib/artifact-cache-invalidation";
 import { localArtifactDetail } from "@/lib/catalogue-presentation";
 import { collectTagSuggestions } from "@/lib/tag-suggestions";
 export { completeWriteWithInvalidation } from "@/lib/artifact-cache-invalidation";
 
-export type { Artifact, ArtifactStatus, ArtifactCatalogueResult };
+export type { Artifact, ArtifactCatalogueResult };
 export { slugify } from "@/lib/artifact-repository";
 
 let testCache: CatalogueCacheBinding | undefined;
@@ -60,6 +60,4 @@ async function invalidate(access: RepositoryAccessContext) {
 export async function createVariation(access: RepositoryAccessContext, source: Artifact, body: string, actorLogin: string, title?: string) { const repository = getRepository(access); return completeWriteWithInvalidation(() => repository.createVariation({ source, body, title, actorLogin }), () => invalidate(access), access); }
 export async function createArtifact(access: RepositoryAccessContext, input: CreateArtifactInput) { const repository = getRepository(access); return completeWriteWithInvalidation(() => repository.create(input), () => invalidate(access), access); }
 export async function updateArtifact(access: RepositoryAccessContext, input: UpdateArtifactInput) { const repository = getRepository(access); return completeWriteWithInvalidation(() => repository.update(input), () => invalidate(access), access); }
-export async function proposeArtifactUpdate(access: RepositoryAccessContext, input: ProposeArtifactUpdateInput) { return getRepository(access).proposeUpdate(input); }
 export async function deleteArtifact(access: RepositoryAccessContext, input: DeleteArtifactInput) { const repository = getRepository(access); return completeWriteWithInvalidation(() => repository.delete(input), () => invalidate(access), access); }
-export async function proposeArtifactDeletion(access: RepositoryAccessContext, input: DeleteArtifactInput) { return getRepository(access).proposeDelete(input); }

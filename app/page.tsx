@@ -18,7 +18,6 @@ export default async function Home() {
   const { session, access } = await requireRepositoryAccess("/");
   let catalogue; try { catalogue = await getArtifactCatalogue(access); } catch (error) { if (!isExpectedOperationalError(error)) throw error; return <><AppHeader login={session.login} currentPath="/" /><main className="mx-auto min-h-screen max-w-5xl px-4 py-8"><OperationalState state={mapOperationalError(error)} /></main></>; }
   const artifacts = catalogue.artifacts;
-  const productionCount = artifacts.filter((artifact) => artifact.status === "production").length;
 
   return (
     <>
@@ -27,7 +26,7 @@ export default async function Home() {
         <section aria-labelledby="artifacts-heading" className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h1 id="artifacts-heading" className="text-3xl font-black tracking-tight text-slate-950 dark:text-slate-50">Artifacts</h1>
-            <p className="mt-1 text-sm font-semibold text-slate-600 dark:text-slate-300">{artifacts.length} artifacts · {productionCount} production</p>
+            <p className="mt-1 text-sm font-semibold text-slate-600 dark:text-slate-300">{artifacts.length} artifacts</p>
           </div>
           <Link href="/artifacts/new" className="inline-flex min-h-11 items-center justify-center rounded-xl bg-sky-700 px-4 py-2 text-sm font-bold text-white shadow-sm outline-none transition hover:bg-sky-800 focus:ring-4 focus:ring-sky-200 dark:bg-orange-500 dark:text-slate-950 dark:hover:bg-orange-400 dark:focus:ring-orange-500/35 sm:w-auto motion-reduce:transition-none">+ Create artifact</Link>
         </section>
