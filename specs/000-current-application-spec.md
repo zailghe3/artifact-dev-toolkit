@@ -117,6 +117,8 @@
 - Supported artifact categories include prompts, agents, snippets, templates, app ideas, and variations.
 - Artifact IDs are unique within the configured artifact repository.
 - Repository content is validated before it becomes part of the application catalogue.
+- During repository-layout migration, the library can read non-conflicting legacy and compatible root-level artifacts while all mutations remain limited to legacy, lifecycle-managed content.
+- A logical identity present in both repository layouts fails closed, and statusless compatibility content has no implied lifecycle state.
 - Invalid paths, malformed metadata, duplicate identities, unsupported content, and unsafe artifact data are rejected.
 - The canonical repository layout, metadata schema, and validation rules are defined by the [External Artifact Repository Contract](../docs/external-artifact-repository-contract.md).
 - The application specification should not duplicate that contract.

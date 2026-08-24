@@ -12,7 +12,7 @@ const normalized=agent=>({schemaVersion:2,id:agent.id,name:agent.name,descriptio
 function gitFixture(){
  const files=new Map();
  const request=async(path,init)=>{
-  if((path==='/contents/_adt/agents'||path==='/contents/_adt/workflows')&&!init){const root=path.slice('/contents/'.length);return Response.json([...files].filter(([name])=>name.startsWith(`${root}/`)).map(([name])=>({name:name.split('/').at(-1),path:name})));}
+  if((path==='/contents/_adt/agents'||path==='/contents/_adt/workflows'||path==='/contents/agents'||path==='/contents/workflows')&&!init){const root=path.slice('/contents/'.length);return Response.json([...files].filter(([name])=>name.startsWith(`${root}/`)).map(([name])=>({name:name.split('/').at(-1),path:name})));}
   const name=path.replace('/contents/','');
   if(!init){const file=files.get(name);return file?Response.json(file):new Response(null,{status:404});}
   if(init.method==='DELETE'){const body=JSON.parse(init.body),file=files.get(name);if(!file)return new Response(null,{status:404});if(file.sha!==body.sha)return new Response(null,{status:409});files.delete(name);return Response.json({});}
@@ -64,4 +64,25 @@ test('referenced Agents cannot be deleted and definitions remain unchanged',asyn
   assert.deepEqual((await repository.getAgent(agents[0].id)).definition,normalized(agents[0]));
   assert.deepEqual(await repository.getWorkflow(workflow.id),createdWorkflow);
  }
+});
+
+test('Git-backed definitions read future roots, preserve paths, reject collisions and keep writes legacy',async()=>{
+ const {files,repository}=gitFixture();
+ const created=await repository.createAgent(agents[0]);
+ assert.equal(created.sourcePath,'_adt/agents/openai-agent.agent.json');
+ files.set('agents/openai-agent.agent.json',{...files.get('_adt/agents/openai-agent.agent.json'),sha:'future-sha'});
+ files.delete('_adt/agents/openai-agent.agent.json');
+ const future=await repository.getAgent('openai-agent');
+ assert.equal(future.sourcePath,'agents/openai-agent.agent.json');
+ assert.equal(future.fileSha,'future-sha');
+ await assert.rejects(repository.updateAgent(future.definition,future.fileSha),/read-only/);
+ files.set('_adt/agents/openai-agent.agent.json',{...files.get('agents/openai-agent.agent.json'),sha:'legacy-sha'});
+ await assert.rejects(repository.listAgents(),/duplicated across _adt\/agents\/openai-agent\.agent\.json and agents\/openai-agent\.agent\.json/);
+});
+
+test('Workflow IDs also fail closed across legacy and future definition roots',async()=>{
+ const {files,repository}=gitFixture();
+ await repository.createWorkflow(workflow);
+ files.set('workflows/review-flow.workflow.json',{...files.get('_adt/workflows/review-flow.workflow.json'),sha:'future-sha'});
+ await assert.rejects(repository.listWorkflows(),/Definition ID "review-flow" is duplicated/);
 });

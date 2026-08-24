@@ -29,6 +29,7 @@
 - Workflow definitions are separate from run history.
 - A run uses an immutable snapshot of the definitions selected at launch.
 - Changes to an Agent or Workflow do not rewrite the configuration of an already-created run.
+- Definition reads support non-conflicting legacy and compatible root-level locations during repository migration; mutations remain on legacy paths and cross-layout identity collisions fail closed.
 
 ## 4. Sequential handoff
 

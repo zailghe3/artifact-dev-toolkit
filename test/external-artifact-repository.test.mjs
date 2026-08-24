@@ -101,3 +101,24 @@ test('invalid external artifact repository reports file-specific contract errors
   assert.match(errors, /unknown\/stray\.md: Markdown artifacts must be stored under/);
   assert.match(errors, /duplicate-app\.md: Duplicate artifact id "duplicate-id"/);
 });
+
+test('compatibility validation accepts future-only status-bearing and statusless Markdown', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'future-artifact-repository-'));
+  await mkdir(path.join(root, 'prompts'), { recursive: true });
+  await writeFile(path.join(root, 'prompts/statusless.md'), markdown('id: statusless\ntitle: Statusless\ntype: prompt\ntags: []\naliases: []'));
+  await writeFile(path.join(root, 'prompts/status.md'), markdown('id: status\ntitle: Status\ntype: prompt\nstatus: production\ntags: []\naliases: []'));
+  const result = await validateExternalArtifactRepository(root);
+  assert.equal(result.valid, true, errorText(result));
+  assert.equal(result.artifactCount, 2);
+});
+
+test('compatibility validation accepts non-conflicting mixed layouts and rejects cross-layout IDs', async () => {
+  const root = await createRepository({ 'prompts/legacy.md': markdown('id: legacy\ntitle: Legacy\ntype: prompt\nstatus: draft') });
+  await mkdir(path.join(root, 'prompts'), { recursive: true });
+  await writeFile(path.join(root, 'prompts/root.md'), markdown('id: root\ntitle: Root\ntype: prompt'));
+  assert.equal((await validateExternalArtifactRepository(root)).valid, true);
+  await writeFile(path.join(root, 'prompts/duplicate.md'), markdown('id: legacy\ntitle: Duplicate\ntype: prompt'));
+  const duplicate = await validateExternalArtifactRepository(root);
+  assert.equal(duplicate.valid, false);
+  assert.match(errorText(duplicate), /Duplicate artifact id "legacy".*artifacts\/prompts\/legacy\.md/);
+});

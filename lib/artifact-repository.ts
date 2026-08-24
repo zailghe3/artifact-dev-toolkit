@@ -6,6 +6,7 @@ import { ArtifactMarkdownParseError, DEFAULT_ARTIFACT_BRANCH, DEFAULT_ARTIFACT_R
 import type { RepositoryAccessContext } from "./repository-authorization.ts";
 import type { RepositoryCredential, RepositoryCredentialCapability } from "./github-app.ts";
 import { slugify } from "./artifact-id.ts";
+import { classifyArtifactPath, isArtifactMarkdownCandidate, isSupportedArtifactPath } from "./repository-layout.ts";
 export { slugify } from "./artifact-id.ts";
 
 const artifactsDir = path.join(process.cwd(), "artifacts");
@@ -200,13 +201,15 @@ export class FileArtifactRepository implements ArtifactRepository {
   }
 
   async list(): Promise<Artifact[]> {
-    const files = await walkMarkdownFiles(this.rootDir);
+    const repositoryDir = path.dirname(this.rootDir);
+    const futureFiles = await Promise.all(["prompts", "snippets", "templates", "app-ideas"].map((directory) => walkMarkdownFiles(path.join(/* turbopackIgnore: true */ repositoryDir, directory))));
+    const files = [...await walkMarkdownFiles(this.rootDir), ...futureFiles.flat()];
     const artifacts = await Promise.all(
       files.map(async (file) => {
         const raw = await fs.readFile(file, "utf8");
-        const displayPath = path.relative(process.cwd(), file).split(path.sep).join("/");
-        const pathError = validateArtifactPath(displayPath);
-        if (pathError) throw new Error(`${displayPath}: ${pathError}`);
+        const displayPath = path.relative(repositoryDir, file).split(path.sep).join("/");
+        const legacyRoot = path.basename(this.rootDir);
+        if (!isSupportedArtifactPath(displayPath, legacyRoot)) throw new Error(`${displayPath}: unsupported artifact path.`);
         return parseArtifactMarkdown(raw, displayPath);
       }),
     );
@@ -233,6 +236,7 @@ export class FileArtifactRepository implements ArtifactRepository {
   async proposeDelete(): Promise<ArtifactProposalResult> { throw new ArtifactRepositoryConfigurationError("Deletion proposals require the GitHub repository backend."); }
 
   async createVariation({ source, body, title }: CreateVariationInput): Promise<CreateVariationResult> {
+    if (source.layout === "future" || source.status === undefined) throw new ArtifactCompatibilityReadOnlyError();
     const { id, metadata } = prepareVariation(source, title);
     const { markdown } = prepareArtifactWrite(metadata, body.trim());
     const filePath = path.join(this.rootDir, "variations", `${id}.md`);
@@ -260,6 +264,7 @@ export class ArtifactWriteTooLargeError extends Error { constructor() { super("A
 export class ArtifactSecretRejectedError extends Error { constructor() { super("Artifact content was rejected by the secret safety check."); } }
 export class ArtifactDuplicateError extends Error { constructor() { super("An artifact with this ID or path already exists."); } }
 export class ArtifactWriteConflictError extends Error { constructor() { super("The artifact changed since it was loaded."); } }
+export class ArtifactCompatibilityReadOnlyError extends Error { constructor() { super("Future-layout artifacts are read-only during repository migration compatibility."); } }
 export class ArtifactWritePermissionError extends Error { constructor() { super("The GitHub App does not have artifact write permission."); } }
 export class ArtifactWriteAuthenticationError extends Error { constructor() { super("GitHub repository authentication failed."); } }
 export class ArtifactNotFoundError extends Error { constructor() { super("Artifact not found."); } }
@@ -315,15 +320,13 @@ export class GitHubArtifactRepository implements ArtifactRepository {
 
   async list(): Promise<Artifact[]> {
     const tree = await this.fetchTree("read");
-    const prefix = this.rootPath.length > 0 ? `${this.rootPath}/` : "";
     const files = tree
-      .filter((entry) => entry.type === "blob" && typeof entry.path === "string" && entry.path.startsWith(prefix) && entry.path.endsWith(".md"))
+      .filter((entry) => entry.type === "blob" && typeof entry.path === "string" && isArtifactMarkdownCandidate(entry.path, this.rootPath))
       .sort((a, b) => a.path!.localeCompare(b.path!));
     this.logger.info(JSON.stringify({ event: "github_artifact_tree_loaded", backend: "github", owner: this.config.owner, repository: this.config.repo, branch: this.branch, rootPath: this.rootPath, treeEntryCount: tree.length, markdownFileCount: files.length }));
 
     for (const file of files) {
-      const pathError = validateArtifactPath(file.path!, this.rootPath);
-      if (pathError) throw new Error(`${file.path}: ${pathError}`);
+      if (!isSupportedArtifactPath(file.path!, this.rootPath)) throw new ArtifactRepositoryContentError();
     }
 
     const artifacts = await mapWithConcurrency(files, githubBlobConcurrency,
@@ -380,10 +383,9 @@ export class GitHubArtifactRepository implements ArtifactRepository {
   async diagnoseCatalogue(revision?: string): Promise<RepositoryValidationReport> {
     const resolvedRevision = revision ?? await this.getBaseRevision();
     const tree = await this.fetchTree("read", resolvedRevision);
-    const prefix = this.rootPath ? `${this.rootPath}/` : "";
-    const files = tree.filter((entry) => entry.type === "blob" && typeof entry.path === "string" && entry.path.startsWith(prefix) && entry.path.endsWith(".md"));
+    const files = tree.filter((entry) => entry.type === "blob" && typeof entry.path === "string" && isArtifactMarkdownCandidate(entry.path, this.rootPath));
     const results = await mapWithConcurrency(files, githubBlobConcurrency, async (file, entryIndex) => {
-      const safePath = typeof file.path === "string" && !validateArtifactPath(file.path, this.rootPath) ? file.path : "[unsafe repository path]";
+      const safePath = typeof file.path === "string" && isSupportedArtifactPath(file.path, this.rootPath) ? file.path : "[unsafe repository path]";
       if (safePath.startsWith("[")) return { entryIndex, error: { path: safePath, code: "invalid_path", message: "Artifact path is not a safe repository-relative path under the configured root." } as ArtifactValidationDiagnostic };
       if (!file.sha || !/^[a-f0-9]{7,64}$/i.test(file.sha)) return { entryIndex, error: { path: safePath, code: "missing_blob_sha", message: "GitHub did not provide a valid blob revision." } as ArtifactValidationDiagnostic };
       if (typeof file.size === "number" && file.size > MAX_SERIALIZED_ARTIFACT_BYTES) return { entryIndex, error: { path: safePath, code: "blob_too_large", message: "Artifact exceeds the maximum allowed size." } as ArtifactValidationDiagnostic };
@@ -419,6 +421,7 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     const artifacts = await this.artifactsFromTree(tree, "write");
     const artifact = artifacts.find((candidate) => candidate.id === input.id);
     if (!artifact) throw new ArtifactNotFoundError();
+    if (artifact.layout === "future" || artifact.status === undefined) throw new ArtifactCompatibilityReadOnlyError();
     const entry = tree.find((candidate) => candidate.type === "blob" && candidate.path === artifact.path);
     if (!entry?.sha) throw new ArtifactWriteResponseError();
     if (entry.sha !== input.currentFileSha) throw new ArtifactWriteConflictError();
@@ -448,6 +451,7 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     const artifacts = await this.artifactsFromTree(treeResponse.tree, "proposal");
     const artifact = artifacts.find((candidate) => candidate.id === input.id);
     if (!artifact) throw new ArtifactNotFoundError();
+    if (artifact.layout === "future" || artifact.status === undefined) throw new ArtifactCompatibilityReadOnlyError();
     const entry = treeResponse.tree.find((candidate) => candidate.type === "blob" && candidate.path === artifact.path);
     if (!entry?.sha || entry.sha !== input.currentFileSha) throw new ArtifactWriteConflictError();
     if (artifact.status !== "production") throw new ArtifactWriteValidationError();
@@ -479,6 +483,7 @@ export class GitHubArtifactRepository implements ArtifactRepository {
 
   async createVariation(input: CreateVariationInput): Promise<CreateVariationResult> {
     if (!/^[A-Za-z0-9-]+$/.test(input.actorLogin)) throw new ArtifactWriteValidationError();
+    if (input.source.layout === "future" || input.source.status === undefined) throw new ArtifactCompatibilityReadOnlyError();
     const { id, metadata } = prepareVariation(input.source, input.title, this.variationGeneration);
     const path = `${this.rootPath}/variations/${id}.md`;
     const result = await this.createValidatedArtifactAtPath({ metadata, body: input.body.trim(), path, actorLogin: input.actorLogin, commitMessage: `Create variation ${id} from ${input.source.id} (requested by @${input.actorLogin})` });
@@ -502,6 +507,7 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     const artifacts = await this.artifactsFromTree(treeResponse.tree, "proposal");
     const artifact = artifacts.find((candidate) => candidate.id === input.id);
     if (!artifact) throw new ArtifactNotFoundError();
+    if (artifact.layout === "future" || artifact.status === undefined) throw new ArtifactCompatibilityReadOnlyError();
     if (validateArtifactPath(artifact.path, this.rootPath)) throw new ArtifactRepositoryContentError();
     const entry = treeResponse.tree.find((candidate) => candidate.type === "blob" && candidate.path === artifact.path);
     if (!entry?.sha) throw new ArtifactRepositoryContentError();
@@ -690,11 +696,10 @@ export class GitHubArtifactRepository implements ArtifactRepository {
   }
 
   private async artifactsFromTree(tree: GitHubTreeEntry[], capability: RepositoryCredentialCapability) {
-    const prefix = `${this.rootPath}/`;
-    const files = tree.filter((entry) => entry.type === "blob" && entry.path?.startsWith(prefix) && entry.path.endsWith(".md"));
+    const files = tree.filter((entry) => entry.type === "blob" && typeof entry.path === "string" && isArtifactMarkdownCandidate(entry.path, this.rootPath));
     const artifacts = await mapWithConcurrency(files, githubBlobConcurrency, async (file) => {
       if (!file.path || !file.sha) throw new ArtifactRepositoryContentError();
-      if (validateArtifactPath(file.path, this.rootPath)) throw new ArtifactRepositoryContentError();
+      if (!classifyArtifactPath(file.path, this.rootPath)) throw new ArtifactRepositoryContentError();
       try { return parseArtifactMarkdown(await this.fetchBlob(file.sha, file.path, capability), file.path); } catch (error) { if (error instanceof ArtifactMarkdownParseError) throw new ArtifactRepositoryContentError(); throw error; }
     });
     validateUniqueArtifactIds(artifacts);
