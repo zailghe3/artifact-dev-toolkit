@@ -4,7 +4,7 @@ This contract defines the human-editable private repository that stores Artifact
 
 ## Transitional repository layout
 
-The authoritative branch is `main`. During the repository-flattening compatibility phase, existing writes remain under the legacy `artifacts/` root. Readers and the validator also recognise the future root-level directories shown below.
+The authoritative branch is `main`. During the repository-flattening compatibility phase, existing writes remain under the configured legacy root (`artifacts/` by default). The root may be any normalized, repository-relative path, including a multi-segment path such as `team/artifacts/`. Readers and the validator also recognise the future root-level directories shown below.
 
 ```text
 artifacts/
@@ -31,7 +31,7 @@ workflows/
 - Every artifact file uses the `.md` extension.
 - Markdown files outside the supported top-level directories are invalid.
 - Artifact, executable Agent, and Workflow IDs must each be unique across their legacy and future locations. A collision makes that domain invalid rather than selecting one file by precedence.
-- Existing create, edit, delete, variation, proposal, Agent-definition, and Workflow-definition writes continue to use legacy paths. Root-level compatibility content is read-only.
+- Existing create, edit, delete, variation, proposal, Agent-definition, and Workflow-definition writes continue to use legacy paths. Root-level compatibility content is visibly read-only even when it carries a lifecycle status; view, copy, search, and detail access remain available.
 
 ## Markdown format
 
