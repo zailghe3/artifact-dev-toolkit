@@ -1,6 +1,6 @@
 import { noStoreHeaders } from "./auth-core.ts";
 import {
-  ArtifactDuplicateError, ArtifactNotFoundError, ArtifactRepositoryAccessError, ArtifactRepositoryConfigurationError,
+  ArtifactCompatibilityReadOnlyError, ArtifactDuplicateError, ArtifactNotFoundError, ArtifactRepositoryAccessError, ArtifactRepositoryConfigurationError,
   ArtifactRepositoryUnavailableError, ArtifactSecretRejectedError, ArtifactWriteAuthenticationError,
   ArtifactWriteConflictError, ArtifactWritePermissionError, ArtifactWriteValidationError,
   ArtifactWriteTooLargeError,
@@ -25,6 +25,7 @@ export function artifactWriteErrorResponse(error: unknown) {
   if (error instanceof ArtifactDuplicateError) return json({ error: "Artifact ID or path already exists", code: "duplicate_artifact" }, 409);
   if (error instanceof ArtifactWriteConflictError) return json({ error: "Artifact changed since it was loaded", code: "write_conflict" }, 409);
   if (error instanceof ArtifactRepositoryUnavailableError) return json({ error: "Artifact repository temporarily unavailable", code: "repository_unavailable" }, 503);
+  if (error instanceof ArtifactCompatibilityReadOnlyError) return json({ error: error.message, code: "compatibility_content_read_only" }, 409);
   if (error instanceof ArtifactRepositoryConfigurationError) return json({ error: "Artifact repository is not configured for writes", code: "repository_configuration" }, 500);
   return json({ error: "Artifact could not be written", code: "internal_error" }, 500);
 }

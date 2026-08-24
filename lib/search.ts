@@ -2,7 +2,7 @@ export type SearchableArtifact = {
   title: string;
   description: string;
   type: string;
-  status: string;
+  status?: string;
   tags: string[];
   aliases: string[];
   body: string;

@@ -2,9 +2,9 @@
 
 This contract defines the human-editable private repository that stores Artifact Library Markdown artifacts independently from the application source repository.
 
-## Repository layout
+## Transitional repository layout
 
-The authoritative branch is `main`. The artifact root defaults to `artifacts/` and may be configured by validator callers with `--root <path>`.
+The authoritative branch is `main`. During the repository-flattening compatibility phase, existing writes remain under the legacy `artifacts/` root. Readers and the validator also recognise the future root-level directories shown below.
 
 ```text
 artifacts/
@@ -14,11 +14,24 @@ artifacts/
   templates/
   app-ideas/
   variations/
+
+prompts/
+snippets/
+templates/
+app-ideas/
+
+agents/
+  *.agent.json
+
+workflows/
+  *.workflow.json
 ```
 
-- Markdown files may be nested below any supported directory.
+- Markdown files may be nested below any supported directory. Root-level `agents/` is reserved for executable Agent definitions; legacy Markdown Agent artifacts remain under `artifacts/agents/`.
 - Every artifact file uses the `.md` extension.
 - Markdown files outside the supported top-level directories are invalid.
+- Artifact, executable Agent, and Workflow IDs must each be unique across their legacy and future locations. A collision makes that domain invalid rather than selecting one file by precedence.
+- Existing create, edit, delete, variation, proposal, Agent-definition, and Workflow-definition writes continue to use legacy paths. Root-level compatibility content is read-only.
 
 ## Markdown format
 
@@ -46,7 +59,7 @@ Required fields:
 | `id` | non-empty string | Globally unique across the complete artifact root. |
 | `title` | non-empty string | Human-readable title. |
 | `type` | enum | `prompt`, `agent`, `snippet`, `template`, or `app-idea`. |
-| `status` | enum | `production`, `draft`, or `archived`. |
+| `status` | enum | `production`, `draft`, or `archived`. Required for legacy Markdown. Optional only for root-level compatibility Markdown. |
 | `tags` | string array | Use `[]` when empty. |
 | `aliases` | string array | Use `[]` when empty. |
 
@@ -68,6 +81,6 @@ npm run artifacts:validate -- ../private-artifact-storage
 npm run artifacts:validate -- ../private-artifact-storage --root custom-root
 ```
 
-Validation rejects malformed front matter, missing required fields, unsupported values, duplicate IDs, missing expected directories, and Markdown files outside supported top-level directories.
+Validation rejects malformed front matter, missing legacy required fields, unsupported values, duplicate IDs across layouts, missing supported roots, and Markdown files outside supported legacy directories. A missing status on root-level compatibility Markdown is preserved as missing and does not imply a lifecycle state.
 
 Representative examples are available in `docs/examples/external-artifact-repository/`.

@@ -1,8 +1,9 @@
 import matter from "gray-matter";
 import { z } from "zod";
 import { artifactStatusSchema, artifactTypeSchema } from "./artifact-schemas.ts";
+import { classifyArtifactPath, LEGACY_ARTIFACT_DIRECTORIES } from "./repository-layout.ts";
 
-export const ALLOWED_ARTIFACT_DIRECTORIES = ["prompts", "agents", "snippets", "templates", "app-ideas", "variations"] as const;
+export const ALLOWED_ARTIFACT_DIRECTORIES = LEGACY_ARTIFACT_DIRECTORIES;
 export const DEFAULT_ARTIFACT_BRANCH = "main";
 export const DEFAULT_ARTIFACT_ROOT = "artifacts";
 /** Maximum UTF-8 size of a complete serialized Markdown artifact (1 MiB). */
@@ -20,8 +21,10 @@ export const artifactFrontMatterSchema = z.object({
   createdAt: z.union([z.string().datetime({ offset: true }), z.date()]).optional(),
 });
 
+export const compatibleArtifactFrontMatterSchema = artifactFrontMatterSchema.extend({ status: artifactStatusSchema.optional() });
+
 export type ArtifactMetadata = z.infer<typeof artifactFrontMatterSchema>;
-export type ArtifactModel = ArtifactMetadata & { body: string; excerpt: string; path: string };
+export type ArtifactModel = Omit<ArtifactMetadata, "status"> & { status?: ArtifactMetadata["status"]; body: string; excerpt: string; path: string; layout?: "legacy" | "future" };
 export type ArtifactRepositoryValidationError = { file: string; reason: string };
 export type ArtifactRepositoryValidationResult = { valid: boolean; artifactCount: number; errors: ArtifactRepositoryValidationError[] };
 export class ArtifactMarkdownParseError extends Error {
@@ -87,8 +90,12 @@ export function parseArtifactMarkdown(raw: string, filePath: string): ArtifactMo
   try { parsed = matter(raw, {}); } catch { throw new ArtifactMarkdownParseError("invalid_front_matter"); }
   if (!String(parsed.matter ?? "").trim()) throw new ArtifactMarkdownParseError("invalid_front_matter");
   try {
-    const data = normalizeArtifactMetadata(parsed.data);
-    return { ...data, body: parsed.content.trim(), excerpt: toExcerpt(parsed.content), path: filePath };
+    const layout = classifyArtifactPath(filePath) ?? "legacy";
+    const data = layout === "future"
+      ? compatibleArtifactFrontMatterSchema.parse(parsed.data)
+      : normalizeArtifactMetadata(parsed.data);
+    const normalizeList = (values: string[]) => Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+    return { ...data, tags: normalizeList(data.tags), aliases: normalizeList(data.aliases), createdAt: data.createdAt instanceof Date ? data.createdAt.toISOString() : data.createdAt, body: parsed.content.trim(), excerpt: toExcerpt(parsed.content), path: filePath, layout };
   } catch (error) {
     if (error instanceof z.ZodError) throw new ArtifactMarkdownParseError("invalid_metadata");
     throw error;

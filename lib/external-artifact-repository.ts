@@ -6,11 +6,13 @@ import {
   DEFAULT_ARTIFACT_ROOT,
   formatZodIssue,
   normalizeArtifactMetadata,
+  compatibleArtifactFrontMatterSchema,
   validateArtifactPath,
   type ArtifactMetadata as ExternalArtifactMetadata,
   type ArtifactRepositoryValidationError,
   type ArtifactRepositoryValidationResult,
 } from "./artifact-contract.ts";
+import { FUTURE_ARTIFACT_DIRECTORIES } from "./repository-layout.ts";
 import matter from "gray-matter";
 import { z } from "zod";
 
@@ -40,18 +42,20 @@ export async function validateExternalArtifactRepository(checkoutDir: string, op
   const errors: ArtifactRepositoryValidationError[] = [];
   const ids = new Map<string, string>();
   let artifactCount = 0;
-  if (!(await pathExists(rootDir))) return { valid: false, artifactCount: 0, errors: [{ file: artifactRoot, reason: "Configured artifact root does not exist." }] };
-  const files = await walkMarkdownFiles(rootDir);
+  const legacyExists = await pathExists(rootDir);
+  const futureRoots = FUTURE_ARTIFACT_DIRECTORIES.map((directory) => path.resolve(checkoutDir, directory));
+  const existingFutureRoots = (await Promise.all(futureRoots.map(async (root) => await pathExists(root) ? root : undefined))).filter((root): root is string => Boolean(root));
+  if (!legacyExists && existingFutureRoots.length === 0) return { valid: false, artifactCount: 0, errors: [{ file: artifactRoot, reason: "Neither the configured legacy artifact root nor a compatible root-level artifact directory exists." }] };
+  const files = [...(legacyExists ? await walkMarkdownFiles(rootDir) : []), ...(await Promise.all(existingFutureRoots.map(walkMarkdownFiles))).flat()];
   for (const file of files) {
-    const relativeToRoot = normalizeRelative(file, rootDir);
-    const displayPath = path.posix.join(artifactRoot, relativeToRoot);
-    const pathError = validateArtifactPath(displayPath, artifactRoot);
-    if (pathError) errors.push({ file: displayPath, reason: pathError });
+    const isLegacy = file.startsWith(`${rootDir}${path.sep}`);
+    const displayPath = isLegacy ? path.posix.join(artifactRoot, normalizeRelative(file, rootDir)) : normalizeRelative(file, path.resolve(checkoutDir));
+    if (isLegacy) { const pathError = validateArtifactPath(displayPath, artifactRoot); if (pathError) errors.push({ file: displayPath, reason: pathError }); }
     let parsed: matter.GrayMatterFile<string>;
-    try { parsed = matter(await fs.readFile(file, "utf8")); } catch (error) { errors.push({ file: displayPath, reason: `Unable to parse Markdown front matter: ${(error as Error).message}` }); continue; }
+    try { parsed = matter(await fs.readFile(file, "utf8"), {}); } catch (error) { errors.push({ file: displayPath, reason: `Unable to parse Markdown front matter: ${(error as Error).message}` }); continue; }
     if (!String(parsed.matter ?? "").trim()) { errors.push({ file: displayPath, reason: "Missing YAML front matter." }); continue; }
     try {
-      const data = normalizeArtifactMetadata(parsed.data);
+      const data = isLegacy ? normalizeArtifactMetadata(parsed.data) : compatibleArtifactFrontMatterSchema.parse(parsed.data);
       artifactCount += 1;
       const previous = ids.get(data.id);
       if (previous) errors.push({ file: displayPath, reason: `Duplicate artifact id "${data.id}" already used by ${previous}.` });
