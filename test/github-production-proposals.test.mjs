@@ -67,6 +67,15 @@ for (const operation of ['update', 'delete']) test(`successful production ${oper
   assert.equal(r.calls.some((call) => call.method === 'DELETE' || call.method === 'PATCH' || call.method === 'PUT'), false);
 });
 
+for (const operation of ['update', 'delete']) test(`production root-level ${operation} proposal preserves its exact source path`, async () => {
+  const rootPath = 'prompts/production.md';
+  const r = runtime({ operation, baseLeaves: [leaf(rootPath, sourceSha)] });
+  const result = operation === 'update' ? await r.repository.proposeUpdate(updateInput) : await r.repository.proposeDelete(deleteInput);
+  const tree = r.calls.find((call) => call.endpoint === '/git/trees' && call.method === 'POST').body;
+  assert.equal(tree.tree[0].path, rootPath);
+  assert.equal(result.path, rootPath);
+});
+
 for (const operation of ['update', 'delete']) test(`identical existing ${operation} proposal and matching pull request are idempotent`, async () => {
   const r = runtime({ operation, existing: true });
   const result = operation === 'update' ? await r.repository.proposeUpdate(updateInput) : await r.repository.proposeDelete(deleteInput);

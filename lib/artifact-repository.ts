@@ -2,11 +2,11 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { ArtifactMarkdownParseError, DEFAULT_ARTIFACT_BRANCH, DEFAULT_ARTIFACT_ROOT, MAX_SERIALIZED_ARTIFACT_BYTES, normalizeArtifactMetadata, parseArtifactMarkdown, serializeArtifactMarkdown, trimSlashes, validateArtifactPath, validateUniqueArtifactIds, type ArtifactMetadata, type ArtifactModel } from "./artifact-contract.ts";
+import { ArtifactMarkdownParseError, DEFAULT_ARTIFACT_BRANCH, DEFAULT_ARTIFACT_ROOT, MAX_SERIALIZED_ARTIFACT_BYTES, normalizeArtifactMetadata, parseArtifactMarkdown, serializeArtifactMarkdown, trimSlashes, validateUniqueArtifactIds, type ArtifactMetadata, type ArtifactModel } from "./artifact-contract.ts";
 import type { RepositoryAccessContext } from "./repository-authorization.ts";
 import type { RepositoryCredential, RepositoryCredentialCapability } from "./github-app.ts";
 import { slugify } from "./artifact-id.ts";
-import { classifyArtifactPath, isArtifactMarkdownCandidate, isSupportedArtifactPath } from "./repository-layout.ts";
+import { canonicalArtifactWritePath, classifyArtifactPath, isArtifactMarkdownCandidate, isSupportedArtifactMutationPath, isSupportedArtifactPath } from "./repository-layout.ts";
 export { slugify } from "./artifact-id.ts";
 
 const artifactsDir = path.join(process.cwd(), "artifacts");
@@ -122,10 +122,6 @@ function assertNoSecrets(value: string) {
   }
 }
 
-const artifactTypeDirectories: Record<ArtifactMetadata["type"], string> = {
-  prompt: "prompts", agent: "agents", snippet: "snippets", template: "templates", "app-idea": "app-ideas",
-};
-
 export function prepareArtifactWrite(metadataInput: ArtifactMetadata, body: string) {
   try {
     const metadata = normalizeArtifactMetadata(metadataInput);
@@ -236,11 +232,15 @@ export class FileArtifactRepository implements ArtifactRepository {
   async proposeDelete(): Promise<ArtifactProposalResult> { throw new ArtifactRepositoryConfigurationError("Deletion proposals require the GitHub repository backend."); }
 
   async createVariation({ source, body, title }: CreateVariationInput): Promise<CreateVariationResult> {
-    if (source.layout === "future" || source.status === undefined) throw new ArtifactCompatibilityReadOnlyError();
+    if (source.status === undefined) throw new ArtifactCompatibilityReadOnlyError();
     const { id, metadata } = prepareVariation(source, title);
     const { markdown } = prepareArtifactWrite(metadata, body.trim());
-    const filePath = path.join(this.rootDir, "variations", `${id}.md`);
-    if ((await this.list()).some((artifact) => artifact.id === id || path.resolve(artifact.path) === path.resolve(filePath))) throw new ArtifactDuplicateError();
+    const repositoryDir = path.dirname(this.rootDir);
+    const legacyRoot = path.basename(this.rootDir);
+    const target = canonicalArtifactWritePath(metadata.type, id, legacyRoot);
+    if (!target) throw new ArtifactWriteValidationError();
+    const filePath = path.join(repositoryDir, target);
+    if ((await this.list()).some((artifact) => artifact.id === id || artifact.path === target)) throw new ArtifactDuplicateError();
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     try { await fs.writeFile(filePath, markdown, { encoding: "utf8", flag: "wx" }); }
     catch (error) { if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new ArtifactDuplicateError(); throw error; }
@@ -264,7 +264,7 @@ export class ArtifactWriteTooLargeError extends Error { constructor() { super("A
 export class ArtifactSecretRejectedError extends Error { constructor() { super("Artifact content was rejected by the secret safety check."); } }
 export class ArtifactDuplicateError extends Error { constructor() { super("An artifact with this ID or path already exists."); } }
 export class ArtifactWriteConflictError extends Error { constructor() { super("The artifact changed since it was loaded."); } }
-export class ArtifactCompatibilityReadOnlyError extends Error { constructor() { super("Future-layout artifacts are read-only during repository migration compatibility."); } }
+export class ArtifactCompatibilityReadOnlyError extends Error { constructor() { super("Statusless compatibility artifacts are read-only during repository migration."); } }
 export class ArtifactWritePermissionError extends Error { constructor() { super("The GitHub App does not have artifact write permission."); } }
 export class ArtifactWriteAuthenticationError extends Error { constructor() { super("GitHub repository authentication failed."); } }
 export class ArtifactNotFoundError extends Error { constructor() { super("Artifact not found."); } }
@@ -421,11 +421,11 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     const artifacts = await this.artifactsFromTree(tree, "write");
     const artifact = artifacts.find((candidate) => candidate.id === input.id);
     if (!artifact) throw new ArtifactNotFoundError();
-    if (artifact.layout === "future" || artifact.status === undefined) throw new ArtifactCompatibilityReadOnlyError();
+    if (artifact.status === undefined) throw new ArtifactCompatibilityReadOnlyError();
     const entry = tree.find((candidate) => candidate.type === "blob" && candidate.path === artifact.path);
     if (!entry?.sha) throw new ArtifactWriteResponseError();
     if (entry.sha !== input.currentFileSha) throw new ArtifactWriteConflictError();
-    if (validateArtifactPath(artifact.path, this.rootPath)) throw new ArtifactRepositoryContentError();
+    if (!isSupportedArtifactMutationPath(artifact.path, this.rootPath)) throw new ArtifactRepositoryContentError();
     if (artifact.status === "production") throw new ArtifactProductionUpdateRequiresProposalError();
     validateImmutableLifecycleMetadata(artifact, metadata);
     return this.writeContents(artifact.path, metadata.id, markdown, `Update artifact ${metadata.id} (requested by @${input.actorLogin})`, input.currentFileSha);
@@ -451,7 +451,7 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     const artifacts = await this.artifactsFromTree(treeResponse.tree, "proposal");
     const artifact = artifacts.find((candidate) => candidate.id === input.id);
     if (!artifact) throw new ArtifactNotFoundError();
-    if (artifact.layout === "future" || artifact.status === undefined) throw new ArtifactCompatibilityReadOnlyError();
+    if (artifact.status === undefined) throw new ArtifactCompatibilityReadOnlyError();
     const entry = treeResponse.tree.find((candidate) => candidate.type === "blob" && candidate.path === artifact.path);
     if (!entry?.sha || entry.sha !== input.currentFileSha) throw new ArtifactWriteConflictError();
     if (artifact.status !== "production") throw new ArtifactWriteValidationError();
@@ -483,9 +483,10 @@ export class GitHubArtifactRepository implements ArtifactRepository {
 
   async createVariation(input: CreateVariationInput): Promise<CreateVariationResult> {
     if (!/^[A-Za-z0-9-]+$/.test(input.actorLogin)) throw new ArtifactWriteValidationError();
-    if (input.source.layout === "future" || input.source.status === undefined) throw new ArtifactCompatibilityReadOnlyError();
+    if (input.source.status === undefined) throw new ArtifactCompatibilityReadOnlyError();
     const { id, metadata } = prepareVariation(input.source, input.title, this.variationGeneration);
-    const path = `${this.rootPath}/variations/${id}.md`;
+    const path = canonicalArtifactWritePath(metadata.type, id, this.rootPath);
+    if (!path) throw new ArtifactWriteValidationError();
     const result = await this.createValidatedArtifactAtPath({ metadata, body: input.body.trim(), path, actorLogin: input.actorLogin, commitMessage: `Create variation ${id} from ${input.source.id} (requested by @${input.actorLogin})` });
     return { id, path: result.path, fileSha: result.fileSha, commitSha: result.commitSha, commitUrl: result.commitUrl, repositoryRevision: result.repositoryRevision };
   }
@@ -507,8 +508,8 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     const artifacts = await this.artifactsFromTree(treeResponse.tree, "proposal");
     const artifact = artifacts.find((candidate) => candidate.id === input.id);
     if (!artifact) throw new ArtifactNotFoundError();
-    if (artifact.layout === "future" || artifact.status === undefined) throw new ArtifactCompatibilityReadOnlyError();
-    if (validateArtifactPath(artifact.path, this.rootPath)) throw new ArtifactRepositoryContentError();
+    if (artifact.status === undefined) throw new ArtifactCompatibilityReadOnlyError();
+    if (!isSupportedArtifactMutationPath(artifact.path, this.rootPath)) throw new ArtifactRepositoryContentError();
     const entry = treeResponse.tree.find((candidate) => candidate.type === "blob" && candidate.path === artifact.path);
     if (!entry?.sha) throw new ArtifactRepositoryContentError();
     if (entry.sha !== input.currentFileSha) throw new ArtifactWriteConflictError();
@@ -609,7 +610,8 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     const artifacts = await this.artifactsFromTree(tree, capability);
     const artifact = artifacts.find((candidate) => candidate.id === input.id);
     if (!artifact) throw new ArtifactNotFoundError();
-    if (validateArtifactPath(artifact.path, this.rootPath)) throw new ArtifactRepositoryContentError();
+    if (artifact.status === undefined) throw new ArtifactCompatibilityReadOnlyError();
+    if (!isSupportedArtifactMutationPath(artifact.path, this.rootPath)) throw new ArtifactRepositoryContentError();
     const entry = tree.find((candidate) => candidate.type === "blob" && candidate.path === artifact.path);
     if (!entry?.sha) throw new ArtifactRepositoryContentError();
     if (entry.sha !== input.currentFileSha) throw new ArtifactWriteConflictError();
@@ -645,7 +647,8 @@ export class GitHubArtifactRepository implements ArtifactRepository {
 
   private async createValidatedArtifactAtPath(input: { metadata: ArtifactMetadata; body: string; path: string; actorLogin: string; commitMessage: string; prepared?: ReturnType<typeof prepareArtifactWrite> }): Promise<ArtifactWriteResult> {
     const { metadata, markdown } = input.prepared ?? prepareArtifactWrite(input.metadata, input.body);
-    if (validateArtifactPath(input.path, this.rootPath)) throw new ArtifactWriteValidationError();
+    const expectedPath = canonicalArtifactWritePath(metadata.type, metadata.id, this.rootPath);
+    if (!expectedPath || input.path !== expectedPath) throw new ArtifactWriteValidationError();
     const tree = await this.fetchTree("write");
     if (tree.some((entry) => entry.type === "blob" && entry.path === input.path)) throw new ArtifactDuplicateError();
     const artifacts = await this.artifactsFromTree(tree, "write");
@@ -692,7 +695,9 @@ export class GitHubArtifactRepository implements ArtifactRepository {
   }
 
   private artifactPath(metadata: ArtifactMetadata) {
-    return `${this.rootPath}/${artifactTypeDirectories[metadata.type]}/${metadata.id}.md`;
+    const target = canonicalArtifactWritePath(metadata.type, metadata.id, this.rootPath);
+    if (!target) throw new ArtifactWriteValidationError();
+    return target;
   }
 
   private async artifactsFromTree(tree: GitHubTreeEntry[], capability: RepositoryCredentialCapability) {
