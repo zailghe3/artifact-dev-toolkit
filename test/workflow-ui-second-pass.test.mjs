@@ -34,11 +34,11 @@ test('run table renders semantic sortable headers and run navigation from behavi
  assert.match(html,/href="\/workflows\/runs\/run-1"[^>]*>Review<\/a>/);
 });
 
-test('prompt catalogue filters types and archived entries, orders production first, bounds results, and returns metadata only',()=>{
+test('prompt catalogue filters types, ignores legacy lifecycle values, orders by title, bounds results, and returns metadata only',()=>{
  const results=searchWorkflowAgentPrompts([
   artifact('draft','prompt','draft','Draft'),artifact('prod','prompt','production','Production'),artifact('old','prompt','archived','Old'),artifact('template','template','production','Template'),artifact('agent','agent','draft','Agent'),artifact('snippet','snippet','draft','Snippet'),
  ],'');
- assert.deepEqual(results.map(x=>x.id),['prod','draft']);
+ assert.deepEqual(results.map(x=>x.id),['draft','old','prod']);
  assert.equal('body' in results[0],false);
  assert.equal(searchWorkflowAgentPrompts(Array.from({length:20},(_,i)=>artifact(`p-${i}`,'prompt','draft',`Prompt ${i}`)),'').length,15);
 });
@@ -51,10 +51,10 @@ test('prompt selection and copying preserve reference semantics without exposing
  assert.equal(copiedWorkflowAgentPrompt({artifact:artifact('prompt-a','prompt','production','Prompt','x'.repeat(AGENT_MASTER_PROMPT_MAX_LENGTH+1))}),undefined);
 });
 
-test('archived prompt references remain describable even though archived prompts are excluded from new searches',()=>{
+test('legacy archived prompt references remain normally describable',()=>{
  const archived=artifact('old','prompt','archived','Old prompt');
- assert.deepEqual(workflowAgentPromptDescriptor(archived),{id:'old',title:'Old prompt',description:'',status:'archived',tags:[],excerpt:'excerpt old'});
- assert.deepEqual(searchWorkflowAgentPrompts([archived],''),[]);
+ assert.deepEqual(workflowAgentPromptDescriptor(archived),{id:'old',title:'Old prompt',description:'',tags:[],excerpt:'excerpt old'});
+ assert.deepEqual(searchWorkflowAgentPrompts([archived],'').map(x=>x.id),['old']);
  assert.equal(workflowAgentPromptDescriptor(artifact('not-prompt','template','production','Template')),undefined);
 });
 

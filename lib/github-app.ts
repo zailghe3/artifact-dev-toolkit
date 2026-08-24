@@ -4,7 +4,7 @@ import { AuthenticationConfigurationError } from "./auth-configuration.ts";
 export type GitHubAppConfig = { appId: string; clientId: string; clientSecret: string; privateKey: string; owner: string; repo: string; branch: string; rootPath: string; allowedLogins: string[] };
 export type GitHubRepository = { id: number; name: string; owner: { login: string } };
 export type GitHubInstallation = { id: number; repository_selection?: string };
-export type RepositoryCredentialCapability = "read" | "write" | "proposal";
+export type RepositoryCredentialCapability = "read" | "write";
 export type InstallationCredentialFailure = "authentication_failed" | "installation_missing" | "capability_request_rejected" | "rate_limited" | "temporarily_unavailable" | "malformed_response" | "request_failed";
 export class InstallationCredentialError extends Error {
   readonly name = "InstallationCredentialError";
@@ -105,11 +105,7 @@ export async function getRepositoryInstallation(config: Pick<GitHubAppConfig, "o
 }
 
 export async function mintInstallationToken(installationId: number, repositoryId: number, appJwt: string, capability: RepositoryCredentialCapability, fetchImpl: typeof fetch = fetch): Promise<RepositoryCredential> {
-  const permissions = capability === "read"
-    ? { contents: "read" }
-    : capability === "write"
-      ? { contents: "write" }
-      : { contents: "write", pull_requests: "write" };
+  const permissions = capability === "read" ? { contents: "read" } : { contents: "write" };
   let response: Response;
   try {
     response = await fetchImpl(`${githubApiBaseUrl}/app/installations/${installationId}/access_tokens`, {

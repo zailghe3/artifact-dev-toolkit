@@ -7,6 +7,6 @@ export function deriveOverallDiagnosticsState(input: Pick<RepositoryDiagnostics,
   if (input.validation.state === "invalid") return "invalid_content";
   if (input.permissions.contentsRead.effective === false) return "unauthorized";
   if (input.repositoryRevision.state === "unavailable" || input.cache.state === "degraded" || input.cache.state === "unavailable") return "unavailable";
-  if (input.permissions.contentsRead.effective === "unknown" || input.permissions.contentsWrite.effective !== true || input.permissions.pullRequestsWrite.effective !== true || input.authorization.liveState === "temporarily_unavailable" || input.cache.state === "stale" || input.cache.state === "missing" || input.cache.state === "corrupt" || input.validation.state === "unavailable") return "degraded";
+  if (input.permissions.contentsRead.effective === "unknown" || input.permissions.contentsWrite.effective !== true || input.authorization.liveState === "temporarily_unavailable" || input.cache.state === "stale" || input.cache.state === "missing" || input.cache.state === "corrupt" || input.validation.state === "unavailable") return "degraded";
   return "healthy";
 }

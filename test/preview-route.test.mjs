@@ -7,11 +7,11 @@ const source = { id: 'source', title: 'Source', type: 'prompt', status: 'product
 const dependencies = (overrides = {}) => ({ authorize: async () => ({ access, session: { login: 'octocat' } }), loadArtifact: async () => source, ...overrides });
 const request = (body) => new Request('https://example.test/api/artifacts/source/variation/preview', { method: 'POST', body });
 
-test('variation preview uses unsaved values and draft rules without a write', async () => {
+test('variation preview uses unsaved values and statusless rules without a write', async () => {
   let loads = 0;
   const response = await handleVariationPreview(request(JSON.stringify({ title: 'Unsaved', body: '**new**' })), 'source', dependencies({ loadArtifact: async () => { loads++; return source; } }));
   const value = await response.json(); assert.equal(response.status, 200); assert.equal(response.headers.get('cache-control'), 'private, no-store, max-age=0');
-  assert.equal(loads, 1); assert.equal(value.metadata.title, 'Unsaved'); assert.equal(value.metadata.status, 'draft'); assert.equal(value.metadata.sourceId, 'source'); assert.deepEqual(value.metadata.tags, ['writing', 'variation']); assert.deepEqual(value.metadata.aliases, ['start']); assert.match(value.bodyHtml, /<strong>new<\/strong>/);
+  assert.equal(loads, 1); assert.equal(value.metadata.title, 'Unsaved'); assert.equal('status' in value.metadata, false); assert.equal(value.metadata.sourceId, 'source'); assert.deepEqual(value.metadata.tags, ['writing', 'variation']); assert.deepEqual(value.metadata.aliases, ['start']); assert.match(value.bodyHtml, /<strong>new<\/strong>/);
 });
 
 test('variation preview rejects malformed input and does not execute raw HTML', async () => {

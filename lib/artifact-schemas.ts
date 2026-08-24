@@ -8,7 +8,6 @@ export const artifactMetadataSchema = z.object({
   title: z.string().min(1),
   description: z.string().max(2000).default(""),
   type: artifactTypeSchema,
-  status: artifactStatusSchema,
   tags: z.array(z.string()).default([]),
   aliases: z.array(z.string()).default([]),
   sourceId: z.string().optional(),

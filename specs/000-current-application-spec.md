@@ -2,7 +2,7 @@
 
 **Document status:** Baseline specification of implemented application behaviour  
 **Scope:** Current behaviour only; not a roadmap or implementation design  
-**Last updated:** 2026-08-20
+**Last updated:** 2026-08-24
 
 ## 1. Purpose and scope
 
@@ -39,14 +39,14 @@
 - Users can search the loaded artifact catalogue interactively.
 - Search is case-insensitive.
 - Multiple search terms narrow the result set.
-- Search covers artifact identity, type, status, tags, aliases, and body content.
+- Search covers artifact identity, type, tags, aliases, and body content.
 - An empty search returns the complete catalogue.
 - The matching result count updates with the search.
 
 ### 3.3 Artifact detail
 
 - Users can open an artifact from the catalogue.
-- The detail view presents its title, type, status, tags, aliases, and rendered Markdown body.
+- The detail view presents its title, type, tags, aliases, and rendered Markdown body.
 - Users can navigate back to the catalogue without losing the application context.
 - Missing artifacts resolve to the application's not-found experience rather than an operational failure.
 
@@ -56,60 +56,24 @@
 - Copying excludes repository metadata and rendered HTML.
 - The interface provides clear success feedback after copying.
 
-## 4. Artifact creation and lifecycle
+## 4. Artifact creation and mutation
 
-### 4.1 Lifecycle states
+- An artifact present on the configured canonical branch is active catalogue content; Artifact Library Markdown has no lifecycle state.
+- Users can create, preview, edit, vary, and delete artifacts without lifecycle metadata.
+- New and updated Markdown omits the retired `status` field while retaining `type`.
+- Legacy `draft`, `production`, and `archived` values are accepted temporarily on read and have no effect on presentation, search, variation, editing, or deletion.
+- Every edit and deletion is a direct Git mutation tied to the artifact's exact observed path and file revision.
+- Stale or ambiguous mutations fail safely; successful writes invalidate stale catalogue state.
+- Variations are distinct artifacts that retain their source relationship through `sourceId`.
+- Deletion removes an artifact from the active branch. Git history is the recovery mechanism.
 
-- Base artifacts are created as drafts.
-- Supported lifecycle states are draft, production, and archived.
-- Draft and archived artifacts may be changed directly.
-- Production changes are proposed for review rather than applied directly.
-- Artifact identity and type become stable after creation.
-
-### 4.2 Creating artifacts
-
-- Users can create a new draft artifact from the application.
-- The application suggests an artifact ID that remains editable until first successful save.
-- Users can edit the artifact's title, tags, aliases, and Markdown body before saving.
-- Users can preview a proposed artifact without writing to the repository.
-- Duplicate or invalid artifacts are rejected before persistence.
-
-### 4.3 Editing artifacts
-
-- Users can edit supported artifact metadata and Markdown body.
-- Draft and archived changes are persisted directly after validation.
-- Production changes create a reviewable proposal and leave the current production artifact unchanged.
-- The application detects stale concurrent edits and must not silently overwrite a newer repository revision.
-- A successful direct save becomes the editor's new persisted baseline.
-
-### 4.4 Variations
-
-- Users can create a draft variation from an existing artifact.
-- A variation starts with the source artifact's body and relevant metadata.
-- The user may change the variation title and body before saving.
-- Saving creates a distinct draft rather than modifying the source artifact.
-- The variation retains a relationship to its source.
-- Previewing a variation performs no repository write.
-
-### 4.5 Deletion
-
-- Deletion always requires explicit user confirmation.
-- Draft and archived artifacts may be deleted directly.
-- Production deletion creates a reviewable proposal and leaves production unchanged until reviewed externally.
-- Deletion uses the persisted artifact revision rather than unsaved editor changes.
-- Stale deletion attempts are rejected rather than deleting a newer revision.
-
-## 5. Production review and repository safety
+## 5. Repository safety
 
 - GitHub is the source of truth for persisted artifacts.
 - Direct writes create attributable repository history.
-- Production update and deletion proposals are represented as reviewable GitHub pull requests.
-- The application does not automatically merge production proposals.
-- Proposal creation must be safe to retry or recover without accidentally duplicating repository mutations.
-- An already completed equivalent proposal may be reused.
-- A conflicting existing proposal must fail safely rather than being overwritten.
-- Interrupted proposal creation should expose safe recovery information when available.
-- Successful direct changes invalidate stale catalogue state so subsequent reads can converge on repository truth.
+- Existing artifact mutations preserve the exact loaded source path and reject a changed file revision.
+- Duplicate identities and path collisions fail closed.
+- Successful changes invalidate stale catalogue state so subsequent reads can converge on repository truth.
 
 ## 6. Artifact repository contract
 
@@ -117,8 +81,8 @@
 - Supported artifact categories include prompts, agents, snippets, templates, app ideas, and variations.
 - Artifact IDs are unique within the configured artifact repository.
 - Repository content is validated before it becomes part of the application catalogue.
-- During repository-layout migration, the library reads non-conflicting legacy and compatible root-level artifacts, creates ordinary artifacts in their root-level namespaces, and mutates lifecycle-managed artifacts at their exact source paths.
-- A logical identity present in both repository layouts fails closed, and statusless compatibility content has no implied lifecycle state.
+- During repository-layout migration, the library reads non-conflicting legacy and root-level artifacts, creates ordinary artifacts in their root-level namespaces, and mutates artifacts at their exact source paths.
+- A logical identity present in both repository layouts fails closed. Statusless Markdown is canonical; legacy lifecycle values are ignored after compatibility parsing.
 - Invalid paths, malformed metadata, duplicate identities, unsupported content, and unsafe artifact data are rejected.
 - The canonical repository layout, metadata schema, and validation rules are defined by the [External Artifact Repository Contract](../docs/external-artifact-repository-contract.md).
 - The application specification should not duplicate that contract.
@@ -168,7 +132,6 @@
 
 ## 11. Current product boundaries
 
-- The application does not automatically merge production artifact proposals.
 - Artifact repository configuration and external service provisioning remain operator responsibilities.
 - Operational documentation may prescribe specific deployment technologies, versions, limits, or recovery procedures without making those implementation choices part of this product specification.
 - Agent Workflows are currently sequential and bounded; their detailed limitations are maintained in the dedicated workflow specification.

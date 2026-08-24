@@ -1,10 +1,10 @@
 import {
-  ArtifactProposalPermissionError, ArtifactRepositoryAccessError, ArtifactRepositoryConfigurationError,
+ArtifactRepositoryAccessError, ArtifactRepositoryConfigurationError,
   ArtifactRepositoryContentError, ArtifactRepositoryUnavailableError, ArtifactWritePermissionError, ArtifactRepositoryNotFoundError, ArtifactBranchNotFoundError,
 } from "./artifact-repository.ts";
 import { CatalogueCacheUnavailableError, CatalogueSnapshotCorruptError } from "./artifact-catalogue.ts";
 
-export type OperationalCategory = "authentication_required" | "repository_authorization_denied" | "github_app_not_installed" | "repository_configuration_invalid" | "repository_not_found" | "branch_not_found" | "repository_read_permission_required" | "repository_write_permission_required" | "proposal_permission_required" | "github_rate_limited" | "github_temporarily_unavailable" | "artifact_repository_invalid" | "catalogue_cache_unavailable" | "catalogue_cache_corrupt" | "unexpected_error";
+export type OperationalCategory = "authentication_required" | "repository_authorization_denied" | "github_app_not_installed" | "repository_configuration_invalid" | "repository_not_found" | "branch_not_found" | "repository_read_permission_required" | "repository_write_permission_required" | "github_rate_limited" | "github_temporarily_unavailable" | "artifact_repository_invalid" | "catalogue_cache_unavailable" | "catalogue_cache_corrupt" | "unexpected_error";
 export type OperationalState = { category: OperationalCategory; title: string; explanation: string; guidance: string; retry: boolean; status: number };
 
 const states: Record<OperationalCategory, Omit<OperationalState, "category">> = {
@@ -16,7 +16,6 @@ const states: Record<OperationalCategory, Omit<OperationalState, "category">> = 
   branch_not_found: { title: "Branch not found", explanation: "The configured base branch could not be found.", guidance: "Verify the configured branch name.", retry: false, status: 404 },
   repository_read_permission_required: { title: "Contents read permission required", explanation: "The GitHub App cannot read repository contents.", guidance: "Grant the GitHub App Contents read permission.", retry: false, status: 403 },
   repository_write_permission_required: { title: "Contents write permission required", explanation: "The GitHub App cannot write repository contents.", guidance: "Grant the GitHub App Contents write permission.", retry: false, status: 403 },
-  proposal_permission_required: { title: "Pull request permission required", explanation: "The GitHub App cannot create proposals.", guidance: "Grant Contents write and Pull requests write permissions.", retry: false, status: 403 },
   github_rate_limited: { title: "GitHub rate limit reached", explanation: "GitHub temporarily limited repository requests.", guidance: "Wait and retry later.", retry: true, status: 503 },
   github_temporarily_unavailable: { title: "GitHub temporarily unavailable", explanation: "Repository data could not be retrieved right now.", guidance: "Retry after the temporary GitHub interruption.", retry: true, status: 503 },
   artifact_repository_invalid: { title: "Repository artifacts are invalid", explanation: "One or more repository files do not satisfy the artifact contract.", guidance: "Use diagnostics to identify and correct invalid files, then run the manual catalogue refresh.", retry: false, status: 422 },
@@ -36,7 +35,6 @@ export function mapOperationalError(error: unknown): OperationalState {
   if (error instanceof ArtifactRepositoryConfigurationError) return operationalState("repository_configuration_invalid");
   if (error instanceof ArtifactRepositoryContentError) return operationalState("artifact_repository_invalid");
   if (error instanceof ArtifactWritePermissionError) return operationalState("repository_write_permission_required");
-  if (error instanceof ArtifactProposalPermissionError) return operationalState("proposal_permission_required");
   return operationalState("unexpected_error");
 }
 export function isExpectedOperationalError(error: unknown) { return mapOperationalError(error).category !== "unexpected_error"; }

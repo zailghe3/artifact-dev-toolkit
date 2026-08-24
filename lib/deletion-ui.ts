@@ -1,8 +1,8 @@
 import type { Artifact } from "./artifact-repository.ts";
-export type DeletionSnapshot = { id: string; title: string; status: Artifact["status"]; currentFileSha: string };
-export type DeletionResult = { kind: "deleted"; artifactId: string; commitUrl: string } | { kind: "proposal"; artifactId: string; pullUrl: string } | { kind: "recovery"; artifactId: string; branchName: string; branchUrl: string };
-export function deletionConfirmation(snapshot: Pick<DeletionSnapshot, "id" | "title" | "status">) { return { heading: `Delete ${snapshot.title} (${snapshot.id})?`, description: snapshot.status === "production" ? "This creates a production deletion proposal and leaves the live artifact unchanged." : "This directly deletes the artifact from the repository." }; }
-export function deletionRequest(snapshot: DeletionSnapshot) { const proposal = snapshot.status === "production"; return { endpoint: proposal ? `/api/artifacts/${encodeURIComponent(snapshot.id)}/deletion-proposal` : `/api/artifacts/${encodeURIComponent(snapshot.id)}`, method: proposal ? "POST" as const : "DELETE" as const, body: { currentFileSha: snapshot.currentFileSha } }; }
-export function tombstonesAfterResult(tombstones: ReadonlySet<string>, result: DeletionResult) { const next = new Set(tombstones); if (result.kind === "deleted") next.add(result.artifactId); return next; }
+export type DeletionSnapshot = { id: string; title: string; currentFileSha: string };
+export type DeletionResult = { kind: "deleted"; artifactId: string; commitUrl: string };
+export function deletionConfirmation(snapshot: Pick<DeletionSnapshot, "id" | "title">) { return { heading: `Delete ${snapshot.title} (${snapshot.id})?`, description: "This directly deletes the artifact from the active repository branch. Git history remains available for recovery." }; }
+export function deletionRequest(snapshot: DeletionSnapshot) { return { endpoint: `/api/artifacts/${encodeURIComponent(snapshot.id)}`, method: "DELETE" as const, body: { currentFileSha: snapshot.currentFileSha } }; }
+export function tombstonesAfterResult(tombstones: ReadonlySet<string>, result: DeletionResult) { return new Set([...tombstones, result.artifactId]); }
 export function reconcileTombstones(authoritative: Artifact[], tombstones: ReadonlySet<string>) { const ids = new Set(authoritative.map((artifact) => artifact.id)); return new Set([...tombstones].filter((id) => ids.has(id))); }
 export function visibleArtifacts(authoritative: Artifact[], tombstones: ReadonlySet<string>) { return authoritative.filter((artifact) => !tombstones.has(artifact.id)); }

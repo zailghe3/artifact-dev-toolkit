@@ -68,8 +68,6 @@ export function diagnosticContributors(d: RepositoryDiagnostics, limit = 5): Dia
   else if (d.permissions.contentsRead.effective === "unknown") add("permissions", "Contents read permission could not be verified.");
   if (d.permissions.contentsWrite.effective === false) add("permissions-write", "Contents write permission is not granted.");
   else if (d.permissions.contentsWrite.effective === "unknown") add("permissions-write", "Contents write permission could not be verified.");
-  if (d.permissions.pullRequestsWrite.effective === false) add("permissions-proposal", "The production proposal credential was denied.");
-  else if (d.permissions.pullRequestsWrite.effective === "unknown") add("permissions-proposal", "Production proposal permission could not be verified.");
   if (d.repositoryRevision.state !== "available") add("repository-revision", d.repositoryRevision.state === "unknown" ? "The repository revision was not checked." : "The repository revision is unavailable.");
   if (d.cache.state === "stale") add("catalogue-cache", "Catalogue data is stale.");
   else if (d.cache.state === "missing") add("catalogue-cache", "The catalogue snapshot is missing.");

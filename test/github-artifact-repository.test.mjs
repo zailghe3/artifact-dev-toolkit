@@ -423,7 +423,7 @@ test('compatibility reads future-only and non-conflicting mixed artifacts withou
   const repo = repository(fetch);
   const artifacts = await repo.list();
   assert.deepEqual(artifacts.map(({ id }) => id), ['legacy', 'root']);
-  assert.equal(artifacts.find(({ id }) => id === 'root').status, undefined);
+  assert.equal('status' in artifacts.find(({ id }) => id === 'root'), false);
   assert.equal(artifacts.find(({ id }) => id === 'root').layout, 'future');
   const resolved = await repo.findByIdWithRevision('root');
   assert.equal(resolved.artifact.path, 'prompts/root.md');
@@ -432,18 +432,12 @@ test('compatibility reads future-only and non-conflicting mixed artifacts withou
 
 test('compatibility accepts status-bearing root Markdown and fails closed on cross-layout artifact IDs', async () => {
   const status = await repository(createFetch({ 'snippets/root.md': markdown('id: root\ntitle: Root\ntype: snippet\nstatus: archived\ntags: []\naliases: []') })).list();
-  assert.equal(status[0].status, 'archived');
+  assert.equal('status' in status[0], false);
   const duplicate = createFetch({
     'artifacts/prompts/old.md': markdown('id: same\ntitle: Old\ntype: prompt\nstatus: draft\ntags: []\naliases: []'),
     'prompts/new.md': markdown('id: same\ntitle: New\ntype: prompt\ntags: []\naliases: []'),
   });
   await assert.rejects(repository(duplicate).list(), /Duplicate artifact id "same".*prompts\/new\.md.*artifacts\/prompts\/old\.md|Duplicate artifact id "same"/);
-});
-
-test('future-layout compatibility artifacts reject mutation instead of moving to legacy paths', async () => {
-  const fetch = createFetch({ 'prompts/root.md': markdown('id: root\ntitle: Root\ntype: prompt\ntags: []\naliases: []') });
-  await assert.rejects(repository(fetch).update({ id: 'root', metadata: { id: 'root', title: 'Root', type: 'prompt', status: 'draft', tags: [], aliases: [] }, body: 'changed', currentFileSha: 'sha-1', actorLogin: 'octocat' }), /read-only/);
-  assert.equal(fetch.calls.some(({ options }) => options.method === 'PUT'), false);
 });
 
 test('configured legacy roots preserve complete normalized paths and coexist with future directories', async () => {

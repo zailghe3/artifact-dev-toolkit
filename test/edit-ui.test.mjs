@@ -1,39 +1,4 @@
-import test from 'node:test';
-import assert from 'node:assert/strict';
-import { hasPreview, proposalErrorMessage, safeGitHubUrl } from '../lib/edit-ui.ts';
-import { ArtifactWriteValidationError, deletionProposalBranchName, proposalBranchName } from '../lib/artifact-repository.ts';
-
-test('proposal branch names are deterministic, revision-specific, safe, bounded, and fail closed', () => {
-  const a = proposalBranchName('client-artifact', 'abcdef0123456789');
-  assert.equal(a, proposalBranchName('client-artifact', 'abcdef0123456789'));
-  assert.equal(a, 'artifact-change/client-artifact-abcdef01');
-  assert.notEqual(a, proposalBranchName('client-artifact', '1234567890abcdef'));
-  assert.match(a, /^[a-z0-9/-]+$/); assert.ok(a.length <= 105);
-  for (const [id, sha] of [['../bad', 'abcdef0123'], ['good', 'not-sha'], ['a'.repeat(81), 'abcdef0123']]) assert.throws(() => proposalBranchName(id, sha), ArtifactWriteValidationError);
-});
-
-test('deletion proposal branch names are deterministic and revision-specific', () => {
-  assert.equal(deletionProposalBranchName('client-artifact', 'ABCDEF0123456789'), 'artifact-delete/client-artifact-abcdef01');
-  assert.notEqual(deletionProposalBranchName('client-artifact', 'abcdef0123456789'), deletionProposalBranchName('client-artifact', '1234567890abcdef'));
-});
-
-test('edit helpers recognize only safe GitHub result links and preview shapes', () => {
-  assert.equal(safeGitHubUrl('https://github.com/o/r/commit/abc123', 'commit'), 'https://github.com/o/r/commit/abc123');
-  assert.equal(safeGitHubUrl('https://github.com/o/r/pull/40', 'pull'), 'https://github.com/o/r/pull/40');
-  for (const value of ['http://github.com/o/r/pull/1', 'https://evil.test/o/r/pull/1', 'https://github.com/o/r/issues/1', 'bad']) assert.equal(safeGitHubUrl(value, 'pull'), undefined);
-  assert.equal(hasPreview({ metadata: { id: 'draft', title: 'Draft', type: 'prompt', status: 'draft', tags: [], aliases: [] }, bodyHtml: '<p>safe</p>' }), true);
-  assert.equal(hasPreview({ metadata: { id: 'draft', title: 'Draft', status: 'draft', tags: [], aliases: [] }, bodyHtml: '<p>missing type</p>' }), false);
-  assert.equal(hasPreview({ bodyHtml: '<p>missing metadata</p>' }), false);
-  assert.match(proposalErrorMessage('write_conflict'), /Reload/);
-});
-
-import { safeArtifactHref } from '../lib/edit-ui.ts';
-import { normalizeEditorValues, suggestedArtifactId } from '../lib/artifact-editor-helpers.ts';
-test('lifecycle editor helpers keep suggestions automatic until manual editing and normalize lists', () => {
-  assert.equal(suggestedArtifactId('Complete Client Title', false, 'old'), 'complete-client-title');
-  assert.equal(suggestedArtifactId('Later Title', true, 'manual-id'), 'manual-id');
-  assert.deepEqual(normalizeEditorValues([' Alpha ', '', 'Alpha', 'alpha', ' Beta ']), ['Alpha', 'alpha', 'Beta']);
-  assert.equal(safeArtifactHref('safe-id'), '/artifacts/safe-id');
-  assert.equal(safeArtifactHref('../unsafe'), undefined);
-  assert.equal(safeGitHubUrl('https://github.com/o/r/tree/artifact-delete/safe-abcdef01', 'branch'), 'https://github.com/o/r/tree/artifact-delete/safe-abcdef01');
-});
+import test from 'node:test';import assert from 'node:assert/strict';import {hasPreview,lifecycleErrorMessage,safeArtifactHref,safeGitHubUrl,unknownEditErrorMessage} from '../lib/edit-ui.ts';import {normalizeEditorValues,suggestedArtifactId} from '../lib/artifact-editor-helpers.ts';
+test('edit helpers recognize only safe direct-write links and statusless previews',()=>{assert.equal(safeGitHubUrl('https://github.com/o/r/commit/abc123','commit'),'https://github.com/o/r/commit/abc123');for(const value of ['http://github.com/o/r/commit/a','https://evil.test/o/r/commit/a','bad'])assert.equal(safeGitHubUrl(value,'commit'),undefined);assert.equal(hasPreview({metadata:{id:'draft',title:'Draft',type:'prompt',tags:[],aliases:[]},bodyHtml:'<p>safe</p>'}),true);assert.equal(hasPreview({metadata:{id:'draft',title:'Draft',tags:[],aliases:[]},bodyHtml:'x'}),false)});
+test('editor helpers normalize IDs and lists',()=>{assert.equal(suggestedArtifactId('Complete Client Title',false,'old'),'complete-client-title');assert.deepEqual(normalizeEditorValues([' Alpha ','','Alpha',' Beta ']),['Alpha','Beta']);assert.equal(safeArtifactHref('safe-id'),'/artifacts/safe-id');assert.equal(safeArtifactHref('../unsafe'),undefined)});
+test('direct-write operational failures retain distinct actionable messages without proposal mappings',()=>{const codes=['repository_authentication_failed','write_permission_required','repository_unavailable','repository_configuration'];const messages=codes.map(lifecycleErrorMessage);assert.equal(new Set(messages).size,codes.length);for(const message of messages)assert.notEqual(message,unknownEditErrorMessage);for(const retired of ['production_update_requires_proposal','production_delete_requires_proposal','proposal_permission_required','proposal_branch_collision','proposal_incomplete','proposal_requires_production_artifact'])assert.equal(lifecycleErrorMessage(retired),unknownEditErrorMessage)});
