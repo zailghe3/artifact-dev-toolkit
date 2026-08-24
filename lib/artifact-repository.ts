@@ -522,7 +522,7 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     try {
       credential = await this.credential(capability);
     } catch (error) {
-      if (error instanceof ArtifactWritePermissionError || error instanceof ArtifactWritePermissionError || error instanceof ArtifactRepositoryAccessError) throw error;
+      if (error instanceof ArtifactWritePermissionError || error instanceof ArtifactRepositoryAccessError) throw error;
       const status = (error as { status?: number }).status;
       if (status === 429 || (typeof status === "number" && status >= 500) || status === undefined) throw new ArtifactRepositoryUnavailableError(status);
       if (status === 401 || status === 403 || status === 404) throw new ArtifactRepositoryAccessError();

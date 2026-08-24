@@ -4,7 +4,7 @@ This contract defines the human-editable private repository that stores Artifact
 
 ## Transitional repository layout
 
-The authoritative branch is `main`. Phase 2A reads the configured legacy compatibility root (`artifacts/` by default) and ordinary root-level type directories.
+The authoritative branch is `main`. The retained transitional layout reads the configured legacy compatibility root (`artifacts/` by default) alongside ordinary root-level type directories. Phase 3A changes Artifact Library status semantics without moving those directories.
 
 ```text
 artifacts/
