@@ -210,7 +210,7 @@ export class FileArtifactRepository implements ArtifactRepository {
         const displayPath = path.relative(repositoryDir, file).split(path.sep).join("/");
         const legacyRoot = path.basename(this.rootDir);
         if (!isSupportedArtifactPath(displayPath, legacyRoot)) throw new Error(`${displayPath}: unsupported artifact path.`);
-        return parseArtifactMarkdown(raw, displayPath);
+        return parseArtifactMarkdown(raw, displayPath, classifyArtifactPath(displayPath, legacyRoot));
       }),
     );
 
@@ -333,7 +333,7 @@ export class GitHubArtifactRepository implements ArtifactRepository {
       async (file) => {
         if (!file.sha) throw new Error(`${file.path}: GitHub tree entry is missing a blob SHA.`);
         const raw = await this.fetchBlob(file.sha, file.path!, "read");
-        try { return parseArtifactMarkdown(raw, file.path!); } catch (error) { if (error instanceof ArtifactMarkdownParseError) throw new ArtifactRepositoryContentError(); throw error; }
+        try { return parseArtifactMarkdown(raw, file.path!, classifyArtifactPath(file.path!, this.rootPath)); } catch (error) { if (error instanceof ArtifactMarkdownParseError) throw new ArtifactRepositoryContentError(); throw error; }
       },
     );
 
@@ -389,7 +389,7 @@ export class GitHubArtifactRepository implements ArtifactRepository {
       if (safePath.startsWith("[")) return { entryIndex, error: { path: safePath, code: "invalid_path", message: "Artifact path is not a safe repository-relative path under the configured root." } as ArtifactValidationDiagnostic };
       if (!file.sha || !/^[a-f0-9]{7,64}$/i.test(file.sha)) return { entryIndex, error: { path: safePath, code: "missing_blob_sha", message: "GitHub did not provide a valid blob revision." } as ArtifactValidationDiagnostic };
       if (typeof file.size === "number" && file.size > MAX_SERIALIZED_ARTIFACT_BYTES) return { entryIndex, error: { path: safePath, code: "blob_too_large", message: "Artifact exceeds the maximum allowed size." } as ArtifactValidationDiagnostic };
-      try { return { entryIndex, artifact: parseArtifactMarkdown(await this.fetchBlob(file.sha, safePath, "read"), safePath) }; }
+      try { return { entryIndex, artifact: parseArtifactMarkdown(await this.fetchBlob(file.sha, safePath, "read"), safePath, classifyArtifactPath(safePath, this.rootPath)) }; }
       catch (error) {
         if (error instanceof ArtifactRepositoryUnavailableError || error instanceof ArtifactRepositoryAccessError) throw error;
         if (error instanceof ArtifactBlobDiagnosticError) return { entryIndex, error: { path: safePath, code: error.code, message: error.code === "unsupported_encoding" ? "Artifact blob encoding is unsupported." : error.code === "blob_unavailable" ? "Artifact blob is unavailable." : "Artifact exceeds the maximum allowed size." } as ArtifactValidationDiagnostic };
@@ -699,8 +699,9 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     const files = tree.filter((entry) => entry.type === "blob" && typeof entry.path === "string" && isArtifactMarkdownCandidate(entry.path, this.rootPath));
     const artifacts = await mapWithConcurrency(files, githubBlobConcurrency, async (file) => {
       if (!file.path || !file.sha) throw new ArtifactRepositoryContentError();
-      if (!classifyArtifactPath(file.path, this.rootPath)) throw new ArtifactRepositoryContentError();
-      try { return parseArtifactMarkdown(await this.fetchBlob(file.sha, file.path, capability), file.path); } catch (error) { if (error instanceof ArtifactMarkdownParseError) throw new ArtifactRepositoryContentError(); throw error; }
+      const layout = classifyArtifactPath(file.path, this.rootPath);
+      if (!layout) throw new ArtifactRepositoryContentError();
+      try { return parseArtifactMarkdown(await this.fetchBlob(file.sha, file.path, capability), file.path, layout); } catch (error) { if (error instanceof ArtifactMarkdownParseError) throw new ArtifactRepositoryContentError(); throw error; }
     });
     validateUniqueArtifactIds(artifacts);
     return artifacts;

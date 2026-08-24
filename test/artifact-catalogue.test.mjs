@@ -183,3 +183,22 @@ test('detail metadata identifies stale and degraded results separately', async (
   const now = { value: '2026-08-02T00:00:00.000Z' }; const staleCache = new MemoryCatalogueCache(); const staleRepo = repository(); const staleService = service(staleRepo, staleCache, now); await staleService.list(); now.value = '2026-08-02T00:06:00.000Z'; staleRepo.getBaseRevision = async () => { throw new ArtifactRepositoryUnavailableError(503); }; const stale = await staleService.findByIdWithRevision('one'); assert.equal(stale.catalogue.cacheState, 'stale');
   const degradedCache = new MemoryCatalogueCache(); degradedCache.get = async () => { throw new Error('KV down'); }; const degraded = await service(repository(), degradedCache, now).findByIdWithRevision('one'); assert.equal(degraded.catalogue.cacheState, 'degraded');
 });
+
+test('catalogue snapshots enforce status and persisted layout from their physical path', async () => {
+  const valid = [
+    artifact('legacy-status'),
+    { ...artifact('future-missing'), status: undefined, path: 'prompts/future-missing.md', layout: 'future' },
+    { ...artifact('future-status'), path: 'prompts/future-status.md', layout: 'future' },
+  ];
+  const cache = new MemoryCatalogueCache(); const now = { value: '2026-08-02T00:00:00.000Z' }; const repo = repository('aaaaaaaa', valid);
+  const result = await service(repo, cache, now).list(); assert.equal(result.artifacts.length, 3);
+  const chunkKey = [...cache.values.keys()].find(key => key.includes(':chunk:'));
+  const original = JSON.parse(cache.values.get(chunkKey));
+  for (const corruptArtifact of [
+    { ...artifact('bad-missing'), status: undefined },
+    { ...artifact('bad-layout'), layout: 'future' },
+  ]) {
+    cache.values.set(chunkKey, JSON.stringify({ ...original, entries: [{ artifact: corruptArtifact, fileSha: 'bbbbbbbb' }] }));
+    const before = repo.calls.catalogues; await service(repo, cache, now).list(); assert.equal(repo.calls.catalogues, before + 1);
+  }
+});

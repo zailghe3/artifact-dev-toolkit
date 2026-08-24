@@ -445,3 +445,29 @@ test('future-layout compatibility artifacts reject mutation instead of moving to
   await assert.rejects(repository(fetch).update({ id: 'root', metadata: { id: 'root', title: 'Root', type: 'prompt', status: 'draft', tags: [], aliases: [] }, body: 'changed', currentFileSha: 'sha-1', actorLogin: 'octocat' }), /read-only/);
   assert.equal(fetch.calls.some(({ options }) => options.method === 'PUT'), false);
 });
+
+test('configured legacy roots preserve complete normalized paths and coexist with future directories', async () => {
+  for (const rootPath of ['artifacts', '/custom/', '/team/artifacts/']) {
+    const root = rootPath.replace(/^\/+|\/+$/g, '');
+    const items = await repository(createFetch({
+      [`${root}/prompts/legacy.md`]: markdown('id: legacy\ntitle: Legacy\ntype: prompt\nstatus: draft\ntags: []\naliases: []'),
+      'snippets/future.md': markdown('id: future\ntitle: Future\ntype: snippet\ntags: []\naliases: []'),
+    }), { rootPath }).list();
+    assert.deepEqual(items.map(({ id, layout }) => [id, layout]), [['future', 'future'], ['legacy', 'legacy']]);
+  }
+});
+
+test('a configured legacy root overlapping a future directory is classified by its complete path first', async () => {
+  const items = await repository(createFetch({
+    'prompts/prompts/legacy.md': markdown('id: legacy\ntitle: Legacy\ntype: prompt\nstatus: draft\ntags: []\naliases: []'),
+    'snippets/future.md': markdown('id: future\ntitle: Future\ntype: snippet\ntags: []\naliases: []'),
+  }), { rootPath: 'prompts' }).list();
+  assert.equal(items.find(item => item.id === 'legacy').layout, 'legacy');
+  assert.equal(items.find(item => item.id === 'future').layout, 'future');
+});
+
+test('configured roots reject traversal and empty path segments', async () => {
+  for (const path of ['team/artifacts/../prompts/unsafe.md', 'team/artifacts//prompts/unsafe.md']) {
+    await assert.rejects(repository(createFetch({ [path]: markdown('id: unsafe\ntitle: Unsafe\ntype: prompt\nstatus: draft\ntags: []\naliases: []') }), { rootPath: 'team/artifacts' }).list(), ArtifactRepositoryContentError);
+  }
+});

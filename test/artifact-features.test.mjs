@@ -5,6 +5,7 @@ import { normalizeArtifactMetadata, parseArtifactMarkdown, toExcerpt, validateAr
 import { slugify } from '../lib/artifact-repository.ts';
 import { markdownToHtml } from '../lib/markdown.ts';
 import { searchArtifacts } from '../lib/search.ts';
+import { artifactLifecycleLabel, isCompatibilityReadOnly } from '../lib/artifact-presentation.ts';
 
 const artifacts = [
   {
@@ -153,4 +154,12 @@ test('artifact IDs must be unique even when artifacts have different types and p
     () => validateUniqueArtifactIds([{ id: 'shared', path: 'artifacts/prompts/a.md' }, { id: 'shared', path: 'artifacts/agents/b.md' }]),
     /Duplicate artifact id "shared".*artifacts\/agents\/b\.md.*artifacts\/prompts\/a\.md/,
   );
+});
+
+test('compatibility presentation never invents lifecycle status', () => {
+  assert.equal(isCompatibilityReadOnly({ layout: 'future', status: 'production' }), true);
+  assert.equal(isCompatibilityReadOnly({ layout: 'legacy' }), true);
+  assert.equal(isCompatibilityReadOnly({ layout: 'legacy', status: 'draft' }), false);
+  assert.equal(artifactLifecycleLabel({ layout: 'future' }), 'Compatibility · read-only');
+  assert.equal(artifactLifecycleLabel({ layout: 'legacy', status: 'archived' }), 'archived');
 });

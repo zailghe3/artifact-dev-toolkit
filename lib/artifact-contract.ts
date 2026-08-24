@@ -83,14 +83,14 @@ export function validateArtifactPath(filePath: string, artifactRoot = DEFAULT_AR
   return undefined;
 }
 
-export function parseArtifactMarkdown(raw: string, filePath: string): ArtifactModel {
+export function parseArtifactMarkdown(raw: string, filePath: string, resolvedLayout?: "legacy" | "future"): ArtifactModel {
   let parsed: matter.GrayMatterFile<string>;
   // Supplying options disables gray-matter's process-global cache. Repository reads
   // must parse each response independently so repeated loads cannot share mutable state.
   try { parsed = matter(raw, {}); } catch { throw new ArtifactMarkdownParseError("invalid_front_matter"); }
   if (!String(parsed.matter ?? "").trim()) throw new ArtifactMarkdownParseError("invalid_front_matter");
   try {
-    const layout = classifyArtifactPath(filePath) ?? "legacy";
+    const layout = resolvedLayout ?? classifyArtifactPath(filePath) ?? "legacy";
     const data = layout === "future"
       ? compatibleArtifactFrontMatterSchema.parse(parsed.data)
       : normalizeArtifactMetadata(parsed.data);
