@@ -27,12 +27,15 @@ workflows/
 ```
 
 - Markdown may be nested below a supported directory and uses the `.md` extension.
-- Root-level `agents/` is reserved for executable definitions. Markdown Agent artifacts remain under `<configured-legacy-root>/agents/` until Phase 4.
+- Root-level `agents/` and `workflows/` are reserved for executable JSON definitions and are not Artifact Library Markdown namespaces. Historical Markdown Agent artifacts remain under `<configured-legacy-root>/agents/` during Phase 4A.
 - New prompt, snippet, template, and app-idea Markdown uses its root-level type directory. New Markdown Agent artifacts continue to use the configured legacy root.
 - Existing Markdown is edited or deleted at its exact physical path and observed Git revision.
 - New variations use the applicable same-type write directory and carry `sourceId`. The legacy `variations/` directory remains read and exact-path mutation compatibility only.
 - IDs are unique across supported layouts. Collisions fail closed rather than selecting a file by precedence.
-- Executable `*.agent.json` and `*.workflow.json` definitions, including their independent required `status: "draft"`, are unchanged. Legacy `_adt/agents` and `_adt/workflows` definitions have not moved.
+- New executable definitions use canonical root paths: `agents/<id>.agent.json` and `workflows/<id>.workflow.json`.
+- Legacy `_adt/agents/<id>.agent.json` and `_adt/workflows/<id>.workflow.json` definitions remain readable and mutable at their exact observed paths and file revisions during Phase 4A. No physical migration occurs in this phase.
+- Non-conflicting definitions may coexist across the canonical and legacy layouts. A logical ID in both layouts fails closed before mutation.
+- Executable definition schemas, including their independent required `status: "draft"`, are unchanged.
 
 ## Markdown format
 

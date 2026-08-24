@@ -2,7 +2,7 @@
 
 **Document status:** Baseline specification of implemented Agent Workflow behaviour  
 **Scope:** Current behaviour only; not a roadmap or implementation design  
-**Last updated:** 2026-08-20
+**Last updated:** 2026-08-24
 
 ## 1. Purpose
 
@@ -29,7 +29,12 @@
 - Workflow definitions are separate from run history.
 - A run uses an immutable snapshot of the definitions selected at launch.
 - Changes to an Agent or Workflow do not rewrite the configuration of an already-created run.
-- Definition reads support non-conflicting legacy and compatible root-level locations during repository migration; mutations remain on legacy paths and cross-layout identity collisions fail closed.
+- Definition reads support non-conflicting legacy and root-level locations during repository migration.
+- New definitions use the root-level executable definition namespaces.
+- Existing definitions remain mutable at their exact observed path and revision in either supported layout.
+- Cross-layout identity collisions fail closed.
+- Definition location does not affect Workflow references, execution, or immutable run snapshots.
+- Executable Agent and Workflow lifecycle state remains independent from Artifact Library Markdown lifecycle rules.
 
 ## 4. Sequential handoff
 

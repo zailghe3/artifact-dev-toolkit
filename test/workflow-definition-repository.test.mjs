@@ -10,24 +10,26 @@ const agents=[
 const normalized=agent=>({schemaVersion:2,id:agent.id,name:agent.name,description:agent.description,status:agent.status,connectionKey:agent.connectionKey,...(agent.adapterOptions?{adapterOptions:agent.adapterOptions}:{}),prompt:{source:'custom',text:agent.masterPrompt},masterPrompt:agent.masterPrompt});
 
 function gitFixture(){
- const files=new Map();
+ const files=new Map(),mutations=[];
  const request=async(path,init)=>{
   if((path==='/contents/_adt/agents'||path==='/contents/_adt/workflows'||path==='/contents/agents'||path==='/contents/workflows')&&!init){const root=path.slice('/contents/'.length);return Response.json([...files].filter(([name])=>name.startsWith(`${root}/`)).map(([name])=>({name:name.split('/').at(-1),path:name})));}
   const name=path.replace('/contents/','');
   if(!init){const file=files.get(name);return file?Response.json(file):new Response(null,{status:404});}
+  mutations.push({name,method:init.method,body:JSON.parse(init.body)});
   if(init.method==='DELETE'){const body=JSON.parse(init.body),file=files.get(name);if(!file)return new Response(null,{status:404});if(file.sha!==body.sha)return new Response(null,{status:409});files.delete(name);return Response.json({});}
-  const body=JSON.parse(init.body),file={content:body.content,sha:`sha-${files.size+1}`};files.set(name,file);return Response.json({content:{sha:file.sha}});
+  const body=JSON.parse(init.body),existing=files.get(name);if((existing&&body.sha!==existing.sha)||(!existing&&body.sha))return new Response(null,{status:409});const file={content:body.content,sha:`sha-${mutations.length}`};files.set(name,file);return Response.json({content:{sha:file.sha}});
  };
- return {files,repository:new GitHubWorkflowDefinitionRepository(request)};
+ return {files,mutations,repository:new GitHubWorkflowDefinitionRepository(request)};
 }
+const stored=value=>({content:Buffer.from(JSON.stringify(value)).toString('base64'),sha:`sha-${value.id}`});
 
 test('Git-backed Agent definitions round-trip connection keys independently of adapter names',async()=>{
  const {files,repository}=gitFixture();
  for(const agent of agents){
   const created=await repository.createAgent(agent);
   assert.deepEqual(created.definition,normalized(agent));
-  const stored=files.get(`_adt/agents/${agent.id}.agent.json`);
-  const persisted=Buffer.from(stored.content,'base64').toString('utf8');
+  const file=files.get(`agents/${agent.id}.agent.json`);
+  const persisted=Buffer.from(file.content,'base64').toString('utf8');
   assert.match(persisted,/"prompt"/);assert.doesNotMatch(persisted,/masterPrompt/);
   assert.deepEqual((await repository.getAgent(agent.id)).definition,normalized(agent));
  }
@@ -45,8 +47,8 @@ const workflow={schemaVersion:1,id:'review-flow',name:'Review flow',description:
 
 test('Git-backed definitions delete only the exact file at the expected revision',async()=>{
  const {files,repository}=gitFixture(),agent=await repository.createAgent(agents[1]),createdWorkflow=await repository.createWorkflow(workflow);
- await assert.rejects(repository.deleteAgent(agents[1].id,'stale-sha'),/changed/);assert.ok(files.has('_adt/agents/deterministic-agent.agent.json'));
- await repository.deleteAgent(agents[1].id,agent.fileSha);assert.equal(await repository.getAgent(agents[1].id),undefined);assert.ok(files.has('_adt/workflows/review-flow.workflow.json'));
+ await assert.rejects(repository.deleteAgent(agents[1].id,'stale-sha'),/changed/);assert.ok(files.has('agents/deterministic-agent.agent.json'));
+ await repository.deleteAgent(agents[1].id,agent.fileSha);assert.equal(await repository.getAgent(agents[1].id),undefined);assert.ok(files.has('workflows/review-flow.workflow.json'));
  await assert.rejects(repository.deleteWorkflow(workflow.id,'stale-sha'),/changed/);await repository.deleteWorkflow(workflow.id,createdWorkflow.fileSha);assert.equal(await repository.getWorkflow(workflow.id),undefined);
 });
 
@@ -66,23 +68,54 @@ test('referenced Agents cannot be deleted and definitions remain unchanged',asyn
  }
 });
 
-test('Git-backed definitions read future roots, preserve paths, reject collisions and keep writes legacy',async()=>{
- const {files,repository}=gitFixture();
+test('Git-backed definitions read both layouts, preserve exact paths, and keep collisions fail-closed',async()=>{
+ const {files,mutations,repository}=gitFixture();
  const created=await repository.createAgent(agents[0]);
- assert.equal(created.sourcePath,'_adt/agents/openai-agent.agent.json');
- files.set('agents/openai-agent.agent.json',{...files.get('_adt/agents/openai-agent.agent.json'),sha:'future-sha'});
- files.delete('_adt/agents/openai-agent.agent.json');
- const future=await repository.getAgent('openai-agent');
- assert.equal(future.sourcePath,'agents/openai-agent.agent.json');
- assert.equal(future.fileSha,'future-sha');
- await assert.rejects(repository.updateAgent(future.definition,future.fileSha),/read-only/);
+ assert.equal(created.sourcePath,'agents/openai-agent.agent.json');
  files.set('_adt/agents/openai-agent.agent.json',{...files.get('agents/openai-agent.agent.json'),sha:'legacy-sha'});
+ files.delete('agents/openai-agent.agent.json');
+ const legacy=await repository.getAgent('openai-agent');
+ assert.equal(legacy.sourcePath,'_adt/agents/openai-agent.agent.json');
+ const updated=await repository.updateAgent({...legacy.definition,name:'Updated'},legacy.fileSha);
+ assert.equal(updated.sourcePath,'_adt/agents/openai-agent.agent.json');
+ assert.deepEqual(mutations.at(-1),{name:'_adt/agents/openai-agent.agent.json',method:'PUT',body:{message:'Update _adt/agents/openai-agent.agent.json',content:mutations.at(-1).body.content,sha:'legacy-sha'}});
+ files.set('agents/openai-agent.agent.json',{...files.get('_adt/agents/openai-agent.agent.json'),sha:'future-sha'});
  await assert.rejects(repository.listAgents(),/duplicated across _adt\/agents\/openai-agent\.agent\.json and agents\/openai-agent\.agent\.json/);
+ const count=mutations.length;await assert.rejects(repository.deleteAgent('openai-agent',updated.fileSha),/duplicated/);assert.equal(mutations.length,count);
 });
 
 test('Workflow IDs also fail closed across legacy and future definition roots',async()=>{
  const {files,repository}=gitFixture();
  await repository.createWorkflow(workflow);
- files.set('workflows/review-flow.workflow.json',{...files.get('_adt/workflows/review-flow.workflow.json'),sha:'future-sha'});
+ files.set('_adt/workflows/review-flow.workflow.json',{...files.get('workflows/review-flow.workflow.json'),sha:'legacy-sha'});
  await assert.rejects(repository.listWorkflows(),/Definition ID "review-flow" is duplicated/);
+});
+
+test('creation checks both layouts and writes only canonical root paths',async()=>{
+ const {files,mutations,repository}=gitFixture();files.set('_adt/agents/openai-agent.agent.json',stored(agents[0]));files.set('_adt/workflows/review-flow.workflow.json',stored(workflow));
+ await assert.rejects(repository.createAgent(agents[0]),/changed/);await assert.rejects(repository.createWorkflow(workflow),/changed/);assert.equal(mutations.length,0);
+ const agent=await repository.createAgent(agents[1]),second={...workflow,id:'second-flow',name:'Second flow',steps:[{...workflow.steps[0],agentId:'deterministic-agent'}]},createdWorkflow=await repository.createWorkflow(second);
+ assert.equal(agent.sourcePath,'agents/deterministic-agent.agent.json');assert.equal(createdWorkflow.sourcePath,'workflows/second-flow.workflow.json');
+ assert.deepEqual(mutations.map(item=>item.name),['agents/deterministic-agent.agent.json','workflows/second-flow.workflow.json']);
+});
+
+test('mixed layouts list normally and update and delete each exact observed path and SHA',async()=>{
+ const {files,mutations,repository}=gitFixture();
+ files.set('_adt/agents/openai-agent.agent.json',stored(agents[0]));files.set('agents/deterministic-agent.agent.json',stored(agents[1]));
+ files.set('_adt/workflows/review-flow.workflow.json',stored(workflow));
+ const second={...workflow,id:'second-flow',name:'Second flow',steps:[{...workflow.steps[0],agentId:'deterministic-agent'}]};files.set('workflows/second-flow.workflow.json',stored(second));
+ assert.deepEqual((await repository.listAgents()).map(x=>x.sourcePath),['_adt/agents/openai-agent.agent.json','agents/deterministic-agent.agent.json']);
+ assert.deepEqual((await repository.listWorkflows()).map(x=>x.sourcePath),['_adt/workflows/review-flow.workflow.json','workflows/second-flow.workflow.json']);
+ for(const id of ['openai-agent','deterministic-agent']){const value=await repository.getAgent(id);await repository.updateAgent({...value.definition,description:'changed'},value.fileSha);assert.equal(mutations.at(-1).name,value.sourcePath);assert.equal(mutations.at(-1).body.sha,value.fileSha);}
+ for(const id of ['review-flow','second-flow']){const value=await repository.getWorkflow(id);await repository.updateWorkflow({...value.definition,description:'changed'},value.fileSha);assert.equal(mutations.at(-1).name,value.sourcePath);assert.equal(mutations.at(-1).body.sha,value.fileSha);const revised=await repository.getWorkflow(id);await repository.deleteWorkflow(id,revised.fileSha);assert.equal(mutations.at(-1).name,value.sourcePath);assert.equal(mutations.at(-1).body.sha,revised.fileSha);}
+ for(const id of ['openai-agent','deterministic-agent']){const value=await repository.getAgent(id);await repository.deleteAgent(id,value.fileSha);assert.equal(mutations.at(-1).name,value.sourcePath);assert.equal(mutations.at(-1).body.sha,value.fileSha);}
+});
+
+test('stale revisions prevent PUT and DELETE in either layout',async()=>{
+ const {files,mutations,repository}=gitFixture();files.set('_adt/agents/openai-agent.agent.json',stored(agents[0]));files.set('agents/deterministic-agent.agent.json',stored(agents[1]));
+ for(const id of ['openai-agent','deterministic-agent']){const value=await repository.getAgent(id),count=mutations.length;await assert.rejects(repository.updateAgent(value.definition,'stale'),/changed/);await assert.rejects(repository.deleteAgent(id,'stale'),/changed/);assert.equal(mutations.length,count);}
+});
+
+test('Agent-in-use checks logical references across mixed layouts',async()=>{
+ const {files,repository}=gitFixture();files.set('_adt/agents/openai-agent.agent.json',stored(agents[0]));files.set('workflows/review-flow.workflow.json',stored(workflow));const value=await repository.getAgent('openai-agent');await assert.rejects(repository.deleteAgent('openai-agent',value.fileSha),/agent_in_use/);
 });

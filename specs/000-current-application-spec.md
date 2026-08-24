@@ -79,6 +79,7 @@
 
 - Artifacts are Markdown-based reusable assets with structured metadata.
 - Supported artifact categories include prompts, agents, snippets, templates, app ideas, and variations.
+- Historical Markdown Agent artifacts remain isolated to the legacy Artifact Library namespace; root-level Agent and Workflow namespaces contain executable JSON definitions and are not Artifact Library Markdown locations.
 - Artifact IDs are unique within the configured artifact repository.
 - Repository content is validated before it becomes part of the application catalogue.
 - During repository-layout migration, the library reads non-conflicting legacy and root-level artifacts, creates ordinary artifacts in their root-level namespaces, and mutates artifacts at their exact source paths.
