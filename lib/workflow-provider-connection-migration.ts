@@ -5,13 +5,13 @@ import type {D1WorkflowProviderConnectionStore} from "./workflow-provider-connec
 import type {WorkflowProviderSecretResolver} from "./workflow-provider-secret-resolver.ts";
 
 export type ConnectionMigrationState="d1_only"|"git_secret_missing"|"git_validation_failed"|"git_ready_shadowing_d1"|"git_ready"|"git_d1_mismatch"|"temporarily_unavailable";
-export type ConnectionMigration={connectionId:string;connectionName:string;configuredModel:string;targetPath:string;definition:ConnectionDefinition;canonicalJson:string;secretRef:string;secretProvisioning:"external_required"|"resolved";state:ConnectionMigrationState;message:string;repositoryRevision?:string;canRetire:boolean};
+export type ConnectionMigration={connectionId:string;connectionName:string;configuredModel:string;targetPath:string;definition:ConnectionDefinition;canonicalJson:string;secretRef:string;secretProvisioning:"external_required"|"resolved";state:ConnectionMigrationState;message:string;repositoryRevision?:string};
 
 const messages:Record<ConnectionMigrationState,string>={
  d1_only:"D1 is active. Prepare the Git definition and provision its provider secret separately.",
  git_secret_missing:"Git is authoritative, but the required provider secret is not available.",
  git_validation_failed:"Git is authoritative, but live credential and model validation did not succeed.",
- git_ready_shadowing_d1:"Git is live-ready and shadows a matching D1 fallback row.",
+ git_ready_shadowing_d1:"Git is authoritative and live-ready. The shadowed D1 row is intentionally retained for pre-migration run compatibility and later cleanup.",
  git_ready:"Git is live-ready and no D1 fallback row remains.",
  git_d1_mismatch:"Git is authoritative, but its safe configuration does not match the D1 migration source.",
  temporarily_unavailable:"Migration readiness could not be checked because the repository or provider is temporarily unavailable.",
@@ -42,18 +42,11 @@ export class WorkflowProviderConnectionMigrationService{
   const d1=await this.d1.getPersistedSafeDescriptor(connectionId),git=await this.git.getConnection(connectionId).catch(()=>{throw new ConnectionMigrationError("migration_repository_unavailable")});
   if(!d1&&!git)throw new ConnectionMigrationError("migration_source_not_found");
   const base=createConnectionMigrationExport(d1??{key:git!.definition.id,name:git!.definition.name,adapter:git!.definition.runtime,defaultModel:git!.definition.model});
-  if(!git)return{...base,secretProvisioning:"external_required",state:"d1_only",message:messages.d1_only,canRetire:false};
+  if(!git)return{...base,secretProvisioning:"external_required",state:"d1_only",message:messages.d1_only};
   const current={...base,definition:git.definition,canonicalJson:`${JSON.stringify(git.definition,null,2)}\n`,secretRef:git.definition.credential.secretRef,targetPath:connectionDefinitionPath(git.definition.id),repositoryRevision:git.fileSha};
-  if(d1&&!equivalent(d1,git.definition))return{...current,secretProvisioning:"external_required",state:"git_d1_mismatch",message:messages.git_d1_mismatch,canRetire:false};
-  let credential:string;try{credential=this.secrets.resolve(git.definition.credential.secretRef)}catch{return{...current,secretProvisioning:"external_required",state:"git_secret_missing",message:messages.git_secret_missing,canRetire:false}}
-  try{await this.validateModel(credential,git.definition.model)}catch(error){const transient=error instanceof Error&&["provider_unavailable","provider_timeout","rate_limited"].includes(error.message);const state=transient?"temporarily_unavailable":"git_validation_failed";return{...current,secretProvisioning:"resolved",state,message:messages[state],canRetire:false}}
-  const state=d1?"git_ready_shadowing_d1":"git_ready";return{...current,secretProvisioning:"resolved",state,message:messages[state],canRetire:!!d1};
- }
- async retire(connectionId:string,reviewedRevision:string){
-  const migration=await this.inspect(connectionId);
-  if(!migration.repositoryRevision||migration.repositoryRevision!==reviewedRevision)throw new ConnectionMigrationError("migration_stale_revision");
-  if(migration.state!=="git_ready_shadowing_d1"||!migration.canRetire)throw new ConnectionMigrationError(migration.state==="git_d1_mismatch"?"migration_configuration_mismatch":"migration_not_ready");
-  await this.d1.retirePersistedConnection({key:migration.definition.id,name:migration.definition.name,adapter:migration.definition.runtime,defaultModel:migration.definition.model});
-  return this.inspect(connectionId);
+  if(d1&&!equivalent(d1,git.definition))return{...current,secretProvisioning:"external_required",state:"git_d1_mismatch",message:messages.git_d1_mismatch};
+  let credential:string;try{credential=this.secrets.resolve(git.definition.credential.secretRef)}catch{return{...current,secretProvisioning:"external_required",state:"git_secret_missing",message:messages.git_secret_missing}}
+  try{await this.validateModel(credential,git.definition.model)}catch(error){const transient=error instanceof Error&&["provider_unavailable","provider_timeout","rate_limited"].includes(error.message);const state=transient?"temporarily_unavailable":"git_validation_failed";return{...current,secretProvisioning:"resolved",state,message:messages[state]}}
+  const state=d1?"git_ready_shadowing_d1":"git_ready";return{...current,secretProvisioning:"resolved",state,message:messages[state]};
  }
 }

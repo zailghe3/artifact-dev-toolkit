@@ -94,8 +94,9 @@
 - A persisted D1 OpenAI Responses connection can produce its canonical non-secret Git definition and dedicated Cloudflare secret-binding name in the Connections interface.
 - Migration export never includes the existing D1 credential or encrypted credential state; provisioning the replacement Cloudflare secret is a separate privileged operator action.
 - The application reports distinct migration readiness, mismatch, and temporary-unavailability states while Git remains authoritative.
-- A matching D1 fallback is retired only by an explicit authorised action after the reviewed Git revision, canonical definition, dedicated secret, live provider/model readiness, and safe D1 semantics are revalidated.
-- Ordinary Git connection mutation remains read-only, and D1 remains available only as transitional provider configuration for IDs not yet migrated.
+- A matching same-ID D1 row remains shadowed beneath an authoritative Git definition and is not used for new configuration or run admission.
+- Shadowed D1 credential state is temporarily retained because pre-migration run snapshots may still require it; retirement is deferred to a later explicit cleanup phase.
+- Ordinary Git connection mutation remains read-only, and D1 remains transitional provider configuration or historical run compatibility state.
 - Provider credentials remain server-side.
 - Credentials are never stored in Agent or Workflow definitions.
 - Credentials, private provider configuration, prompts, workflow input, outputs, and reasoning must not leak through diagnostics or logs.

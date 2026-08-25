@@ -41,7 +41,8 @@ connections/
 - Provider connections use `connections/<id>.connection.json`. Git is authoritative per ID; absence of the directory is valid during Phase 5A.
 - Connection schema v1 requires `id`, `name`, `runtime: "openai-responses"`, `provider: "openai"`, `model`, and `credential.secretRef`. The filename ID must match.
 - `credential.secretRef` must use the dedicated `WORKFLOW_PROVIDER_CONNECTION_<UPPERCASE_IDENTIFIER>` Cloudflare secret-binding namespace; other Worker bindings are forbidden. Credential values, ciphertext, IVs, endpoints, and derived readiness/capabilities are forbidden.
-- The ADT Connections migration view can serialize a persisted D1 connection to this exact contract and canonical path. Secret provisioning remains an external Cloudflare control-plane operation; ADT never exports the D1 credential or writes the definition to Git.
+- The ADT Connections migration view can serialize a persisted D1 connection to this exact contract and canonical path. Secret provisioning remains an external Cloudflare control-plane operation; ADT never exports the D1 credential, writes the definition to Git, or deletes the shadowed D1 row.
+- Once Git is authoritative, the same-ID D1 row remains hidden from new connection discovery and is retained only for pre-migration run compatibility until a later cleanup phase.
 - Git connection definitions are read-only through ADT during Phase 5A; D1 remains fallback for IDs absent from Git.
 
 ## Markdown format
