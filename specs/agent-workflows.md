@@ -86,6 +86,7 @@
 
 - Agents reference connections by stable application-visible identity.
 - Multiple named connections may use the same provider.
+- Built-in deterministic, Codex Runner, and legacy Codex Cloud connection identities are reserved; conflicting provider state fails closed.
 - Git connection definitions are canonical for their stable IDs and contain only non-secret configuration plus a validated reference in the dedicated provider-connection secret namespace.
 - D1 provider connections remain a temporary fallback only for IDs without a Git definition.
 - A Git-defined connection never falls back to same-ID D1 state when its secret is unavailable or its definition is invalid.
