@@ -36,3 +36,26 @@ test('safe descriptors fail closed for unusable encrypted rows and unknown keys'
 test('known OpenAI descriptor remains visible when provider storage is empty',async t=>{const{mf,store}=await fixture();t.after(()=>mf.dispose());assert.deepEqual(await store.listSafeDescriptors(),[{key:'openai-primary',name:'OpenAI Responses',adapter:'openai-responses',endpoint:'https://api.openai.com/v1',enabled:false,capabilities:{asynchronous:true,cancellation:true}}]);});
 
 test('multiple named connections remain exact and duplication freshly encrypts',async t=>{const{mf,db,store}=await fixture();t.after(()=>mf.dispose());await db.prepare('ALTER TABLE workflow_provider_connections ADD COLUMN display_name TEXT').run();for(const [connectionKey,displayName,model,credential] of [['openai-primary','Production','gpt-a','key-a'],['openai-fast','Fast','gpt-b','key-b'],['openai-review','Review','gpt-c','key-c']])await store.upsertConnection({connectionKey,displayName,adapter:'openai-responses',model,credential});const list=await store.listSafeDescriptors();assert.deepEqual(list.map(x=>[x.key,x.name,x.defaultModel]),[['openai-fast','Fast','gpt-b'],['openai-primary','Production','gpt-a'],['openai-review','Review','gpt-c']]);assert.equal((await store.resolveCredential('openai-fast')).credential,'key-b');assert.equal((await store.resolveCredential('openai-review')).credential,'key-c');const before=await db.prepare('SELECT * FROM workflow_provider_connections WHERE connection_key=?').bind('openai-fast').first();await store.duplicateConnection('openai-fast',{connectionKey:'openai-fast-copy',displayName:'Fast copy',adapter:'openai-responses',model:'gpt-c'});const after=await db.prepare('SELECT * FROM workflow_provider_connections WHERE connection_key=?').bind('openai-fast-copy').first();assert.equal((await store.resolveCredential('openai-fast-copy')).credential,'key-b');assert.notEqual(before.encrypted_credential,after.encrypted_credential);assert.notEqual(before.credential_iv,after.credential_iv);assert.doesNotMatch(JSON.stringify(await store.getSafeDescriptor('openai-fast-copy')),/key-b|encrypted|credential_iv/)});
+
+test('persisted reserved provider rows fail closed before descriptor or credential use',async t=>{
+ const reserved=['deterministic-test','codex-primary','codex-cloud-primary'];
+ for(const connectionKey of reserved){
+  const{mf,db,store}=await fixture();t.after(()=>mf.dispose());
+  await store.upsertConnection({connectionKey:'openai-conflict-source',adapter:'openai-responses',model:'conflict-model',credential});
+  await db.prepare('UPDATE workflow_provider_connections SET connection_key = ?, encrypted_credential = ?, credential_iv = ? WHERE connection_key = ?').bind(connectionKey,'not-decryptable','not-an-iv','openai-conflict-source').run();
+  await assert.rejects(()=>store.listSafeDescriptors(),/^Error: connection_identity_collision$/);
+  await assert.rejects(()=>store.getSafeDescriptor(connectionKey),/^Error: connection_identity_collision$/);
+  await assert.rejects(()=>store.resolveCredential(connectionKey),/^Error: connection_identity_collision$/);
+ }
+});
+
+test('direct diagnostics cannot interpret a persisted codex-primary provider row as OpenAI',async t=>{
+ const{mf,db,store}=await fixture();t.after(()=>mf.dispose());
+ await store.upsertConnection({connectionKey:'openai-conflict-source',adapter:'openai-responses',model:'conflict-model',credential});
+ await db.prepare('UPDATE workflow_provider_connections SET connection_key = ? WHERE connection_key = ?').bind('codex-primary','openai-conflict-source').run();
+ let providerCalls=0;
+ const {testWorkflowConnection}=await import('../lib/workflow-connection-test.ts');
+ const result=await testWorkflowConnection('codex-primary',store,new Map([['openai-responses',{kind:'openai-responses',testConnection:async()=>{providerCalls++;return{ok:true,outputText:'unexpected'}}}]]));
+ assert.deepEqual(result,{ok:false,category:'connection_unavailable',safeMessage:'Connection is not configured.'});
+ assert.equal(providerCalls,0);
+});

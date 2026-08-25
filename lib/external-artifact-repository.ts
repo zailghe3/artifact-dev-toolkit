@@ -14,6 +14,7 @@ import {
 import { classifyArtifactPath, FUTURE_ARTIFACT_DIRECTORIES, normalizeRepositoryRoot } from "./repository-layout.ts";
 import matter from "gray-matter";
 import { z } from "zod";
+import {CONNECTION_ROOT,CONNECTION_SUFFIX,parseConnectionDefinition} from "./workflow-connection-definitions.ts";
 
 export { ALLOWED_ARTIFACT_DIRECTORIES as EXTERNAL_ARTIFACT_DIRECTORIES, DEFAULT_ARTIFACT_BRANCH as DEFAULT_EXTERNAL_ARTIFACT_BRANCH, DEFAULT_ARTIFACT_ROOT as DEFAULT_EXTERNAL_ARTIFACT_ROOT };
 export type { ExternalArtifactMetadata, ArtifactRepositoryValidationError, ArtifactRepositoryValidationResult };
@@ -33,6 +34,7 @@ async function walkMarkdownFiles(dir: string): Promise<string[]> {
     }))).flat();
   } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return []; throw error; }
 }
+async function walkConnectionFiles(dir:string):Promise<string[]>{try{const entries=await fs.readdir(dir,{withFileTypes:true});return(await Promise.all(entries.map(entry=>{const full=path.join(dir,entry.name);if(entry.isDirectory())return walkConnectionFiles(full);if(entry.isFile())return[full];return[]}))).flat()}catch(error){if((error as NodeJS.ErrnoException).code==="ENOENT")return[];throw error}}
 function normalizeRelative(file: string, root: string) { return path.relative(root, file).split(path.sep).join("/"); }
 
 export async function validateExternalArtifactRepository(checkoutDir: string, options: { artifactRoot?: string } = {}): Promise<ArtifactRepositoryValidationResult> {
@@ -47,7 +49,7 @@ export async function validateExternalArtifactRepository(checkoutDir: string, op
   const legacyExists = await pathExists(rootDir);
   const futureRoots = FUTURE_ARTIFACT_DIRECTORIES.map((directory) => path.resolve(checkoutRoot, directory));
   const existingFutureRoots = (await Promise.all(futureRoots.map(async (root) => await pathExists(root) ? root : undefined))).filter((root): root is string => Boolean(root));
-  if (!legacyExists && existingFutureRoots.length === 0) return { valid: false, artifactCount: 0, errors: [{ file: artifactRoot, reason: "Neither the configured legacy artifact root nor a compatible root-level artifact directory exists." }] };
+  if (!legacyExists && existingFutureRoots.length === 0) errors.push({ file: artifactRoot, reason: "Neither the configured legacy artifact root nor a compatible root-level artifact directory exists." });
   const discoveryRoots = [...new Set([...(legacyExists ? [rootDir] : []), ...existingFutureRoots])];
   const files = new Map<string, string>();
   for (const file of (await Promise.all(discoveryRoots.map(walkMarkdownFiles))).flat()) files.set(normalizeRelative(file, checkoutRoot), file);
@@ -72,5 +74,7 @@ export async function validateExternalArtifactRepository(checkoutDir: string, op
       else errors.push({ file: displayPath, reason: (error as Error).message });
     }
   }
+  const connectionIds=new Map<string,string>();
+  for(const file of await walkConnectionFiles(path.join(checkoutRoot,CONNECTION_ROOT))){const displayPath=normalizeRelative(file,checkoutRoot);if(!displayPath.endsWith(CONNECTION_SUFFIX)||displayPath.split("/").length!==2){errors.push({file:displayPath,reason:"Connection definitions must use connections/<id>.connection.json."});continue}try{const definition=parseConnectionDefinition(JSON.parse(await fs.readFile(file,"utf8")),displayPath),previous=connectionIds.get(definition.id);if(previous)errors.push({file:displayPath,reason:`Duplicate connection id "${definition.id}" already used by ${previous}.`});else connectionIds.set(definition.id,displayPath)}catch(error){if(error instanceof z.ZodError)for(const issue of error.issues)errors.push({file:displayPath,reason:formatZodIssue(issue)});else errors.push({file:displayPath,reason:(error as Error).message})}}
   return { valid: errors.length === 0, artifactCount, errors };
 }

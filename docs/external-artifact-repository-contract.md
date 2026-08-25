@@ -24,6 +24,8 @@ agents/
   *.agent.json
 workflows/
   *.workflow.json
+connections/
+  *.connection.json
 ```
 
 - Markdown may be nested below a supported directory and uses the `.md` extension.
@@ -36,6 +38,10 @@ workflows/
 - Legacy `_adt/agents/<id>.agent.json` and `_adt/workflows/<id>.workflow.json` definitions remain readable and mutable at their exact observed paths and file revisions during Phase 4A. No physical migration occurs in this phase.
 - Non-conflicting definitions may coexist across the canonical and legacy layouts. A logical ID in both layouts fails closed before mutation.
 - Executable definition schemas, including their independent required `status: "draft"`, are unchanged.
+- Provider connections use `connections/<id>.connection.json`. Git is authoritative per ID; absence of the directory is valid during Phase 5A.
+- Connection schema v1 requires `id`, `name`, `runtime: "openai-responses"`, `provider: "openai"`, `model`, and `credential.secretRef`. The filename ID must match.
+- `credential.secretRef` must use the dedicated `WORKFLOW_PROVIDER_CONNECTION_<UPPERCASE_IDENTIFIER>` Cloudflare secret-binding namespace; other Worker bindings are forbidden. Credential values, ciphertext, IVs, endpoints, and derived readiness/capabilities are forbidden.
+- Git connection definitions are read-only through ADT during Phase 5A; D1 remains fallback for IDs absent from Git.
 
 ## Markdown format
 
@@ -84,4 +90,6 @@ npm run artifacts:validate -- ../private-artifact-storage
 npm run artifacts:validate -- ../private-artifact-storage --root custom-root
 ```
 
-Validation accepts statusless Markdown across the transitional repository layouts. It rejects top-level Artifact Library `status`, malformed canonical metadata, duplicate IDs, unsafe or unsupported paths, oversized/unsafe content where applicable, and repository corruption. Agent and Workflow JSON validation is independent and unchanged.
+Validation accepts statusless Markdown across the transitional repository layouts. It rejects top-level Artifact Library `status`, malformed canonical metadata, duplicate IDs, unsafe or unsupported paths, oversized/unsafe content where applicable, and repository corruption. Agent and Workflow JSON validation is independent and unchanged. Connection JSON validation rejects malformed or unsupported schemas, unsafe paths, identity mismatch or duplication, unsupported runtime/provider combinations, invalid models or secret references, and semantic plaintext credential material.
+
+Phase 5B is a separate operational rollout: inspect production inventory, provision explicit secret bindings, add matching definitions to the artifact repository, and verify them before any later D1 cleanup. Phase 5A neither modifies the artifact repository nor migrates D1 rows.

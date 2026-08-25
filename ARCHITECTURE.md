@@ -13,11 +13,11 @@ Next.js -> OpenNext -> Cloudflare Worker
     |
     +--> GitHub App / configured artifact repository
     |       - reusable artifacts
-    |       - Agent and Workflow definitions
+    |       - Agent, Workflow, and non-secret provider connection definitions
     |
     +--> Cloudflare D1
     |       - application sessions
-    |       - encrypted provider connection state
+    |       - transitional encrypted provider connection fallback state
     |       - durable Workflow run and attempt state
     |
     +--> Cloudflare KV
@@ -81,7 +81,8 @@ The product invariants are in [`specs/agent-workflows.md`](specs/agent-workflows
 ### Provider connections
 
 - OpenAI Responses is a server-side execution provider.
-- Provider credentials are encrypted at rest and never belong in Agent or Workflow definitions.
+- Git is authoritative for provider connection IDs defined under `connections/`; D1 remains a transitional fallback only for other IDs.
+- Git definitions contain references restricted to the dedicated `WORKFLOW_PROVIDER_CONNECTION_*` secret-binding namespace, while credential values remain server-side in Cloudflare bindings or encrypted D1 fallback state.
 - Live provider readiness is distinct from saved configuration.
 - External task creation, polling, retry, cancellation, and ambiguous outcomes are trust and billing boundaries.
 
@@ -103,9 +104,9 @@ Operational detail belongs in [`codex-runner/README.md`](codex-runner/README.md)
 | Product behaviour and stable invariants | `specs/` |
 | Repository-wide agent/contributor rules | `AGENTS.md` and scoped `AGENTS.md` files |
 | Repeatable Codex procedures | `.agents/skills/` |
-| Artifact content and Git-backed definitions | configured GitHub repository |
+| Artifact content and Git-backed Agent, Workflow, and provider connection definitions | configured GitHub repository |
 | Artifact repository layout and metadata | `docs/external-artifact-repository-contract.md` plus validation code |
-| Application sessions and durable Workflow/provider state | D1 schema, migrations, and source |
+| Application sessions, transitional provider connection fallback, and durable Workflow state | D1 schema, migrations, and source |
 | Catalogue acceleration | KV cache; GitHub remains authoritative |
 | Durable Workflow orchestration | Cloudflare Workflow implementation plus persisted run state |
 | Codex authentication and workspaces | isolated Codex Runner executor |
