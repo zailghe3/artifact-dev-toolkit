@@ -5,7 +5,7 @@ import {RESERVED_CONNECTION_KEYS} from "./workflow-connections.ts";
 export const CONNECTION_ROOT="connections";
 export const CONNECTION_SUFFIX=".connection.json";
 export const PROVIDER_CONNECTION_SECRET_PREFIX="WORKFLOW_PROVIDER_CONNECTION_";
-export const SECRET_BINDING=/^WORKFLOW_PROVIDER_CONNECTION_[A-Z][A-Z0-9_]{0,79}$/;
+export const SECRET_BINDING=/^WORKFLOW_PROVIDER_CONNECTION_[A-Z0-9][A-Z0-9_]{0,79}$/;
 const id=z.string().max(80).regex(DEFINITION_ID);
 
 export const connectionDefinitionSchema=z.object({
