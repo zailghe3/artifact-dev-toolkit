@@ -11,6 +11,7 @@ import {GitHubWorkflowConnectionDefinitionRepository} from "./workflow-connectio
 import {GitAuthoritativeWorkflowProviderConnectionStore} from "./git-workflow-provider-connection-store.ts";
 import {createWorkflowProviderSecretResolver} from "./workflow-provider-secret-resolver.ts";
 import {validateOpenAIModel} from "./openai-models.ts";
+import {WorkflowProviderConnectionMigrationService} from "./workflow-provider-connection-migration.ts";
 
 function githubContentsRequest(access:RepositoryAccessContext){const branch=process.env.GITHUB_ARTIFACT_REPOSITORY_BRANCH??"main";return async(path:string,init?:RequestInit)=>{const capability=init?.method&&init.method!=="GET"?"write":"read",credential=await access.installationCredentialProvider(capability);const url=new URL(`https://api.github.com/repos/${encodeURIComponent(access.owner)}/${encodeURIComponent(access.repo)}${path}`);if(!init?.method||init.method==="GET")url.searchParams.set("ref",branch);let body=init?.body;if(init?.method&&init.method!=="GET"&&typeof body==="string"){const value=JSON.parse(body) as Record<string,unknown>;body=JSON.stringify({...value,branch});}return fetch(url,{...init,body,headers:{accept:"application/vnd.github+json",authorization:`Bearer ${credential.token}`,"user-agent":"artifact-dev-toolkit",...init?.headers}});}}
 
@@ -20,6 +21,7 @@ export function createWorkflowDefinitionRepository(access:RepositoryAccessContex
 export async function getWorkflowEnvironment(){const {env}=await getCloudflareContext({async:true});return env as CloudflareEnv;}
 export async function getWorkflowRunStorage(){const env=await getWorkflowEnvironment();return new D1WorkflowRunStorage(env.AUTH_SESSIONS_DB as unknown as WorkflowD1Database);}
 export async function getWorkflowProviderConnectionStore(access?:RepositoryAccessContext){const env=await getWorkflowEnvironment(),fallback=new D1WorkflowProviderConnectionStore(env.AUTH_SESSIONS_DB as unknown as ProviderConnectionDatabase,env.WORKFLOW_PROVIDER_SECRET_ENCRYPTION_KEY);if(!access)return fallback;const secrets=createWorkflowProviderSecretResolver(ref=>(env as unknown as Record<string,unknown>)[ref]);return new GitAuthoritativeWorkflowProviderConnectionStore(new GitHubWorkflowConnectionDefinitionRepository(githubContentsRequest(access)),fallback,secrets,validateOpenAIModel);}
+export async function getWorkflowProviderConnectionMigrationService(access:RepositoryAccessContext){const env=await getWorkflowEnvironment(),fallback=new D1WorkflowProviderConnectionStore(env.AUTH_SESSIONS_DB as unknown as ProviderConnectionDatabase,env.WORKFLOW_PROVIDER_SECRET_ENCRYPTION_KEY),secrets=createWorkflowProviderSecretResolver(ref=>(env as unknown as Record<string,unknown>)[ref]);return new WorkflowProviderConnectionMigrationService(new GitHubWorkflowConnectionDefinitionRepository(githubContentsRequest(access)),fallback,secrets,validateOpenAIModel)}
 export async function getWorkflowCodexEnvironmentStore(){const env=await getWorkflowEnvironment();return new D1WorkflowCodexEnvironmentStore(env.AUTH_SESSIONS_DB as never);}
 export function getWorkflowAdapterRegistry(){return createWorkflowAdapterRegistry();}
 

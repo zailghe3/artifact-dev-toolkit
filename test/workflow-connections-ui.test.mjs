@@ -8,6 +8,7 @@ import { canTestProviderConnection, providerConnectionOutputLimit, providerConne
 const requireTsx = installTsxHook();
 const { ProviderConnectionForm } = requireTsx('../components/ProviderConnectionForm.tsx');
 const { CodexRunnerConnection } = requireTsx('../components/CodexRunnerConnection.tsx');
+const { ProviderConnectionMigration } = requireTsx('../components/ProviderConnectionMigration.tsx');
 
 test('OpenAI connection testing is enabled only for configured idle connections', () => {
   assert.equal(canTestProviderConnection({ busy: false, configured: true }), true);
@@ -52,3 +53,5 @@ test('Codex Runner connection presents the advertised job-execution capability',
   }));
   assert.match(unsupported, /<dt>Coding jobs<\/dt><dd>Not supported by this Runner<\/dd>/);
 });
+
+test('provider migration UI presents safe copy targets and explicit retirement without credential material',()=>{const html=renderToStaticMarkup(React.createElement(ProviderConnectionMigration,{initial:{connectionId:'openai-migrate',connectionName:'Migration source',configuredModel:'model-sentinel',targetPath:'connections/openai-migrate.connection.json',definition:{},canonicalJson:'{"safe":"definition"}\n',secretRef:'WORKFLOW_PROVIDER_CONNECTION_OPENAI_MIGRATE',secretProvisioning:'resolved',state:'git_ready_shadowing_d1',message:'Git is live-ready.',repositoryRevision:'revision-sentinel',canRetire:true}}));assert.match(html,/Copy JSON|Copy binding name|Retire D1 fallback|cannot be exported|Cloudflare control plane/);assert.doesNotMatch(html,/plaintext-unit-secret|encrypted_credential|credential_iv/)});
