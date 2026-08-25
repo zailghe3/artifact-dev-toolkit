@@ -1,10 +1,6 @@
 import type { AdapterInvocation, AdapterResult, AgentProviderAdapter, ConnectionTestResult, FailureCategory, ProviderTransportDiagnostics } from "./workflow-adapter.ts";
-import { DeterministicTestAdapter } from "./workflow-adapter.ts";
 import { openAIResponsesOptionsSchema } from "./workflow-adapter.ts";
 import type { ConnectionDescriptor,ResolvedConnection } from "./workflow-connections.ts";
-import {CodexCloudAdapter} from "./codex-cloud-adapter.ts";
-import {UnavailableCodexCloudGateway} from "./codex-cloud-gateway.ts";
-import {CodexRunnerAdapter} from "./codex-runner-adapter.ts";
 import {classifyTransportException,isLocalRuntimeTransportRejection} from "./safe-transport-exception.ts";
 
 const ENDPOINT="https://api.openai.com/v1", POLL_AFTER_MS=10_000, DEFAULT_TIMEOUT_MS=30_000;
@@ -91,5 +87,3 @@ export class OpenAIResponsesAdapter implements AgentProviderAdapter {
     }catch(error){const category=error&&typeof error==="object"&&"category" in error&&typeof error.category==="string"?error.category as FailureCategory:"internal_error";return{ok:false,category,safeMessage:safeMessages[category]??safeMessages.internal_error!};}
   }
 }
-
-export function createWorkflowAdapterRegistry(fetcher?:Fetcher):Map<string,AgentProviderAdapter>{const deterministic=new DeterministicTestAdapter(),openai=new OpenAIResponsesAdapter(fetcher),runner=new CodexRunnerAdapter(),codex=new CodexCloudAdapter(new UnavailableCodexCloudGateway());return new Map<string,AgentProviderAdapter>([[deterministic.kind,deterministic],[openai.kind,openai],[runner.kind,runner],[codex.kind,codex]]);}

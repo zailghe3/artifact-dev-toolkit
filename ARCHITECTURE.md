@@ -71,7 +71,8 @@ Current product behaviour is defined by [`specs/agent-workflows.md`](specs/agent
 ### Durable Workflow execution
 
 - Runs snapshot the definitions used for one execution.
-- Cloudflare Workflows drives durable sequential execution.
+- Cloudflare Workflows drives durable sequential execution and owns retries, polling, cancellation, and state advancement.
+- A provider-neutral AgentRuntime boundary delegates one Agent step's execution to the selected provider implementation.
 - D1 persists run, step, attempt, provider-task, retry, cancellation, and reconciliation state.
 - Successful textual output is persisted before it can become the next step's input.
 - Ambiguous external work is reconciled rather than blindly recreated.
