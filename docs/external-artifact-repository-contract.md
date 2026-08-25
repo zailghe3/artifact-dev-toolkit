@@ -40,7 +40,7 @@ connections/
 - Executable definition schemas, including their independent required `status: "draft"`, are unchanged.
 - Provider connections use `connections/<id>.connection.json`. Git is authoritative per ID; absence of the directory is valid during Phase 5A.
 - Connection schema v1 requires `id`, `name`, `runtime: "openai-responses"`, `provider: "openai"`, `model`, and `credential.secretRef`. The filename ID must match.
-- `credential.secretRef` is an uppercase Cloudflare binding identifier. Credential values, ciphertext, IVs, endpoints, and derived readiness/capabilities are forbidden.
+- `credential.secretRef` must use the dedicated `WORKFLOW_PROVIDER_CONNECTION_<UPPERCASE_IDENTIFIER>` Cloudflare secret-binding namespace; other Worker bindings are forbidden. Credential values, ciphertext, IVs, endpoints, and derived readiness/capabilities are forbidden.
 - Git connection definitions are read-only through ADT during Phase 5A; D1 remains fallback for IDs absent from Git.
 
 ## Markdown format

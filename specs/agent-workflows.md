@@ -86,14 +86,14 @@
 
 - Agents reference connections by stable application-visible identity.
 - Multiple named connections may use the same provider.
-- Git connection definitions are canonical for their stable IDs and contain only non-secret configuration plus a validated server-side secret reference.
+- Git connection definitions are canonical for their stable IDs and contain only non-secret configuration plus a validated reference in the dedicated provider-connection secret namespace.
 - D1 provider connections remain a temporary fallback only for IDs without a Git definition.
 - A Git-defined connection never falls back to same-ID D1 state when its secret is unavailable or its definition is invalid.
 - Git-defined connections are read-only in the current Connection interface.
 - Provider credentials remain server-side.
 - Credentials are never stored in Agent or Workflow definitions.
 - Credentials, private provider configuration, prompts, workflow input, outputs, and reasoning must not leak through diagnostics or logs.
-- Connection readiness is validated independently from the fact that a connection can be selected in an editor.
+- Connection readiness requires live validation of the configured model against the resolved provider credential and is independent from both secret presence and editor selection.
 - Saving or executing an Agent fails closed when required live provider configuration is invalid or unavailable.
 
 ## 10. OpenAI Responses connection

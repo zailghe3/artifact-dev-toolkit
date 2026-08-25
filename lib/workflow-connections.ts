@@ -1,5 +1,8 @@
-export type ConnectionDescriptor={key:string;name:string;adapter:string;endpoint?:string;defaultModel?:string;enabled:boolean;management?:"git"|"d1";credentialSecretRef?:string;repositoryRevision?:string;capabilities:{asynchronous:boolean;cancellation:boolean}};
+export type ConnectionDescriptor={key:string;name:string;adapter:string;endpoint?:string;defaultModel?:string;enabled:boolean;configured?:boolean;management?:"git"|"d1";credentialSecretRef?:string;repositoryRevision?:string;capabilities:{asynchronous:boolean;cancellation:boolean}};
 export type ResolvedConnection=ConnectionDescriptor&{credential?:string;serverConfiguration?:unknown;privateOptions?:unknown};
+export const RESERVED_CONNECTION_KEYS=new Set(["deterministic-test","codex-primary","codex-cloud-primary"]);
+export function assertProviderConnectionKey(key:string){if(RESERVED_CONNECTION_KEYS.has(key))throw new Error("reserved_connection_key");return key}
+export function assertUniqueConnectionDescriptors(values:ConnectionDescriptor[]){const seen=new Set<string>();for(const value of values){if(seen.has(value.key))throw new Error("connection_identity_collision");seen.add(value.key)}return values}
 const deterministic:ConnectionDescriptor={key:"deterministic-test",name:"Deterministic test connection",adapter:"deterministic-test",enabled:true,capabilities:{asynchronous:true,cancellation:true}};
 export const codexCloudConnection:ConnectionDescriptor={key:"codex-cloud-primary",name:"Codex Cloud",adapter:"codex-cloud",enabled:false,capabilities:{asynchronous:true,cancellation:false}};
 export const codexRunnerConnection:ConnectionDescriptor={key:"codex-primary",name:"Codex",adapter:"codex-runner",enabled:false,capabilities:{asynchronous:true,cancellation:true}};

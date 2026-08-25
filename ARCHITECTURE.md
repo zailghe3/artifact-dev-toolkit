@@ -82,7 +82,7 @@ The product invariants are in [`specs/agent-workflows.md`](specs/agent-workflows
 
 - OpenAI Responses is a server-side execution provider.
 - Git is authoritative for provider connection IDs defined under `connections/`; D1 remains a transitional fallback only for other IDs.
-- Git definitions contain validated secret-binding references, while credential values remain server-side in Cloudflare bindings or encrypted D1 fallback state.
+- Git definitions contain references restricted to the dedicated `WORKFLOW_PROVIDER_CONNECTION_*` secret-binding namespace, while credential values remain server-side in Cloudflare bindings or encrypted D1 fallback state.
 - Live provider readiness is distinct from saved configuration.
 - External task creation, polling, retry, cancellation, and ambiguous outcomes are trust and billing boundaries.
 
