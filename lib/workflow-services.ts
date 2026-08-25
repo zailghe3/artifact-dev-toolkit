@@ -6,7 +6,7 @@ import {D1WorkflowProviderConnectionStore,type ProviderConnectionDatabase} from 
 import {listConnectionDescriptors,codexRunnerDescriptor,assertUniqueConnectionDescriptors} from "./workflow-connections.ts";
 import {D1WorkflowCodexEnvironmentStore} from "./workflow-codex-environment-store.ts";
 import type {RunnerEnvironmentDescriptor,RunnerModelDescriptor} from "./codex-runner-client.ts";
-import {createWorkflowAdapterRegistry} from "./openai-responses-adapter.ts";
+import {createWorkflowAdapterRegistry} from "./agent-runtime.ts";
 import {GitHubWorkflowConnectionDefinitionRepository} from "./workflow-connection-definition-repository.ts";
 import {GitAuthoritativeWorkflowProviderConnectionStore} from "./git-workflow-provider-connection-store.ts";
 import {createWorkflowProviderSecretResolver} from "./workflow-provider-secret-resolver.ts";
