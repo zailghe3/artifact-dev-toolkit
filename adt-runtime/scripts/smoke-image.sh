@@ -3,6 +3,7 @@ set -eu
 image=${1:?image required}; expected_revision=${2:?expected revision required}; tmp=$(mktemp -d); container="adt-runtime-smoke-$$"; cleanup(){ docker rm -f "$container" >/dev/null 2>&1 || true; rm -rf "$tmp"; }; trap cleanup EXIT
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$tmp/private.pem" >/dev/null 2>&1
 printf '%s' 'runtime-smoke-authentication-secret-0000000000000000' > "$tmp/auth"
+chmod 0444 "$tmp/private.pem" "$tmp/auth"
 docker run -d --name "$container" -p 127.0.0.1::8080 -e ADT_RUNTIME_AUTH_SECRET_FILE=/run/secrets/auth -e ADT_RUNTIME_PRIVATE_KEY_FILE=/run/secrets/private --mount type=bind,src="$tmp/auth",dst=/run/secrets/auth,readonly --mount type=bind,src="$tmp/private.pem",dst=/run/secrets/private,readonly "$image" >/dev/null
 port=$(docker port "$container" 8080/tcp | sed 's/.*://'); i=0; until curl -fsS "http://127.0.0.1:$port/healthz" >/dev/null; do i=$((i+1)); [ "$i" -lt 30 ] || { docker logs "$container"; exit 1; }; sleep 1; done
 docker exec -i -e EXPECTED_REVISION="$expected_revision" "$container" node --input-type=module <<'NODE'
