@@ -27,7 +27,8 @@ test('publication prepares both dependency graphs before testing merged Runner s
 
 test('trusted publication exclusively owns the Runner image smoke', () => {
   assert.equal(verify.match(invocation)?.length ?? 0, 0);
-  assert.doesNotMatch(verify, /docker build/);
+  assert.doesNotMatch(verify, /docker build[^\n]*codex-runner|adt-codex-runner|codex-runner\/scripts\/smoke-image\.sh/);
+  assert.match(verify, /docker build[^\n]*adt-runtime/);
   assert.equal(publish.match(invocation)?.length, 1);
   assert.doesNotMatch(verify, /\/v1\/(?:capabilities|auth\/status)/);
   assert.doesNotMatch(publish, /\/v1\/(?:capabilities|auth\/status)/);

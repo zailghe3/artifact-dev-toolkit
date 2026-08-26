@@ -1,0 +1,23 @@
+{
+  "name": "@adt/runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@openai/agents": "0.17.0",
+    "openai": "7.5.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "typescript": "^5.9.3"
+  },
+  "engines": { "node": "24.x", "npm": "11.4.2" },
+  "packageManager": "npm@11.4.2"
+}

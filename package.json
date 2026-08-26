@@ -25,10 +25,8 @@
     "runner-revision:validate": "node scripts/validate-runner-revision.mjs"
   },
   "dependencies": {
-    "@openai/agents": "0.17.0",
     "gray-matter": "^4.0.3",
     "next": "^16.2.10",
-    "openai": "7.5.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "remark": "^15.0.1",

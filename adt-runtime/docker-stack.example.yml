@@ -1,0 +1,29 @@
+version: "3.8"
+services:
+  adt-runtime:
+    image: poulti/adt-runtime:latest
+    environment:
+      ADT_RUNTIME_AUTH_SECRET_FILE: /run/secrets/adt_runtime_auth
+      ADT_RUNTIME_PRIVATE_KEY_FILE: /run/secrets/adt_runtime_private_key
+    secrets:
+      - adt_runtime_auth
+      - adt_runtime_private_key
+    networks: [ingress]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    deploy:
+      replicas: 1
+      restart_policy: {condition: on-failure, delay: 5s}
+      update_config: {parallelism: 1, order: start-first, failure_action: rollback, monitor: 30s}
+      resources:
+        limits: {cpus: "1.0", memory: 1G}
+        reservations: {cpus: "0.25", memory: 256M}
+secrets:
+  adt_runtime_auth: {external: true}
+  adt_runtime_private_key: {external: true}
+networks:
+  ingress: {external: true, name: replace-with-ingress-network}

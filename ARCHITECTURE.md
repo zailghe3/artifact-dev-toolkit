@@ -28,7 +28,10 @@ Next.js -> OpenNext -> Cloudflare Worker
     |
     +--> OpenAI
     |       - existing Responses execution path
-    |       - stateless OpenAI Agents SDK execution path
+    |
+    +--> authenticated ADT Runtime
+    |       - independently deployed stateless provider execution
+    |       - OpenAI Agents SDK / provider API
     |
     +--> independently deployed Codex Runner
             - ADT-facing controller and durable job/control state
@@ -90,6 +93,17 @@ The product invariants are in [`specs/agent-workflows.md`](specs/agent-workflows
 - Live provider readiness is distinct from saved configuration.
 - External task creation, polling, retry, cancellation, and ambiguous outcomes are trust and billing boundaries.
 
+### ADT Runtime
+
+- ADT Runtime is an independently deployed, stateless provider-execution service.
+- The Cloudflare control plane retains Workflow durability and orchestration; the Runtime completes one bounded provider invocation and retains no application state or provider credential.
+- The application authenticates protocol requests and encrypts each resolved provider credential to the Runtime's operator-provisioned wrapping key.
+- Protocol and capability discovery permits independent application and Runtime rollout without matching revisions or ambiguous interpretation.
+- Trusted CI publishes `poulti/adt-runtime` to Docker Hub. Operator-owned deployment normally tracks `latest`; immutable Git SHA tags support provenance and rollback.
+- Codex Runner remains a separate execution boundary with distinct credentials, state, and responsibilities.
+
+Operational detail belongs in [`adt-runtime/README.md`](adt-runtime/README.md).
+
 ### Codex Runner
 
 - Codex Runner is independently deployed from the application.
@@ -113,6 +127,7 @@ Operational detail belongs in [`codex-runner/README.md`](codex-runner/README.md)
 | Application sessions, transitional provider connection fallback, and durable Workflow state | D1 schema, migrations, and source |
 | Catalogue acceleration | KV cache; GitHub remains authoritative |
 | Durable Workflow orchestration | Cloudflare Workflow implementation plus persisted run state |
+| OpenAI Agents SDK provider execution | independently deployed stateless ADT Runtime |
 | Codex authentication and workspaces | isolated Codex Runner executor |
 | Runner jobs, idempotency, and emergency latch | Codex Runner controller |
 | Toolchain and commands | `.nvmrc`, `package.json`, repository scripts, workflows |
@@ -123,7 +138,8 @@ Operational detail belongs in [`codex-runner/README.md`](codex-runner/README.md)
 - **Browser -> application:** treat browser input as untrusted; authorisation remains server-side.
 - **Application -> GitHub:** validate exact repository targets, revisions, permissions, and mutation intent.
 - **Application -> D1/KV/Workflows:** durable state transitions must remain deterministic and safe under retries, interruption, and stale observations.
-- **Application -> OpenAI/provider APIs:** provider creation may be billable or side-effecting; ambiguous outcomes must not cause blind duplicate work.
+- **Application -> OpenAI/provider APIs:** the existing Responses path remains direct; provider creation may be billable or side-effecting and ambiguous outcomes must not cause blind duplicate work.
+- **Application -> ADT Runtime:** authenticate and integrity-bind every protocol operation, encrypt invocation credentials independently of transport TLS, and fail closed on replay, incompatibility, missing capability, or ambiguous execution outcomes.
 - **Application -> Codex Runner:** expose only bounded safe configuration and diagnostics; never transfer the Runner's ChatGPT/Codex credential to ADT.
 - **Runner controller -> executor:** authenticate the private control API with controller-held signing material and an executor-held verifier; never place a request-signing, ADT, or redeploy credential in the full-access executor.
 - **Executor -> workspace/Internet:** filesystem and network access are controlled by container mounts, isolated overlays, and the trusted egress proxy.
