@@ -1,4 +1,4 @@
-import { createHash, createHmac, timingSafeEqual, webcrypto } from "node:crypto";
+import { createHash, createHmac, createPrivateKey, createPublicKey, timingSafeEqual, webcrypto } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { z } from "zod";
 
@@ -26,11 +26,11 @@ export const executionSchema = z.object({
 export type ExecutionRequest = z.infer<typeof executionSchema>;
 
 export function sha256(value: Uint8Array | string) { return createHash("sha256").update(value).digest("base64url"); }
-export function canonical(method:string,path:string,timestamp:string,nonce:string,digest:string) {
-  return [PROTOCOL_VERSION, method.toUpperCase(), path, timestamp, nonce, digest].join("\n");
+export function canonical(method:string,path:string,timestamp:string,nonce:string,digest:string,version=PROTOCOL_VERSION) {
+  return [version, method.toUpperCase(), path, timestamp, nonce, digest].join("\n");
 }
-export function signature(secret:string, method:string,path:string,timestamp:string,nonce:string,digest:string) {
-  return createHmac("sha256",secret).update(canonical(method,path,timestamp,nonce,digest)).digest("base64url");
+export function signature(secret:string, method:string,path:string,timestamp:string,nonce:string,digest:string,version=PROTOCOL_VERSION) {
+  return createHmac("sha256",secret).update(canonical(method,path,timestamp,nonce,digest,version)).digest("base64url");
 }
 
 export class ReplayCache {
@@ -48,9 +48,9 @@ export class ReplayCache {
 export function authenticate(headers:Record<string,string|string[]|undefined>,method:string,path:string,body:Uint8Array,secret:string,replays:ReplayCache,now=Date.now()) {
   const get=(name:string)=>typeof headers[name]==="string"?headers[name]:"";
   const version=get("x-adt-protocol"),timestamp=get("x-adt-timestamp"),nonce=get("x-adt-nonce"),digest=get("x-adt-content-sha256"),provided=get("x-adt-signature");
-  if(version!==PROTOCOL_VERSION||!/^\d{13}$/.test(timestamp)||!/^[A-Za-z0-9_-]{16,128}$/.test(nonce)||!digest||!provided)return false;
+  if(!/^adt-runtime-v\d{1,3}$/.test(version)||!/^\d{13}$/.test(timestamp)||!/^[A-Za-z0-9_-]{16,128}$/.test(nonce)||!digest||!provided)return false;
   if(Math.abs(now-Number(timestamp))>AUTH_WINDOW_MS||digest!==sha256(body))return false;
-  const expected=signature(secret,method,path,timestamp,nonce,digest),a=Buffer.from(expected),b=Buffer.from(provided);
+  const expected=signature(secret,method,path,timestamp,nonce,digest,version),a=Buffer.from(expected),b=Buffer.from(provided);
   if(a.length!==b.length||!timingSafeEqual(a,b))return false;
   return replays.accept(nonce,now);
 }
@@ -58,7 +58,7 @@ export function authenticate(headers:Record<string,string|string[]|undefined>,me
 function fromB64(value:string){return Buffer.from(value,"base64url");}
 function pemDer(pem:string,label:string){const body=pem.replace(`-----BEGIN ${label}-----`,"").replace(`-----END ${label}-----`,"").replace(/\s/g,"");return Buffer.from(body,"base64");}
 export async function importPrivateKey(pem:string){return webcrypto.subtle.importKey("pkcs8",pemDer(pem,"PRIVATE KEY"),{name:"RSA-OAEP",hash:"SHA-256"},false,["decrypt"]);}
-export async function keyIdForPrivateKey(_key:CryptoKey, configured:string){return configured;}
+export async function loadWrappingKey(pem:string){let nodePrivate;try{nodePrivate=createPrivateKey(pem)}catch{throw new Error("private_key_invalid")}let publicDer;try{publicDer=createPublicKey(nodePrivate).export({type:"spki",format:"der"})}catch{throw new Error("wrapping_key_derivation_failed")}let privateKey;try{privateKey=await importPrivateKey(pem)}catch{throw new Error("wrapping_key_import_failed")}return{privateKey,keyId:sha256(publicDer)};}
 export async function decryptCredential(envelope:z.infer<typeof envelopeSchema>,privateKey:Awaited<ReturnType<typeof importPrivateKey>>,keyId:string,aad:string){
   const parsed=envelopeSchema.parse(envelope); if(parsed.keyId!==keyId)throw new Error("credential_envelope_invalid");
   try{

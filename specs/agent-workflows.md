@@ -118,6 +118,8 @@
 - `openai-agents` provider execution occurs in an independently deployed, stateless ADT Runtime across an authenticated execution boundary.
 - The Runtime does not own Workflow durability and does not persist provider credentials.
 - Runtime readiness, protocol compatibility, capability availability, and provider execution failure are distinct conditions.
+- Authorised users can diagnose Runtime configuration, reachability, request authentication, protocol compatibility, capability availability, and wrapping-key compatibility without invoking a provider.
+- Runtime commissioning is separate from the provider credential and model Connection Test.
 - Application and Runtime rollout may occur independently; compatibility is determined by the explicit protocol and capability contract rather than matching revisions.
 - An `openai-agents` failure after provider execution begins is not replayed automatically because no durable provider task identity is available for reconciliation.
 - Ambiguous provider execution fails safely rather than creating a second potentially billable invocation.

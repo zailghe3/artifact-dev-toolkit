@@ -29,7 +29,7 @@ jobs:
         run: |
           set -euo pipefail
           docker build --build-arg ADT_RUNTIME_REVISION="$GITHUB_SHA" -t adt-runtime:verified adt-runtime
-          adt-runtime/scripts/smoke-image.sh adt-runtime:verified
+          adt-runtime/scripts/smoke-image.sh adt-runtime:verified "$GITHUB_SHA"
       - name: Authenticate to Docker Hub
         env: {DOCKERHUB_USERNAME: "${{ vars.DOCKERHUB_USERNAME }}", DOCKERHUB_TOKEN: "${{ secrets.DOCKERHUB_TOKEN }}"}
         run: printf '%s' "$DOCKERHUB_TOKEN" | docker login --username "$DOCKERHUB_USERNAME" --password-stdin

@@ -10,13 +10,14 @@ ADT Runtime is the independently deployed, stateless provider-execution boundary
 - Do not provision provider API keys, Cloudflare credentials, GitHub App credentials, artifact-repository credentials, Codex credentials, Portainer credentials, or tunnel credentials to this service.
 - Trusted CI also publishes immutable `poulti/adt-runtime:<git-sha>` tags for provenance and explicit rollback/pinning if automatic `latest` rollout is suspended.
 
-Create three external Docker secrets:
+Create two external Docker secrets:
 
 | Secret | Content |
 | --- | --- |
 | `adt_runtime_auth` | Dedicated high-entropy request-MAC secret, shared only with the Cloudflare application. |
 | `adt_runtime_private_key` | PKCS#8 RSA private key used only to unwrap per-invocation AES keys. |
-| `adt_runtime_key_id` | Base64url SHA-256 fingerprint of the matching public-key SPKI DER. |
+
+The Runtime derives the public SPKI fingerprint from the loaded PKCS#8 private key. There is no separately provisioned or trusted key-ID setting.
 
 The Cloudflare application requires optional bindings `ADT_RUNTIME_BASE_URL`, `ADT_RUNTIME_AUTH_SECRET`, and `ADT_RUNTIME_WRAPPING_PUBLIC_KEY` (the PEM SPKI public key). If any are absent, only `openai-agents` execution is unavailable; unrelated application functions continue. The wrapping private key never enters Cloudflare. Existing provider credentials remain in the current Cloudflare secret bindings or transitional encrypted D1 state and are encrypted to the Runtime only for an invocation.
 
@@ -25,8 +26,6 @@ Generate compatible material with standard OpenSSL commands:
 ```sh
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out runtime-private.pem
 openssl pkey -in runtime-private.pem -pubout -out runtime-public.pem
-openssl pkey -pubin -in runtime-public.pem -outform DER |
-  openssl dgst -sha256 -binary | openssl base64 -A | tr '+/' '-_' | tr -d '='
 ```
 
 ## Protocol and security
@@ -37,3 +36,21 @@ openssl pkey -pubin -in runtime-public.pem -outform DER |
 - Web Crypto implements RSA-OAEP, SHA-256, AES-GCM, and HMAC in both Cloudflare Workers and Node 24. The construction uses only those standard algorithms.
 - Execution POSTs are never retried by the Runtime client. Lost or malformed post-execution outcomes are reported as non-retryable ambiguity.
 - Runtime and application revisions need not match. Readiness advertises the independent image revision, protocol, capability, and wrapping-key identity; compatibility is explicit rather than an atomic-rollout assumption.
+- Production images bake the trusted source revision at build time. The Swarm stack does not override it, so a Shepherd `latest` rollout automatically advertises the new image revision.
+
+## Commissioning and troubleshooting
+
+Commission without trial-running an Agent:
+
+1. Confirm the container healthcheck is healthy.
+2. Use **Test ADT Runtime** on the Connections page to confirm reachability.
+3. Confirm request authentication is accepted.
+4. Confirm the protocol is compatible.
+5. Confirm the `openai-agents` capability is present.
+6. Confirm the configured public wrapping key matches the Runtime private key.
+7. Run the separate provider **Test connection** diagnostic for the credential and model.
+8. Only after both diagnostics pass, try a real `openai-agents` Workflow.
+
+Safe diagnostic states distinguish startup configuration failure, ingress/runtime unreachable, request-authentication mismatch, protocol mismatch, missing capability, and wrapping-key mismatch. Provider Connection Test separately identifies provider credential failures. Real execution can report provider timeout, rate limiting, rejection, or unavailability. A lost or malformed response after execution dispatch remains non-retryable ambiguity because provider work may have occurred.
+
+Runtime logs are structured safe JSON events. Use their stage, result, HTTP status, correlation ID, duration, and `providerExecutionEntered` fields; never print or compare secret values while troubleshooting.

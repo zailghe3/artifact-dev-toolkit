@@ -9,6 +9,7 @@ const requireTsx = installTsxHook();
 const { ProviderConnectionForm } = requireTsx('../components/ProviderConnectionForm.tsx');
 const { CodexRunnerConnection } = requireTsx('../components/CodexRunnerConnection.tsx');
 const { ProviderConnectionMigration } = requireTsx('../components/ProviderConnectionMigration.tsx');
+const { ADTRuntimeDiagnosticButton, adtRuntimeDiagnosticMessage } = requireTsx('../components/ADTRuntimeDiagnosticButton.tsx');
 
 test('OpenAI connection testing is enabled only for configured idle connections', () => {
   assert.equal(canTestProviderConnection({ busy: false, configured: true }), true);
@@ -55,3 +56,5 @@ test('Codex Runner connection presents the advertised job-execution capability',
 });
 
 test('provider migration UI presents safe copy targets and retained historical compatibility without destructive controls',()=>{const html=renderToStaticMarkup(React.createElement(ProviderConnectionMigration,{initial:{connectionId:'openai-migrate',connectionName:'Migration source',configuredModel:'model-sentinel',targetPath:'connections/openai-migrate.connection.json',definition:{},canonicalJson:'{"safe":"definition"}\n',secretRef:'WORKFLOW_PROVIDER_CONNECTION_OPENAI_MIGRATE',secretProvisioning:'resolved',state:'git_ready_shadowing_d1',message:'Git is authoritative and live-ready.',repositoryRevision:'revision-sentinel'}}));assert.match(html,/Copy JSON|Copy binding name|Historical run compatibility retained|shadowed D1 row remains intact|cannot be exported|Cloudflare control plane/);assert.doesNotMatch(html,/Retire D1 fallback|plaintext-unit-secret|encrypted_credential|credential_iv/)});
+
+test('openai-agents commissioning action and messages expose only independent bounded safe Runtime fields',()=>{const html=renderToStaticMarkup(React.createElement(ADTRuntimeDiagnosticButton,{onMessage:()=>{}})),message=adtRuntimeDiagnosticMessage({configured:true,reachable:true,authenticationAccepted:true,protocolCompatible:true,capabilityAvailable:true,wrappingKeyMatches:true,runtimeRevision:'safe-revision',httpStatus:200,elapsedMs:12});assert.match(html,/Test ADT Runtime/);for(const field of ['configured yes','reachable yes','authentication yes','protocol yes','openai-agents capability yes','wrapping key yes','revision safe-revision','HTTP 200','12 ms'])assert.ok(message.includes(field));assert.doesNotMatch(html+message,/ADT_RUNTIME_AUTH_SECRET|ADT_RUNTIME_WRAPPING_PUBLIC_KEY|runtime\.example/)});

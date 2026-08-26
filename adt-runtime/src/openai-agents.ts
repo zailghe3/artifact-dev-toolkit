@@ -2,7 +2,7 @@ import {Agent,MaxTurnsExceededError,ModelBehaviorError,ModelRefusalError,ModelTi
 import OpenAI from "openai";
 import type {ExecutionRequest} from "./protocol.js";
 
-export const MAX_TURNS=1, MODEL_TIMEOUT_MS=30_000, MAX_OUTPUT_CHARS=262_144;
+export const MAX_TURNS=1, MODEL_TIMEOUT_MS=30_000, MAX_OUTPUT_BYTES=262_144;
 export type SafeFailure={category:string;safeMessage:string;retryable:false};
 export class RuntimeFailure extends Error implements SafeFailure{readonly retryable=false as const;constructor(readonly category:string,readonly safeMessage:string){super(category)}}
 const fail=(category:string,safeMessage:string)=>new RuntimeFailure(category,safeMessage);
@@ -22,6 +22,6 @@ export async function executeOpenAIAgents(request:ExecutionRequest,credential:st
  const f={...defaults,...overrides},client=f.client({apiKey:credential,maxRetries:0}),provider=f.provider({openAIClient:client,useResponses:true}),runner=f.runner({modelProvider:provider,tracingDisabled:true});
  const o=request.options,modelSettings:ModelSettings={store:false,parallelToolCalls:false,timeoutMs:MODEL_TIMEOUT_MS,...(o.maxOutputTokens?{maxTokens:o.maxOutputTokens}:{}),...(o.reasoningEffort?{reasoning:{effort:o.reasoningEffort}}:{}),...(o.verbosity?{text:{verbosity:o.verbosity}}:{})};
  const agent=f.agent({name:request.agentName,instructions:request.instructions,model:request.model,modelSettings});
- try{const result=await runner.run(agent,request.input,{maxTurns:MAX_TURNS});if(typeof result.finalOutput!=="string")throw fail("malformed_response","The Agents runtime returned no textual output.");if(result.finalOutput.length>MAX_OUTPUT_CHARS)throw fail("output_too_large","The Agents runtime output exceeded the permitted size.");return result.finalOutput;}
+ try{const result=await runner.run(agent,request.input,{maxTurns:MAX_TURNS});if(typeof result.finalOutput!=="string")throw fail("malformed_response","The Agents runtime returned no textual output.");if(Buffer.byteLength(result.finalOutput,"utf8")>MAX_OUTPUT_BYTES)throw fail("output_too_large","The Agents runtime output exceeded the permitted size.");return result.finalOutput;}
  catch(error){if(error instanceof RuntimeFailure)throw error;throw classify(error)}finally{await provider.close?.().catch(()=>undefined)}
 }

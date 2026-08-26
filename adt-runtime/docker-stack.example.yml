@@ -5,12 +5,9 @@ services:
     environment:
       ADT_RUNTIME_AUTH_SECRET_FILE: /run/secrets/adt_runtime_auth
       ADT_RUNTIME_PRIVATE_KEY_FILE: /run/secrets/adt_runtime_private_key
-      ADT_RUNTIME_KEY_ID_FILE: /run/secrets/adt_runtime_key_id
-      ADT_RUNTIME_REVISION: operator-set-image-revision
     secrets:
       - adt_runtime_auth
       - adt_runtime_private_key
-      - adt_runtime_key_id
     networks: [ingress]
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
@@ -28,6 +25,5 @@ services:
 secrets:
   adt_runtime_auth: {external: true}
   adt_runtime_private_key: {external: true}
-  adt_runtime_key_id: {external: true}
 networks:
   ingress: {external: true, name: replace-with-ingress-network}
