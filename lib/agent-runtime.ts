@@ -2,7 +2,7 @@ import { CodexCloudAdapter } from "./codex-cloud-adapter.ts";
 import { UnavailableCodexCloudGateway } from "./codex-cloud-gateway.ts";
 import { CodexRunnerAdapter } from "./codex-runner-adapter.ts";
 import { OpenAIResponsesAdapter } from "./openai-responses-adapter.ts";
-import { OpenAIAgentsRuntime } from "./openai-agents-runtime.ts";
+import { RemoteOpenAIAgentsRuntime } from "./adt-runtime-client.ts";
 import { DeterministicTestAdapter, type AdapterInvocation, type AdapterResult, type AgentProviderAdapter } from "./workflow-adapter.ts";
 
 export interface AgentRuntime {
@@ -58,7 +58,7 @@ export function createWorkflowAdapterRegistry(fetcher?: ConstructorParameters<ty
   return registry;
 }
 
-export function createAgentRuntimeRegistry(fetcher?: ConstructorParameters<typeof OpenAIResponsesAdapter>[0]): AgentRuntimeRegistry {
+export function createAgentRuntimeRegistry(fetcher?: ConstructorParameters<typeof OpenAIResponsesAdapter>[0], runtimeConfiguration:ConstructorParameters<typeof RemoteOpenAIAgentsRuntime>[0]={}, runtimeFetcher?:ConstructorParameters<typeof RemoteOpenAIAgentsRuntime>[1]): AgentRuntimeRegistry {
   const adapters=Array.from(createWorkflowAdapterRegistry(fetcher).entries()).filter(([kind,adapter])=>kind===adapter.kind).map(([,adapter])=>adapter);
-  return new AgentRuntimeRegistry([...adapters.map(adapter=>new AdapterBackedAgentRuntime(adapter)),new OpenAIAgentsRuntime()]);
+  return new AgentRuntimeRegistry([...adapters.map(adapter=>new AdapterBackedAgentRuntime(adapter)),new RemoteOpenAIAgentsRuntime(runtimeConfiguration,runtimeFetcher)]);
 }
