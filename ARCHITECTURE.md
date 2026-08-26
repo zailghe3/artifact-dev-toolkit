@@ -26,8 +26,9 @@ Next.js -> OpenNext -> Cloudflare Worker
     +--> Cloudflare Workflows
     |       - durable Agent Workflow execution driver
     |
-    +--> OpenAI Responses API
-    |       - supported model-based Agent execution
+    +--> OpenAI
+    |       - existing Responses execution path
+    |       - stateless OpenAI Agents SDK execution path
     |
     +--> independently deployed Codex Runner
             - ADT-facing controller and durable job/control state
@@ -81,7 +82,7 @@ The product invariants are in [`specs/agent-workflows.md`](specs/agent-workflows
 
 ### Provider connections
 
-- OpenAI Responses is a server-side execution provider.
+- OpenAI Responses and OpenAI Agents SDK runtimes are server-side execution providers.
 - Git is authoritative for provider connection IDs defined under `connections/`; D1 remains a transitional fallback only for other IDs.
 - Git definitions contain references restricted to the dedicated `WORKFLOW_PROVIDER_CONNECTION_*` secret-binding namespace, while credential values remain server-side in Cloudflare bindings or encrypted D1 fallback state.
 - Authorised operators can export safe D1 settings into the canonical Git contract and verify the externally provisioned Cloudflare secret and live provider model.

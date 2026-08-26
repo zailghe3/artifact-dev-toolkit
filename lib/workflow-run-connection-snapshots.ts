@@ -7,7 +7,7 @@ type CredentialResolver=Pick<WorkflowProviderConnectionStore,"resolveCredential"
 export async function resolveWorkflowRunConnectionSnapshot(connection:ConnectionDescriptor,providerStore:CredentialResolver):Promise<ConnectionDescriptor>{
  if(!connection.enabled)throw new Error("connection_unavailable");
  if(connection.adapter==="codex-runner"||connection.adapter==="deterministic-test")return safeConnectionSnapshot(connection);
- if(connection.adapter!=="openai-responses")throw new Error("connection_unavailable");
+ if(connection.adapter!=="openai-responses"&&connection.adapter!=="openai-agents")throw new Error("connection_unavailable");
  const resolved=await providerStore.resolveCredential(connection.key,connection);
  if(!resolved.enabled||resolved.key!==connection.key||resolved.adapter!==connection.adapter)throw new Error("connection_unavailable");
  return safeConnectionSnapshot(resolved);

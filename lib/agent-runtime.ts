@@ -2,6 +2,7 @@ import { CodexCloudAdapter } from "./codex-cloud-adapter.ts";
 import { UnavailableCodexCloudGateway } from "./codex-cloud-gateway.ts";
 import { CodexRunnerAdapter } from "./codex-runner-adapter.ts";
 import { OpenAIResponsesAdapter } from "./openai-responses-adapter.ts";
+import { OpenAIAgentsRuntime } from "./openai-agents-runtime.ts";
 import { DeterministicTestAdapter, type AdapterInvocation, type AdapterResult, type AgentProviderAdapter } from "./workflow-adapter.ts";
 
 export interface AgentRuntime {
@@ -51,9 +52,13 @@ export function createWorkflowAdapterRegistry(fetcher?: ConstructorParameters<ty
     new CodexRunnerAdapter(),
     new CodexCloudAdapter(new UnavailableCodexCloudGateway()),
   ];
-  return new Map(adapters.map(adapter => [adapter.kind, adapter]));
+  const registry=new Map(adapters.map(adapter => [adapter.kind, adapter]));
+  // Connection Test intentionally reuses the fixed OpenAI Responses diagnostic, not an SDK run.
+  registry.set("openai-agents", registry.get("openai-responses")!);
+  return registry;
 }
 
 export function createAgentRuntimeRegistry(fetcher?: ConstructorParameters<typeof OpenAIResponsesAdapter>[0]): AgentRuntimeRegistry {
-  return createAdapterBackedAgentRuntimeRegistry(createWorkflowAdapterRegistry(fetcher).values());
+  const adapters=Array.from(createWorkflowAdapterRegistry(fetcher).entries()).filter(([kind,adapter])=>kind===adapter.kind).map(([,adapter])=>adapter);
+  return new AgentRuntimeRegistry([...adapters.map(adapter=>new AdapterBackedAgentRuntime(adapter)),new OpenAIAgentsRuntime()]);
 }

@@ -77,7 +77,7 @@ export class OpenAIResponsesAdapter implements AgentProviderAdapter {
     const value=await this.json(response);if(value.status==="cancelled")return "cancelled" as const;if(["completed","failed","incomplete"].includes(String(value.status)))return "already_terminal" as const;throw failure("malformed_response");
   }
   async testConnection(connection:ResolvedConnection):Promise<ConnectionTestResult>{
-    if(connection.adapter!==this.kind||connection.endpoint!==ENDPOINT||!connection.enabled||!connection.defaultModel||typeof connection.credential!=="string"||!connection.credential.trim())return{ok:false,category:"connection_unavailable",safeMessage:safeMessages.connection_unavailable!};
+    if(![this.kind,"openai-agents"].includes(connection.adapter)||connection.endpoint!==ENDPOINT||!connection.enabled||!connection.defaultModel||typeof connection.credential!=="string"||!connection.credential.trim())return{ok:false,category:"connection_unavailable",safeMessage:safeMessages.connection_unavailable!};
     try{
       const {response}=await this.request(`${ENDPOINT}/responses`,{method:"POST",headers:{authorization:`Bearer ${connection.credential}`,"content-type":"application/json"},body:JSON.stringify({model:connection.defaultModel,input:"Reply exactly with OK.",store:false})},"check");
       if(!response.ok)throw this.httpFailure(response.status,"check");
