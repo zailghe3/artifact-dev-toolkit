@@ -24,7 +24,7 @@ export type CodexRunnerOptions=z.infer<typeof codexRunnerOptionsSchema>;
 export const codexCloudOptionsSchema=z.object({environmentKey:z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(80)}).strict();
 export type OpenAIResponsesOptions=z.infer<typeof openAIResponsesOptionsSchema>;
 export type DeterministicOptions = z.infer<typeof deterministicOptionsSchema>;
-export function validateAdapterOptions(adapter:string,options:unknown){if(adapter==="deterministic-test")return deterministicOptionsSchema.parse(options??{});if(adapter==="openai-responses")return openAIResponsesOptionsSchema.parse(options??{});if(adapter==="codex-runner")return codexRunnerOptionsSchema.parse(options);if(adapter==="codex-cloud")return codexCloudOptionsSchema.parse(options);throw new Error("unsupported_adapter");}
+export function validateAdapterOptions(adapter:string,options:unknown){if(adapter==="deterministic-test")return deterministicOptionsSchema.parse(options??{});if(adapter==="openai-responses"||adapter==="openai-agents")return openAIResponsesOptionsSchema.parse(options??{});if(adapter==="codex-runner")return codexRunnerOptionsSchema.parse(options);if(adapter==="codex-cloud")return codexCloudOptionsSchema.parse(options);throw new Error("unsupported_adapter");}
 export class DeterministicTestAdapter implements AgentProviderAdapter {
   readonly kind = "deterministic-test";
   readonly starts = new Map<string, number>();

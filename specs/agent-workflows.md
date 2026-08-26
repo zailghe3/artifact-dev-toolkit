@@ -2,7 +2,7 @@
 
 **Document status:** Baseline specification of implemented Agent Workflow behaviour  
 **Scope:** Current behaviour only; not a roadmap or implementation design  
-**Last updated:** 2026-08-25
+**Last updated:** 2026-08-26
 
 ## 1. Purpose
 
@@ -103,16 +103,20 @@
 - Connection readiness requires live validation of the configured model against the resolved provider credential and is independent from both secret presence and editor selection.
 - Saving or executing an Agent fails closed when required live provider configuration is invalid or unavailable.
 
-## 10. OpenAI Responses connection
+## 10. OpenAI execution connections
 
-- Artifact Toolkit supports an OpenAI Responses connection for model-based agent execution through the existing `openai-responses` runtime.
+- Artifact Toolkit supports the existing `openai-responses` execution path and an additive `openai-agents` OpenAI Agents SDK execution path.
+- Historical D1 OpenAI connections continue to select `openai-responses`; only an explicit Git connection selects `openai-agents`.
 - The configured Agent master prompt is supplied as provider instructions.
 - Workflow input is supplied as the agent input without framework summarisation.
 - Provider conversation state and tools are not implicitly enabled by the workflow framework.
 - Only bounded textual agent output becomes workflow output.
 - Provider reasoning and raw provider responses are not exposed as workflow output.
-- A provider task identity is retained when required for durable polling and cancellation.
-- Ambiguous provider creation fails safely rather than creating a second potentially billable task.
+- The `openai-responses` runtime retains a provider task identity when required for durable polling and cancellation.
+- The `openai-agents` runtime completes within one bounded invocation and has no ADT tools, SDK handoffs, persistent SDK Session or conversation, SDK tracing, provider cancellation, or asynchronous provider task.
+- Each `openai-agents` invocation uses its resolved credential in an isolated server-side provider configuration and disables provider response storage.
+- An `openai-agents` failure after provider execution begins is not replayed automatically because no durable provider task identity is available for reconciliation.
+- Ambiguous provider execution fails safely rather than creating a second potentially billable invocation.
 - Model availability is validated against the authenticated provider rather than assumed from a hard-coded application list.
 
 ## 11. Codex execution boundary
