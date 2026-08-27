@@ -12,25 +12,33 @@ test('third-party workflow actions remain approved, immutable pins', () => {
   assert.deepEqual(validateWorkflowActionPolicy(Object.fromEntries(workflowFiles.map((path) => [path, workflow(path)])), approvals), []);
 });
 
-test('workflow_run repeats trusted-main eligibility policy before merge and deployment', () => {
+test('workflow_run repeats trusted-main eligibility policy before merge and Main dispatch', () => {
   const source = workflow('.github/workflows/auto-merge.yml');
   const boundary = source.indexOf('Enforce trusted auto-merge eligibility at merge boundary');
-  const merge = source.indexOf('Complete or confirm squash merge');
-  assert.ok(boundary > source.indexOf('Resolve trusted pull request and validate head'));
+  const merge = source.indexOf('Atomically squash merge validated head');
+  assert.ok(boundary > source.indexOf('Resolve associated pull request safely'));
   assert.ok(merge > boundary);
   assert.match(source.slice(boundary, merge), /gh api --paginate[\s\S]*scripts\/auto-merge-eligibility\.mjs/);
-  assert.match(source, /if: steps\.eligibility\.outputs\.eligible == 'true'[\s\S]*gh pr merge/);
-  assert.match(source, /if: steps\.eligibility\.outputs\.eligible == 'true' && steps\.classify\.outputs\.deployable_changes == 'true'/);
-  assert.match(source, /Manual review required[\s\S]*was not merged and production deployment was not dispatched/);
+  assert.match(source, /if: steps\.eligibility\.outputs\.eligible == 'true'[\s\S]*-f sha="\$\{VALIDATED_SHA\}"/);
+  assert.match(source, /--ref main -f ref="\$\{MERGE_SHA\}"/);
+  assert.doesNotMatch(source, /deploy-cloudflare\.yml/);
 });
 
 test('workflow_run fails closed for stale heads, forks, non-owners, and non-main PRs', () => {
   const source = workflow('.github/workflows/auto-merge.yml');
-  assert.match(source, /pr\.base\?\.ref === 'main'/);
-  assert.match(source, /pr\.user\?\.login !== process\.env\.REPOSITORY_OWNER/);
-  assert.match(source, /pr\.head\?\.repo\?\.full_name !== process\.env\.REPOSITORY/);
-  assert.match(source, /pr\.head\?\.sha !== process\.env\.VALIDATED_SHA/);
-  assert.match(source, /--match-head-commit "\$\{VALIDATED_SHA\}"/);
+  const decision = workflow('scripts/auto-merge-orchestration.mjs');
+  assert.match(decision, /pr\.base\?\.ref === 'main'/);
+  assert.match(decision, /pr\.user\?\.login !== repositoryOwner/);
+  assert.match(decision, /pr\.head\?\.repo\?\.full_name !== repository/);
+  assert.match(decision, /pr\.head\?\.sha !== validatedSha/);
+  assert.match(source, /-f sha="\$\{VALIDATED_SHA\}"/);
+});
+
+test('merge-boundary helper receives complete trusted owner context', () => {
+  const source = workflow('.github/workflows/auto-merge.yml');
+  const merge = source.slice(source.indexOf('Atomically squash merge validated head'), source.indexOf('Dispatch Main lifecycle'));
+  assert.match(merge, /REPOSITORY_OWNER: \$\{\{ github\.repository_owner \}\}/);
+  assert.match(merge, /scripts\/auto-merge-orchestration\.mjs current-array\.json/);
 });
 
 test('write-capable auto-merge job checks out only trusted main scripts', () => {
