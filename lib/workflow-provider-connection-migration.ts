@@ -5,12 +5,13 @@ import type {D1WorkflowProviderConnectionStore,LegacyConnectionMigrationSource} 
 import type {WorkflowProviderSecretResolver} from "./workflow-provider-secret-resolver.ts";
 import type {D1ProviderCredentialVault} from "./provider-credential-vault.ts";
 
-export type ConnectionMigrationState="d1_eligible"|"git_binding_eligible"|"git_binding_unavailable"|"already_vault"|"temporarily_unavailable";
-export type ConnectionMigration={connectionId:string;connectionName:string;runtime:string;configuredModel:string;targetPath:string;currentSource:"legacy-d1"|"cloudflare-binding"|"adt-vault";targetSource:"adt-vault";state:ConnectionMigrationState;message:string;repositoryRevision?:string;sourceVersion?:string;canMigrate:boolean};
+export type ConnectionMigrationState="d1_eligible"|"d1_credential_unavailable"|"git_binding_eligible"|"git_binding_unavailable"|"already_vault"|"temporarily_unavailable";
+export type ConnectionMigration={connectionId:string;connectionName:string;runtime:string;configuredModel:string;targetPath:string;currentSource:"legacy-d1"|"cloudflare-binding"|"adt-vault"|"unknown";targetSource:"adt-vault";state:ConnectionMigrationState;message:string;repositoryRevision?:string;sourceVersion?:string;canMigrate:boolean};
 export type ConnectionMigrationRequest={expectedSource:"legacy-d1"|"cloudflare-binding";repositoryRevision?:string;sourceVersion?:string};
 
 const messages:Record<ConnectionMigrationState,string>={
  d1_eligible:"Legacy D1 is active and ready for server-side migration to Git and the ADT vault.",
+ d1_credential_unavailable:"The legacy D1 connection exists, but its credential is unavailable. Replace the credential before migrating.",
  git_binding_eligible:"The active legacy Cloudflare provider binding is ready for server-side migration to the ADT vault.",
  git_binding_unavailable:"The active Cloudflare binding is unavailable. Re-enter the credential with Switch to ADT vault.",
  already_vault:"This connection already uses the ADT vault.",
@@ -29,14 +30,17 @@ export class WorkflowProviderConnectionMigrationService{
 
  async inspect(connectionId:string):Promise<ConnectionMigration>{
   assertProviderConnectionKey(connectionId);
-  let git;try{git=await this.git.getConnection(connectionId)}catch{return{connectionId,connectionName:connectionId,runtime:"unknown",configuredModel:"unknown",targetPath:connectionDefinitionPath(connectionId),currentSource:"legacy-d1",targetSource:"adt-vault",state:"temporarily_unavailable",message:messages.temporarily_unavailable,canMigrate:false}}
+  let git;try{git=await this.git.getConnection(connectionId)}catch{return{connectionId,connectionName:connectionId,runtime:"unknown",configuredModel:"unknown",targetPath:connectionDefinitionPath(connectionId),currentSource:"unknown",targetSource:"adt-vault",state:"temporarily_unavailable",message:messages.temporarily_unavailable,canMigrate:false}}
   if(git){
    if("source" in git.definition.credential)return view(git.definition,"already_vault","adt-vault",{repositoryRevision:git.fileSha});
    try{this.secrets.resolve(git.definition.credential.secretRef);return view(git.definition,"git_binding_eligible","cloudflare-binding",{repositoryRevision:git.fileSha})}
    catch{return view(git.definition,"git_binding_unavailable","cloudflare-binding",{repositoryRevision:git.fileSha})}
   }
-  const source=await this.d1.getLegacyMigrationSource(connectionId).catch(()=>undefined);
-  if(!source)throw new ConnectionMigrationError("migration_source_not_found");
+  const persisted=await this.d1.getPersistedSafeDescriptor(connectionId);
+  if(!persisted)throw new ConnectionMigrationError("migration_source_not_found");
+  const unavailable=connectionDefinitionSchema.parse({schemaVersion:1,id:persisted.key,name:persisted.name,runtime:"openai-responses",provider:"openai",model:persisted.defaultModel,credential:{source:"adt-vault",secretRef:`sec_${"x".repeat(43)}`}});
+  let source;try{source=await this.d1.getLegacyMigrationSource(connectionId)}catch{return view(unavailable,"d1_credential_unavailable","legacy-d1")}
+  if(!source)return view(unavailable,"d1_credential_unavailable","legacy-d1");
   const definition=connectionDefinitionSchema.parse({schemaVersion:1,id:source.descriptor.key,name:source.descriptor.name,runtime:"openai-responses",provider:"openai",model:source.descriptor.defaultModel,credential:{source:"adt-vault",secretRef:`sec_${"x".repeat(43)}`}});
   return view(definition,"d1_eligible","legacy-d1",{sourceVersion:source.sourceVersion});
  }
