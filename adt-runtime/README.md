@@ -30,6 +30,7 @@ openssl pkey -in runtime-private.pem -pubout -out runtime-public.pem
 
 ## Protocol and security
 
+- Readiness separately advertises `openai-agents` and `tool:artifact-search`; ADT rejects tool-enabled execution before provider use when the latter is absent.
 - Protocol `adt-runtime-v1` exposes authenticated `GET /v1/readiness` and `POST /v1/executions/openai-agents` operations.
 - HMAC-SHA-256 binds protocol, method, exact path, millisecond timestamp, random nonce, and the SHA-256 digest of the exact body. Accepted nonces are retained in a bounded, expiring in-memory replay cache.
 - Each credential uses a fresh AES-256-GCM key and nonce. RSA-OAEP with SHA-256 wraps that content key; GCM additional authenticated data binds protocol, capability, and ADT idempotency identity.

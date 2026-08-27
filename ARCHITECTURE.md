@@ -98,6 +98,7 @@ The product invariants are in [`specs/agent-workflows.md`](specs/agent-workflows
 ### ADT Runtime
 
 - ADT Runtime is an independently deployed, stateless provider-execution service.
+- Explicit `openai-agents` Artifact search calls return through a bounded control-plane gateway; repository authority and credentials remain in the application.
 - The Cloudflare control plane retains Workflow durability and orchestration; the Runtime completes one bounded provider invocation and retains no application state or provider credential.
 - The application authenticates protocol requests and encrypts each resolved provider credential to the Runtime's operator-provisioned wrapping key.
 - Protocol and capability discovery permits independent application and Runtime rollout without matching revisions or ambiguous interpretation.

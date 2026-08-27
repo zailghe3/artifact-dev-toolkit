@@ -21,8 +21,10 @@ export const executionSchema = z.object({
   requestId: bounded(128), idempotencyKey: bounded(256), agentName: bounded(160),
   instructions: bounded(262_144), input: bounded(262_144), model: bounded(120),
   options: z.object({reasoningEffort:z.enum(["none","low","medium","high","xhigh","max"]).optional(),verbosity:z.enum(["low","medium","high"]).optional(),maxOutputTokens:z.number().int().positive().max(262_144).optional()}).strict(),
+  tools:z.array(z.literal("artifact_search")).max(1).default([]),
+  toolGateway:z.object({url:z.string().url().max(2048),authority:bounded(4096)}).strict().optional(),
   credential: envelopeSchema,
-}).strict();
+}).strict().superRefine((value,context)=>{if(value.tools.length&&!value.toolGateway)context.addIssue({code:"custom",message:"Tool gateway is required.",path:["toolGateway"]});});
 export type ExecutionRequest = z.infer<typeof executionSchema>;
 
 export function sha256(value: Uint8Array | string) { return createHash("sha256").update(value).digest("base64url"); }
