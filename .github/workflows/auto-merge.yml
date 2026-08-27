@@ -64,7 +64,8 @@ jobs:
         env:
           REASON: ${{ steps.eligibility.outputs.reason }}
           PR_NUMBER: ${{ steps.pr.outputs.number }}
-        run: echo "PR #${PR_NUMBER} remains open for manual review — ${REASON}." >> "$GITHUB_STEP_SUMMARY"
+        run: |
+          echo "PR #${PR_NUMBER} remains open for manual review — ${REASON}." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Atomically squash merge validated head
         if: steps.eligibility.outputs.eligible == 'true'
