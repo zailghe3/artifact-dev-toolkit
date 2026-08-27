@@ -18,3 +18,5 @@ test('definition compatibility errors have stable safe HTTP responses',async()=>
   let response=workflowError(new DefinitionLayoutCollisionError('reviewer',['_adt/agents/reviewer.agent.json','agents/reviewer.agent.json']));
   assert.equal(response.status,409);assert.deepEqual(await response.json(),{code:'definition_layout_collision',error:'A definition ID exists in both repository layouts.',identity:'reviewer',paths:['_adt/agents/reviewer.agent.json','agents/reviewer.agent.json']});
 });
+
+test('artifact search on an unsupported runtime has safe client feedback',async()=>{const response=workflowError(new Error('agent_tool_runtime_unsupported'));assert.equal(response.status,422);assert.deepEqual(await response.json(),{code:'agent_tool_runtime_unsupported',error:'artifact_search is supported only by an OpenAI Agents connection.'})});

@@ -28,6 +28,7 @@
 - Each workflow has bounded step count and execution limits.
 - Workflow definitions are separate from run history.
 - A run uses an immutable snapshot of the definitions selected at launch.
+- Tool-enabled runs also freeze the authorised repository identity and catalogue scope without persisting repository credentials.
 - The safe connection snapshot includes Git provenance and any secret reference needed for later server-side resolution, but never the resolved credential.
 - Later Git connection changes do not alter an existing run's snapshotted runtime, model, or secret reference.
 - Changes to an Agent or Workflow do not rewrite the configuration of an already-created run.

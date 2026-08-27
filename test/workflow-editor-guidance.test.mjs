@@ -132,3 +132,10 @@ test('workflow run presentation keeps pending external cancellation non-terminal
  assert.equal(workflowRunPresentation('cancelled').terminal,true);
  assert.equal(workflowRunPresentation('running').terminal,false);
 });
+
+test('OpenAI Agents editor preserves explicit artifact_search while other runtimes expose no tool control',()=>{
+ const agentsConnection={key:'agents',name:'Agents',adapter:'openai-agents',enabled:true,defaultModel:'gpt-5',capabilities:{asynchronous:false,cancellation:false}};
+ const html=render(React.createElement(WorkflowAgentEditor,{connections:[agentsConnection],initial:{id:'searcher',name:'Searcher',description:'',masterPrompt:'Search.',connectionKey:'agents',tools:['artifact_search']}}));
+ assert.match(html,/<input(?=[^>]*name="artifactSearch")(?=[^>]*type="checkbox")(?=[^>]*checked="")/);
+ assert.doesNotMatch(render(React.createElement(WorkflowAgentEditor,{connections:[connection]})),/name="artifactSearch"/);
+});
