@@ -19,7 +19,7 @@ Create two external Docker secrets:
 
 The Runtime derives the public SPKI fingerprint from the loaded PKCS#8 private key. There is no separately provisioned or trusted key-ID setting.
 
-The Cloudflare application requires optional bindings `ADT_RUNTIME_BASE_URL`, `ADT_RUNTIME_AUTH_SECRET`, and `ADT_RUNTIME_WRAPPING_PUBLIC_KEY` (the PEM SPKI public key) for `openai-agents`. Tool-enabled Agents also require `ADT_TOOL_GATEWAY_URL`; tool-free Agents do not. If the Runtime bindings are absent, only `openai-agents` execution is unavailable; unrelated application functions continue. The wrapping private key never enters Cloudflare. Existing provider credentials remain in the current Cloudflare secret bindings or transitional encrypted D1 state and are encrypted to the Runtime only for an invocation.
+The Cloudflare application requires optional bindings `ADT_RUNTIME_BASE_URL`, `ADT_RUNTIME_AUTH_SECRET`, and `ADT_RUNTIME_WRAPPING_PUBLIC_KEY` (the PEM SPKI public key) for `openai-agents`. Tool-enabled Agents also require `ADT_TOOL_GATEWAY_URL` and the Worker-only `ADT_TOOL_AUTHORITY_SECRET`; tool-free Agents do not. The tool-authority secret must never be provisioned to ADT Runtime. If the Runtime bindings are absent, only `openai-agents` execution is unavailable; unrelated application functions continue. The wrapping private key never enters Cloudflare. Existing provider credentials remain in the current Cloudflare secret bindings or transitional encrypted D1 state and are encrypted to the Runtime only for an invocation.
 
 Generate compatible material with standard OpenSSL commands:
 

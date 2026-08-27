@@ -118,6 +118,7 @@
 - The `openai-agents` runtime completes within one bounded invocation and has no SDK handoffs, persistent SDK Session or conversation, SDK tracing, provider cancellation, or asynchronous provider task.
 - Agents are tool-free by default. An Agent may explicitly enable `artifact_search` only with `openai-agents`, and runs snapshot that availability.
 - `artifact_search` returns bounded content and safe metadata from the authorised validated Artifact Library. It cannot select a repository, ref, path, URL, or credential.
+- Tool authority is scoped to the exact active run attempt and repository snapshot, and uses control-plane-only authority material that is not available to the Runtime.
 - A tool-enabled Agent requires the matching Runtime capability before provider execution; tool-free Agents remain compatible with older Runtime deployments.
 - Each `openai-agents` invocation uses its resolved credential in an isolated server-side provider configuration and disables provider response storage.
 - `openai-agents` provider execution occurs in an independently deployed, stateless ADT Runtime across an authenticated execution boundary.
