@@ -17,6 +17,7 @@ Next.js -> OpenNext -> Cloudflare Worker
     |
     +--> Cloudflare D1
     |       - application sessions
+    |       - permanent encrypted provider credential vault
     |       - transitional encrypted provider connection fallback state
     |       - durable Workflow run and attempt state
     |
@@ -87,9 +88,9 @@ The product invariants are in [`specs/agent-workflows.md`](specs/agent-workflows
 
 - OpenAI Responses and OpenAI Agents SDK runtimes are server-side execution providers.
 - Git is authoritative for provider connection IDs defined under `connections/`; D1 remains a transitional fallback only for other IDs.
-- Git definitions contain references restricted to the dedicated `WORKFLOW_PROVIDER_CONNECTION_*` secret-binding namespace, while credential values remain server-side in Cloudflare bindings or encrypted D1 fallback state.
+- Target Git definitions use logical `adt-vault` references while encrypted provider credential values live permanently in the D1-backed ADT vault. Source-less `WORKFLOW_PROVIDER_CONNECTION_*` references remain a transitional Cloudflare-binding contract.
 - Authorised operators can export safe D1 settings into the canonical Git contract and verify the externally provisioned Cloudflare secret and live provider model.
-- Git plus a dedicated Cloudflare provider secret is authoritative for a migrated ID. Its same-ID D1 row remains shadowed and is temporarily retained for pre-migration run compatibility until a later explicit cleanup phase.
+- Git is authoritative for non-secret connection configuration. The logical ADT vault is authoritative for target credential values; legacy Cloudflare bindings and encrypted D1 connection rows remain source-exact compatibility state.
 - Live provider readiness is distinct from saved configuration.
 - External task creation, polling, retry, cancellation, and ambiguous outcomes are trust and billing boundaries.
 
@@ -124,7 +125,7 @@ Operational detail belongs in [`codex-runner/README.md`](codex-runner/README.md)
 | Repeatable Codex procedures | `.agents/skills/` |
 | Artifact content and Git-backed Agent, Workflow, and provider connection definitions | configured GitHub repository |
 | Artifact repository layout and metadata | `docs/external-artifact-repository-contract.md` plus validation code |
-| Application sessions, transitional provider connection fallback, and durable Workflow state | D1 schema, migrations, and source |
+| Application sessions, permanent encrypted provider credential vault, transitional provider connection fallback, and durable Workflow state | D1 schema, migrations, and source |
 | Catalogue acceleration | KV cache; GitHub remains authoritative |
 | Durable Workflow orchestration | Cloudflare Workflow implementation plus persisted run state |
 | OpenAI Agents SDK provider execution | independently deployed stateless ADT Runtime |

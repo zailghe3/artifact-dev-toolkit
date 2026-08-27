@@ -10,14 +10,23 @@ import {D1WorkflowProviderConnectionStore,type ProviderConnectionDatabase} from 
 import { executeDurableWorkflow, type DurableStep } from "./workflow-durable-driver.ts";
 import {resolveGitSnapshotCredential} from "./git-workflow-provider-connection-store.ts";
 import {createWorkflowProviderSecretResolver} from "./workflow-provider-secret-resolver.ts";
+import {D1ProviderCredentialVault,type ProviderCredentialVaultDatabase} from "./provider-credential-vault.ts";
+import {providerCredentialVaultV1KeyResolver} from "./provider-credential-vault-crypto.ts";
+import type {ConnectionDescriptor,ResolvedConnection} from "./workflow-connections.ts";
+
+export function createWorkflowExecutionConnectionResolver(env:CloudflareEnv){
+ const providerSecrets=createWorkflowProviderSecretResolver(ref=>(env as unknown as Record<string,unknown>)[ref]);
+ const providers=new D1WorkflowProviderConnectionStore(env.AUTH_SESSIONS_DB as unknown as ProviderConnectionDatabase,env.WORKFLOW_PROVIDER_SECRET_ENCRYPTION_KEY);
+ const vault=new D1ProviderCredentialVault(env.AUTH_SESSIONS_DB as unknown as ProviderCredentialVaultDatabase,providerCredentialVaultV1KeyResolver(env.WORKFLOW_PROVIDER_SECRET_ENCRYPTION_KEY));
+ return (key:string,snapshot?:ConnectionDescriptor):Promise<ResolvedConnection>=>snapshot?.management==="git"?Promise.resolve(resolveGitSnapshotCredential(key,snapshot,providerSecrets,vault)):providers.resolveCredential(key);
+}
 
 export async function executeWorkflowRun(env: CloudflareEnv, runId: string, instanceId: string, step: WorkflowStep) {
   if (!env.AUTH_SESSIONS_DB) throw new Error("workflow_storage_unavailable");
   if (!runId || !instanceId) throw new Error("invalid_workflow_context");
   const storage=new D1WorkflowRunStorage(env.AUTH_SESSIONS_DB as unknown as WorkflowD1Database);
   const detail=await storage.getRun(runId);if(!detail)throw new Error("run_not_found");await storage.attachWorkflowInstance(runId,detail.run.workflowGeneration,instanceId);
-  const providerSecrets=createWorkflowProviderSecretResolver(ref=>(env as unknown as Record<string,unknown>)[ref]);
-  const providers=new D1WorkflowProviderConnectionStore(env.AUTH_SESSIONS_DB as unknown as ProviderConnectionDatabase,env.WORKFLOW_PROVIDER_SECRET_ENCRYPTION_KEY);
+  const resolveProviderConnection=createWorkflowExecutionConnectionResolver(env);
   const runtimeEnv=env as unknown as Record<string,string|undefined>;
-  return executeDurableWorkflow({runId,storage,runtimes:createAgentRuntimeRegistry(undefined,{baseUrl:runtimeEnv.ADT_RUNTIME_BASE_URL,authSecret:runtimeEnv.ADT_RUNTIME_AUTH_SECRET,wrappingPublicKey:runtimeEnv.ADT_RUNTIME_WRAPPING_PUBLIC_KEY}),resolveConnection:(key,snapshot)=>key==="deterministic-test"?Promise.resolve(resolveConnection(key,env as unknown as Record<string,string|undefined>)):key==="codex-primary"?Promise.resolve({...codexRunnerDescriptor(true),serverConfiguration:{baseUrl:env.CODEX_RUNNER_BASE_URL,accessClientId:env.CODEX_RUNNER_ACCESS_CLIENT_ID,accessClientSecret:env.CODEX_RUNNER_ACCESS_CLIENT_SECRET,sharedSecret:env.CODEX_RUNNER_SHARED_SECRET}}):snapshot?.management==="git"?Promise.resolve(resolveGitSnapshotCredential(key,snapshot,providerSecrets)):providers.resolveCredential(key),step:step as unknown as DurableStep});
+  return executeDurableWorkflow({runId,storage,runtimes:createAgentRuntimeRegistry(undefined,{baseUrl:runtimeEnv.ADT_RUNTIME_BASE_URL,authSecret:runtimeEnv.ADT_RUNTIME_AUTH_SECRET,wrappingPublicKey:runtimeEnv.ADT_RUNTIME_WRAPPING_PUBLIC_KEY}),resolveConnection:(key,snapshot)=>key==="deterministic-test"?Promise.resolve(resolveConnection(key,env as unknown as Record<string,string|undefined>)):key==="codex-primary"?Promise.resolve({...codexRunnerDescriptor(true),serverConfiguration:{baseUrl:env.CODEX_RUNNER_BASE_URL,accessClientId:env.CODEX_RUNNER_ACCESS_CLIENT_ID,accessClientSecret:env.CODEX_RUNNER_ACCESS_CLIENT_SECRET,sharedSecret:env.CODEX_RUNNER_SHARED_SECRET}}):resolveProviderConnection(key,snapshot),step:step as unknown as DurableStep});
 }
