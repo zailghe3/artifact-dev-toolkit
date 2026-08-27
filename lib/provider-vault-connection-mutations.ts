@@ -1,0 +1,5 @@
+import type {ConnectionDefinition} from "./workflow-connection-definitions.ts";
+import type {D1ProviderCredentialVault} from "./provider-credential-vault.ts";
+export type VersionedConnectionDefinition={definition:ConnectionDefinition;fileSha:string};
+export function vaultReferenceAtRevision(current:VersionedConnectionDefinition,expectedRevision:string){if(current.fileSha!==expectedRevision)throw new Error("connection_revision_conflict");if(!("source" in current.definition.credential)||current.definition.credential.source!=="adt-vault")throw new Error("credential_source_invalid");return current.definition.credential.secretRef}
+export async function mutateVaultCredential(current:VersionedConnectionDefinition,expectedRevision:string,vault:Pick<D1ProviderCredentialVault,"recover"|"replace"|"delete">,operation:"recover"|"replace"|"delete",credential?:string){const ref=vaultReferenceAtRevision(current,expectedRevision);if(operation==="delete")await vault.delete(ref);else if(credential!==undefined)await vault[operation](ref,credential);else throw new Error("credential_required");return ref}

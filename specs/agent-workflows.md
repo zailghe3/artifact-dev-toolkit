@@ -85,23 +85,19 @@
 ## 9. Connections and credentials
 
 - Agents reference connections by stable application-visible identity.
-- Multiple named connections may use the same provider.
-- Built-in deterministic, Codex Runner, and legacy Codex Cloud connection identities are reserved; conflicting provider state fails closed.
-- Git connection definitions are canonical for their stable IDs and contain only non-secret configuration plus a validated reference in the dedicated provider-connection secret namespace.
-- D1 provider connections remain a temporary fallback only for IDs without a Git definition.
-- A Git-defined connection never falls back to same-ID D1 state when its secret is unavailable or its definition is invalid.
-- Git-defined connections are read-only in the current Connection interface.
-- A persisted D1 OpenAI Responses connection can produce its canonical non-secret Git definition and dedicated Cloudflare secret-binding name in the Connections interface.
-- Migration export never includes the existing D1 credential or encrypted credential state; provisioning the replacement Cloudflare secret is a separate privileged operator action.
-- The application reports distinct migration readiness, mismatch, and temporary-unavailability states while Git remains authoritative.
-- A matching same-ID D1 row remains shadowed beneath an authoritative Git definition and is not used for new configuration or run admission.
-- Shadowed D1 credential state is temporarily retained because pre-migration run snapshots may still require it; retirement is deferred to a later explicit cleanup phase.
-- Ordinary Git connection mutation remains read-only, and D1 remains transitional provider configuration or historical run compatibility state.
-- Provider credentials remain server-side.
-- Credentials are never stored in Agent or Workflow definitions.
-- Credentials, private provider configuration, prompts, workflow input, outputs, and reasoning must not leak through diagnostics or logs.
-- Connection readiness requires live validation of the configured model against the resolved provider credential and is independent from both secret presence and editor selection.
+- Git is authoritative for the non-secret identity, name, runtime, provider, model, credential source, and credential reference of a Git-defined connection.
+- Authorised users may edit supported non-secret Git fields through revision-aware mutations; stale or ambiguous repository writes fail without retry or silent overwrite.
+- Target Git credentials use logical `adt-vault` references. Their values are permanent encrypted ADT state and are managed through a write-only interface.
+- Source-less `WORKFLOW_PROVIDER_CONNECTION_*` Git references retain their transitional Cloudflare-binding meaning.
+- Legacy encrypted D1 provider connection rows remain transitional configuration for IDs absent from Git and compatibility state for historical runs.
+- Credential resolution is source-exact. A Git definition never falls back to same-ID D1 state, and an unavailable vault reference never falls back to a Cloudflare binding or D1 row.
+- New Workflow snapshots retain the safe credential source and reference. Historical source-less Git and D1 snapshots retain their previous meanings.
+- Vault configure, replace, remove, and recover operations verify the observed Git revision and derive the authoritative reference server-side. Stored plaintext is never returned.
+- Replacing or removing a vault credential does not mutate Git. Recovery restores the existing reference and cannot overwrite an existing value.
+- Explicit legacy Git adoption requires credential re-entry, creates a new vault reference, and does not read, copy, or delete the legacy Cloudflare binding.
+- Connection configuration, credential availability, live provider/model readiness, and ADT Runtime diagnostics are distinct states.
 - Saving or executing an Agent fails closed when required live provider configuration is invalid or unavailable.
+- Credentials are never stored in Agent, Workflow, or run definitions and never appear in diagnostics or logs.
 
 ## 10. OpenAI execution connections
 
@@ -193,17 +189,6 @@
 - Raw provider error bodies, credentials, tokens, reasoning, private paths, and arbitrary upstream headers are excluded.
 - Provider-side failure must not be misrepresented as an application authorisation problem when the distinction is known.
 - Ambiguous external outcomes remain explicit rather than being reported as successful, failed, or safely retryable without evidence.
-
-### Provider credential authority and readiness
-
-- Git is authoritative for non-secret provider connection identity, runtime, provider, model, and credential reference.
-- New provider connections reference the logical ADT vault with `source: "adt-vault"` and an opaque `sec_...` reference.
-- The ADT vault is permanent encrypted application state. Provider credentials are write-only and may be replaced, removed, or recovered without exposing stored plaintext.
-- Replacing or removing a vault credential does not change the Git definition. Recovery restores the definition's existing reference and refuses to overwrite an existing value.
-- A source-less Git credential reference retains its transitional Cloudflare provider-binding meaning. Historical Git snapshots without a source discriminator retain that meaning, and historical D1 snapshots retain their D1 compatibility meaning.
-- Credential resolution is source-exact. A missing or invalid vault value makes the connection unavailable and never falls back to a Cloudflare binding or same-ID D1 row.
-- Valid configuration, configured credential, live provider/model readiness, and ADT Runtime diagnostics are distinct states. Runtime diagnostics remain available independently of the provider credential.
-- Workflow runs snapshot the safe credential source and reference with runtime and model. Plaintext credentials are never durable run state.
 
 
 ## 17. Current limitations
