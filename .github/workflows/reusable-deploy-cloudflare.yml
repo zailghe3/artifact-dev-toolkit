@@ -32,30 +32,57 @@ jobs:
     name: verify-current-main
     runs-on: ubuntu-latest
     outputs:
-      current: ${{ steps.main.outputs.current }}
+      current: ${{ steps.manual.outputs.current || steps.main.outputs.current }}
     steps:
+      - name: Allow explicit manual recovery target
+        if: inputs.require_current_main != true
+        id: manual
+        run: |
+          echo 'current=true' >> "$GITHUB_OUTPUT"
+          echo 'Explicit manual recovery deployment may target a historical immutable commit.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Check out trusted current main with complete history
+        if: inputs.require_current_main == true
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout@v7.0.1
+        with:
+          ref: refs/heads/main
+          fetch-depth: 0
+          persist-credentials: false
       - name: Require the deployment commit to remain current main
+        if: inputs.require_current_main == true
         id: main
         env:
           COMMIT_SHA: ${{ inputs.commit_sha }}
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-          REQUIRE_CURRENT_MAIN: ${{ inputs.require_current_main }}
         run: |
           set -euo pipefail
-          if [[ "${REQUIRE_CURRENT_MAIN}" != true ]]; then
-            echo 'current=true' >> "$GITHUB_OUTPUT"
-            echo 'Explicit manual recovery deployment may target a historical immutable commit.' >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          current_main="$(gh api "/repos/${REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+          current_main="$(git rev-parse HEAD)"
           [[ "${current_main}" =~ ^[0-9a-f]{40}$ ]]
           if [[ "${COMMIT_SHA}" == "${current_main}" ]]; then
             echo 'current=true' >> "$GITHUB_OUTPUT"
             echo "Deployment target ${COMMIT_SHA} is current main." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if ! git cat-file -e "${COMMIT_SHA}^{commit}" || ! git merge-base --is-ancestor "${COMMIT_SHA}" "${current_main}"; then
+            echo 'current=false' >> "$GITHUB_OUTPUT"
+            echo "Skipping deployment target ${COMMIT_SHA}; it is not an ancestor of current main ${current_main}." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git diff --name-status -M "${COMMIT_SHA}" "${current_main}" > names.txt
+          node --input-type=module <<'NODE' > classification.txt
+          import { readFileSync } from 'node:fs';
+          import { classifyChanges } from './scripts/classify-changes.mjs';
+          const files = readFileSync('names.txt', 'utf8').split('\n').filter(Boolean).map((line) => {
+            const [code, first, second] = line.split('\t');
+            if (code.startsWith('R')) return { status: 'renamed', previous_filename: first, filename: second };
+            return { status: code === 'A' ? 'added' : code === 'D' ? 'removed' : 'modified', filename: first };
+          });
+          console.log(`deployable_changes=${classifyChanges(files).deployable_changes}`);
+          NODE
+          if grep -Fx 'deployable_changes=false' classification.txt; then
+            echo 'current=true' >> "$GITHUB_OUTPUT"
+            echo "Deployment target ${COMMIT_SHA} remains eligible; intervening changes through ${current_main} are non-deployable." >> "$GITHUB_STEP_SUMMARY"
           else
             echo 'current=false' >> "$GITHUB_OUTPUT"
-            echo "Skipping stale deployment target ${COMMIT_SHA}; current main is ${current_main}." >> "$GITHUB_STEP_SUMMARY"
+            echo "Skipping deployment target ${COMMIT_SHA}; a newer production-affecting change exists through ${current_main}." >> "$GITHUB_STEP_SUMMARY"
           fi
 
   deploy:
