@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import test from 'node:test';
+import { parse } from 'yaml';
 import { parseApprovedActionsManifest, validateWorkflowActionPolicy } from '../scripts/github-actions-policy.mjs';
 
 const workflowFiles = readdirSync('.github/workflows').filter((file) => /\.ya?ml$/.test(file)).map((file) => `.github/workflows/${file}`).sort();
@@ -22,6 +23,20 @@ test('workflow_run repeats trusted-main eligibility policy before merge and Main
   assert.match(source, /if: steps\.eligibility\.outputs\.eligible == 'true'[\s\S]*-f sha="\$\{VALIDATED_SHA\}"/);
   assert.match(source, /--ref main -f ref="\$\{MERGE_SHA\}"/);
   assert.doesNotMatch(source, /deploy-cloudflare\.yml/);
+});
+
+test('sensitive pull requests use a successful manual-review no-op', () => {
+  const parsed = parse(workflow('.github/workflows/auto-merge.yml'));
+  const steps = parsed.jobs['merge-and-dispatch-main'].steps;
+  const manualReview = steps.find((step) => step.name === 'Require manual review for sensitive pull request');
+  const merge = steps.find((step) => step.name === 'Atomically squash merge validated head');
+  const dispatch = steps.find((step) => step.name === 'Dispatch Main lifecycle for immutable merge commit');
+
+  assert.equal(manualReview.if, "steps.pr.outputs.action == 'evaluate' && steps.eligibility.outputs.eligible != 'true'");
+  assert.equal(manualReview.run, 'echo "PR #${PR_NUMBER} remains open for manual review — ${REASON}." >> "$GITHUB_STEP_SUMMARY"\n');
+  assert.doesNotMatch(manualReview.run, /gh api|gh workflow run|exit 1/);
+  assert.equal(merge.if, "steps.eligibility.outputs.eligible == 'true'");
+  assert.equal(dispatch.if, "steps.merge.outputs.merged == 'true'");
 });
 
 test('workflow_run fails closed for stale heads, forks, non-owners, and non-main PRs', () => {
