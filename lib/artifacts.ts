@@ -1,6 +1,6 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { ArtifactCatalogueService, CatalogueCacheUnavailableError, type ArtifactCatalogueResult, type CatalogueCacheBinding } from "@/lib/artifact-catalogue";
-import { createArtifactRepository, getArtifactRepositoryBackend, type Artifact, type CreateArtifactInput, type UpdateArtifactInput, type DeleteArtifactInput } from "@/lib/artifact-repository";
+import { createArtifactRepository, GitHubArtifactRepository, getArtifactRepositoryBackend, type Artifact, type CreateArtifactInput, type UpdateArtifactInput, type DeleteArtifactInput } from "@/lib/artifact-repository";
 import type { RepositoryAccessContext } from "@/lib/repository-authorization";
 import { completeWriteWithInvalidation } from "@/lib/artifact-cache-invalidation";
 import { localArtifactDetail } from "@/lib/catalogue-presentation";
@@ -45,6 +45,7 @@ export async function inspectArtifactCatalogueCache(access: RepositoryAccessCont
 export async function getArtifactRepositoryDiagnostics(access: RepositoryAccessContext, revision?: string) { const repository = getRepository(access); if (!repository.diagnoseCatalogue) return undefined; return repository.diagnoseCatalogue(revision); }
 export async function getArtifactBaseRevision(access: RepositoryAccessContext) { return getRepository(access).getBaseRevision(); }
 export async function getArtifacts(access: RepositoryAccessContext): Promise<Artifact[]> { return (await getArtifactCatalogue(access)).artifacts; }
+export async function getArtifactsForRepositoryContext(access:RepositoryAccessContext,context:{repositoryId:number;owner:string;repository:string;branch:string;root:string},dependencies:{cache?:CatalogueCacheBinding;fetch?:typeof fetch}={}){if(access.repositoryId!==context.repositoryId||access.owner.toLowerCase()!==context.owner.toLowerCase()||access.repo.toLowerCase()!==context.repository.toLowerCase())throw new Error("tool_repository_context_mismatch");const repository=new GitHubArtifactRepository({owner:context.owner,repo:context.repository,branch:context.branch,rootPath:context.root,credentialProvider:access.installationCredentialProvider,...(dependencies.fetch?{fetch:dependencies.fetch}:{})}),cache=dependencies.cache??await getCache(),service=new ArtifactCatalogueService({repository,cache,identity:{repositoryId:context.repositoryId,owner:context.owner,repository:context.repository,branch:context.branch,root:context.root}});return (await service.list()).artifacts;}
 export async function getTagSuggestions(access: RepositoryAccessContext) { return collectTagSuggestions(await getArtifacts(access)); }
 export async function getArtifact(access: RepositoryAccessContext, id: string) { return getArtifactRepositoryBackend() === "file" ? getRepository(access).findById(id) : (await getService(access)).findByIdWithRevision(id).then((value) => value?.artifact); }
 export async function getArtifactWithRevision(access: RepositoryAccessContext, id: string) {

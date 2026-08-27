@@ -19,7 +19,7 @@ Create two external Docker secrets:
 
 The Runtime derives the public SPKI fingerprint from the loaded PKCS#8 private key. There is no separately provisioned or trusted key-ID setting.
 
-The Cloudflare application requires optional bindings `ADT_RUNTIME_BASE_URL`, `ADT_RUNTIME_AUTH_SECRET`, and `ADT_RUNTIME_WRAPPING_PUBLIC_KEY` (the PEM SPKI public key). If any are absent, only `openai-agents` execution is unavailable; unrelated application functions continue. The wrapping private key never enters Cloudflare. Existing provider credentials remain in the current Cloudflare secret bindings or transitional encrypted D1 state and are encrypted to the Runtime only for an invocation.
+The Cloudflare application requires optional bindings `ADT_RUNTIME_BASE_URL`, `ADT_RUNTIME_AUTH_SECRET`, and `ADT_RUNTIME_WRAPPING_PUBLIC_KEY` (the PEM SPKI public key) for `openai-agents`. Tool-enabled Agents also require `ADT_TOOL_GATEWAY_URL` and the Worker-only `ADT_TOOL_AUTHORITY_SECRET`; tool-free Agents do not. The tool-authority secret must never be provisioned to ADT Runtime. If the Runtime bindings are absent, only `openai-agents` execution is unavailable; unrelated application functions continue. The wrapping private key never enters Cloudflare. Existing provider credentials remain in the current Cloudflare secret bindings or transitional encrypted D1 state and are encrypted to the Runtime only for an invocation.
 
 Generate compatible material with standard OpenSSL commands:
 
@@ -30,6 +30,7 @@ openssl pkey -in runtime-private.pem -pubout -out runtime-public.pem
 
 ## Protocol and security
 
+- Readiness separately advertises `openai-agents` and `tool:artifact-search`; ADT rejects tool-enabled execution before provider use when the latter is absent.
 - Protocol `adt-runtime-v1` exposes authenticated `GET /v1/readiness` and `POST /v1/executions/openai-agents` operations.
 - HMAC-SHA-256 binds protocol, method, exact path, millisecond timestamp, random nonce, and the SHA-256 digest of the exact body. Accepted nonces are retained in a bounded, expiring in-memory replay cache.
 - Each credential uses a fresh AES-256-GCM key and nonce. RSA-OAEP with SHA-256 wraps that content key; GCM additional authenticated data binds protocol, capability, and ADT idempotency identity.

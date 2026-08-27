@@ -28,6 +28,7 @@
 - Each workflow has bounded step count and execution limits.
 - Workflow definitions are separate from run history.
 - A run uses an immutable snapshot of the definitions selected at launch.
+- Tool-enabled runs also freeze the authorised repository identity and catalogue scope without persisting repository credentials.
 - The safe connection snapshot includes Git provenance and any secret reference needed for later server-side resolution, but never the resolved credential.
 - Later Git connection changes do not alter an existing run's snapshotted runtime, model, or secret reference.
 - Changes to an Agent or Workflow do not rewrite the configuration of an already-created run.
@@ -114,7 +115,11 @@
 - Only bounded textual agent output becomes workflow output.
 - Provider reasoning and raw provider responses are not exposed as workflow output.
 - The `openai-responses` runtime retains a provider task identity when required for durable polling and cancellation.
-- The `openai-agents` runtime completes within one bounded invocation and has no ADT tools, SDK handoffs, persistent SDK Session or conversation, SDK tracing, provider cancellation, or asynchronous provider task.
+- The `openai-agents` runtime completes within one bounded invocation and has no SDK handoffs, persistent SDK Session or conversation, SDK tracing, provider cancellation, or asynchronous provider task.
+- Agents are tool-free by default. An Agent may explicitly enable `artifact_search` only with `openai-agents`, and runs snapshot that availability.
+- `artifact_search` returns bounded content and safe metadata from the authorised validated Artifact Library. It cannot select a repository, ref, path, URL, or credential.
+- Tool authority is scoped to the exact active run attempt and repository snapshot, and uses control-plane-only authority material that is not available to the Runtime.
+- A tool-enabled Agent requires the matching Runtime capability before provider execution; tool-free Agents remain compatible with older Runtime deployments.
 - Each `openai-agents` invocation uses its resolved credential in an isolated server-side provider configuration and disables provider response storage.
 - `openai-agents` provider execution occurs in an independently deployed, stateless ADT Runtime across an authenticated execution boundary.
 - The Runtime does not own Workflow durability and does not persist provider credentials.

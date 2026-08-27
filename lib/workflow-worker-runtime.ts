@@ -13,6 +13,10 @@ import {createWorkflowProviderSecretResolver} from "./workflow-provider-secret-r
 import {D1ProviderCredentialVault,type ProviderCredentialVaultDatabase} from "./provider-credential-vault.ts";
 import {providerCredentialVaultV1KeyResolver} from "./provider-credential-vault-crypto.ts";
 import type {ConnectionDescriptor,ResolvedConnection} from "./workflow-connections.ts";
+import {issueArtifactSearchAuthority} from "./artifact-search-tool.ts";
+import type {ADTRuntimeConfiguration} from "./adt-runtime-client.ts";
+
+export function createWorkflowADTRuntimeConfiguration(env:Record<string,string|undefined>):ADTRuntimeConfiguration{return{baseUrl:env.ADT_RUNTIME_BASE_URL,authSecret:env.ADT_RUNTIME_AUTH_SECRET,wrappingPublicKey:env.ADT_RUNTIME_WRAPPING_PUBLIC_KEY,toolGatewayUrl:env.ADT_TOOL_GATEWAY_URL,toolAuthority:async invocation=>{const context=invocation.repositoryContext;if(!context)throw new Error("tool_repository_context_unavailable");return issueArtifactSearchAuthority({version:1,runId:invocation.runId,stepId:invocation.stepId,iteration:invocation.iteration,attempt:invocation.attempt,...context,expiresAt:Date.now()+5*60_000,nonce:crypto.randomUUID()},env.ADT_TOOL_AUTHORITY_SECRET??"")}}}
 
 export function createWorkflowExecutionConnectionResolver(env:CloudflareEnv){
  const providerSecrets=createWorkflowProviderSecretResolver(ref=>(env as unknown as Record<string,unknown>)[ref]);
@@ -28,5 +32,5 @@ export async function executeWorkflowRun(env: CloudflareEnv, runId: string, inst
   const detail=await storage.getRun(runId);if(!detail)throw new Error("run_not_found");await storage.attachWorkflowInstance(runId,detail.run.workflowGeneration,instanceId);
   const resolveProviderConnection=createWorkflowExecutionConnectionResolver(env);
   const runtimeEnv=env as unknown as Record<string,string|undefined>;
-  return executeDurableWorkflow({runId,storage,runtimes:createAgentRuntimeRegistry(undefined,{baseUrl:runtimeEnv.ADT_RUNTIME_BASE_URL,authSecret:runtimeEnv.ADT_RUNTIME_AUTH_SECRET,wrappingPublicKey:runtimeEnv.ADT_RUNTIME_WRAPPING_PUBLIC_KEY}),resolveConnection:(key,snapshot)=>key==="deterministic-test"?Promise.resolve(resolveConnection(key,env as unknown as Record<string,string|undefined>)):key==="codex-primary"?Promise.resolve({...codexRunnerDescriptor(true),serverConfiguration:{baseUrl:env.CODEX_RUNNER_BASE_URL,accessClientId:env.CODEX_RUNNER_ACCESS_CLIENT_ID,accessClientSecret:env.CODEX_RUNNER_ACCESS_CLIENT_SECRET,sharedSecret:env.CODEX_RUNNER_SHARED_SECRET}}):resolveProviderConnection(key,snapshot),step:step as unknown as DurableStep});
+  return executeDurableWorkflow({runId,storage,runtimes:createAgentRuntimeRegistry(undefined,createWorkflowADTRuntimeConfiguration(runtimeEnv)),resolveConnection:(key,snapshot)=>key==="deterministic-test"?Promise.resolve(resolveConnection(key,env as unknown as Record<string,string|undefined>)):key==="codex-primary"?Promise.resolve({...codexRunnerDescriptor(true),serverConfiguration:{baseUrl:env.CODEX_RUNNER_BASE_URL,accessClientId:env.CODEX_RUNNER_ACCESS_CLIENT_ID,accessClientSecret:env.CODEX_RUNNER_ACCESS_CLIENT_SECRET,sharedSecret:env.CODEX_RUNNER_SHARED_SECRET}}):resolveProviderConnection(key,snapshot),step:step as unknown as DurableStep});
 }
