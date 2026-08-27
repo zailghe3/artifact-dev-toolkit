@@ -1,52 +1,65 @@
-import {connectionDefinitionPath,connectionDefinitionSchema,PROVIDER_CONNECTION_SECRET_PREFIX,SECRET_BINDING,type ConnectionDefinition} from "./workflow-connection-definitions.ts";
+import {connectionDefinitionPath,connectionDefinitionSchema,type ConnectionDefinition} from "./workflow-connection-definitions.ts";
 import {assertProviderConnectionKey} from "./workflow-connections.ts";
 import type {WorkflowConnectionDefinitionRepository} from "./workflow-connection-definition-repository.ts";
-import type {D1WorkflowProviderConnectionStore} from "./workflow-provider-connection-store.ts";
+import type {D1WorkflowProviderConnectionStore,LegacyConnectionMigrationSource} from "./workflow-provider-connection-store.ts";
 import type {WorkflowProviderSecretResolver} from "./workflow-provider-secret-resolver.ts";
+import type {D1ProviderCredentialVault} from "./provider-credential-vault.ts";
 
-export type ConnectionMigrationState="d1_only"|"git_secret_missing"|"git_validation_failed"|"git_ready_shadowing_d1"|"git_ready"|"git_d1_mismatch"|"temporarily_unavailable";
-export type ConnectionMigration={connectionId:string;connectionName:string;configuredModel:string;targetPath:string;definition:ConnectionDefinition;canonicalJson:string;secretRef:string;secretProvisioning:"external_required"|"resolved";state:ConnectionMigrationState;message:string;repositoryRevision?:string};
+export type ConnectionMigrationState="d1_eligible"|"git_binding_eligible"|"git_binding_unavailable"|"already_vault"|"temporarily_unavailable";
+export type ConnectionMigration={connectionId:string;connectionName:string;runtime:string;configuredModel:string;targetPath:string;currentSource:"legacy-d1"|"cloudflare-binding"|"adt-vault";targetSource:"adt-vault";state:ConnectionMigrationState;message:string;repositoryRevision?:string;sourceVersion?:string;canMigrate:boolean};
+export type ConnectionMigrationRequest={expectedSource:"legacy-d1"|"cloudflare-binding";repositoryRevision?:string;sourceVersion?:string};
 
 const messages:Record<ConnectionMigrationState,string>={
- d1_only:"D1 is active. Prepare the Git definition and provision its provider secret separately.",
- git_secret_missing:"Git is authoritative, but the required provider secret is not available.",
- git_validation_failed:"Git is authoritative, but live credential and model validation did not succeed.",
- git_ready_shadowing_d1:"Git is authoritative and live-ready. The shadowed D1 row is intentionally retained for pre-migration run compatibility and later cleanup.",
- git_ready:"Git is live-ready and no D1 fallback row remains.",
- git_d1_mismatch:"Git is authoritative, but its safe configuration does not match the D1 migration source.",
- temporarily_unavailable:"Migration readiness could not be checked because the repository or provider is temporarily unavailable.",
+ d1_eligible:"Legacy D1 is active and ready for server-side migration to Git and the ADT vault.",
+ git_binding_eligible:"The active legacy Cloudflare provider binding is ready for server-side migration to the ADT vault.",
+ git_binding_unavailable:"The active Cloudflare binding is unavailable. Re-enter the credential with Switch to ADT vault.",
+ already_vault:"This connection already uses the ADT vault.",
+ temporarily_unavailable:"Migration state could not be established safely. Refresh before taking another action.",
 };
 
 export class ConnectionMigrationError extends Error{code:string;constructor(code:string){super(code);this.code=code}}
 
-export function suggestedProviderSecretRef(connectionId:string){
- const value=`${PROVIDER_CONNECTION_SECRET_PREFIX}${connectionId.toUpperCase().replaceAll("-","_")}`;
- if(!SECRET_BINDING.test(value))throw new ConnectionMigrationError("migration_secret_ref_invalid");
- return value;
-}
-
-export function createConnectionMigrationExport(value:{key:string;name:string;adapter:string;defaultModel?:string}){
- if(value.adapter!=="openai-responses"||!value.defaultModel)throw new ConnectionMigrationError("migration_source_not_found");
- assertProviderConnectionKey(value.key);
- const secretRef=suggestedProviderSecretRef(value.key),definition=connectionDefinitionSchema.parse({schemaVersion:1,id:value.key,name:value.name,runtime:"openai-responses",provider:"openai",model:value.defaultModel,credential:{secretRef}});
- return{connectionId:value.key,connectionName:value.name,configuredModel:value.defaultModel,targetPath:connectionDefinitionPath(value.key),definition,canonicalJson:`${JSON.stringify(definition,null,2)}\n`,secretRef};
-}
-
-function equivalent(d1:{key:string;name:string;adapter:string;defaultModel?:string},git:ConnectionDefinition){return d1.key===git.id&&d1.adapter===git.runtime&&d1.defaultModel===git.model&&d1.name.trim()===git.name.trim()}
+function view(definition:ConnectionDefinition,state:ConnectionMigrationState,currentSource:ConnectionMigration["currentSource"],extra:Partial<ConnectionMigration>={}):ConnectionMigration{return{connectionId:definition.id,connectionName:definition.name,runtime:definition.runtime,configuredModel:definition.model,targetPath:connectionDefinitionPath(definition.id),currentSource,targetSource:"adt-vault",state,message:messages[state],canMigrate:state==="d1_eligible"||state==="git_binding_eligible",...extra}}
+function d1Definition(source:LegacyConnectionMigrationSource,secretRef:string){return connectionDefinitionSchema.parse({schemaVersion:1,id:source.descriptor.key,name:source.descriptor.name,runtime:"openai-responses",provider:"openai",model:source.descriptor.defaultModel,credential:{source:"adt-vault",secretRef}})}
+function definiteConflict(error:unknown){return error instanceof Error&&(error.message==="connection_revision_conflict"||error.message==="connection_exists")}
 
 export class WorkflowProviderConnectionMigrationService{
- private git:WorkflowConnectionDefinitionRepository;private d1:D1WorkflowProviderConnectionStore;private secrets:WorkflowProviderSecretResolver;private validateModel:(credential:string,model:string)=>Promise<void>;
- constructor(git:WorkflowConnectionDefinitionRepository,d1:D1WorkflowProviderConnectionStore,secrets:WorkflowProviderSecretResolver,validateModel:(credential:string,model:string)=>Promise<void>){this.git=git;this.d1=d1;this.secrets=secrets;this.validateModel=validateModel}
+ private git:WorkflowConnectionDefinitionRepository;private d1:D1WorkflowProviderConnectionStore;private secrets:WorkflowProviderSecretResolver;private vault:Pick<D1ProviderCredentialVault,"create"|"delete">;
+ constructor(git:WorkflowConnectionDefinitionRepository,d1:D1WorkflowProviderConnectionStore,secrets:WorkflowProviderSecretResolver,vault:Pick<D1ProviderCredentialVault,"create"|"delete">){this.git=git;this.d1=d1;this.secrets=secrets;this.vault=vault}
+
  async inspect(connectionId:string):Promise<ConnectionMigration>{
   assertProviderConnectionKey(connectionId);
-  const d1=await this.d1.getPersistedSafeDescriptor(connectionId),git=await this.git.getConnection(connectionId).catch(()=>{throw new ConnectionMigrationError("migration_repository_unavailable")});
-  if(!d1&&!git)throw new ConnectionMigrationError("migration_source_not_found");
-  const base=createConnectionMigrationExport(d1??{key:git!.definition.id,name:git!.definition.name,adapter:git!.definition.runtime,defaultModel:git!.definition.model});
-  if(!git)return{...base,secretProvisioning:"external_required",state:"d1_only",message:messages.d1_only};
-  const current={...base,definition:git.definition,canonicalJson:`${JSON.stringify(git.definition,null,2)}\n`,secretRef:git.definition.credential.secretRef,targetPath:connectionDefinitionPath(git.definition.id),repositoryRevision:git.fileSha};
-  if(d1&&!equivalent(d1,git.definition))return{...current,secretProvisioning:"external_required",state:"git_d1_mismatch",message:messages.git_d1_mismatch};
-  let credential:string;try{credential=this.secrets.resolve(git.definition.credential.secretRef)}catch{return{...current,secretProvisioning:"external_required",state:"git_secret_missing",message:messages.git_secret_missing}}
-  try{await this.validateModel(credential,git.definition.model)}catch(error){const transient=error instanceof Error&&["provider_unavailable","provider_timeout","rate_limited"].includes(error.message);const state=transient?"temporarily_unavailable":"git_validation_failed";return{...current,secretProvisioning:"resolved",state,message:messages[state]}}
-  const state=d1?"git_ready_shadowing_d1":"git_ready";return{...current,secretProvisioning:"resolved",state,message:messages[state]};
+  let git;try{git=await this.git.getConnection(connectionId)}catch{return{connectionId,connectionName:connectionId,runtime:"unknown",configuredModel:"unknown",targetPath:connectionDefinitionPath(connectionId),currentSource:"legacy-d1",targetSource:"adt-vault",state:"temporarily_unavailable",message:messages.temporarily_unavailable,canMigrate:false}}
+  if(git){
+   if("source" in git.definition.credential)return view(git.definition,"already_vault","adt-vault",{repositoryRevision:git.fileSha});
+   try{this.secrets.resolve(git.definition.credential.secretRef);return view(git.definition,"git_binding_eligible","cloudflare-binding",{repositoryRevision:git.fileSha})}
+   catch{return view(git.definition,"git_binding_unavailable","cloudflare-binding",{repositoryRevision:git.fileSha})}
+  }
+  const source=await this.d1.getLegacyMigrationSource(connectionId).catch(()=>undefined);
+  if(!source)throw new ConnectionMigrationError("migration_source_not_found");
+  const definition=connectionDefinitionSchema.parse({schemaVersion:1,id:source.descriptor.key,name:source.descriptor.name,runtime:"openai-responses",provider:"openai",model:source.descriptor.defaultModel,credential:{source:"adt-vault",secretRef:`sec_${"x".repeat(43)}`}});
+  return view(definition,"d1_eligible","legacy-d1",{sourceVersion:source.sourceVersion});
+ }
+
+ async migrate(connectionId:string,expected:ConnectionMigrationRequest):Promise<{state:"completed";connectionId:string;repositoryRevision?:string}>{
+  assertProviderConnectionKey(connectionId);
+  const current=await this.git.getConnection(connectionId).catch(()=>{throw new ConnectionMigrationError("migration_repository_unavailable")});
+  if(current&&"source" in current.definition.credential)return{state:"completed",connectionId,repositoryRevision:current.fileSha};
+  if(expected.expectedSource==="cloudflare-binding"){
+   if(!current||!expected.repositoryRevision||current.fileSha!==expected.repositoryRevision||"source" in current.definition.credential)throw new ConnectionMigrationError("migration_source_changed");
+   let credential:string;try{credential=this.secrets.resolve(current.definition.credential.secretRef)}catch{throw new ConnectionMigrationError("migration_credential_unavailable")}
+   if(!this.git.updateConnection)throw new ConnectionMigrationError("migration_repository_unavailable");
+   const secretRef=await this.vault.create(credential),definition=connectionDefinitionSchema.parse({...current.definition,credential:{source:"adt-vault",secretRef}});
+   try{const result=await this.git.updateConnection(definition,expected.repositoryRevision);return{state:"completed",connectionId,repositoryRevision:result.fileSha}}
+   catch(error){if(definiteConflict(error))await this.vault.delete(secretRef);throw error}
+  }
+  if(current||!expected.sourceVersion)throw new ConnectionMigrationError("migration_source_changed");
+  const source=await this.d1.getLegacyMigrationSource(connectionId).catch(()=>{throw new ConnectionMigrationError("migration_credential_unavailable")});
+  if(!source||source.sourceVersion!==expected.sourceVersion)throw new ConnectionMigrationError("migration_source_changed");
+  if(await this.git.getConnection(connectionId))throw new ConnectionMigrationError("migration_source_changed");
+  if(!this.git.createConnection)throw new ConnectionMigrationError("migration_repository_unavailable");
+  const secretRef=await this.vault.create(source.credential),definition=d1Definition(source,secretRef);
+  try{const result=await this.git.createConnection(definition);return{state:"completed",connectionId,repositoryRevision:result.fileSha}}
+  catch(error){if(definiteConflict(error))await this.vault.delete(secretRef);throw error}
  }
 }

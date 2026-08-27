@@ -94,7 +94,12 @@
 - New Workflow snapshots retain the safe credential source and reference. Historical source-less Git and D1 snapshots retain their previous meanings.
 - Vault configure, replace, remove, and recover operations verify the observed Git revision and derive the authoritative reference server-side. Stored plaintext is never returned.
 - Replacing or removing a vault credential does not mutate Git. Recovery restores the existing reference and cannot overwrite an existing value.
-- Explicit legacy Git adoption requires credential re-entry, creates a new vault reference, and does not read, copy, or delete the legacy Cloudflare binding.
+- An authorised user can explicitly migrate one active legacy credential to the ADT vault. Migration is never automatic or performed by ordinary reads or execution.
+- D1-only migration decrypts the exact active legacy credential server-side, creates a fresh encrypted vault value, and creates a same-ID Git definition for OpenAI Responses. The inspected non-secret source version and absence of Git ownership are concurrency preconditions.
+- Source-less Git migration copies only the exact referenced Cloudflare binding server-side and revision-safely changes only its credential source and reference. Both supported OpenAI Git runtimes retain their runtime and non-secret configuration.
+- Credential plaintext, encrypted envelopes, and key material never pass through the browser, API representation, Git definition, or Workflow snapshot. Provider testing remains a separate explicit operation.
+- Definite repository conflicts remove only the newly unreferenced vault value. Ambiguous repository outcomes retain it, are not retried automatically, and require refreshed inspection.
+- Legacy Cloudflare bindings and D1 rows are not deleted by migration because historical source-less Git and D1 snapshots continue resolving their exact original sources. Already-vault Git connections are migration-complete.
 - Connection configuration, credential availability, live provider/model readiness, and ADT Runtime diagnostics are distinct states.
 - Saving or executing an Agent fails closed when required live provider configuration is invalid or unavailable.
 - Credentials are never stored in Agent, Workflow, or run definitions and never appear in diagnostics or logs.

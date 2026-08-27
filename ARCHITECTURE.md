@@ -89,8 +89,9 @@ The product invariants are in [`specs/agent-workflows.md`](specs/agent-workflows
 - OpenAI Responses and OpenAI Agents SDK runtimes are server-side execution providers.
 - Git is authoritative for provider connection IDs defined under `connections/`; D1 remains a transitional fallback only for other IDs.
 - Target Git definitions use logical `adt-vault` references while encrypted provider credential values live permanently in the D1-backed ADT vault. Source-less `WORKFLOW_PROVIDER_CONNECTION_*` references remain a transitional Cloudflare-binding contract.
-- Authorised operators can export safe D1 settings into the canonical Git contract and verify the externally provisioned Cloudflare secret and live provider model.
+- New connections use the permanent ADT vault. Authorised operators can explicitly migrate an active legacy D1 credential or source-less Cloudflare binding into it without transferring credential plaintext through the browser or Git.
 - Git is authoritative for non-secret connection configuration. The logical ADT vault is authoritative for target credential values; legacy Cloudflare bindings and encrypted D1 connection rows remain source-exact compatibility state.
+- Migration retains legacy bindings and D1 rows because immutable historical Workflow snapshots can still require their original source. The provider Runtime boundary is unchanged.
 - Live provider readiness is distinct from saved configuration.
 - External task creation, polling, retry, cancellation, and ambiguous outcomes are trust and billing boundaries.
 
