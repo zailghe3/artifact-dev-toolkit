@@ -53,6 +53,7 @@
 ### 3.4 Copying
 
 - Users can copy an artifact's reusable Markdown body.
+- Users can copy the reusable body directly from either the catalogue or artifact detail.
 - Copying excludes repository metadata and rendered HTML.
 - The interface provides clear success feedback after copying.
 

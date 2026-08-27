@@ -6,7 +6,10 @@ import { useRouter } from "next/navigation";
 import type { Artifact } from "@/lib/artifacts";
 import { searchArtifacts } from "@/lib/search";
 import { ArtifactDeleteButton } from "@/components/ArtifactDeleteButton";
+import { CopyButton } from "@/components/CopyButton";
 import { reconcileTombstones, tombstonesAfterResult, visibleArtifacts, type DeletionResult } from "@/lib/deletion-ui";
+
+export function catalogueCopyText(artifact: Pick<Artifact, "body">) { return artifact.body; }
 
 export function ArtifactSearch({ artifacts }: { artifacts: Artifact[] }) {
   const [query, setQuery] = useState("");
@@ -49,7 +52,7 @@ export function ArtifactSearch({ artifacts }: { artifacts: Artifact[] }) {
                 <span key={tag} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">#{tag}</span>
               ))}
             </div>
-          </Link><ArtifactDeleteButton artifact={artifact} onResult={handleDeletion} onStart={() => setOperationResult(undefined)} /></article>
+          </Link><div className="mt-4 flex flex-wrap items-center border-t border-slate-200 pt-3 dark:border-slate-800"><ArtifactDeleteButton artifact={artifact} onResult={handleDeletion} onStart={() => setOperationResult(undefined)} /><span className="ml-auto"><CopyButton text={catalogueCopyText(artifact)} compact label={`${artifact.title} body`} /></span></div></article>
         ))}
       </div>
     </div>
