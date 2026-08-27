@@ -194,6 +194,18 @@
 - Provider-side failure must not be misrepresented as an application authorisation problem when the distinction is known.
 - Ambiguous external outcomes remain explicit rather than being reported as successful, failed, or safely retryable without evidence.
 
+### Provider credential authority and readiness
+
+- Git is authoritative for non-secret provider connection identity, runtime, provider, model, and credential reference.
+- New provider connections reference the logical ADT vault with `source: "adt-vault"` and an opaque `sec_...` reference.
+- The ADT vault is permanent encrypted application state. Provider credentials are write-only and may be replaced, removed, or recovered without exposing stored plaintext.
+- Replacing or removing a vault credential does not change the Git definition. Recovery restores the definition's existing reference and refuses to overwrite an existing value.
+- A source-less Git credential reference retains its transitional Cloudflare provider-binding meaning. Historical Git snapshots without a source discriminator retain that meaning, and historical D1 snapshots retain their D1 compatibility meaning.
+- Credential resolution is source-exact. A missing or invalid vault value makes the connection unavailable and never falls back to a Cloudflare binding or same-ID D1 row.
+- Valid configuration, configured credential, live provider/model readiness, and ADT Runtime diagnostics are distinct states. Runtime diagnostics remain available independently of the provider credential.
+- Workflow runs snapshot the safe credential source and reference with runtime and model. Plaintext credentials are never durable run state.
+
+
 ## 17. Current limitations
 
 - Workflows are sequential.
