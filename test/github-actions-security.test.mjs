@@ -34,6 +34,13 @@ test('workflow_run fails closed for stale heads, forks, non-owners, and non-main
   assert.match(source, /-f sha="\$\{VALIDATED_SHA\}"/);
 });
 
+test('merge-boundary helper receives complete trusted owner context', () => {
+  const source = workflow('.github/workflows/auto-merge.yml');
+  const merge = source.slice(source.indexOf('Atomically squash merge validated head'), source.indexOf('Dispatch Main lifecycle'));
+  assert.match(merge, /REPOSITORY_OWNER: \$\{\{ github\.repository_owner \}\}/);
+  assert.match(merge, /scripts\/auto-merge-orchestration\.mjs current-array\.json/);
+});
+
 test('write-capable auto-merge job checks out only trusted main scripts', () => {
   const source = workflow('.github/workflows/auto-merge.yml');
   for (const checkoutBlock of source.matchAll(/uses: actions\/checkout@[\s\S]*?(?=\n      - name:|$)/g)) {

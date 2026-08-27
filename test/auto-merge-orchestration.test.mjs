@@ -1,4 +1,8 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { decidePullRequestAction } from '../scripts/auto-merge-orchestration.mjs';
 
@@ -40,4 +44,22 @@ test('zero and multiple associated main pull requests fail closed', () => {
   const input = { validatedSha: sha, repository: 'owner/repo', repositoryOwner: 'owner' };
   assert.throws(() => decidePullRequestAction({ ...input, pulls: [] }), /exactly one/);
   assert.throws(() => decidePullRequestAction({ ...input, pulls: [trusted, { ...trusted, number: 222 }] }), /found 2/);
+});
+
+test('CLI receives the complete trusted environment used at the merge boundary', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'auto-merge-'));
+  const input = join(directory, 'pulls.json');
+  writeFileSync(input, JSON.stringify([trusted]));
+  const run = spawnSync(process.execPath, ['scripts/auto-merge-orchestration.mjs', input], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      REPOSITORY: 'owner/repo',
+      REPOSITORY_OWNER: 'owner',
+      VALIDATED_SHA: sha,
+    },
+  });
+
+  assert.equal(run.status, 0, run.stderr);
+  assert.match(run.stdout, /^action=evaluate$/m);
 });

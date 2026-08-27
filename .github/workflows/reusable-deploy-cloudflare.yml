@@ -10,6 +10,10 @@ on:
         required: false
         type: string
         default: ""
+      require_current_main:
+        required: false
+        type: boolean
+        default: true
     secrets:
       CLOUDFLARE_API_TOKEN:
         required: true
@@ -24,8 +28,40 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  freshness:
+    name: verify-current-main
+    runs-on: ubuntu-latest
+    outputs:
+      current: ${{ steps.main.outputs.current }}
+    steps:
+      - name: Require the deployment commit to remain current main
+        id: main
+        env:
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          REQUIRE_CURRENT_MAIN: ${{ inputs.require_current_main }}
+        run: |
+          set -euo pipefail
+          if [[ "${REQUIRE_CURRENT_MAIN}" != true ]]; then
+            echo 'current=true' >> "$GITHUB_OUTPUT"
+            echo 'Explicit manual recovery deployment may target a historical immutable commit.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          current_main="$(gh api "/repos/${REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+          [[ "${current_main}" =~ ^[0-9a-f]{40}$ ]]
+          if [[ "${COMMIT_SHA}" == "${current_main}" ]]; then
+            echo 'current=true' >> "$GITHUB_OUTPUT"
+            echo "Deployment target ${COMMIT_SHA} is current main." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'current=false' >> "$GITHUB_OUTPUT"
+            echo "Skipping stale deployment target ${COMMIT_SHA}; current main is ${current_main}." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   deploy:
     name: deploy-cloudflare
+    needs: freshness
+    if: needs.freshness.outputs.current == 'true'
     runs-on: ubuntu-latest
     environment: production
     steps:

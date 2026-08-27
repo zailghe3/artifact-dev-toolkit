@@ -7,6 +7,7 @@ const manualDeploy = readFileSync('.github/workflows/deploy-cloudflare.yml', 'ut
 const reusableDeploy = readFileSync('.github/workflows/reusable-deploy-cloudflare.yml', 'utf8');
 const main = readFileSync('.github/workflows/main-orchestrator.yml', 'utf8');
 const classify = readFileSync('.github/workflows/reusable-classify-changes.yml', 'utf8');
+const pr = readFileSync('.github/workflows/pr-orchestrator.yml', 'utf8');
 
 test('automatic merge exists only after successful PR lifecycle and is head guarded', () => {
   assert.doesNotMatch(autoMerge, /pull_request_target|--auto/);
@@ -53,5 +54,51 @@ test('Cloudflare deployment verifies its exact input commit', () => {
 
 test('manual deployment remains an explicit recovery workflow', () => {
   assert.match(manualDeploy, /default: main/);
+  assert.match(manualDeploy, /git rev-parse HEAD/);
   assert.match(manualDeploy, /commit_sha: \$\{\{ needs\.resolve\.outputs\.commit_sha \}\}/);
+  assert.match(manualDeploy, /pull_request_number: \$\{\{ inputs\.pull_request_number \}\}/);
+  assert.match(manualDeploy, /require_current_main: false/);
+});
+
+test('main deployment is skipped for non-deployable changes and verification failure', () => {
+  const deploy = main.slice(main.indexOf('  deploy:'), main.indexOf('  summary:'));
+  assert.match(deploy, /needs\.classify\.outputs\.deployable_changes == 'true'/);
+  assert.match(deploy, /needs\.verify-main\.result == 'success'/);
+  assert.match(main, /Deployment: skipped — no production-affecting changes/);
+  assert.match(main, /Deployment: `\$\{\{ needs\.deploy\.result \}\}`/);
+});
+
+test('main metadata lookup cannot block deployment when no unique PR exists', () => {
+  assert.match(main, /pull_request_number=""/);
+  assert.match(main, /if \[\[ "\$\{#matches\[@\]\}" -eq 1 \]\]/);
+  assert.match(main, /deployment will continue without PR metadata/);
+});
+
+test('Cloudflare implementation and credentials remain outside PR workflows', () => {
+  assert.doesNotMatch(pr, /CLOUDFLARE_API_TOKEN|CLOUDFLARE_ACCOUNT_ID|reusable-deploy-cloudflare/);
+  assert.doesNotMatch(main, /npm run build:worker|d1 migrations|npx wrangler|smoke-test-oauth/);
+  assert.match(reusableDeploy, /production-cloudflare-deploy-\$\{\{ github\.repository \}\}/);
+});
+
+test('remote D1 migrations run before wrangler deploy and block deployment on failure', () => {
+  const migrationIndex = reusableDeploy.indexOf('npx wrangler d1 migrations apply AUTH_SESSIONS_DB --remote');
+  const deployIndex = reusableDeploy.indexOf('npx wrangler deploy');
+  assert.ok(migrationIndex > 0, 'expected remote migration step');
+  assert.ok(deployIndex > migrationIndex, 'wrangler deploy must run after migrations');
+  assert.doesNotMatch(reusableDeploy.slice(migrationIndex, deployIndex), /continue-on-error:\s*true/);
+});
+
+test('production binding validation occurs before Worker build and deploy', () => {
+  const validationIndex = reusableDeploy.indexOf('node scripts/validate-production-bindings.mjs');
+  assert.ok(validationIndex > 0);
+  assert.ok(validationIndex < reusableDeploy.indexOf('npm run build:worker'));
+  assert.ok(validationIndex < reusableDeploy.indexOf('npx wrangler deploy'));
+});
+
+test('automatic A then automatic B, automatic A then manual B, and manual A then automatic B share one freshness-guarded deployment boundary', () => {
+  assert.match(reusableDeploy, /concurrency:[\s\S]*group: production-cloudflare-deploy-\$\{\{ github\.repository \}\}[\s\S]*cancel-in-progress: false/);
+  assert.match(reusableDeploy, /current_main="\$\(gh api[\s\S]*git\/ref\/heads\/main[\s\S]*\.object\.sha/);
+  assert.match(reusableDeploy, /if \[\[ "\$\{COMMIT_SHA\}" == "\$\{current_main\}" \]\]/);
+  assert.match(reusableDeploy, /deploy:[\s\S]*needs: freshness[\s\S]*if: needs\.freshness\.outputs\.current == 'true'/);
+  assert.match(reusableDeploy, /require_current_main:[\s\S]*type: boolean[\s\S]*default: true/);
 });
