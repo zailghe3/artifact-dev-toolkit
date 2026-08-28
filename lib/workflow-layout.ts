@@ -1,5 +1,5 @@
 import {z} from "zod";
-import {DEFINITION_ID,type WorkflowDefinitionV1} from "./workflow-definitions.ts";
+import {DEFINITION_ID,type WorkflowDefinition} from "./workflow-definitions.ts";
 
 const finite=z.number().finite();
 const definitionId=z.string().regex(DEFINITION_ID).max(80);
@@ -21,13 +21,14 @@ export const workflowLayoutPath=(workflowId:string)=>`workflows/${definitionId.p
 export function defaultStepPosition(index:number){return{x:index*260,y:40};}
 
 /** Reconciles saved presentation state with the current semantic v1 Workflow. */
-export function projectSequentialWorkflow(workflow:WorkflowDefinitionV1,layout?:WorkflowLayoutV1){
+export function projectSequentialWorkflow(workflow:WorkflowDefinition,layout?:WorkflowLayoutV1){
  const saved=layout?.workflowId===workflow.id?layout.positions:{};
- const nodes:WorkflowVisualNode[]=workflow.steps.map((step,index)=>({id:step.id,position:saved[step.id]??defaultStepPosition(index),data:{label:step.name,agentId:step.agentId,stepNumber:index+1}}));
- const edges:WorkflowVisualEdge[]=workflow.steps.slice(1).map((step,index)=>({id:`sequence-${workflow.steps[index].id}-${step.id}`,source:workflow.steps[index].id,target:step.id}));
+ const semantic=workflow.schemaVersion===1?workflow.steps.map(step=>({id:step.id,name:step.name,agentId:step.agentId})):workflow.nodes.map(node=>({id:node.id,name:node.blockType,agentId:String((node.config as {agentId?:string}).agentId??"")}));
+ const nodes:WorkflowVisualNode[]=semantic.map((step,index)=>({id:step.id,position:saved[step.id]??defaultStepPosition(index),data:{label:step.name,agentId:step.agentId,stepNumber:index+1}}));
+ const edges:WorkflowVisualEdge[]=workflow.schemaVersion===1?semantic.slice(1).map((step,index)=>({id:`sequence-${semantic[index].id}-${step.id}`,source:semantic[index].id,target:step.id})):workflow.edges;
  return{nodes,edges,viewport:layout?.workflowId===workflow.id?layout.viewport:{x:0,y:0,zoom:1}};
 }
 
-export function normalizeWorkflowLayout(workflow:WorkflowDefinitionV1,positions:Record<string,{x:number;y:number}>,viewport:{x:number;y:number;zoom:number}):WorkflowLayoutV1{
- return workflowLayoutSchema.parse({schemaVersion:1,workflowId:workflow.id,positions:Object.fromEntries(workflow.steps.map((step,index)=>[step.id,positions[step.id]??defaultStepPosition(index)])),viewport});
+export function normalizeWorkflowLayout(workflow:WorkflowDefinition,positions:Record<string,{x:number;y:number}>,viewport:{x:number;y:number;zoom:number}):WorkflowLayoutV1{
+ return workflowLayoutSchema.parse({schemaVersion:1,workflowId:workflow.id,positions:Object.fromEntries((workflow.schemaVersion===1?workflow.steps:workflow.nodes).map((step,index)=>[step.id,positions[step.id]??defaultStepPosition(index)])),viewport});
 }

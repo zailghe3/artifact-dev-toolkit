@@ -2,12 +2,12 @@
 
 import {useCallback,useState} from "react";
 import {Background,Controls,ReactFlow,applyNodeChanges,type Node,type NodeChange,type Viewport} from "@xyflow/react";
-import type {WorkflowDefinitionV1} from "@/lib/workflow-definitions";
+import type {WorkflowDefinition} from "@/lib/workflow-definitions";
 import {normalizeWorkflowLayout,projectSequentialWorkflow,type WorkflowLayoutV1} from "@/lib/workflow-layout";
 
 type SavedLayout={definition:WorkflowLayoutV1;fileSha:string};
 
-export function WorkflowLayoutEditor({workflow,agents,initialLayout}:{workflow:WorkflowDefinitionV1;agents:Record<string,string>;initialLayout?:SavedLayout}){
+export function WorkflowLayoutEditor({workflow,agents,initialLayout}:{workflow:WorkflowDefinition;agents:Record<string,string>;initialLayout?:SavedLayout}){
  const projected=projectSequentialWorkflow(workflow,initialLayout?.definition);
  const [nodes,setNodes]=useState<Node[]>(()=>projected.nodes.map(node=>({...node,data:{label:<><strong>Step {node.data.stepNumber}: {node.data.label}</strong><span className="block text-xs">Agent: {agents[node.data.agentId]??node.data.agentId}</span></>}})));
  const [viewport,setViewport]=useState<Viewport>(projected.viewport),[fileSha,setFileSha]=useState(initialLayout?.fileSha),[status,setStatus]=useState("");

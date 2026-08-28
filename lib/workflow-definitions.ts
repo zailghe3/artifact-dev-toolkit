@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { validateAdapterOptions } from "./workflow-adapter.ts";
 import {validateOpenAIModelAgentOptions} from "./openai-model-agent-capabilities.ts";
+import {workflowBlockRegistry} from "./workflow-block-registry.ts";
 
 export const DEFINITION_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 export const MAX_WORKFLOW_STEPS = 32;
@@ -39,7 +40,7 @@ export const workflowStepSchema = z.object({
   onFailure: z.object({ type: z.literal("fail") }).strict(),
 }).strict();
 
-export const workflowDefinitionSchema = z.object({
+export const workflowDefinitionV1Schema = z.object({
   schemaVersion: z.literal(1), id, name: z.string().trim().min(1).max(120), description: z.string().max(2000), status: z.literal("draft"),
   steps: z.array(workflowStepSchema).min(1).max(MAX_WORKFLOW_STEPS),
   result: z.object({ source: z.literal("step_output"), stepId: id }).strict(),
@@ -59,9 +60,21 @@ export const workflowDefinitionSchema = z.object({
   if (workflow.limits.maxStepExecutions < workflow.steps.length) context.addIssue({ code: "custom", message: "Execution limit is lower than the step count.", path: ["limits", "maxStepExecutions"] });
 });
 
+const workflowNodeSchema=z.object({id,blockType:z.string().trim().min(1).max(80),blockVersion:z.number().int().positive(),config:z.unknown()}).strict();
+const workflowEdgeSchema=z.object({id,source:z.string().regex(DEFINITION_ID).max(80),target:z.string().regex(DEFINITION_ID).max(80)}).strict();
+export const workflowDefinitionV2Schema=z.object({schemaVersion:z.literal(2),id,name:z.string().trim().min(1).max(120),description:z.string().max(2000),status:z.literal("draft"),nodes:z.array(workflowNodeSchema).min(1).max(MAX_WORKFLOW_STEPS),edges:z.array(workflowEdgeSchema).max(MAX_WORKFLOW_STEPS-1),limits:z.object({maxStepExecutions:z.number().int().min(1).max(MAX_STEP_EXECUTIONS)}).strict()}).strict().superRefine((workflow,context)=>{
+ const nodeIds=new Set<string>(),edgeIds=new Set<string>();
+ workflow.nodes.forEach((node,index)=>{if(nodeIds.has(node.id))context.addIssue({code:"custom",message:"Node IDs must be unique.",path:["nodes",index,"id"]});nodeIds.add(node.id);try{workflowBlockRegistry.validate(node.blockType,node.blockVersion,node.config)}catch(error){context.addIssue({code:"custom",message:error instanceof Error?error.message:"Invalid block configuration.",path:["nodes",index,"config"]})}});
+ workflow.edges.forEach((edge,index)=>{if(edgeIds.has(edge.id))context.addIssue({code:"custom",message:"Edge IDs must be unique.",path:["edges",index,"id"]});edgeIds.add(edge.id);if(!nodeIds.has(edge.source)||!nodeIds.has(edge.target))context.addIssue({code:"custom",message:"Edge endpoints must exist.",path:["edges",index]})});
+ if(workflow.limits.maxStepExecutions<workflow.nodes.length)context.addIssue({code:"custom",message:"Execution limit is lower than the node count.",path:["limits","maxStepExecutions"]});
+});
+export const workflowDefinitionSchema=z.discriminatedUnion("schemaVersion",[workflowDefinitionV1Schema,workflowDefinitionV2Schema]);
+
 export type AgentPrompt=z.infer<typeof agentV2Schema>["prompt"];
 export type AgentDefinitionV1 = z.infer<typeof agentDefinitionSchema>;
-export type WorkflowDefinitionV1 = z.infer<typeof workflowDefinitionSchema>;
+export type WorkflowDefinitionV1 = z.infer<typeof workflowDefinitionV1Schema>;
+export type WorkflowDefinitionV2 = z.infer<typeof workflowDefinitionV2Schema>;
+export type WorkflowDefinition = z.infer<typeof workflowDefinitionSchema>;
 
 export function validateAgentAdapterOptions(agent:AgentDefinitionV1,adapter:string){return {...agent,adapterOptions:validateAdapterOptions(adapter,agent.adapterOptions)};}
 export function validateAgentForConnection(agent:AgentDefinitionV1,connection:{adapter:string;defaultModel?:string}){const definition=validateAgentAdapterOptions(agent,connection.adapter);if(definition.tools?.length&&connection.adapter!=="openai-agents")throw new Error("agent_tool_runtime_unsupported");if(connection.adapter==="openai-responses"||connection.adapter==="openai-agents")validateOpenAIModelAgentOptions(connection.defaultModel,definition.adapterOptions as import("./workflow-adapter.ts").OpenAIResponsesOptions);return definition;}
@@ -80,15 +93,33 @@ export function buildSequentialWorkflow(input: { id: string; name: string; descr
   const steps = input.agents.map((agent, index, all) => ({ id: `step-${index + 1}`, name: agent.name, agentId: agent.id,
     input: { source: index === 0 ? "run_input" as const : "previous_step" as const },
     onSuccess: { type: index === all.length - 1 ? "complete" as const : "next" as const }, onFailure: { type: "fail" as const } }));
-  return workflowDefinitionSchema.parse({ schemaVersion: 1, id: input.id, name: input.name, description: input.description ?? "", status: "draft", steps,
+  return workflowDefinitionV1Schema.parse({ schemaVersion: 1, id: input.id, name: input.name, description: input.description ?? "", status: "draft", steps,
     result: { source: "step_output", stepId: steps.at(-1)?.id }, limits: { maxStepExecutions: input.maxStepExecutions ?? Math.max(steps.length, 32) } });
 }
 
-export async function validateWorkflowReferences(workflow: WorkflowDefinitionV1, agents: readonly AgentDefinitionV1[], availableConnections: ReadonlySet<string>) {
+export function workflowAgentReferences(workflow:WorkflowDefinition){return workflow.schemaVersion===1?workflow.steps.map(step=>step.agentId):workflow.nodes.map(node=>(workflowBlockRegistry.validate(node.blockType,node.blockVersion,node.config) as {agentId:string}).agentId);}
+
+export function compileWorkflowV2(workflow:WorkflowDefinitionV2,agents:readonly AgentDefinitionV1[]):WorkflowDefinitionV1{
+ const parsed=workflowDefinitionV2Schema.parse(workflow),byId=new Map(parsed.nodes.map(node=>[node.id,node])),incoming=new Map(parsed.nodes.map(node=>[node.id,0])),outgoing=new Map(parsed.nodes.map(node=>[node.id,[] as string[]]));
+ for(const edge of parsed.edges){incoming.set(edge.target,(incoming.get(edge.target)??0)+1);outgoing.get(edge.source)!.push(edge.target);}
+ if([...incoming.values()].some(value=>value>1))throw new Error("unsupported_workflow_topology:joins_not_supported");
+ if([...outgoing.values()].some(value=>value.length>1))throw new Error("unsupported_workflow_topology:branching_not_supported");
+ const entries=[...incoming].filter(([,value])=>value===0).map(([key])=>key),terminals=[...outgoing].filter(([,value])=>value.length===0).map(([key])=>key);
+ if(entries.length!==1)throw new Error("unsupported_workflow_topology:ambiguous_entry");if(terminals.length!==1)throw new Error("unsupported_workflow_topology:ambiguous_terminal");
+ const order:string[]=[];let cursor:string|undefined=entries[0];while(cursor&&!order.includes(cursor)){order.push(cursor);cursor=outgoing.get(cursor)?.[0];}
+ if(cursor)throw new Error("unsupported_workflow_topology:cycle");if(order.length!==parsed.nodes.length)throw new Error("unsupported_workflow_topology:disconnected");
+ const agentById=new Map(agents.map(agent=>[agent.id,agent]));
+ return workflowDefinitionV1Schema.parse({schemaVersion:1,id:parsed.id,name:parsed.name,description:parsed.description,status:parsed.status,steps:order.map((nodeId,index)=>{const node=byId.get(nodeId)!,config=workflowBlockRegistry.validate(node.blockType,node.blockVersion,node.config) as {agentId:string},agent=agentById.get(config.agentId);if(!agent)throw new Error(`missing_agent:${config.agentId}`);return{id:node.id,name:agent.name,agentId:agent.id,input:{source:index===0?"run_input":"previous_step"},onSuccess:{type:index===order.length-1?"complete":"next"},onFailure:{type:"fail"}}}),result:{source:"step_output",stepId:order.at(-1)},limits:parsed.limits});
+}
+
+export function executableWorkflow(workflow:WorkflowDefinition,agents:readonly AgentDefinitionV1[]){return workflow.schemaVersion===1?workflow:compileWorkflowV2(workflow,agents);}
+
+export async function validateWorkflowReferences(workflow: WorkflowDefinition, agents: readonly AgentDefinitionV1[], availableConnections: ReadonlySet<string>) {
+  if(workflow.schemaVersion===2)compileWorkflowV2(workflow,agents);
   const byId = new Map(agents.map((agent) => [agent.id, agent]));
-  for (const step of workflow.steps) {
-    const agent = byId.get(step.agentId);
-    if (!agent) throw new Error(`missing_agent:${step.agentId}`);
+  for (const agentId of workflowAgentReferences(workflow)) {
+    const agent = byId.get(agentId);
+    if (!agent) throw new Error(`missing_agent:${agentId}`);
     if (!availableConnections.has(agent.connectionKey)) throw new Error(`connection_unavailable:${agent.connectionKey}`);
   }
 }

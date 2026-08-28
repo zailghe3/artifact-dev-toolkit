@@ -67,7 +67,7 @@ Authentication, repository access, session persistence, and privileged mutation 
 
 - Connections identify supported execution providers without exposing credentials.
 - Agents bind a connection, master prompt reference, and supported provider options.
-- Workflows define ordered Agent steps.
+- Workflows support compatible v1 ordered Agent steps and canonical v2 semantic block graphs; the ADT Block Registry validates v2 blocks and the current linear Agent graph compiles into the existing sequential engine.
 - Definitions are persisted through the configured GitHub-backed definition repository and use repository revisions for optimistic concurrency.
 - Root-level executable definition paths are canonical while temporary legacy-layout compatibility preserves exact-path, revision-aware mutation during repository migration.
 
@@ -76,7 +76,7 @@ Current product behaviour is defined by [`specs/agent-workflows.md`](specs/agent
 ### Durable Workflow execution
 
 - Runs snapshot the definitions used for one execution.
-- Cloudflare Workflows drives durable sequential execution and owns retries, polling, cancellation, and state advancement.
+- Cloudflare Workflows drives durable sequential execution for v1 and compiled linear v2 Agent chains and owns retries, polling, cancellation, and state advancement.
 - A provider-neutral AgentRuntime boundary delegates one Agent step's execution to the selected provider implementation.
 - D1 persists run, step, attempt, provider-task, retry, cancellation, and reconciliation state.
 - Successful textual output is persisted before it can become the next step's input.
