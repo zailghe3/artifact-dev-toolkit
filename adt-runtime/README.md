@@ -32,7 +32,7 @@ openssl pkey -in runtime-private.pem -pubout -out runtime-public.pem
 ## Protocol and security
 
 - Readiness separately advertises `openai-agents`, `tool:artifact-search`, and `langgraph:linear`; ADT rejects capability-specific execution before provider use when the required capability is absent.
-- The Worker-only `ADT_CHECKPOINT_AUTHORITY_SECRET` and `ADT_GRAPH_NODE_AUTHORITY_SECRET` issue distinct short-lived run-scoped checkpoint and Agent-node capabilities. Never provision them to Runtime or reuse Runtime request-authentication or artifact-search authority material.
+- The Worker-only `ADT_CHECKPOINT_AUTHORITY_SECRET` issues short-lived run-scoped checkpoint access. `ADT_GRAPH_NODE_AUTHORITY_SECRET` separately issues short-lived capabilities bound to one run, node, Workflow generation, iteration, and attempt. Never provision either secret to Runtime or reuse Runtime request-authentication or artifact-search authority material.
 - Protocol `adt-runtime-v1` exposes authenticated readiness, OpenAI Agents execution, and bounded linear LangGraph advance operations.
 - One LangGraph advance reconstructs the immutable ADT plan, resumes the run thread through the remote saver, admits at most one Agent node, checkpoints, and returns control to the outer Cloudflare Workflow.
 - HMAC-SHA-256 binds protocol, method, exact path, millisecond timestamp, random nonce, and the SHA-256 digest of the exact body. Accepted nonces are retained in a bounded, expiring in-memory replay cache.
