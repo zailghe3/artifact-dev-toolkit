@@ -1,6 +1,6 @@
 # ADT Runtime
 
-ADT Runtime is the independently deployed, stateless compute and provider-execution boundary for Artifact Dev Toolkit. It supports conditional LangGraph compute and one synchronous OpenAI Agents SDK invocation per accepted request. ADT retains Workflow admission, provider authority, retries, cancellation state, and durable history.
+ADT Runtime is the independently deployed, stateless compute and provider-execution boundary for Artifact Dev Toolkit. It supports bounded conditional, parallel, and controlled-cycle LangGraph compute and one synchronous OpenAI Agents SDK invocation per accepted request. ADT retains Workflow admission, provider authority, retries, cancellation state, and durable history.
 
 ## Operator contract
 
@@ -31,9 +31,9 @@ openssl pkey -in runtime-private.pem -pubout -out runtime-public.pem
 
 ## Protocol and security
 
-- Readiness separately advertises `openai-agents`, `tool:artifact-search`, and `langgraph:linear` for historical plans and `langgraph:graph` for versioned conditional plans; ADT rejects capability-specific execution before provider use when the required capability is absent.
+- Readiness separately advertises `openai-agents`, `tool:artifact-search`, and `langgraph:linear` for historical plans and `langgraph:graph` for versioned bounded graph plans; ADT rejects capability-specific execution before provider use when the required capability is absent.
 - The Worker-only `ADT_CHECKPOINT_AUTHORITY_SECRET` issues short-lived run-scoped checkpoint access. `ADT_GRAPH_NODE_AUTHORITY_SECRET` separately issues short-lived capabilities bound to one run, node, Workflow generation, iteration, and attempt. Never provision either secret to Runtime or reuse Runtime request-authentication or artifact-search authority material.
-- Protocol `adt-runtime-v1` exposes authenticated readiness, OpenAI Agents execution, and bounded conditional LangGraph advance operations.
+- Protocol `adt-runtime-v1` exposes authenticated readiness, OpenAI Agents execution, and bounded bounded conditional, parallel, and controlled-cycle LangGraph advance operations.
 - One LangGraph advance reconstructs the immutable ADT plan, resumes the run thread through the remote saver, admits at most one Agent node, checkpoints, and returns control to the outer Cloudflare Workflow.
 - HMAC-SHA-256 binds protocol, method, exact path, millisecond timestamp, random nonce, and the SHA-256 digest of the exact body. Accepted nonces are retained in a bounded, expiring in-memory replay cache.
 - Each credential uses a fresh AES-256-GCM key and nonce. RSA-OAEP with SHA-256 wraps that content key; GCM additional authenticated data binds protocol, capability, and ADT idempotency identity.
