@@ -103,6 +103,7 @@ The product invariants are in [`specs/agent-workflows.md`](specs/agent-workflows
 - Explicit `openai-agents` Artifact search calls return through a bounded control-plane gateway; repository authority and credentials remain in the application.
 - The Cloudflare control plane retains Workflow admission, D1 durability, provider authority, and outer recovery. The Runtime reconstructs bounded linear LangGraph compute and retains no application state or provider credential.
 - A run-scoped authenticated gateway gives the Runtime only the checkpoint operations for that run; the Runtime has no D1 binding or Cloudflare credential.
+- A separate run-scoped node gateway admits only the next semantically eligible Agent node and reuses the existing AgentRuntime lifecycle, durable attempt output, provider task identity, credential resolution, and tool authority.
 - The application authenticates protocol requests and encrypts each resolved provider credential to the Runtime's operator-provisioned wrapping key.
 - Protocol and capability discovery permits independent application and Runtime rollout without matching revisions or ambiguous interpretation.
 - Trusted CI publishes `poulti/adt-runtime` to Docker Hub. Operator-owned deployment normally tracks `latest`; immutable Git SHA tags support provenance and rollback.

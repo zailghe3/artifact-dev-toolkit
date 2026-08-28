@@ -126,7 +126,7 @@ test("OAuth smoke retries transient failures, exhausts deterministically, times 
 
 test("Wrangler structurally declares exactly the intended secrets and production repository", () => {
   const wrangler = JSON.parse(readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8"));
-  assert.deepEqual(wrangler.secrets.required, ["GITHUB_APP_ID", "GITHUB_APP_CLIENT_ID", "GITHUB_APP_CLIENT_SECRET", "GITHUB_APP_PRIVATE_KEY", "GITHUB_TOKEN_ENCRYPTION_KEY", "WORKFLOW_PROVIDER_SECRET_ENCRYPTION_KEY", "SESSION_SECRET", "CODEX_RUNNER_ACCESS_CLIENT_ID", "CODEX_RUNNER_ACCESS_CLIENT_SECRET", "CODEX_RUNNER_SHARED_SECRET", "ADT_RUNTIME_AUTH_SECRET", "ADT_TOOL_AUTHORITY_SECRET", "ADT_CHECKPOINT_AUTHORITY_SECRET"]);
+  assert.deepEqual(wrangler.secrets.required, ["GITHUB_APP_ID", "GITHUB_APP_CLIENT_ID", "GITHUB_APP_CLIENT_SECRET", "GITHUB_APP_PRIVATE_KEY", "GITHUB_TOKEN_ENCRYPTION_KEY", "WORKFLOW_PROVIDER_SECRET_ENCRYPTION_KEY", "SESSION_SECRET", "CODEX_RUNNER_ACCESS_CLIENT_ID", "CODEX_RUNNER_ACCESS_CLIENT_SECRET", "CODEX_RUNNER_SHARED_SECRET", "ADT_RUNTIME_AUTH_SECRET", "ADT_TOOL_AUTHORITY_SECRET", "ADT_CHECKPOINT_AUTHORITY_SECRET", "ADT_GRAPH_NODE_AUTHORITY_SECRET"]);
   assert.deepEqual(wrangler.vars, {
     ARTIFACT_REPOSITORY: "github",
     GITHUB_ARTIFACT_REPOSITORY_OWNER: "zailghe3",
@@ -134,6 +134,8 @@ test("Wrangler structurally declares exactly the intended secrets and production
     CODEX_RUNNER_BASE_URL: "https://cr.pouchet.net",
     ADT_RUNTIME_BASE_URL: "https://adt-runtime.pouchet.net",
     ADT_TOOL_GATEWAY_URL: "https://fpo-adt.florian-pouchet.workers.dev/api/runtime-tools/artifact-search",
+    ADT_CHECKPOINT_GATEWAY_URL: "https://fpo-adt.florian-pouchet.workers.dev/api/runtime-checkpoints",
+    ADT_GRAPH_NODE_GATEWAY_URL: "https://fpo-adt.florian-pouchet.workers.dev/api/runtime-graph-node",
     ADT_RUNTIME_WRAPPING_PUBLIC_KEY: "-----BEGIN PUBLIC KEY-----\nMIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEA0FGdSN2hqom6catymMcX\niEaUtmzwb4bEExz65//R1GWH9Fg2S4WfonqjXnwzapgN64U4YXt3zyHHzeEVv91A\nGGuvMSjYIh2mahbQIsbU1WX2Ei3Fr19ZtkHzt0qSjVdbKVNvGatWdNFNocL6tiiY\nQhxzLcoVrPuP2JtAgFu+7vd8q9EyPjnQePqeyetK3tlxcsZMbYxD9ptFmNX0j0fE\nQDR48zHbzFfHrG02ZeUzrjpzXe24YXr0BSymDvXOCuOd+1irHWGAypaP8d+bSlk+\ndZUIJYFZRhGx/88oqSGIr8GxJoQRYDk5AwSwp8yoY4vupdFuWAY4wBZmmTN2omwZ\nI4Jcbb9AuKn/aCuQo4U8DJJDET9zABYcRj5PW465luvWDJhvqHevuMeA7QAZOq4b\nQb4IEeKhAkeLlyr2IjM+9o/v9xr9mWkb9j5vxLXk1bzMJYAU25zukgVuP1Wv0YXo\ndoXnV/4tkKpER9IHqkqTpDcolRy8GRcNzyZOIWYqT9bNAgMBAAE=\n-----END PUBLIC KEY-----",
   });
   assert.ok(Array.isArray(wrangler.kv_namespaces));

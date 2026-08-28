@@ -61,6 +61,7 @@
 
 - Runs persist their current state and execution history.
 - For new v2 runs, durable graph state determines which node executes next. Run cursors are projections and cannot independently select a node.
+- Each graph node still executes through the existing provider-neutral Agent lifecycle. A repeated request for a durably successful node reuses its output, and an accepted asynchronous provider task is observed rather than recreated.
 - Successful step output is persisted before later steps can depend on it.
 - Application or process interruption must not require a completed step to be repeated merely because the original request ended.
 - External provider work with a known task identity is observed rather than recreated.

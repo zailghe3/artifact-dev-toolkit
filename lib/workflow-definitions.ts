@@ -75,7 +75,14 @@ export type AgentDefinitionV1 = z.infer<typeof agentDefinitionSchema>;
 export type WorkflowDefinitionV1 = z.infer<typeof workflowDefinitionV1Schema>;
 export type WorkflowDefinitionV2 = z.infer<typeof workflowDefinitionV2Schema>;
 export type WorkflowDefinition = z.infer<typeof workflowDefinitionSchema>;
-export type WorkflowV2ExecutionPlan={nodes:Array<{id:string;agentId:string}>;edges:Array<{source:string;target:string}>;entryNodeId:string;terminalNodeId:string;maxStepExecutions:number};
+export const workflowV2ExecutionPlanSchema=z.object({nodes:z.array(z.object({id,agentId:id}).strict()).min(1).max(MAX_WORKFLOW_STEPS),edges:z.array(z.object({source:id,target:id}).strict()).max(MAX_WORKFLOW_STEPS-1),entryNodeId:id,terminalNodeId:id,maxStepExecutions:z.number().int().min(1).max(MAX_STEP_EXECUTIONS)}).strict().superRefine((plan,context)=>{
+ const nodeIds=new Set(plan.nodes.map(node=>node.id));if(nodeIds.size!==plan.nodes.length)context.addIssue({code:"custom",message:"Plan node IDs must be unique.",path:["nodes"]});
+ if(!nodeIds.has(plan.entryNodeId))context.addIssue({code:"custom",message:"Plan entry must exist.",path:["entryNodeId"]});if(!nodeIds.has(plan.terminalNodeId))context.addIssue({code:"custom",message:"Plan terminal must exist.",path:["terminalNodeId"]});
+ const incoming=new Map(plan.nodes.map(node=>[node.id,0])),outgoing=new Map(plan.nodes.map(node=>[node.id,[] as string[]]));for(const [index,edge] of plan.edges.entries()){if(!nodeIds.has(edge.source)||!nodeIds.has(edge.target)){context.addIssue({code:"custom",message:"Plan edge endpoints must exist.",path:["edges",index]});continue}incoming.set(edge.target,incoming.get(edge.target)!+1);outgoing.get(edge.source)!.push(edge.target)}
+ if([...incoming].filter(([,count])=>count===0).map(([key])=>key).length!==1||incoming.get(plan.entryNodeId)!==0)context.addIssue({code:"custom",message:"Plan entry is invalid.",path:["entryNodeId"]});if([...outgoing].filter(([,targets])=>targets.length===0).map(([key])=>key).length!==1||outgoing.get(plan.terminalNodeId)!.length!==0)context.addIssue({code:"custom",message:"Plan terminal is invalid.",path:["terminalNodeId"]});if([...incoming.values()].some(count=>count>1)||[...outgoing.values()].some(targets=>targets.length>1))context.addIssue({code:"custom",message:"Plan must be linear.",path:["edges"]});
+ const visited=new Set<string>();let cursor:string|undefined=plan.entryNodeId;while(cursor&&!visited.has(cursor)){visited.add(cursor);cursor=outgoing.get(cursor)?.[0]}if(cursor||visited.size!==plan.nodes.length||plan.edges.length!==plan.nodes.length-1)context.addIssue({code:"custom",message:"Plan must be one acyclic connected chain.",path:["edges"]});if(plan.maxStepExecutions<plan.nodes.length)context.addIssue({code:"custom",message:"Plan execution limit is too low.",path:["maxStepExecutions"]});
+});
+export type WorkflowV2ExecutionPlan=z.infer<typeof workflowV2ExecutionPlanSchema>;
 
 export function validateAgentAdapterOptions(agent:AgentDefinitionV1,adapter:string){return {...agent,adapterOptions:validateAdapterOptions(adapter,agent.adapterOptions)};}
 export function validateAgentForConnection(agent:AgentDefinitionV1,connection:{adapter:string;defaultModel?:string}){const definition=validateAgentAdapterOptions(agent,connection.adapter);if(definition.tools?.length&&connection.adapter!=="openai-agents")throw new Error("agent_tool_runtime_unsupported");if(connection.adapter==="openai-responses"||connection.adapter==="openai-agents")validateOpenAIModelAgentOptions(connection.defaultModel,definition.adapterOptions as import("./workflow-adapter.ts").OpenAIResponsesOptions);return definition;}
@@ -116,7 +123,7 @@ export function compileWorkflowV2(workflow:WorkflowDefinitionV2,agents:readonly 
 /** Immutable ADT-owned plan used to reconstruct the Runtime graph without persisting LangGraph models. */
 export function compileWorkflowV2ExecutionPlan(workflow:WorkflowDefinitionV2,agents:readonly AgentDefinitionV1[]):WorkflowV2ExecutionPlan{
  const sequential=compileWorkflowV2(workflow,agents);
- return{nodes:sequential.steps.map(step=>({id:step.id,agentId:step.agentId})),edges:workflow.edges.map(edge=>({source:edge.source,target:edge.target})),entryNodeId:sequential.steps[0].id,terminalNodeId:sequential.steps.at(-1)!.id,maxStepExecutions:workflow.limits.maxStepExecutions};
+ return workflowV2ExecutionPlanSchema.parse({nodes:sequential.steps.map(step=>({id:step.id,agentId:step.agentId})),edges:workflow.edges.map(edge=>({source:edge.source,target:edge.target})),entryNodeId:sequential.steps[0].id,terminalNodeId:sequential.steps.at(-1)!.id,maxStepExecutions:workflow.limits.maxStepExecutions});
 }
 
 export function executableWorkflow(workflow:WorkflowDefinition,agents:readonly AgentDefinitionV1[]){return workflow.schemaVersion===1?workflow:compileWorkflowV2(workflow,agents);}
