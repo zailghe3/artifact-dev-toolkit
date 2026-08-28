@@ -75,6 +75,7 @@ export type AgentDefinitionV1 = z.infer<typeof agentDefinitionSchema>;
 export type WorkflowDefinitionV1 = z.infer<typeof workflowDefinitionV1Schema>;
 export type WorkflowDefinitionV2 = z.infer<typeof workflowDefinitionV2Schema>;
 export type WorkflowDefinition = z.infer<typeof workflowDefinitionSchema>;
+export type WorkflowV2ExecutionPlan={nodes:Array<{id:string;agentId:string}>;edges:Array<{source:string;target:string}>;entryNodeId:string;terminalNodeId:string;maxStepExecutions:number};
 
 export function validateAgentAdapterOptions(agent:AgentDefinitionV1,adapter:string){return {...agent,adapterOptions:validateAdapterOptions(adapter,agent.adapterOptions)};}
 export function validateAgentForConnection(agent:AgentDefinitionV1,connection:{adapter:string;defaultModel?:string}){const definition=validateAgentAdapterOptions(agent,connection.adapter);if(definition.tools?.length&&connection.adapter!=="openai-agents")throw new Error("agent_tool_runtime_unsupported");if(connection.adapter==="openai-responses"||connection.adapter==="openai-agents")validateOpenAIModelAgentOptions(connection.defaultModel,definition.adapterOptions as import("./workflow-adapter.ts").OpenAIResponsesOptions);return definition;}
@@ -110,6 +111,12 @@ export function compileWorkflowV2(workflow:WorkflowDefinitionV2,agents:readonly 
  if(cursor)throw new Error("unsupported_workflow_topology:cycle");if(order.length!==parsed.nodes.length)throw new Error("unsupported_workflow_topology:disconnected");
  const agentById=new Map(agents.map(agent=>[agent.id,agent]));
  return workflowDefinitionV1Schema.parse({schemaVersion:1,id:parsed.id,name:parsed.name,description:parsed.description,status:parsed.status,steps:order.map((nodeId,index)=>{const node=byId.get(nodeId)!,config=workflowBlockRegistry.validate(node.blockType,node.blockVersion,node.config) as {agentId:string},agent=agentById.get(config.agentId);if(!agent)throw new Error(`missing_agent:${config.agentId}`);return{id:node.id,name:agent.name,agentId:agent.id,input:{source:index===0?"run_input":"previous_step"},onSuccess:{type:index===order.length-1?"complete":"next"},onFailure:{type:"fail"}}}),result:{source:"step_output",stepId:order.at(-1)},limits:parsed.limits});
+}
+
+/** Immutable ADT-owned plan used to reconstruct the Runtime graph without persisting LangGraph models. */
+export function compileWorkflowV2ExecutionPlan(workflow:WorkflowDefinitionV2,agents:readonly AgentDefinitionV1[]):WorkflowV2ExecutionPlan{
+ const sequential=compileWorkflowV2(workflow,agents);
+ return{nodes:sequential.steps.map(step=>({id:step.id,agentId:step.agentId})),edges:workflow.edges.map(edge=>({source:edge.source,target:edge.target})),entryNodeId:sequential.steps[0].id,terminalNodeId:sequential.steps.at(-1)!.id,maxStepExecutions:workflow.limits.maxStepExecutions};
 }
 
 export function executableWorkflow(workflow:WorkflowDefinition,agents:readonly AgentDefinitionV1[]){return workflow.schemaVersion===1?workflow:compileWorkflowV2(workflow,agents);}

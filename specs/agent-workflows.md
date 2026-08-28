@@ -46,7 +46,8 @@
 - Missing or out-of-date layout information does not prevent a current Workflow step from being displayed or executed.
 - Visual position and viewport changes remain separate presentation-only layout mutations and never change semantic order, handoff, result selection, limits, or run snapshots.
 - For v2 workflows, adding, removing, configuring, connecting, or disconnecting a block is an intentional semantic Workflow mutation and must produce a valid linear chain.
-- At launch, a supported v2 chain is frozen with its Workflow revision, Agent revisions, and Connection snapshots and executes through the same durable sequential engine as v1.
+- At launch, a supported v2 chain is frozen with its semantic Workflow, Workflow revision, Agent revisions, Connection snapshots, and an explicit execution-engine version.
+- New v2 runs use the frozen semantic edges to reconstruct linear graph execution. Existing v1 and historical sequential-engine runs retain their original interpretation.
 
 ## 4. Sequential handoff
 
@@ -59,6 +60,7 @@
 ## 5. Durable execution
 
 - Runs persist their current state and execution history.
+- For new v2 runs, durable graph state determines which node executes next. Run cursors are projections and cannot independently select a node.
 - Successful step output is persisted before later steps can depend on it.
 - Application or process interruption must not require a completed step to be repeated merely because the original request ended.
 - External provider work with a known task identity is observed rather than recreated.
@@ -131,7 +133,8 @@
 - A tool-enabled Agent requires the matching Runtime capability before provider execution; tool-free Agents remain compatible with older Runtime deployments.
 - Each `openai-agents` invocation uses its resolved credential in an isolated server-side provider configuration and disables provider response storage.
 - `openai-agents` provider execution occurs in an independently deployed, stateless ADT Runtime across an authenticated execution boundary.
-- The Runtime does not own Workflow durability and does not persist provider credentials.
+- The Runtime owns bounded linear graph compute but not durable storage, admission, credentials, or provider authority.
+- Durable graph state remains in the application control plane behind exact run-scoped authority. Runtime replacement requires no local persistent volume.
 - Runtime readiness, protocol compatibility, capability availability, and provider execution failure are distinct conditions.
 - Authorised users can diagnose Runtime configuration, reachability, request authentication, protocol compatibility, capability availability, and wrapping-key compatibility without invoking a provider.
 - Runtime commissioning is separate from the provider credential and model Connection Test.

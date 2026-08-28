@@ -1,6 +1,6 @@
 # ADT Runtime
 
-ADT Runtime is the independently deployed, stateless provider-execution boundary for Artifact Dev Toolkit. It runs one synchronous OpenAI Agents SDK invocation per accepted request. ADT retains Workflow admission, sequencing, retries, cancellation state, and durable history.
+ADT Runtime is the independently deployed, stateless compute and provider-execution boundary for Artifact Dev Toolkit. It supports linear LangGraph compute and one synchronous OpenAI Agents SDK invocation per accepted request. ADT retains Workflow admission, provider authority, retries, cancellation state, and durable history.
 
 ## Operator contract
 
@@ -8,6 +8,7 @@ ADT Runtime is the independently deployed, stateless provider-execution boundary
 - The container is replaceable, runs as `node`, needs no persistent volume or Docker socket, and has no infrastructure control capability.
 - Keep ingress HTTPS and operator-owned. The unauthenticated `/healthz` endpoint discloses only process health.
 - Do not provision provider API keys, Cloudflare credentials, GitHub App credentials, artifact-repository credentials, Codex credentials, Portainer credentials, or tunnel credentials to this service.
+- Do not add a D1 binding or persistent volume. Checkpoints remain in control-plane D1 behind a short-lived, exact run-scoped gateway authority.
 - Trusted CI also publishes immutable `poulti/adt-runtime:<git-sha>` tags for provenance and explicit rollback/pinning if automatic `latest` rollout is suspended.
 
 Create two external Docker secrets:
@@ -30,7 +31,8 @@ openssl pkey -in runtime-private.pem -pubout -out runtime-public.pem
 
 ## Protocol and security
 
-- Readiness separately advertises `openai-agents` and `tool:artifact-search`; ADT rejects tool-enabled execution before provider use when the latter is absent.
+- Readiness separately advertises `openai-agents`, `tool:artifact-search`, and `langgraph:linear`; ADT rejects capability-specific execution before provider use when the required capability is absent.
+- The Worker-only `ADT_CHECKPOINT_AUTHORITY_SECRET` issues short-lived run-scoped checkpoint capabilities. Never provision it to Runtime or reuse either Runtime request authentication or artifact-search authority material.
 - Protocol `adt-runtime-v1` exposes authenticated `GET /v1/readiness` and `POST /v1/executions/openai-agents` operations.
 - HMAC-SHA-256 binds protocol, method, exact path, millisecond timestamp, random nonce, and the SHA-256 digest of the exact body. Accepted nonces are retained in a bounded, expiring in-memory replay cache.
 - Each credential uses a fresh AES-256-GCM key and nonce. RSA-OAEP with SHA-256 wraps that content key; GCM additional authenticated data binds protocol, capability, and ADT idempotency identity.
