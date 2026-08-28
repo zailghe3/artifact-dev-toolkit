@@ -65,6 +65,7 @@
 - Successful step output is persisted before later steps can depend on it.
 - Application or process interruption must not require a completed step to be repeated merely because the original request ended.
 - External provider work with a known task identity is observed rather than recreated.
+- A generic graph branch failure stops new work admission and remains the run outcome only after already-admitted sibling provider work reaches a bounded truthful reconciliation outcome.
 - Launch and execution state are reconciled conservatively after interruption.
 - Terminal runs remain terminal when observed again.
 
