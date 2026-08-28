@@ -33,8 +33,8 @@ export class InMemoryWorkflowRunStorage implements WorkflowRunStorage {
   async createRun(run: WorkflowRun) {
     if (run.clientIdempotencyKey && this.idempotency.has(run.clientIdempotencyKey)) return (await this.getRun(this.idempotency.get(run.clientIdempotencyKey)!))!;
     if (this.runs.has(run.id)) throw new Error("run_conflict");
-    const steps=run.engineVersion==="2"?run.executionPlan!.nodes:run.workflowSnapshot.steps;const first = steps[0]; const stored = structuredClone(run); this.runs.set(run.id, stored);
-    this.attempts.set(run.id, steps.map((step) => ({ runId: run.id, stepId: step.id, iteration: 1, attempt: 1, agentId: step.agentId, connectionKey: run.agentSnapshots[step.agentId].connectionKey, status: "pending", providerPollCount: 0 })));
+    const steps=run.engineVersion==="2"?run.executionPlan!.nodes.filter((step):step is Extract<typeof step,{agentId:string}>|Extract<typeof step,{blockType:"agent"}>=>("agentId" in step)||step.blockType==="agent"):run.workflowSnapshot.steps;const first = run.engineVersion==="2"?run.executionPlan!.nodes.find(step=>step.id===run.executionPlan!.entryNodeId)!:steps[0]; const stored = structuredClone(run); this.runs.set(run.id, stored);
+    this.attempts.set(run.id, steps.map((step) => {const agentId="agentId" in step?step.agentId:((step as unknown as {config:{agentId:string}}).config.agentId);return ({ runId: run.id, stepId: step.id, iteration: 1, attempt: 1, agentId, connectionKey: run.agentSnapshots[agentId].connectionKey, status: "pending", providerPollCount: 0 })}));
     if (run.clientIdempotencyKey) this.idempotency.set(run.clientIdempotencyKey, run.id); stored.currentStepId = first.id;
     return (await this.getRun(run.id))!;
   }
