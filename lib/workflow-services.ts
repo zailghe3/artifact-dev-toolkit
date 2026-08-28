@@ -15,12 +15,14 @@ import {WorkflowProviderConnectionMigrationService} from "./workflow-provider-co
 import {RemoteOpenAIAgentsRuntime,type ADTRuntimeConfiguration} from "./adt-runtime-client.ts";
 import {D1ProviderCredentialVault,type ProviderCredentialVaultDatabase} from "./provider-credential-vault.ts";
 import {providerCredentialVaultV1KeyResolver} from "./provider-credential-vault-crypto.ts";
+import {GitHubWorkflowLayoutRepository} from "./workflow-layout-repository.ts";
 
 function githubContentsRequest(access:RepositoryAccessContext){const branch=process.env.GITHUB_ARTIFACT_REPOSITORY_BRANCH??"main";return async(path:string,init?:RequestInit)=>{const capability=init?.method&&init.method!=="GET"?"write":"read",credential=await access.installationCredentialProvider(capability);const url=new URL(`https://api.github.com/repos/${encodeURIComponent(access.owner)}/${encodeURIComponent(access.repo)}${path}`);if(!init?.method||init.method==="GET")url.searchParams.set("ref",branch);let body=init?.body;if(init?.method&&init.method!=="GET"&&typeof body==="string"){const value=JSON.parse(body) as Record<string,unknown>;body=JSON.stringify({...value,branch});}return fetch(url,{...init,body,headers:{accept:"application/vnd.github+json",authorization:`Bearer ${credential.token}`,"user-agent":"artifact-dev-toolkit",...init?.headers}});}}
 
 export function createWorkflowDefinitionRepository(access:RepositoryAccessContext){
  return new GitHubWorkflowDefinitionRepository(githubContentsRequest(access),process.env.WORKFLOW_AGENT_ROOT??"_adt/agents",process.env.WORKFLOW_DEFINITION_ROOT??"_adt/workflows");
 }
+export function createWorkflowLayoutRepository(access:RepositoryAccessContext){return new GitHubWorkflowLayoutRepository(githubContentsRequest(access));}
 export async function getWorkflowEnvironment(){const {env}=await getCloudflareContext({async:true});return env as CloudflareEnv;}
 export async function getWorkflowRunStorage(){const env=await getWorkflowEnvironment();return new D1WorkflowRunStorage(env.AUTH_SESSIONS_DB as unknown as WorkflowD1Database);}
 export async function getProviderCredentialVault(){const env=await getWorkflowEnvironment();return new D1ProviderCredentialVault(env.AUTH_SESSIONS_DB as unknown as ProviderCredentialVaultDatabase,providerCredentialVaultV1KeyResolver(env.WORKFLOW_PROVIDER_SECRET_ENCRYPTION_KEY));}

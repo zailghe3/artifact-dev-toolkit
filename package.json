@@ -25,6 +25,7 @@
     "runner-revision:validate": "node scripts/validate-runner-revision.mjs"
   },
   "dependencies": {
+    "@xyflow/react": "^12.11.5",
     "gray-matter": "^4.0.3",
     "next": "^16.2.10",
     "react": "^19.2.7",
