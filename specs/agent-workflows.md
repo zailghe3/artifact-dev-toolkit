@@ -2,7 +2,7 @@
 
 **Document status:** Baseline specification of implemented Agent Workflow behaviour  
 **Scope:** Current behaviour only; not a roadmap or implementation design  
-**Last updated:** 2026-08-26
+**Last updated:** 2026-08-27
 
 ## 1. Purpose
 
@@ -17,6 +17,7 @@
 - A **Connection** identifies an available execution provider without exposing its private credentials.
 - An **Agent** selects a connection, master prompt, and supported provider options.
 - A **Workflow** defines an ordered sequence of agents.
+- A **Workflow layout** is an optional visual arrangement of those existing steps and is not executable configuration.
 - A **Run** freezes the workflow and agent configuration used for one execution.
 - An **Attempt** records one execution attempt for a workflow step.
 - Provider task identifiers may be retained when needed to safely observe or reconcile external work.
@@ -38,6 +39,11 @@
 - Cross-layout identity collisions fail closed.
 - Definition location does not affect Workflow references, execution, or immutable run snapshots.
 - Executable Agent and Workflow lifecycle state remains independent from Artifact Library Markdown lifecycle rules.
+- The Workflow view presents the ordered steps as a visual node-and-edge chain.
+- Users may move visual nodes, pan or zoom the view, and save that layout independently from the Workflow definition.
+- Missing or out-of-date layout information does not prevent a current Workflow step from being displayed or executed.
+- Visual position never changes step order, routing, handoff, result selection, limits, or run snapshots.
+- Visual edges reflect the existing sequential order and are not editable routing semantics.
 
 ## 4. Sequential handoff
 

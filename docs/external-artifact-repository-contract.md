@@ -24,6 +24,7 @@ agents/
   *.agent.json
 workflows/
   *.workflow.json
+  *.layout.json
 connections/
   *.connection.json
 ```
@@ -35,6 +36,9 @@ connections/
 - New variations use the applicable same-type write directory and carry `sourceId`. The legacy `variations/` directory remains read and exact-path mutation compatibility only.
 - IDs are unique across supported layouts. Collisions fail closed rather than selecting a file by precedence.
 - New executable definitions use canonical root paths: `agents/<id>.agent.json` and `workflows/<id>.workflow.json`.
+- Optional Workflow layouts use the co-located canonical path `workflows/<id>.layout.json`. Layout schema v1 contains only the matching Workflow ID, positions keyed by stable step ID, and viewport position/zoom.
+- Workflow layout is presentation state rather than executable Workflow configuration. It does not contain Agents, step order, routing, credentials, run state, or duplicated Workflow semantics.
+- Layout creation and updates use independent revision-aware Git mutations. Missing layouts are valid and do not affect Workflow viewing or execution.
 - Legacy `_adt/agents/<id>.agent.json` and `_adt/workflows/<id>.workflow.json` definitions remain readable and mutable at their exact observed paths and file revisions during Phase 4A. No physical migration occurs in this phase.
 - Non-conflicting definitions may coexist across the canonical and legacy layouts. A logical ID in both layouts fails closed before mutation.
 - Executable definition schemas, including their independent required `status: "draft"`, are unchanged.
