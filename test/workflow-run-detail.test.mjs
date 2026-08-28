@@ -11,7 +11,7 @@ import { newWorkflowRun, WORKFLOW_LAUNCH_STALE_MS } from '../lib/workflow-storag
 async function database() {
   const mf = new Miniflare({ modules: true, script: 'export default {fetch(){return new Response("ok")}}', d1Databases: { DB: 'run-detail-test' } });
   const db = await mf.getD1Database('DB');
-  for (const migration of ['0003_create_workflow_runs.sql', '0007_add_provider_transport_diagnostics.sql','0008_add_provider_transport_reason.sql','0010_add_workflow_run_repository_context.sql']) {
+  for (const migration of ['0003_create_workflow_runs.sql', '0007_add_provider_transport_diagnostics.sql','0008_add_provider_transport_reason.sql','0010_add_workflow_run_repository_context.sql','0012_add_graph_activation_identity.sql']) {
     const sql = await readFile(new URL(`../migrations/${migration}`, import.meta.url), 'utf8');
     await db.batch(sql.split(';').map(value => value.trim()).filter(Boolean).map(value => db.prepare(value)));
   }

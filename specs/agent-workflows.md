@@ -6,7 +6,7 @@
 
 ## 1. Purpose
 
-- Agent Workflows let users run a bounded sequence of configured agents.
+- Agent Workflows let users run a bounded graph of configured Agents and deterministic control blocks.
 - The framework owns execution order, durability, retry, cancellation, history, and visibility.
 - Agents own reasoning and text generation through their configured connection and prompt.
 - Agent Workflows are not an autonomous multi-agent system.
@@ -17,7 +17,7 @@
 - A **Connection** identifies an available execution provider without exposing its private credentials.
 - An **Agent** selects a connection, master prompt, and supported provider options.
 - A **Workflow** is either a compatible v1 ordered Agent sequence or a v2 semantic graph of versioned blocks and edges.
-- A **Block Registry** defines the supported versioned block contracts; the only currently executable block is an Agent reference.
+- A **Block Registry** defines the supported versioned block contracts; backend-executable blocks are Agent references, deterministic text Conditions, and deterministic Join barriers.
 - A **Workflow layout** is an optional visual arrangement of stable node identities and is not executable configuration.
 - A **Run** freezes the workflow and agent configuration used for one execution.
 - An **Attempt** records one execution attempt for a workflow step.
@@ -26,7 +26,7 @@
 ## 3. Workflow definitions
 
 - New visual workflows use the ADT-owned v2 semantic graph format; existing v1 ordered definitions remain readable, editable, and executable without automatic conversion.
-- Current executable v2 workflows contain one connected, unambiguous, linear Agent chain. Unsupported block contracts or graph topology fail closed before persistence or execution.
+- Current executable v2 workflows contain one connected bounded graph with Agent blocks, bounded `contains` Conditions, structured parallel fan-out and Join, and Condition-controlled cycles. Condition routes have labelled `true` and `false` semantic ports; omitted ports retain the registered defaults for compatible definitions. Unsupported block contracts or graph topology fail closed before persistence or execution.
 - Semantic edges determine v2 execution order independently of node array order and visual position.
 - Each workflow has bounded step count and execution limits.
 - Workflow definitions are separate from run history.
@@ -41,13 +41,13 @@
 - Cross-layout identity collisions fail closed.
 - Definition location does not affect Workflow references, execution, or immutable run snapshots.
 - Executable Agent and Workflow lifecycle state remains independent from Artifact Library Markdown lifecycle rules.
-- The Workflow view presents Agent blocks and semantic edges as a visual chain.
+- The Workflow view presents Agent and Condition blocks with ADT semantic ports and edges.
 - Users may move visual nodes, pan or zoom the view, and save that layout independently from the Workflow definition.
 - Missing or out-of-date layout information does not prevent a current Workflow step from being displayed or executed.
 - Visual position and viewport changes remain separate presentation-only layout mutations and never change semantic order, handoff, result selection, limits, or run snapshots.
-- For v2 workflows, adding, removing, configuring, connecting, or disconnecting a block is an intentional semantic Workflow mutation and must produce a valid linear chain.
+- For v2 workflows, adding, removing, configuring, connecting, or disconnecting a block is an intentional semantic Workflow mutation and must produce a valid bounded graph; the current editor exposes Agent and Condition authoring while Join, parallel, and loop authoring UI remains unavailable.
 - At launch, a supported v2 chain is frozen with its semantic Workflow, Workflow revision, Agent revisions, Connection snapshots, and an explicit execution-engine version.
-- New v2 runs use the frozen semantic edges to reconstruct linear graph execution. Existing v1 and historical sequential-engine runs retain their original interpretation.
+- New v2 runs use the frozen semantic edges to reconstruct graph execution from the immutable versioned plan. Existing v1 and historical sequential-engine runs retain their original interpretation.
 
 ## 4. Sequential handoff
 
@@ -134,8 +134,9 @@
 - A tool-enabled Agent requires the matching Runtime capability before provider execution; tool-free Agents remain compatible with older Runtime deployments.
 - Each `openai-agents` invocation uses its resolved credential in an isolated server-side provider configuration and disables provider response storage.
 - `openai-agents` provider execution occurs in an independently deployed, stateless ADT Runtime across an authenticated execution boundary.
-- The Runtime owns bounded linear graph compute but not durable storage, admission, credentials, or provider authority.
-- Durable graph state remains in the application control plane behind exact run-scoped checkpoint authority. Provider execution callbacks additionally require authority for the exact admitted node and attempt. Runtime replacement requires no local persistent volume.
+- The Runtime owns bounded conditional, structured-parallel, and controlled-cycle graph compute but not durable storage, admission, credentials, or provider authority.
+- Conditions evaluate only immutable snapshotted configuration and exact incoming text, perform no provider invocation, preserve the text unchanged, and execute only the selected route.
+- Durable graph state remains in the application control plane behind exact run-scoped checkpoint authority. Provider execution callbacks additionally require authority for the exact admitted node, graph activation, iteration, and attempt. Runtime replacement requires no local persistent volume.
 - Runtime readiness, protocol compatibility, capability availability, and provider execution failure are distinct conditions.
 - Authorised users can diagnose Runtime configuration, reachability, request authentication, protocol compatibility, capability availability, and wrapping-key compatibility without invoking a provider.
 - Runtime commissioning is separate from the provider credential and model Connection Test.
@@ -216,10 +217,8 @@
 
 ## 17. Current limitations
 
-- Workflows are sequential.
-- Workflows are acyclic.
-- There is no branching or conditional routing.
-- There is no parallel or mapped execution.
+- Parallel Agent frontiers are conservatively bounded and require exact activation-scoped provider authority.
+- There is no mapped execution.
 - There is no scripting language inside the workflow definition.
 - There is no schema-aware automatic transformation between steps.
 - There is no streaming workflow output.
