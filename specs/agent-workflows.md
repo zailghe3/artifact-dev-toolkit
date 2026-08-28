@@ -136,7 +136,7 @@
 - `openai-agents` provider execution occurs in an independently deployed, stateless ADT Runtime across an authenticated execution boundary.
 - The Runtime owns bounded conditional, structured-parallel, and controlled-cycle graph compute but not durable storage, admission, credentials, or provider authority.
 - Conditions evaluate only immutable snapshotted configuration and exact incoming text, perform no provider invocation, preserve the text unchanged, and execute only the selected route.
-- Durable graph state remains in the application control plane behind exact run-scoped checkpoint authority. Provider execution callbacks additionally require authority for the exact admitted node and attempt. Runtime replacement requires no local persistent volume.
+- Durable graph state remains in the application control plane behind exact run-scoped checkpoint authority. Provider execution callbacks additionally require authority for the exact admitted node, graph activation, iteration, and attempt. Runtime replacement requires no local persistent volume.
 - Runtime readiness, protocol compatibility, capability availability, and provider execution failure are distinct conditions.
 - Authorised users can diagnose Runtime configuration, reachability, request authentication, protocol compatibility, capability availability, and wrapping-key compatibility without invoking a provider.
 - Runtime commissioning is separate from the provider credential and model Connection Test.

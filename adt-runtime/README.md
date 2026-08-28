@@ -33,8 +33,8 @@ openssl pkey -in runtime-private.pem -pubout -out runtime-public.pem
 
 - Readiness separately advertises `openai-agents`, `tool:artifact-search`, and `langgraph:linear` for historical plans and `langgraph:graph` for versioned bounded graph plans; ADT rejects capability-specific execution before provider use when the required capability is absent.
 - The Worker-only `ADT_CHECKPOINT_AUTHORITY_SECRET` issues short-lived run-scoped checkpoint access. `ADT_GRAPH_NODE_AUTHORITY_SECRET` separately issues short-lived capabilities bound to one run, node, Workflow generation, iteration, and attempt. Never provision either secret to Runtime or reuse Runtime request-authentication or artifact-search authority material.
-- Protocol `adt-runtime-v1` exposes authenticated readiness, OpenAI Agents execution, and bounded bounded conditional, parallel, and controlled-cycle LangGraph advance operations.
-- One LangGraph advance reconstructs the immutable ADT plan, resumes the run thread through the remote saver, admits at most one Agent node, checkpoints, and returns control to the outer Cloudflare Workflow.
+- Protocol `adt-runtime-v1` exposes authenticated readiness, OpenAI Agents execution, and bounded conditional, parallel, and controlled-cycle LangGraph advance operations.
+- One LangGraph advance reconstructs the immutable ADT plan, resumes the run thread through the remote saver, admits one bounded Agent frontier, checkpoints, and returns control to the outer Cloudflare Workflow.
 - HMAC-SHA-256 binds protocol, method, exact path, millisecond timestamp, random nonce, and the SHA-256 digest of the exact body. Accepted nonces are retained in a bounded, expiring in-memory replay cache.
 - Each credential uses a fresh AES-256-GCM key and nonce. RSA-OAEP with SHA-256 wraps that content key; GCM additional authenticated data binds protocol, capability, and ADT idempotency identity.
 - Web Crypto implements RSA-OAEP, SHA-256, AES-GCM, and HMAC in both Cloudflare Workers and Node 24. The construction uses only those standard algorithms.
