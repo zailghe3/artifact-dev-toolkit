@@ -1,6 +1,6 @@
 # ADT Runtime
 
-ADT Runtime is the independently deployed, stateless provider-execution boundary for Artifact Dev Toolkit. It runs one synchronous OpenAI Agents SDK invocation per accepted request. ADT retains Workflow admission, sequencing, retries, cancellation state, and durable history.
+ADT Runtime is the independently deployed, stateless compute and provider-execution boundary for Artifact Dev Toolkit. It supports linear LangGraph compute and one synchronous OpenAI Agents SDK invocation per accepted request. ADT retains Workflow admission, provider authority, retries, cancellation state, and durable history.
 
 ## Operator contract
 
@@ -8,6 +8,7 @@ ADT Runtime is the independently deployed, stateless provider-execution boundary
 - The container is replaceable, runs as `node`, needs no persistent volume or Docker socket, and has no infrastructure control capability.
 - Keep ingress HTTPS and operator-owned. The unauthenticated `/healthz` endpoint discloses only process health.
 - Do not provision provider API keys, Cloudflare credentials, GitHub App credentials, artifact-repository credentials, Codex credentials, Portainer credentials, or tunnel credentials to this service.
+- Do not add a D1 binding or persistent volume. Checkpoints remain in control-plane D1 behind a short-lived, exact run-scoped gateway authority.
 - Trusted CI also publishes immutable `poulti/adt-runtime:<git-sha>` tags for provenance and explicit rollback/pinning if automatic `latest` rollout is suspended.
 
 Create two external Docker secrets:
@@ -19,7 +20,7 @@ Create two external Docker secrets:
 
 The Runtime derives the public SPKI fingerprint from the loaded PKCS#8 private key. There is no separately provisioned or trusted key-ID setting.
 
-The Cloudflare application requires optional bindings `ADT_RUNTIME_BASE_URL`, `ADT_RUNTIME_AUTH_SECRET`, and `ADT_RUNTIME_WRAPPING_PUBLIC_KEY` (the PEM SPKI public key) for `openai-agents`. Tool-enabled Agents also require `ADT_TOOL_GATEWAY_URL` and the Worker-only `ADT_TOOL_AUTHORITY_SECRET`; tool-free Agents do not. The tool-authority secret must never be provisioned to ADT Runtime. If the Runtime bindings are absent, only `openai-agents` execution is unavailable; unrelated application functions continue. The wrapping private key never enters Cloudflare. Existing provider credentials remain in the current Cloudflare secret bindings or transitional encrypted D1 state and are encrypted to the Runtime only for an invocation.
+The Cloudflare application requires optional bindings `ADT_RUNTIME_BASE_URL`, `ADT_RUNTIME_AUTH_SECRET`, and `ADT_RUNTIME_WRAPPING_PUBLIC_KEY` (the PEM SPKI public key) for `openai-agents`. Tool-enabled Agents also require `ADT_TOOL_GATEWAY_URL` and the Worker-only `ADT_TOOL_AUTHORITY_SECRET`; tool-free Agents do not. Workflow v2 execution requires `ADT_CHECKPOINT_GATEWAY_URL`, `ADT_GRAPH_NODE_GATEWAY_URL`, and the distinct Worker-only `ADT_CHECKPOINT_AUTHORITY_SECRET` and `ADT_GRAPH_NODE_AUTHORITY_SECRET`. Authority secrets must never be provisioned to ADT Runtime. If Runtime bindings are absent, Runtime-backed execution is unavailable while unrelated application functions continue. The wrapping private key never enters Cloudflare. Existing provider credentials remain in the current Cloudflare secret bindings or transitional encrypted D1 state and are encrypted to the Runtime only for an invocation.
 
 Generate compatible material with standard OpenSSL commands:
 
@@ -30,8 +31,10 @@ openssl pkey -in runtime-private.pem -pubout -out runtime-public.pem
 
 ## Protocol and security
 
-- Readiness separately advertises `openai-agents` and `tool:artifact-search`; ADT rejects tool-enabled execution before provider use when the latter is absent.
-- Protocol `adt-runtime-v1` exposes authenticated `GET /v1/readiness` and `POST /v1/executions/openai-agents` operations.
+- Readiness separately advertises `openai-agents`, `tool:artifact-search`, and `langgraph:linear`; ADT rejects capability-specific execution before provider use when the required capability is absent.
+- The Worker-only `ADT_CHECKPOINT_AUTHORITY_SECRET` issues short-lived run-scoped checkpoint access. `ADT_GRAPH_NODE_AUTHORITY_SECRET` separately issues short-lived capabilities bound to one run, node, Workflow generation, iteration, and attempt. Never provision either secret to Runtime or reuse Runtime request-authentication or artifact-search authority material.
+- Protocol `adt-runtime-v1` exposes authenticated readiness, OpenAI Agents execution, and bounded linear LangGraph advance operations.
+- One LangGraph advance reconstructs the immutable ADT plan, resumes the run thread through the remote saver, admits at most one Agent node, checkpoints, and returns control to the outer Cloudflare Workflow.
 - HMAC-SHA-256 binds protocol, method, exact path, millisecond timestamp, random nonce, and the SHA-256 digest of the exact body. Accepted nonces are retained in a bounded, expiring in-memory replay cache.
 - Each credential uses a fresh AES-256-GCM key and nonce. RSA-OAEP with SHA-256 wraps that content key; GCM additional authenticated data binds protocol, capability, and ADT idempotency identity.
 - Web Crypto implements RSA-OAEP, SHA-256, AES-GCM, and HMAC in both Cloudflare Workers and Node 24. The construction uses only those standard algorithms.

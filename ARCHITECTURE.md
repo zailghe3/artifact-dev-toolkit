@@ -25,13 +25,14 @@ Next.js -> OpenNext -> Cloudflare Worker
     |       - validated artifact catalogue cache
     |
     +--> Cloudflare Workflows
-    |       - durable Agent Workflow execution driver
+    |       - durable outer launch and recovery driver
     |
     +--> OpenAI
     |       - existing Responses execution path
     |
     +--> authenticated ADT Runtime
     |       - independently deployed stateless provider execution
+    |       - LangGraph linear Workflow v2 compute
     |       - OpenAI Agents SDK / provider API
     |
     +--> independently deployed Codex Runner
@@ -67,7 +68,7 @@ Authentication, repository access, session persistence, and privileged mutation 
 
 - Connections identify supported execution providers without exposing credentials.
 - Agents bind a connection, master prompt reference, and supported provider options.
-- Workflows support compatible v1 ordered Agent steps and canonical v2 semantic block graphs; the ADT Block Registry validates v2 blocks and the current linear Agent graph compiles into the existing sequential engine.
+- Workflows support compatible v1 ordered Agent steps and canonical v2 semantic block graphs; the ADT Block Registry validates the current linear Agent topology.
 - Definitions are persisted through the configured GitHub-backed definition repository and use repository revisions for optimistic concurrency.
 - Root-level executable definition paths are canonical while temporary legacy-layout compatibility preserves exact-path, revision-aware mutation during repository migration.
 
@@ -76,7 +77,8 @@ Current product behaviour is defined by [`specs/agent-workflows.md`](specs/agent
 ### Durable Workflow execution
 
 - Runs snapshot the definitions used for one execution.
-- Cloudflare Workflows drives durable sequential execution for v1 and compiled linear v2 Agent chains and owns retries, polling, cancellation, and state advancement.
+- Cloudflare Workflows drives durable sequential execution for v1 and remains the outer launch/recovery shell for new v2 runs.
+- New v2 runs freeze an ADT-owned linear execution plan. LangGraph checkpoints determine v2 execution position; D1 run and attempt rows remain audit, provider-safety, and status projections.
 - A provider-neutral AgentRuntime boundary delegates one Agent step's execution to the selected provider implementation.
 - D1 persists run, step, attempt, provider-task, retry, cancellation, and reconciliation state.
 - Successful textual output is persisted before it can become the next step's input.
@@ -99,7 +101,9 @@ The product invariants are in [`specs/agent-workflows.md`](specs/agent-workflows
 
 - ADT Runtime is an independently deployed, stateless provider-execution service.
 - Explicit `openai-agents` Artifact search calls return through a bounded control-plane gateway; repository authority and credentials remain in the application.
-- The Cloudflare control plane retains Workflow durability and orchestration; the Runtime completes one bounded provider invocation and retains no application state or provider credential.
+- The Cloudflare control plane retains Workflow admission, D1 durability, provider authority, and outer recovery. The Runtime reconstructs bounded linear LangGraph compute and retains no application state or provider credential.
+- A run-scoped authenticated gateway gives the Runtime only the checkpoint operations for that run; the Runtime has no D1 binding or Cloudflare credential.
+- A separate exact node-attempt gateway admits only the node identified by the current LangGraph checkpoint; authority is bound to the run, node, Workflow generation, iteration, and attempt while reusing the existing AgentRuntime lifecycle and provider-safety state.
 - The application authenticates protocol requests and encrypts each resolved provider credential to the Runtime's operator-provisioned wrapping key.
 - Protocol and capability discovery permits independent application and Runtime rollout without matching revisions or ambiguous interpretation.
 - Trusted CI publishes `poulti/adt-runtime` to Docker Hub. Operator-owned deployment normally tracks `latest`; immutable Git SHA tags support provenance and rollback.
@@ -129,7 +133,7 @@ Operational detail belongs in [`codex-runner/README.md`](codex-runner/README.md)
 | Artifact repository layout and metadata | `docs/external-artifact-repository-contract.md` plus validation code |
 | Application sessions, permanent encrypted provider credential vault, transitional provider connection fallback, and durable Workflow state | D1 schema, migrations, and source |
 | Catalogue acceleration | KV cache; GitHub remains authoritative |
-| Durable Workflow orchestration | Cloudflare Workflow implementation plus persisted run state |
+| Durable Workflow orchestration | v1 Cloudflare Workflow cursor; v2 Runtime LangGraph checkpoint state in control-plane D1 |
 | OpenAI Agents SDK provider execution | independently deployed stateless ADT Runtime |
 | Codex authentication and workspaces | isolated Codex Runner executor |
 | Runner jobs, idempotency, and emergency latch | Codex Runner controller |
