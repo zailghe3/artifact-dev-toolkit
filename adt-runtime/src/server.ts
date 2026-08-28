@@ -27,7 +27,7 @@ export async function createRuntimeServer(options:Options){
   emit("runtime_provider_execution_started",{operation,requestId,providerExecutionEntered:true});
   try{const outputText=await executeOpenAIAgents(request,credential,options.factories);emit("runtime_provider_execution_completed",{operation,requestId,result:"completed",httpStatus:200,elapsedMs:Date.now()-started,providerExecutionEntered:true});return safe(res,200,{protocolVersion:PROTOCOL_VERSION,ok:true,result:{state:"completed",outputText}})}
   catch(value){const failure=value instanceof RuntimeFailure?value:new RuntimeFailure("internal_error","The Agents runtime failed unexpectedly.");emit("runtime_provider_execution_failed",{operation,requestId,result:"execution_failed",failureCategory:failure.category,httpStatus:422,elapsedMs:Date.now()-started,providerExecutionEntered:true});return error(res,422,"execution_failed",failure.category,failure.safeMessage.length>512?"Runtime execution failed.":failure.safeMessage,true)}finally{credential=""}
- });server.requestTimeout=35_000;server.headersTimeout=10_000;
+ });server.requestTimeout=60_000;server.headersTimeout=10_000;
  return{server,keyId,replays,listen:()=>new Promise<void>((resolve,reject)=>server.listen(options.port,options.host,resolve).once("error",reject)),close:()=>new Promise<void>((resolve,reject)=>server.close(value=>value?reject(value):resolve())),shutdown(){shuttingDown=true;server.closeIdleConnections()}};
 }
 function startup(event:string,stage:string){process.stderr.write(`${JSON.stringify({event,protocolVersion:PROTOCOL_VERSION,stage})}\n`)}
