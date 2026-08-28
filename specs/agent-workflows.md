@@ -2,7 +2,7 @@
 
 **Document status:** Baseline specification of implemented Agent Workflow behaviour  
 **Scope:** Current behaviour only; not a roadmap or implementation design  
-**Last updated:** 2026-08-27
+**Last updated:** 2026-08-28
 
 ## 1. Purpose
 
@@ -16,16 +16,18 @@
 
 - A **Connection** identifies an available execution provider without exposing its private credentials.
 - An **Agent** selects a connection, master prompt, and supported provider options.
-- A **Workflow** defines an ordered sequence of agents.
-- A **Workflow layout** is an optional visual arrangement of those existing steps and is not executable configuration.
+- A **Workflow** is either a compatible v1 ordered Agent sequence or a v2 semantic graph of versioned blocks and edges.
+- A **Block Registry** defines the supported versioned block contracts; the only currently executable block is an Agent reference.
+- A **Workflow layout** is an optional visual arrangement of stable node identities and is not executable configuration.
 - A **Run** freezes the workflow and agent configuration used for one execution.
 - An **Attempt** records one execution attempt for a workflow step.
 - Provider task identifiers may be retained when needed to safely observe or reconcile external work.
 
 ## 3. Workflow definitions
 
-- Workflow definitions are explicit and ordered.
-- Current workflows are sequential and acyclic.
+- New visual workflows use the ADT-owned v2 semantic graph format; existing v1 ordered definitions remain readable, editable, and executable without automatic conversion.
+- Current executable v2 workflows contain one connected, unambiguous, linear Agent chain. Unsupported block contracts or graph topology fail closed before persistence or execution.
+- Semantic edges determine v2 execution order independently of node array order and visual position.
 - Each workflow has bounded step count and execution limits.
 - Workflow definitions are separate from run history.
 - A run uses an immutable snapshot of the definitions selected at launch.
@@ -39,11 +41,12 @@
 - Cross-layout identity collisions fail closed.
 - Definition location does not affect Workflow references, execution, or immutable run snapshots.
 - Executable Agent and Workflow lifecycle state remains independent from Artifact Library Markdown lifecycle rules.
-- The Workflow view presents the ordered steps as a visual node-and-edge chain.
+- The Workflow view presents Agent blocks and semantic edges as a visual chain.
 - Users may move visual nodes, pan or zoom the view, and save that layout independently from the Workflow definition.
 - Missing or out-of-date layout information does not prevent a current Workflow step from being displayed or executed.
-- Visual position never changes step order, routing, handoff, result selection, limits, or run snapshots.
-- Visual edges reflect the existing sequential order and are not editable routing semantics.
+- Visual position and viewport changes remain separate presentation-only layout mutations and never change semantic order, handoff, result selection, limits, or run snapshots.
+- For v2 workflows, adding, removing, configuring, connecting, or disconnecting a block is an intentional semantic Workflow mutation and must produce a valid linear chain.
+- At launch, a supported v2 chain is frozen with its Workflow revision, Agent revisions, and Connection snapshots and executes through the same durable sequential engine as v1.
 
 ## 4. Sequential handoff
 

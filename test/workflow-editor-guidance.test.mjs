@@ -51,12 +51,13 @@ test('Agent create and edit forms expose required fields and immutable persisted
  assert.match(edit,/<input(?=[^>]*name="id")(?=[^>]*required="")(?=[^>]*readOnly="")(?=[^>]*value="existing-agent")/);
 });
 
-test('Workflow create and edit forms require at least one ordered Agent and immutable persisted IDs',()=>{
+test('Workflow create form exposes visual v2 authoring and persisted v2 IDs are immutable',()=>{
  const create=render(React.createElement(WorkflowDefinitionEditor,{agents:[agent]}));
  assert.match(create,/<input(?=[^>]*name="name")(?=[^>]*required="")/);
  assert.match(create,/<input(?=[^>]*name="id")(?=[^>]*required="")/);
- assert.match(create,/<select(?=[^>]*name="agent-0")(?=[^>]*required="")/);
- const edit=render(React.createElement(WorkflowDefinitionEditor,{agents:[agent],initial:{id:'existing-workflow',name:'Existing Workflow',description:'',steps:[{agentId:agent.id}]}}));
+ assert.match(create,/Add Agent block/);assert.match(create,/Workflow graph changes/);
+ const initial={schemaVersion:2,id:'existing-workflow',name:'Existing Workflow',description:'',status:'draft',nodes:[{id:'node-1',blockType:'agent',blockVersion:1,config:{agentId:agent.id}}],edges:[],limits:{maxStepExecutions:32}};
+ const edit=render(React.createElement(WorkflowDefinitionEditor,{agents:[agent],initial}));
  assert.match(edit,/<input(?=[^>]*name="id")(?=[^>]*required="")(?=[^>]*readOnly="")(?=[^>]*value="existing-workflow")/);
 });
 
