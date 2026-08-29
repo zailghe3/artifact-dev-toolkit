@@ -28,6 +28,7 @@
 - New visual workflows use the ADT-owned v2 semantic graph format; existing v1 ordered definitions remain readable, editable, and executable without automatic conversion.
 - Current executable v2 workflows contain one connected bounded graph with Agent blocks, bounded `contains` Conditions, structured parallel fan-out and Join, and Condition-controlled cycles. Condition routes have labelled `true` and `false` semantic ports; omitted ports retain the registered defaults for compatible definitions. Unsupported block contracts or graph topology fail closed before persistence or execution.
 - A Workflow v2 definition may be exposed as a reusable block. `subworkflow@1` references one exposed Workflow in the same definition repository and has one text input and one text output; Workflow v1 cannot be exposed.
+- A reusable Workflow block may be the compact graph's successful terminal. Its child's terminal text is the block output, and launch-time composition must still produce a primitive graph whose successful terminal is an Agent.
 - Reusable Workflows may compose other exposed Workflow v2 definitions within a bounded depth. Missing, unexposed, cyclic, oversized, or unsupported composed graphs fail closed before launch.
 - A run freezes the complete transitive Workflow definitions, exact repository revisions, authored composite paths, and Agents before execution. Later edits to a referenced Workflow affect new runs only.
 - Semantic edges determine v2 execution order independently of node array order and visual position.
