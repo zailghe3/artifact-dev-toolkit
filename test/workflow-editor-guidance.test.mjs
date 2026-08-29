@@ -5,7 +5,7 @@ import {renderToStaticMarkup} from 'react-dom/server';
 import {installTsxHook} from './render-tsx.mjs';
 import {definitionIdDraftReducer,definitionIdFromName} from '../lib/definition-id.ts';
 import {workflowSections} from '../lib/workflow-navigation.ts';
-import {workflowRunPresentation} from '../lib/workflow-run-presentation.ts';
+import {workflowRunNodeLabel,workflowRunPresentation} from '../lib/workflow-run-presentation.ts';
 
 const requireTsx=installTsxHook();
 const {AppRouterContext}=requireTsx('next/dist/shared/lib/app-router-context.shared-runtime');
@@ -149,3 +149,5 @@ test('OpenAI Agents editor preserves explicit artifact_search while other runtim
 });
 
 test('read-only Workflow graph renders Approval distinctly with its immutable message',()=>{const {WorkflowLayoutEditor}=requireTsx('../components/WorkflowLayoutEditor.tsx'),workflow={schemaVersion:2,id:'approval-layout',name:'Approval',description:'',status:'draft',nodes:[{id:'start',blockType:'agent',blockVersion:1,config:{agentId:'planning-agent'}},{id:'review',blockType:'approval',blockVersion:1,config:{message:'Approve this exact result?'}},{id:'finish',blockType:'agent',blockVersion:1,config:{agentId:'planning-agent'}}],edges:[{id:'one',source:'start',target:'review'},{id:'two',source:'review',target:'finish'}],limits:{maxStepExecutions:3}},html=render(React.createElement(WorkflowLayoutEditor,{workflow,agents:{'planning-agent':'Planning Agent'}}));assert.match(html,/>Approval</);assert.match(html,/Approve this exact result\?/);assert.doesNotMatch(html,/review[^]*Wait for every branch/)});
+
+test('composite run labels use frozen Workflow and invocation names instead of compiler IDs',()=>{const executionNodeId=`swn-${'a'.repeat(64)}`,run={semanticWorkflowSnapshot:{name:'Assessment'},compositionSnapshot:{nodes:[{executionNodeId,semanticNodeId:'researcher',invocationPath:[{workflowId:'research-flow',workflowName:'Research and Critique',invocationNodeId:'first-research'}]}]},executionPlan:{planVersion:2,nodes:[{id:executionNodeId,blockType:'agent',config:{agentId:'research-agent'}}]},agentSnapshots:{'research-agent':{name:'Researcher'}}};assert.equal(workflowRunNodeLabel(run,executionNodeId),'Assessment / Research and Critique (first-research) / Researcher');assert.equal(workflowRunNodeLabel(run,'unknown'),'unknown')});
