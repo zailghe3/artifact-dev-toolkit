@@ -2,20 +2,20 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {Miniflare} from 'miniflare';
-import {AgentRuntimeRegistry} from '../lib/agent-runtime.ts';
-import {D1LangGraphCheckpointStore,issueCheckpointAuthority,issueGraphNodeAuthority,parseCheckpointOperation,verifyGraphNodeAuthority} from '../lib/langgraph-checkpoints.ts';
-import {D1WorkflowRunStorage} from '../lib/workflow-d1-storage.ts';
-import {executeDurableGraphNodeTurn} from '../lib/workflow-durable-driver.ts';
-import {agentDefinitionSchema,compileWorkflowV2ExecutionPlan,executableWorkflow,workflowDefinitionV2Schema} from '../lib/workflow-definitions.ts';
-import {executeLangGraphWorkflow} from '../lib/workflow-worker-runtime.ts';
-import {newLangGraphWorkflowRun} from '../lib/workflow-storage.ts';
-import {advanceGenericGraph} from '../adt-runtime/src/langgraph.ts';
+import {AgentRuntimeRegistry} from '../../lib/agent-runtime.ts';
+import {D1LangGraphCheckpointStore,issueCheckpointAuthority,issueGraphNodeAuthority,parseCheckpointOperation,verifyGraphNodeAuthority} from '../../lib/langgraph-checkpoints.ts';
+import {D1WorkflowRunStorage} from '../../lib/workflow-d1-storage.ts';
+import {executeDurableGraphNodeTurn} from '../../lib/workflow-durable-driver.ts';
+import {agentDefinitionSchema,compileWorkflowV2ExecutionPlan,executableWorkflow,workflowDefinitionV2Schema} from '../../lib/workflow-definitions.ts';
+import {executeLangGraphWorkflow} from '../../lib/workflow-worker-runtime.ts';
+import {newLangGraphWorkflowRun} from '../../lib/workflow-storage.ts';
+import {advanceGenericGraph} from '../dist/langgraph.js';
 
 const secret='pass-c-integrated-authority-secret-000000000',connection={key:'deterministic-test',name:'Integrated test',adapter:'deterministic-test',enabled:true,capabilities:{asynchronous:false,cancellation:false}};
 const agent=id=>agentDefinitionSchema.parse({schemaVersion:1,id:`agent-${id}`,name:id,description:'',status:'draft',masterPrompt:id,connectionKey:connection.key});
 const edge=(source,target,sourcePort)=>({id:`${source}-${sourcePort??'out'}-${target}`,source,...(sourcePort?{sourcePort}:{}),target});
 
-async function database(t){const mf=new Miniflare({modules:true,script:'export default {fetch(){return new Response("ok")}}',d1Databases:{DB:crypto.randomUUID()}}),db=await mf.getD1Database('DB');t.after(()=>mf.dispose());for(const name of ['0003_create_workflow_runs.sql','0010_add_workflow_run_repository_context.sql','0011_add_langgraph_workflow_runs.sql','0012_add_graph_activation_identity.sql']){const sql=await readFile(new URL(`../migrations/${name}`,import.meta.url),'utf8');await db.batch(sql.split(';').map(value=>value.trim()).filter(Boolean).map(value=>db.prepare(value)))}return db}
+async function database(t){const mf=new Miniflare({modules:true,script:'export default {fetch(){return new Response("ok")}}',d1Databases:{DB:crypto.randomUUID()}}),db=await mf.getD1Database('DB');t.after(()=>mf.dispose());for(const name of ['0003_create_workflow_runs.sql','0010_add_workflow_run_repository_context.sql','0011_add_langgraph_workflow_runs.sql','0012_add_graph_activation_identity.sql']){const sql=await readFile(new URL(`../../migrations/${name}`,import.meta.url),'utf8');await db.batch(sql.split(';').map(value=>value.trim()).filter(Boolean).map(value=>db.prepare(value)))}return db}
 
 async function harness(t,{definition,agents,initialInput,provider}){
  const db=await database(t),storage=new D1WorkflowRunStorage(db),plan=compileWorkflowV2ExecutionPlan(definition,agents),run=newLangGraphWorkflowRun({id:crypto.randomUUID(),workflow:definition,compatibilityWorkflow:executableWorkflow(definition,agents),executionPlan:plan,revision:'immutable-sha',agents,connections:[connection],initialInput});await storage.createRun(run);
