@@ -86,3 +86,11 @@ For authentication, authorisation, secrets, repository writes, deployment config
 - Inspect the final diff and ensure every tracked change is intentional and in scope.
 - For issue-driven work, follow the issue-specific Codex execution contract and include the required closing reference in the pull request.
 - Report validation for the final pull-request head, not an earlier commit.
+
+## Review and correction prompts
+
+- When a pull-request review identifies changes that should be made before merge, finish with one complete copy-pasteable correction prompt covering all recommended fixes.
+- When no review finding requires a change, explicitly state that no follow-up correction prompt is needed.
+- Keep each copy-pasteable Codex prompt in one self-contained block unless the user explicitly asks for separate prompts.
+- Never place Markdown fenced code blocks inside a copy-pasteable prompt block because nested fences can break copying.
+- Represent commands or code examples inside such prompts as indented or plain text instead of nested fenced blocks.
