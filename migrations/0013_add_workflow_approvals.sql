@@ -1,6 +1,5 @@
 -- SQLite cannot alter a CHECK constraint in place. Rebuild the current Phase 13
 -- table exactly, adding waiting_approval while preserving every compatibility column.
-PRAGMA foreign_keys = OFF;
 CREATE TABLE workflow_step_attempts_phase14 AS SELECT * FROM workflow_step_attempts;
 CREATE TABLE langgraph_checkpoints_phase14 AS SELECT * FROM langgraph_checkpoints;
 CREATE TABLE langgraph_checkpoint_writes_phase14 AS SELECT * FROM langgraph_checkpoint_writes;
@@ -62,7 +61,6 @@ CREATE TABLE langgraph_checkpoint_writes (
 );
 INSERT INTO langgraph_checkpoint_writes SELECT * FROM langgraph_checkpoint_writes_phase14;
 DROP TABLE langgraph_checkpoint_writes_phase14;
-PRAGMA foreign_keys = ON;
 
 CREATE TABLE workflow_approvals (
  request_id TEXT PRIMARY KEY,

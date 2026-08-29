@@ -65,7 +65,8 @@ export async function waitForApprovalWake(input:{runId:string;generation:number;
  for(let occurrence=1;;occurrence++){
   const run=await storage.getRun(runId),durable=await approvals.get(approval.requestId);
   if(!run||run.run.cancelRequestedAt||run.run.status==="cancelling"||run.run.status==="cancelled"){if(run?.run.status==="cancelling")await storage.cancelRun(runId);return{state:"cancelled" as const}}
-  if(!durable||durable.consumedAt)throw new Error("approval_not_pending");
+  if(!durable)throw new Error("approval_not_pending");
+  if(durable.status==="approved"&&durable.consumedAt){if(run.run.status==="running")return{state:"approved" as const,requestId:durable.requestId,interruptId:durable.interruptId};throw new Error("approval_not_pending")}
   if(durable.status==="approved"){
    if(await approvals.consume(runId,durable.requestId))return{state:"approved" as const,requestId:durable.requestId,interruptId:durable.interruptId};
    const reconciled=await storage.getRun(runId);if(reconciled?.run.status==="cancelling"){await storage.cancelRun(runId);return{state:"cancelled" as const}}
