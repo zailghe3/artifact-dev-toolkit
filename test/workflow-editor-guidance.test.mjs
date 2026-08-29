@@ -65,7 +65,7 @@ test('Workflow v2 execution limit uses the schema lower bound rather than the gr
  const initial={schemaVersion:2,id:'conditional-limit',name:'Conditional limit',description:'',status:'draft',nodes:[{id:'condition',blockType:'condition',blockVersion:1,config:{operator:'contains',value:'yes',caseSensitive:false}},{id:'yes',blockType:'agent',blockVersion:1,config:{agentId:agent.id}},{id:'no',blockType:'agent',blockVersion:1,config:{agentId:agent.id}}],edges:[{id:'yes-edge',source:'condition',sourcePort:'true',target:'yes'},{id:'no-edge',source:'condition',sourcePort:'false',target:'no'}],limits:{maxStepExecutions:1}};
  const html=render(React.createElement(WorkflowDefinitionEditor,{agents:[agent],initial}));
  assert.match(html,/<input(?=[^>]*aria-describedby="execution-limit-help")(?=[^>]*min="1")(?=[^>]*max="128")(?=[^>]*value="1")/);
- assert.match(html,/Agent, Condition, and Join activations count\. Provider polling and retries do not\./);
+ assert.match(html,/Agent, Condition, Approval, and Join activations count\. A paused Approval counts once when resumed\. Provider polling and retries do not\./);
 });
 
 test('Workflow navigation model keeps the definitions destination labelled Workflows',()=>{
@@ -147,3 +147,5 @@ test('OpenAI Agents editor preserves explicit artifact_search while other runtim
  assert.match(html,/<input(?=[^>]*name="artifactSearch")(?=[^>]*type="checkbox")(?=[^>]*checked="")/);
  assert.doesNotMatch(render(React.createElement(WorkflowAgentEditor,{connections:[connection]})),/name="artifactSearch"/);
 });
+
+test('read-only Workflow graph renders Approval distinctly with its immutable message',()=>{const {WorkflowLayoutEditor}=requireTsx('../components/WorkflowLayoutEditor.tsx'),workflow={schemaVersion:2,id:'approval-layout',name:'Approval',description:'',status:'draft',nodes:[{id:'start',blockType:'agent',blockVersion:1,config:{agentId:'planning-agent'}},{id:'review',blockType:'approval',blockVersion:1,config:{message:'Approve this exact result?'}},{id:'finish',blockType:'agent',blockVersion:1,config:{agentId:'planning-agent'}}],edges:[{id:'one',source:'start',target:'review'},{id:'two',source:'review',target:'finish'}],limits:{maxStepExecutions:3}},html=render(React.createElement(WorkflowLayoutEditor,{workflow,agents:{'planning-agent':'Planning Agent'}}));assert.match(html,/>Approval</);assert.match(html,/Approve this exact result\?/);assert.doesNotMatch(html,/review[^]*Wait for every branch/)});

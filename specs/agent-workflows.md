@@ -2,7 +2,7 @@
 
 **Document status:** Baseline specification of implemented Agent Workflow behaviour  
 **Scope:** Current behaviour only; not a roadmap or implementation design  
-**Last updated:** 2026-08-28
+**Last updated:** 2026-08-29
 
 ## 1. Purpose
 
@@ -17,7 +17,7 @@
 - A **Connection** identifies an available execution provider without exposing its private credentials.
 - An **Agent** selects a connection, master prompt, and supported provider options.
 - A **Workflow** is either a compatible v1 ordered Agent sequence or a v2 semantic graph of versioned blocks and edges.
-- A **Block Registry** defines the supported versioned block contracts; backend-executable blocks are Agent references, deterministic text Conditions, and deterministic Join barriers.
+- A **Block Registry** defines the supported versioned block contracts; backend-executable blocks are Agent references, deterministic text Conditions, and deterministic Join barriers, and resumable human Approval gates.
 - A **Workflow layout** is an optional visual arrangement of stable node identities and is not executable configuration.
 - A **Run** freezes the workflow and agent configuration used for one execution.
 - An **Attempt** records one execution attempt for a workflow step.
@@ -41,7 +41,7 @@
 - Cross-layout identity collisions fail closed.
 - Definition location does not affect Workflow references, execution, or immutable run snapshots.
 - Executable Agent and Workflow lifecycle state remains independent from Artifact Library Markdown lifecycle rules.
-- The Workflow view presents distinct Agent, Condition, and Join blocks with ADT semantic ports and edges, including structured fan-out and controlled back-edges.
+- The Workflow view presents distinct Agent, Condition, Approval, and Join blocks with ADT semantic ports and edges, including structured fan-out and controlled back-edges.
 - Users may move visual nodes, pan or zoom the view, and save that layout independently from the Workflow definition.
 - Missing or out-of-date layout information does not prevent a current Workflow step from being displayed or executed.
 - Visual position and viewport changes remain separate presentation-only layout mutations and never change semantic order, handoff, result selection, limits, or run snapshots.
@@ -59,7 +59,12 @@
 
 ## 5. Durable execution
 
-- Runs persist their current state and execution history. Generic graph runs present their immutable semantic snapshot, simultaneous active Agents, and visit-aware Agent attempt history without implying a linear step order.
+- Runs persist their current state and execution history.
+- `approval@1` pauses a run in an explicit waiting-for-approval state with its immutable message and exact reviewed text visible to an authorised user. Approval passes the incoming text onward unchanged and counts as one semantic block execution across pause and resume.
+- Approval resumes the exact frozen execution checkpoint and launch snapshot. Later definition edits cannot change a paused run.
+- Human waiting does not consume the bounded active execution duration. Cancellation remains available while waiting and prevents downstream admission when it wins durably.
+- Approval decisions identify one exact block activation and are idempotent. A stale decision cannot approve a later visit to the same block.
+- Phase 14 supports one active Approval interrupt per run; Approval within a parallel fan-out is rejected. Generic graph runs present their immutable semantic snapshot, simultaneous active Agents, and visit-aware Agent attempt history without implying a linear step order.
 - For new v2 runs, durable graph state determines which node executes next. Run cursors are projections and cannot independently select a node.
 - Each graph node still executes through the existing provider-neutral Agent lifecycle. A repeated request for a durably successful node reuses its output, and an accepted asynchronous provider task is observed rather than recreated.
 - Successful step output is persisted before later steps can depend on it.
