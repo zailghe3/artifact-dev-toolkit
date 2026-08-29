@@ -33,6 +33,12 @@ jobs:
         run: |
           echo "Node.js $(node --version)" | tee -a "$GITHUB_STEP_SUMMARY"
           echo "npm $(npm --version)" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Install ADT Runtime dependencies in isolation
+        working-directory: adt-runtime
+        run: npm ci
+      - name: Validate ADT Runtime in isolation
+        working-directory: adt-runtime
+        run: npm test && npm run typecheck
       - name: Install dependencies
         run: npm ci
       - name: Validate toolchain contract
@@ -58,9 +64,8 @@ jobs:
       - name: Validate Codex Runner
         working-directory: codex-runner
         run: npm test && npm run typecheck
-      - name: Install and validate ADT Runtime
-        working-directory: adt-runtime
-        run: npm ci && npm test && npm run typecheck
+      - name: Test control-plane and ADT Runtime integration
+        run: npm run test:workflow-runtime-integration
       - name: Build and smoke-test ADT Runtime image without publishing
         run: |
           docker build --build-arg ADT_RUNTIME_REVISION="${{ inputs.ref }}" -t adt-runtime:pr-verified adt-runtime
