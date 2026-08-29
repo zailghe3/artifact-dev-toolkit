@@ -2,7 +2,7 @@ import type { AgentDefinitionV1, WorkflowDefinitionV1, WorkflowDefinitionV2,Work
 import type { ConnectionDescriptor } from "./workflow-connections.ts";
 import type { FailureCategory,ProviderTransportDiagnostics } from "./workflow-adapter.ts";
 
-export type RunStatus = "queued" | "running" | "cancelling" | "succeeded" | "failed" | "cancelled";
+export type RunStatus = "queued" | "running" | "waiting_approval" | "cancelling" | "succeeded" | "failed" | "cancelled";
 export type StepStatus = "pending" | "starting" | "waiting_provider" | "succeeded" | "failed" | "cancelled";
 export type CancellationResult = "cancelled" | "cancellation_pending" | "already_terminal" | "unsupported" | "safe_failure";
 const terminalCancellationResults=new Set<CancellationResult>(["cancelled","already_terminal","unsupported","safe_failure"]);

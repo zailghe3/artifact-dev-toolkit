@@ -18,7 +18,10 @@ export class WorkflowBlockRegistry {
 export const agentBlockConfigSchema=z.object({agentId:z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(80)}).strict();
 export const conditionBlockConfigSchema=z.object({operator:z.literal("contains"),value:z.string().min(1).max(4096),caseSensitive:z.boolean().default(false)}).strict();
 export const joinBlockConfigSchema=z.object({}).strict();
+export const APPROVAL_MESSAGE_MAX_LENGTH=2000;
+export const approvalBlockConfigSchema=z.object({message:z.string().trim().min(1).max(APPROVAL_MESSAGE_MAX_LENGTH)}).strict();
 export const workflowBlockRegistry=new WorkflowBlockRegistry()
  .register({type:"agent",version:1,configSchema:agentBlockConfigSchema,interface:{inputs:[{id:"in",dataType:"text",default:true}],outputs:[{id:"out",dataType:"text",default:true}]},references:config=>({agentIds:[config.agentId]}),ui:{label:"Agent",description:"Runs an ADT Agent with incoming text."}})
  .register({type:"condition",version:1,configSchema:conditionBlockConfigSchema,interface:{inputs:[{id:"in",dataType:"text",default:true}],outputs:[{id:"true",dataType:"text",default:true},{id:"false",dataType:"text"}]},ui:{label:"Condition",description:"Routes incoming text through a bounded contains predicate."}})
+ .register({type:"approval",version:1,configSchema:approvalBlockConfigSchema,interface:{inputs:[{id:"in",dataType:"text",default:true}],outputs:[{id:"out",dataType:"text",default:true}]},ui:{label:"Approval",description:"Pauses for authorised human approval, then passes incoming text unchanged."}})
  .register({type:"join",version:1,configSchema:joinBlockConfigSchema,interface:{inputs:[{id:"in",dataType:"text",default:true,multiple:true}],outputs:[{id:"out",dataType:"text",default:true}]},ui:{label:"Join",description:"Deterministically aggregates a structured parallel frontier."}});

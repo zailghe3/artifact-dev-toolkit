@@ -68,7 +68,7 @@ Authentication, repository access, session persistence, and privileged mutation 
 
 - Connections identify supported execution providers without exposing credentials.
 - Agents bind a connection, master prompt reference, and supported provider options.
-- Workflows support compatible v1 ordered Agent steps and canonical v2 semantic block graphs; the ADT Block Registry validates registered Agent, Condition, and Join ports plus bounded structured fan-out and controlled-cycle topology.
+- Workflows support compatible v1 ordered Agent steps and canonical v2 semantic block graphs; the ADT Block Registry validates registered Agent, Condition, Approval, and Join ports plus bounded structured fan-out and controlled-cycle topology.
 - Definitions are persisted through the configured GitHub-backed definition repository and use repository revisions for optimistic concurrency.
 - Root-level executable definition paths are canonical while temporary legacy-layout compatibility preserves exact-path, revision-aware mutation during repository migration.
 
@@ -77,10 +77,10 @@ Current product behaviour is defined by [`specs/agent-workflows.md`](specs/agent
 ### Durable Workflow execution
 
 - Runs snapshot the definitions used for one execution.
-- Cloudflare Workflows drives durable sequential execution for v1 and remains the outer launch/recovery shell for new v2 runs.
+- Cloudflare Workflows drives durable sequential execution for v1 and remains the outer launch/recovery and human-event wait shell for new v2 runs.
 - New v2 runs freeze an ADT-owned versioned graph execution plan. LangGraph checkpoints determine v2 execution position; D1 run and attempt rows remain audit, provider-safety, and status projections.
 - A provider-neutral AgentRuntime boundary delegates one Agent step's execution to the selected provider implementation.
-- D1 persists run, step, attempt, provider-task, retry, cancellation, and reconciliation state.
+- D1 persists run, step, attempt, provider-task, human approval, retry, cancellation, and reconciliation state.
 - Successful textual output is persisted before it can become the next step's input.
 - Ambiguous external work is reconciled rather than blindly recreated.
 

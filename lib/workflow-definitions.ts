@@ -89,6 +89,7 @@ const genericPlanNode=z.discriminatedUnion("blockType",[
  z.object({id,blockType:z.literal("agent"),blockVersion:z.literal(1),config:z.object({agentId:id}).strict()}).strict(),
  z.object({id,blockType:z.literal("condition"),blockVersion:z.literal(1),config:z.object({operator:z.literal("contains"),value:z.string().min(1).max(4096),caseSensitive:z.boolean()}).strict()}).strict(),
  z.object({id,blockType:z.literal("join"),blockVersion:z.literal(1),config:z.object({}).strict()}).strict(),
+ z.object({id,blockType:z.literal("approval"),blockVersion:z.literal(1),config:z.object({message:z.string().trim().min(1).max(2000)}).strict()}).strict(),
 ]);
 export const genericWorkflowExecutionPlanSchema=z.object({planVersion:z.literal(2),nodes:z.array(genericPlanNode).min(1).max(MAX_WORKFLOW_STEPS),edges:z.array(z.object({source:id,sourcePort:id,target:id,targetPort:id}).strict()).max(MAX_STEP_EXECUTIONS),entryNodeId:id,terminalNodeId:id,maxStepExecutions:z.number().int().min(1).max(MAX_STEP_EXECUTIONS)}).strict();
 export const workflowV2ExecutionPlanSchema=z.union([historicalWorkflowV2ExecutionPlanSchema,genericWorkflowExecutionPlanSchema]);
