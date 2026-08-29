@@ -17,7 +17,7 @@
 - A **Connection** identifies an available execution provider without exposing its private credentials.
 - An **Agent** selects a connection, master prompt, and supported provider options.
 - A **Workflow** is either a compatible v1 ordered Agent sequence or a v2 semantic graph of versioned blocks and edges.
-- A **Block Registry** defines the supported versioned block contracts; backend-executable blocks are Agent references, deterministic text Conditions, and deterministic Join barriers, and resumable human Approval gates.
+- A **Block Registry** defines the supported versioned block contracts; backend-executable blocks are Agent references, deterministic text Conditions, deterministic Join barriers, resumable human Approval gates, and reusable Workflow composites.
 - A **Workflow layout** is an optional visual arrangement of stable node identities and is not executable configuration.
 - A **Run** freezes the workflow and agent configuration used for one execution.
 - An **Attempt** records one execution attempt for a workflow step.
@@ -27,6 +27,9 @@
 
 - New visual workflows use the ADT-owned v2 semantic graph format; existing v1 ordered definitions remain readable, editable, and executable without automatic conversion.
 - Current executable v2 workflows contain one connected bounded graph with Agent blocks, bounded `contains` Conditions, structured parallel fan-out and Join, and Condition-controlled cycles. Condition routes have labelled `true` and `false` semantic ports; omitted ports retain the registered defaults for compatible definitions. Unsupported block contracts or graph topology fail closed before persistence or execution.
+- A Workflow v2 definition may be exposed as a reusable block. `subworkflow@1` references one exposed Workflow in the same definition repository and has one text input and one text output; Workflow v1 cannot be exposed.
+- Reusable Workflows may compose other exposed Workflow v2 definitions within a bounded depth. Missing, unexposed, cyclic, oversized, or unsupported composed graphs fail closed before launch.
+- A run freezes the complete transitive Workflow composition and its Agents before execution. Later edits to a referenced Workflow affect new runs only.
 - Semantic edges determine v2 execution order independently of node array order and visual position.
 - Each workflow has bounded step count and execution limits.
 - Workflow definitions are separate from run history.
@@ -47,6 +50,8 @@
 - Visual position and viewport changes remain separate presentation-only layout mutations and never change semantic order, handoff, result selection, limits, or run snapshots.
 - For v2 workflows, adding, removing, configuring, connecting, or disconnecting a block is an intentional semantic Workflow mutation and must produce a valid bounded graph; the editor exposes Agent, Condition, structured fan-out, Join, controlled back-edge, and explicit execution-bound authoring.
 - At launch, a supported v2 chain is frozen with its semantic Workflow, Workflow revision, Agent revisions, Connection snapshots, and an explicit execution-engine version.
+- Reusable Workflow blocks expand into the existing primitive graph within the parent run. They do not create a separate run, checkpoint, cancellation lifecycle, provider authority, or execution count.
+- The root Workflow execution limit applies to every expanded Agent, Condition, Join, and Approval activation. Embedded Workflow limits do not establish another budget.
 - New v2 runs use the frozen semantic edges to reconstruct graph execution from the immutable versioned plan. Existing v1 and historical sequential-engine runs retain their original interpretation.
 
 ## 4. Sequential handoff
@@ -65,6 +70,8 @@
 - Human waiting does not consume the bounded active execution duration. Cancellation remains available while waiting and prevents downstream admission when it wins durably.
 - Approval decisions identify one exact block activation and are idempotent. A stale decision cannot approve a later visit to the same block.
 - Phase 14 supports one active Approval interrupt per run; Approval within a parallel fan-out is rejected. Generic graph runs present their immutable semantic snapshot, simultaneous active Agents, and visit-aware Agent attempt history without implying a linear step order.
+- Composition preserves the current direct structured-parallel limitation and rejects composed topology that would introduce unsupported nested parallelism or simultaneous Approval interrupts.
+- Run activity within reusable Workflows remains attributable to a meaningful bounded composite path and never appears as an independent child run.
 - For new v2 runs, durable graph state determines which node executes next. Run cursors are projections and cannot independently select a node.
 - Each graph node still executes through the existing provider-neutral Agent lifecycle. A repeated request for a durably successful node reuses its output, and an accepted asynchronous provider task is observed rather than recreated.
 - Successful step output is persisted before later steps can depend on it.

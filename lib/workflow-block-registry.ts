@@ -2,7 +2,7 @@ import {z} from "zod";
 
 export type BlockPort={id:string;dataType:"text";default?:boolean;multiple?:boolean};
 export type BlockInterface={inputs:readonly BlockPort[];outputs:readonly BlockPort[]};
-export type RegisteredBlock<T=unknown>={type:string;version:number;configSchema:z.ZodType<T>;interface:BlockInterface;references?:(config:T)=>{agentIds?:string[]};ui:{label:string;description:string}};
+export type RegisteredBlock<T=unknown>={type:string;version:number;configSchema:z.ZodType<T>;interface:BlockInterface;references?:(config:T)=>{agentIds?:string[];workflowIds?:string[]};ui:{label:string;description:string}};
 
 export class WorkflowBlockRegistry {
  private blocks=new Map<string,RegisteredBlock>();
@@ -20,8 +20,10 @@ export const conditionBlockConfigSchema=z.object({operator:z.literal("contains")
 export const joinBlockConfigSchema=z.object({}).strict();
 export const APPROVAL_MESSAGE_MAX_LENGTH=2000;
 export const approvalBlockConfigSchema=z.object({message:z.string().trim().min(1).max(APPROVAL_MESSAGE_MAX_LENGTH)}).strict();
+export const subworkflowBlockConfigSchema=z.object({workflowId:z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(80)}).strict();
 export const workflowBlockRegistry=new WorkflowBlockRegistry()
  .register({type:"agent",version:1,configSchema:agentBlockConfigSchema,interface:{inputs:[{id:"in",dataType:"text",default:true}],outputs:[{id:"out",dataType:"text",default:true}]},references:config=>({agentIds:[config.agentId]}),ui:{label:"Agent",description:"Runs an ADT Agent with incoming text."}})
  .register({type:"condition",version:1,configSchema:conditionBlockConfigSchema,interface:{inputs:[{id:"in",dataType:"text",default:true}],outputs:[{id:"true",dataType:"text",default:true},{id:"false",dataType:"text"}]},ui:{label:"Condition",description:"Routes incoming text through a bounded contains predicate."}})
  .register({type:"approval",version:1,configSchema:approvalBlockConfigSchema,interface:{inputs:[{id:"in",dataType:"text",default:true}],outputs:[{id:"out",dataType:"text",default:true}]},ui:{label:"Approval",description:"Pauses for authorised human approval, then passes incoming text unchanged."}})
+ .register({type:"subworkflow",version:1,configSchema:subworkflowBlockConfigSchema,interface:{inputs:[{id:"in",dataType:"text",default:true}],outputs:[{id:"out",dataType:"text",default:true}]},references:config=>({workflowIds:[config.workflowId]}),ui:{label:"Reusable workflow",description:"Runs an exposed Workflow v2 definition in this run."}})
  .register({type:"join",version:1,configSchema:joinBlockConfigSchema,interface:{inputs:[{id:"in",dataType:"text",default:true,multiple:true}],outputs:[{id:"out",dataType:"text",default:true}]},ui:{label:"Join",description:"Deterministically aggregates a structured parallel frontier."}});
