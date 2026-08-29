@@ -61,7 +61,11 @@ export async function executeLangGraphWorkflow(input:{runId:string;storage:impor
 export async function waitForApprovalWake(input:{runId:string;generation:number;result:LangGraphAdvanceResult;storage:import("./workflow-storage.ts").WorkflowRunStorage;approvals:D1WorkflowApprovalStore;waitForEvent:(name:string,type:string)=>Promise<unknown>}){
  const {runId,result,storage,approvals}=input;
  if(!result.nodeId||!result.activationId||!result.interruptId||result.message===undefined||result.text===undefined)throw new Error("approval_invalid");
- const approval=await approvals.require({runId,workflowGeneration:input.generation,nodeId:result.nodeId,activationId:result.activationId,interruptId:result.interruptId,message:result.message,reviewText:result.text}),type=approvalEventType(approval.requestId);
+ const reconcileCancellation=async()=>{const run=await storage.getRun(runId);if(!run||(!run.run.cancelRequestedAt&&run.run.status!=="cancelling"&&run.run.status!=="cancelled"))return false;if(run.run.status==="cancelling")await storage.cancelRun(runId);return true};
+ if(await reconcileCancellation())return{state:"cancelled" as const};
+ let approval:Awaited<ReturnType<D1WorkflowApprovalStore["require"]>>;
+ try{approval=await approvals.require({runId,workflowGeneration:input.generation,nodeId:result.nodeId,activationId:result.activationId,interruptId:result.interruptId,message:result.message,reviewText:result.text})}catch(error){if(await reconcileCancellation())return{state:"cancelled" as const};throw error}
+ const type=approvalEventType(approval.requestId);
  for(let occurrence=1;;occurrence++){
   const run=await storage.getRun(runId),durable=await approvals.get(approval.requestId);
   if(!run||run.run.cancelRequestedAt||run.run.status==="cancelling"||run.run.status==="cancelled"){if(run?.run.status==="cancelling")await storage.cancelRun(runId);return{state:"cancelled" as const}}
