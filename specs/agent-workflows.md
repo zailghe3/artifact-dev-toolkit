@@ -41,11 +41,11 @@
 - Cross-layout identity collisions fail closed.
 - Definition location does not affect Workflow references, execution, or immutable run snapshots.
 - Executable Agent and Workflow lifecycle state remains independent from Artifact Library Markdown lifecycle rules.
-- The Workflow view presents Agent and Condition blocks with ADT semantic ports and edges.
+- The Workflow view presents distinct Agent, Condition, and Join blocks with ADT semantic ports and edges, including structured fan-out and controlled back-edges.
 - Users may move visual nodes, pan or zoom the view, and save that layout independently from the Workflow definition.
 - Missing or out-of-date layout information does not prevent a current Workflow step from being displayed or executed.
 - Visual position and viewport changes remain separate presentation-only layout mutations and never change semantic order, handoff, result selection, limits, or run snapshots.
-- For v2 workflows, adding, removing, configuring, connecting, or disconnecting a block is an intentional semantic Workflow mutation and must produce a valid bounded graph; the current editor exposes Agent and Condition authoring while Join, parallel, and loop authoring UI remains unavailable.
+- For v2 workflows, adding, removing, configuring, connecting, or disconnecting a block is an intentional semantic Workflow mutation and must produce a valid bounded graph; the editor exposes Agent, Condition, structured fan-out, Join, controlled back-edge, and explicit execution-bound authoring.
 - At launch, a supported v2 chain is frozen with its semantic Workflow, Workflow revision, Agent revisions, Connection snapshots, and an explicit execution-engine version.
 - New v2 runs use the frozen semantic edges to reconstruct graph execution from the immutable versioned plan. Existing v1 and historical sequential-engine runs retain their original interpretation.
 
@@ -59,12 +59,13 @@
 
 ## 5. Durable execution
 
-- Runs persist their current state and execution history.
+- Runs persist their current state and execution history. Generic graph runs present their immutable semantic snapshot, simultaneous active Agents, and visit-aware Agent attempt history without implying a linear step order.
 - For new v2 runs, durable graph state determines which node executes next. Run cursors are projections and cannot independently select a node.
 - Each graph node still executes through the existing provider-neutral Agent lifecycle. A repeated request for a durably successful node reuses its output, and an accepted asynchronous provider task is observed rather than recreated.
 - Successful step output is persisted before later steps can depend on it.
 - Application or process interruption must not require a completed step to be repeated merely because the original request ended.
 - External provider work with a known task identity is observed rather than recreated.
+- A generic graph branch failure stops new work admission and remains the run outcome only after already-admitted sibling provider work reaches a bounded truthful reconciliation outcome.
 - Launch and execution state are reconciled conservatively after interruption.
 - Terminal runs remain terminal when observed again.
 
