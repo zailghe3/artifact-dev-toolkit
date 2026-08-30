@@ -24,8 +24,8 @@ Never commit `.env`, `.dev.vars`, PEM keys, secret values, OAuth tokens, or sess
 
 ## GitHub App
 
-- Callback URL: `https://fpo-adt.florian-pouchet.workers.dev/auth/github/callback`.
-- Required permissions: **Contents: read and write**, **Pull requests: read and write**, and **Metadata: read-only**.
+- Production callback URL: `https://adt.pouchet.net/auth/github/callback`.
+- Required permissions: **Contents: read and write** and **Metadata: read-only**.
 - Install the App with selected-repository access to `zailghe3/fpo-artifacts`.
 - Permission upgrades may require administrator approval before the installation becomes usable.
 - The application never changes GitHub App permissions automatically.
@@ -64,7 +64,7 @@ Implementation details for chunking, publication, concurrency, invalidation, and
 
 - Reads use repository-restricted installation credentials with Contents read access.
 - Direct artifact writes require Contents write access.
-- Production proposals require Contents write and Pull requests write access.
+- Artifact Library mutations use Contents write access; Pull requests permission is not required.
 - No static repository token is supported.
 - Installation credentials remain server-side and are not persisted as long-lived repository tokens.
 

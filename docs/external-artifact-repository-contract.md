@@ -27,5 +27,5 @@ connections/<id>.connection.json
 Artifact Library Markdown requires `id`, `title`, `type`, `tags`, and `aliases`; optional stable fields are `description`, `sourceId`, and `createdAt`. Top-level `status` is invalid.
 
 ```bash
-npm run artifacts:validate -- ../private-artifact-storage
+npm run artifacts:validate -- <artifact-repository-checkout>
 ```
