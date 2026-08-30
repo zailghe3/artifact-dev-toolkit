@@ -1,37 +1,35 @@
-# Artifact Library
+# Artifact Dev Toolkit
 
-Artifact Library helps authorised users find, reuse, create, edit, and safely manage reusable work assets stored in GitHub. It also provides durable sequential Agent Workflows for running configured agents through supported execution connections.
+Artifact Dev Toolkit helps authorised users manage reusable work assets in GitHub and run bounded Agent Workflows through supported execution providers.
 
 ## Main capabilities
 
 ### Artifact Library
 
-- Search reusable prompts, agents, snippets, templates, and app ideas.
+- Search reusable prompts, snippets, templates, and app ideas.
 - Read rendered artifacts and copy their reusable Markdown body.
-- Create new draft artifacts or draft variations of existing artifacts.
-- Edit draft and archived artifacts directly.
-- Propose production changes and deletions through reviewable pull requests.
-- Protect changes from stale concurrent edits.
+- Create, preview, edit, vary, and delete artifacts without lifecycle metadata.
+- Represent variations as ordinary same-type artifacts linked through `sourceId`.
+- Protect repository mutations from stale or ambiguous writes.
 - Refresh the catalogue and inspect safe operational diagnostics.
 
 ### Agent Workflows
 
-- Configure named execution connections and reusable Agents.
-- Build ordered, bounded, sequential Workflows.
-- Run workflows durably with persisted handoffs and execution history.
-- Retry eligible failures without losing prior attempts.
-- Cancel active runs without silently duplicating provider work.
-- Use supported OpenAI Responses or self-hosted Codex Runner connections.
-- Inspect safe Runner readiness, workspace, and job status where supported.
+- Configure Git-backed provider connections and reusable Agents.
+- Author bounded Workflow v2 graphs with Agents and deterministic control blocks.
+- Keep visual layout separate from executable Workflow semantics.
+- Run Workflows durably with history, retry, cancellation, approvals, branching, and bounded parallel or cyclic execution.
+- Use supported OpenAI execution paths or the independently deployed Codex Runner.
+- Inspect safe provider and Runner readiness where supported.
 
 ## Product principles
 
-- GitHub remains the source of truth for persisted artifacts.
-- Production artifact changes are reviewable and are never automatically merged by the application.
-- Stale or ambiguous mutations fail safely rather than overwriting or duplicating work.
-- Credentials and private provider configuration remain server-side.
-- Diagnostics expose bounded operational information without artifact bodies, secrets, raw credentials, or arbitrary upstream responses.
-- Specifications describe stable behaviour and direction; implementation detail belongs in code, contracts, and operational documentation.
+- GitHub is authoritative for reusable artifacts and non-secret executable configuration.
+- Provider credential values live in the encrypted ADT vault rather than Git.
+- Cloudflare remains the authorised control and durable-state plane.
+- ADT's semantic Workflow model remains independent from visual, orchestration, and provider frameworks.
+- Stale, ambiguous, or potentially duplicate external work fails safely.
+- Specifications describe stable behaviour; implementation mechanics belong in code, tests, contracts, and operational documentation.
 
 ## Documentation
 
@@ -46,6 +44,7 @@ Artifact Library helps authorised users find, reuse, create, edit, and safely ma
 | [External artifact repository contract](docs/external-artifact-repository-contract.md) | Artifact repository layout, metadata, and validation contract |
 | [GitHub artifact deployment](docs/github-artifact-deployment.md) | Production configuration and operator recovery |
 | [Dependency and toolchain maintenance](docs/dependency-toolchain-maintenance.md) | Dependency and toolchain maintenance policy |
+| [ADT Runtime](adt-runtime/README.md) | Stateless AI execution boundary and operator contract |
 | [Codex Runner](codex-runner/README.md) | Runner configuration, workspace, jobs, compatibility, and operations |
 
 Repo-local Codex Skills are stored under `.agents/skills/`; root `AGENTS.md` defines when they are mandatory.
@@ -53,9 +52,9 @@ Repo-local Codex Skills are stored under `.agents/skills/`; root `AGENTS.md` def
 ## Documentation boundaries
 
 - `AGENTS.md` defines durable repository-wide agent/contributor conventions and routes repeatable work to Skills.
-- `ARCHITECTURE.md` is the concise map of major system relationships and durable boundaries, not a product specification or implementation design.
-- `.agents/skills/` contains focused repeatable Codex procedures; deterministic mechanics remain in repository scripts and CI rather than being duplicated in Skill prose.
-- `specs/` describes current product behaviour and stable safety or lifecycle invariants; `specs/AGENTS.md` defines its writing conventions.
-- `docs/` contains external contracts, maintainer processes, deployment guidance, templates, examples, and historical technical records.
-- `codex-runner/README.md` contains operational detail specific to the independently deployed Runner.
-- Source code and tests remain authoritative for implementation mechanics.
+- `ARCHITECTURE.md` is the concise map of major system relationships and durable boundaries.
+- `.agents/skills/` contains focused repeatable Codex procedures; deterministic mechanics remain in scripts and CI.
+- `specs/` describes current product behaviour and stable invariants.
+- `docs/` contains external contracts, maintainer processes, deployment guidance, templates, examples, and historical records.
+- Component READMEs contain operational detail for independently deployed services.
+- Source, tests, schemas, migrations, configuration, and workflows remain authoritative for implementation mechanics.

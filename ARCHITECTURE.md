@@ -42,6 +42,16 @@ Next.js -> OpenNext -> Cloudflare Worker
 
 Exact bindings, schemas, versions, limits, identifiers, protocols, retries, and deployment mechanics remain authoritative in configuration, source, tests, migrations, and component documentation.
 
+## Architectural principles
+
+- ADT owns the durable domain model, policy, authorisation, and recorded outcomes; framework-specific objects are not the product model.
+- React Flow presents Workflow graphs visually; canonical Workflow v2 JSON defines semantics; LangGraph decides graph execution order; provider runtimes execute individual AI nodes.
+- Git stores recoverable non-secret configuration. The encrypted ADT vault stores provider credential values. D1 stores durable application and execution state. KV is disposable acceleration.
+- Cloudflare remains the authorised control and durable-state plane, including Git authority, credential resolution, Workflow admission, and narrow privileged gateways.
+- Keep the Cloudflare Worker lean. Provider SDKs, orchestration libraries, and other execution-heavy dependencies belong in the stateless ADT Runtime unless they genuinely require control-plane authority.
+- Privileged control-plane operations stay narrow rather than moving broad GitHub, Cloudflare, or vault credentials into execution services.
+- ADT Runtime is the extensible AI execution plane; Codex Runner remains a separate trust boundary for model-directed command execution.
+
 ## Major product domains
 
 ### Artifact Library
@@ -137,6 +147,14 @@ Operational detail belongs in [`codex-runner/README.md`](codex-runner/README.md)
 | Runner jobs, idempotency, and emergency latch | Codex Runner controller |
 | Toolchain and commands | `.nvmrc`, `package.json`, repository scripts, workflows |
 | Deployment configuration | committed configuration and deployment workflows |
+
+## Recovery characteristics
+
+- Git is the durable recovery source for non-secret ADT configuration.
+- D1 contains durable history and encrypted vault state; losing it may lose history and require credentials to be restored or re-entered.
+- The vault encryption key remains outside D1; loss of that key makes vault ciphertext unusable without exposing plaintext.
+- KV catalogue state may be discarded and rebuilt from Git.
+- ADT Runtime is stateless and replaceable; Codex Runner owns its separate operator-managed durable state.
 
 ## Important trust and state boundaries
 
