@@ -14,7 +14,7 @@ test('diagnostics scan collects invalid files and duplicate IDs without returnin
   const blobs = new Map([['a'.repeat(40), valid], ['b'.repeat(40), 'not front matter'], ['c'.repeat(40), duplicate], ['d'.repeat(40), duplicate]]);
   const fetch = async (url) => {
     const pathname = new URL(url).pathname;
-    if (pathname.includes('/git/trees/')) return response({ truncated: false, tree: [...blobs.keys()].map((sha, i) => ({ path: `artifacts/prompts/${i}.md`, type: 'blob', sha })) });
+    if (pathname.includes('/git/trees/')) return response({ truncated: false, tree: [...blobs.keys()].map((sha, i) => ({ path: `prompts/${i}.md`, type: 'blob', sha })) });
     const raw = blobs.get(pathname.split('/').at(-1)); return response({ encoding: 'base64', size: Buffer.byteLength(raw), content: Buffer.from(raw).toString('base64') });
   };
   const repository = new GitHubArtifactRepository({ owner: 'owner', repo: 'repo', branch: 'main', rootPath: 'artifacts', fetch, credentialProvider: async () => ({ token: 'test-token-never-returned', permissions: { contents: 'read' } }), logger: { info() {}, error() {} }, sleep: async () => {} });
@@ -26,7 +26,7 @@ test('diagnostics scan collects invalid files and duplicate IDs without returnin
 });
 
 test('diagnostics counts distinct unsafe entries without exposing their repository paths', async () => {
-  const unsafe = ['artifacts/../secret-one.md', 'artifacts/prompts/../../secret-two.md', 'artifacts//secret-three.md'];
+  const unsafe = ['prompts/../secret-one.md', 'prompts/../../secret-two.md', 'prompts//secret-three.md'];
   const logs = [];
   const repository = new GitHubArtifactRepository({ owner: 'owner', repo: 'repo', rootPath: 'artifacts', fetch: async (url) => String(url).includes('/git/trees/') ? response({ tree: unsafe.map((path, index) => ({ path, type: 'blob', sha: String(index + 1).repeat(40) })) }) : response({}), credentialProvider: async () => ({ token: 'hidden', permissions: { contents: 'read' } }), logger: { info(value) { logs.push(value); }, error(value) { logs.push(value); } } });
   const report = await repository.diagnoseCatalogue('a'.repeat(40));
@@ -37,7 +37,7 @@ test('diagnostics counts distinct unsafe entries without exposing their reposito
 
 test('diagnostics classifies isolated blob failures explicitly', async () => {
   for (const [blob, code] of [[new Response('', { status: 404 }), 'blob_unavailable'], [response({ encoding: 'utf-8', content: 'hidden' }), 'unsupported_encoding'], [response({ encoding: 'base64', size: 2_000_000, content: '' }), 'blob_too_large']]) {
-    const repository = new GitHubArtifactRepository({ owner: 'owner', repo: 'repo', rootPath: 'artifacts', fetch: async (url) => String(url).includes('/git/trees/') ? response({ tree: [{ path: 'artifacts/prompts/a.md', type: 'blob', sha: 'a'.repeat(40) }] }) : blob, credentialProvider: async () => ({ token: 'hidden', permissions: { contents: 'read' } }), logger: { info() {}, error() {} } });
+    const repository = new GitHubArtifactRepository({ owner: 'owner', repo: 'repo', rootPath: 'artifacts', fetch: async (url) => String(url).includes('/git/trees/') ? response({ tree: [{ path: 'prompts/a.md', type: 'blob', sha: 'a'.repeat(40) }] }) : blob, credentialProvider: async () => ({ token: 'hidden', permissions: { contents: 'read' } }), logger: { info() {}, error() {} } });
     assert.equal((await repository.diagnoseCatalogue('b'.repeat(40))).errors[0].code, code);
   }
 });

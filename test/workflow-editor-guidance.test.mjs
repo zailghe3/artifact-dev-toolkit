@@ -17,7 +17,7 @@ const connection={key:'deterministic-test',name:'Deterministic test',adapter:'de
 const agent={id:'planning-agent',name:'Planning Agent'};
 const codexConnection={key:'codex-primary',name:'Codex',adapter:'codex-runner',enabled:false,capabilities:{asynchronous:true,cancellation:true}};
 const snapshot=(overrides={})=>({configured:true,reachable:true,capabilitiesAvailable:true,codexAvailable:true,jobExecution:true,environmentCatalogAvailable:true,authenticated:true,authStatusAvailable:true,modelCatalogAvailable:true,available:true,environments:[{key:'dev',name:'Development',enabled:true,ready:true,sandbox:'workspace-write'},{key:'offline',name:'Offline',enabled:true,ready:false,sandbox:'read-only'}],models:[{id:'model-a',displayName:'Model A',isDefault:true,defaultReasoningEffort:'medium',supportedReasoningEfforts:[{reasoningEffort:'high',description:'First'},{reasoningEffort:'low',description:'Second'}]}],...overrides});
-const savedAgent=(adapterOptions={})=>({id:'saved',name:'Saved',description:'',masterPrompt:'Act.',connectionKey:'codex-primary',adapterOptions});
+const savedAgent=(adapterOptions={})=>({id:'saved',name:'Saved',description:'',prompt:{source:'custom',text:'Act.'},connectionKey:'codex-primary',adapterOptions});
 const saveDisabled=html=>/<button[^>]*disabled=""[^>]*>Save Agent<\/button>/.test(html);
 
 test('shared definition ID generation is normalized, bounded, and schema-compatible',()=>{
@@ -47,7 +47,7 @@ test('Agent create and edit forms expose required fields and immutable persisted
  assert.match(create,/<input(?=[^>]*name="id")(?=[^>]*required="")/);
  assert.match(create,/<textarea(?=[^>]*name="masterPrompt")(?=[^>]*required="")/);
  assert.match(create,/<select(?=[^>]*name="connectionKey")(?=[^>]*required="")/);
- const edit=render(React.createElement(WorkflowAgentEditor,{connections:[connection],initial:{id:'existing-agent',name:'Existing Agent',description:'',masterPrompt:'Act.',connectionKey:'deterministic-test'}}));
+ const edit=render(React.createElement(WorkflowAgentEditor,{connections:[connection],initial:{id:'existing-agent',name:'Existing Agent',description:'',prompt:{source:'custom',text:'Act.'},connectionKey:'deterministic-test'}}));
  assert.match(edit,/<input(?=[^>]*name="id")(?=[^>]*required="")(?=[^>]*readOnly="")(?=[^>]*value="existing-agent")/);
 });
 
@@ -143,7 +143,7 @@ test('workflow run presentation keeps pending external cancellation non-terminal
 
 test('OpenAI Agents editor preserves explicit artifact_search while other runtimes expose no tool control',()=>{
  const agentsConnection={key:'agents',name:'Agents',adapter:'openai-agents',enabled:true,defaultModel:'gpt-5',capabilities:{asynchronous:false,cancellation:false}};
- const html=render(React.createElement(WorkflowAgentEditor,{connections:[agentsConnection],initial:{id:'searcher',name:'Searcher',description:'',masterPrompt:'Search.',connectionKey:'agents',tools:['artifact_search']}}));
+ const html=render(React.createElement(WorkflowAgentEditor,{connections:[agentsConnection],initial:{id:'searcher',name:'Searcher',description:'',prompt:{source:'custom',text:'Search.'},connectionKey:'agents',tools:['artifact_search']}}));
  assert.match(html,/<input(?=[^>]*name="artifactSearch")(?=[^>]*type="checkbox")(?=[^>]*checked="")/);
  assert.doesNotMatch(render(React.createElement(WorkflowAgentEditor,{connections:[connection]})),/name="artifactSearch"/);
 });

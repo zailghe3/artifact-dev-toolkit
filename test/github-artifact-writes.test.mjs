@@ -11,7 +11,7 @@ import { MAX_SERIALIZED_ARTIFACT_BYTES, serializeArtifactMarkdown } from '../lib
 const metadata = { id: 'new-prompt', title: 'New Prompt', description: '', type: 'prompt', tags: ['writing'], aliases: [] };
 const existingMarkdown = `---\nid: new-prompt\ntitle: New Prompt\ndescription: ''\ntype: prompt\ntags: [writing]\naliases: []\n---\n\nOld body\n`;
 const statusMarkdown = (status) => `---\nid: new-prompt\ntitle: New Prompt\ndescription: ''\ntype: prompt\nstatus: ${status}\ntags: [writing]\naliases: []\n---\n\nInvalid body\n`;
-const source = { ...metadata, id: 'source-prompt', title: 'Source Prompt', aliases: ['starter'], body: 'Source body', excerpt: 'Source body', path: 'artifacts/prompts/source-prompt.md' };
+const source = { ...metadata, id: 'source-prompt', title: 'Source Prompt', aliases: ['starter'], body: 'Source body', excerpt: 'Source body', path: 'prompts/source-prompt.md' };
 const json = (value, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
 
 function fake({ files = {}, writeStatus = 200, writeValue, now, randomBytes, credentialProvider, rootPath = 'artifacts' } = {}) {
@@ -53,11 +53,7 @@ test('new artifacts use Phase 2 canonical targets independently of the legacy ro
     const result = await runtime.repository.create({ metadata: { ...metadata, id, type }, body: 'Body', actorLogin: 'octocat' });
     assert.equal(result.path, `${directory}/${id}.md`);
   }
-  const agent = fake({ rootPath: 'team/legacy/artifacts' });
-  const result = await agent.repository.create({ metadata: { ...metadata, id: 'new-agent', type: 'agent' }, body: 'Body', actorLogin: 'octocat' });
-  assert.equal(result.path, 'team/legacy/artifacts/agents/new-agent.md');
-  const agentMarkdown = Buffer.from(JSON.parse(agent.calls.find(({ options }) => options.method === 'PUT').options.body).content, 'base64').toString();
-  assert.doesNotMatch(agentMarkdown, /^status:/m);
+
 });
 
 test('createVariation persists a same-type root artifact with source metadata and attribution', async () => {
@@ -93,21 +89,13 @@ test('variation IDs use deterministic injected time and collision-resistant rand
   assert.match(a.id, /^[a-z0-9]+(?:-[a-z0-9]+)*$/);
 });
 
-test('variations use their same-type target while Markdown Agent variations stay legacy', async () => {
-  for (const [type, directory] of [['snippet', 'snippets'], ['template', 'templates'], ['app-idea', 'app-ideas']]) {
-    const runtime = fake({ rootPath: 'team/artifacts', now: () => new Date('2026-08-02T17:03:05.000Z'), randomBytes: () => Uint8Array.from([0, 1, 2, 3]) });
-    const result = await runtime.repository.createVariation({ source: { ...source, type }, body: 'Body', actorLogin: 'octocat' });
-    assert.match(result.path, new RegExp(`^${directory}/`));
-  }
-  const runtime = fake({ rootPath: 'team/artifacts', now: () => new Date('2026-08-02T17:03:05.000Z'), randomBytes: () => Uint8Array.from([0, 1, 2, 3]) });
-  const result = await runtime.repository.createVariation({ source: { ...source, type: 'agent' }, body: 'Body', actorLogin: 'octocat' });
-  assert.match(result.path, /^team\/artifacts\/agents\//);
-  assert.equal(runtime.calls.some(({ url }) => url.includes('/variations/')), false);
+test('variations use their canonical same-type target', async () => {
+  for (const [type, directory] of [['snippet', 'snippets'], ['template', 'templates'], ['app-idea', 'app-ideas']]) {const runtime=fake({now:()=>new Date('2026-08-02T17:03:05.000Z'),randomBytes:()=>Uint8Array.from([0,1,2,3])});const result=await runtime.repository.createVariation({source:{...source,type},body:'Body',actorLogin:'octocat'});assert.match(result.path,new RegExp(`^${directory}/`));}
 });
 
 test('createVariation uses typed write safeguards before issuing a Contents API write', async () => {
   const generatedId = 'focused-draft-2026-08-02-120000-a1b2c3d4';
-  const duplicateRuntime = fake({ files: { 'artifacts/prompts/existing.md': existingMarkdown.replaceAll('new-prompt', generatedId) }, now: () => new Date('2026-08-02T12:00:00Z'), randomBytes: () => Uint8Array.from([0xa1, 0xb2, 0xc3, 0xd4]) });
+  const duplicateRuntime = fake({ files: { 'prompts/existing.md': existingMarkdown.replaceAll('new-prompt', generatedId) }, now: () => new Date('2026-08-02T12:00:00Z'), randomBytes: () => Uint8Array.from([0xa1, 0xb2, 0xc3, 0xd4]) });
   await assert.rejects(duplicateRuntime.repository.createVariation({ source, title: 'Focused Draft', body: 'Body', actorLogin: 'octocat' }), ArtifactDuplicateError);
   assert.equal(duplicateRuntime.calls.some((call) => call.options.method === 'PUT'), false);
 
@@ -145,7 +133,7 @@ test('create rejects an occupied target path without writing', async () => {
 });
 
 test('create rejects a duplicate ID at another path without writing', async () => {
-  const runtime = fake({ files: { 'artifacts/templates/different.md': existingMarkdown.replace('type: prompt', 'type: template') } });
+  const runtime = fake({ files: { 'templates/different.md': existingMarkdown.replace('type: prompt', 'type: template') } });
   await assert.rejects(runtime.repository.create({ metadata, body: 'Body', actorLogin: 'octocat' }), ArtifactDuplicateError);
   assert.equal(runtime.calls.some((call) => call.options.method === 'PUT'), false);
 });
@@ -162,7 +150,7 @@ test('invalid and secret-like create input is rejected before GitHub is called',
 });
 
 test('update uses the supplied current SHA and succeeds', async () => {
-  const runtime = fake({ files: { 'artifacts/prompts/new-prompt.md': existingMarkdown } });
+  const runtime = fake({ files: { 'prompts/new-prompt.md': existingMarkdown } });
   await runtime.repository.update({ id: metadata.id, metadata, body: 'Updated', currentFileSha: 'blob-0', actorLogin: 'octocat' });
   const payload = JSON.parse(runtime.calls.find((call) => call.options.method === 'PUT').options.body);
   assert.equal(payload.sha, 'blob-0');
@@ -181,14 +169,14 @@ test('status-bearing repository content fails before an update mutation', async 
 });
 
 test('update rejects a stale SHA before sending a write', async () => {
-  const runtime = fake({ files: { 'artifacts/prompts/new-prompt.md': existingMarkdown } });
+  const runtime = fake({ files: { 'prompts/new-prompt.md': existingMarkdown } });
   await assert.rejects(runtime.repository.update({ id: metadata.id, metadata, body: 'Updated', currentFileSha: 'old', actorLogin: 'octocat' }), ArtifactWriteConflictError);
   assert.equal(runtime.calls.some((call) => call.options.method === 'PUT'), false);
 });
 
 test('write failures preserve permission, conflict, and temporary classifications without retries', async () => {
   for (const [status, ErrorType] of [[403, ArtifactWritePermissionError], [409, ArtifactWriteConflictError], [429, ArtifactRepositoryUnavailableError], [503, ArtifactRepositoryUnavailableError]]) {
-    const runtime = fake({ files: { 'artifacts/prompts/new-prompt.md': existingMarkdown }, writeStatus: status, writeValue: { private: 'upstream body' } });
+    const runtime = fake({ files: { 'prompts/new-prompt.md': existingMarkdown }, writeStatus: status, writeValue: { private: 'upstream body' } });
     await assert.rejects(runtime.repository.update({ id: metadata.id, metadata, body: 'Updated', currentFileSha: 'blob-0', actorLogin: 'octocat' }), ErrorType);
     assert.equal(runtime.calls.filter((call) => call.options.method === 'PUT').length, 1);
   }
@@ -211,7 +199,7 @@ test('create and update enforce the shared serialized UTF-8 byte limit before wr
   assert.equal(createRuntime.calls.filter((call) => call.options.method === 'PUT').length, 1);
 
   for (const operation of ['create', 'update']) {
-    const runtime = fake({ files: operation === 'update' ? { 'artifacts/prompts/new-prompt.md': existingMarkdown } : {} });
+    const runtime = fake({ files: operation === 'update' ? { 'prompts/new-prompt.md': existingMarkdown } : {} });
     const input = { metadata, body: `${allowed}é`, actorLogin: 'octocat', ...(operation === 'update' ? { id: metadata.id, currentFileSha: 'blob-0' } : {}) };
     await assert.rejects(runtime.repository[operation](input), ArtifactWriteTooLargeError);
     assert.equal(runtime.calls.some((call) => call.options.method === 'PUT'), false);
@@ -227,27 +215,27 @@ test('multibyte content is limited by UTF-8 bytes rather than JavaScript length'
 });
 
 test('update preserves a valid nested path and does not move it when editable metadata changes', async () => {
-  const nested = 'artifacts/prompts/client-a/custom.md';
+  const nested = 'prompts/client-a/custom.md';
   const runtime = fake({ files: { [nested]: existingMarkdown } });
   await runtime.repository.update({ id: metadata.id, metadata: { ...metadata, title: 'Changed' }, body: 'Updated', currentFileSha: 'blob-0', actorLogin: 'octocat' });
   const write = runtime.calls.find((call) => call.options.method === 'PUT');
-  assert.ok(write.url.endsWith('/contents/artifacts/prompts/client-a/custom.md'));
+  assert.ok(write.url.endsWith('/contents/prompts/client-a/custom.md'));
   assert.equal(write.url.includes('/templates/new-prompt.md'), false);
   assert.equal(JSON.parse(write.options.body).sha, 'blob-0');
 });
 
 test('update rejects an artifact ID change before writing', async () => {
-  const runtime = fake({ files: { 'artifacts/prompts/client-a/custom.md': existingMarkdown } });
+  const runtime = fake({ files: { 'prompts/client-a/custom.md': existingMarkdown } });
   await assert.rejects(runtime.repository.update({ id: metadata.id, metadata: { ...metadata, id: 'renamed' }, body: 'Updated', currentFileSha: 'blob-0', actorLogin: 'octocat' }), ArtifactWriteValidationError);
   assert.equal(runtime.calls.some((call) => call.options.method === 'PUT'), false);
 });
 
 test('nested update still rejects stale revisions and invalid existing paths before writing', async () => {
-  const nested = fake({ files: { 'artifacts/prompts/client-a/custom.md': existingMarkdown } });
+  const nested = fake({ files: { 'prompts/client-a/custom.md': existingMarkdown } });
   await assert.rejects(nested.repository.update({ id: metadata.id, metadata, body: 'Updated', currentFileSha: 'stale', actorLogin: 'octocat' }), ArtifactWriteConflictError);
   assert.equal(nested.calls.some((call) => call.options.method === 'PUT'), false);
 
-  const invalid = fake({ files: { 'artifacts/prompts/../custom.md': existingMarkdown } });
+  const invalid = fake({ files: { 'prompts/../custom.md': existingMarkdown } });
   await assert.rejects(invalid.repository.update({ id: metadata.id, metadata, body: 'Updated', currentFileSha: 'blob-0', actorLogin: 'octocat' }), ArtifactRepositoryContentError);
   assert.equal(invalid.calls.some((call) => call.options.method === 'PUT'), false);
 });
@@ -263,25 +251,25 @@ test('creation is statusless and normalizes before deriving its canonical path',
 test('updates enforce immutable type, source relationship, and creation timestamp', async () => {
   const stored = serializeArtifactMarkdown({ ...metadata, sourceId: 'source', createdAt: '2026-01-01T00:00:00.000Z' }, 'old');
   for (const change of [{ type: 'agent' }, { sourceId: 'other' }, { createdAt: '2026-01-02T00:00:00.000Z' }]) {
-    const runtime = fake({ files: { 'artifacts/prompts/nested/item.md': stored } });
+    const runtime = fake({ files: { 'prompts/nested/item.md': stored } });
     await assert.rejects(runtime.repository.update({ id: metadata.id, metadata: { ...metadata, sourceId: 'source', createdAt: '2026-01-01T00:00:00.000Z', ...change }, body: 'new', currentFileSha: 'blob-0', actorLogin: 'octocat' }), ArtifactWriteValidationError);
     assert.equal(runtime.calls.some((call) => call.options.method === 'PUT'), false);
   }
 });
 
 test('direct deletion uses exact nested path, SHA, branch and attributable single DELETE', async () => {
-  const runtime = fake({ files: { 'artifacts/prompts/nested/item.md': existingMarkdown }, writeValue: { content: null, commit: { sha: 'deleted-commit', html_url: 'https://github.com/owner/repo/commit/deleted' } } });
+  const runtime = fake({ files: { 'prompts/nested/item.md': existingMarkdown }, writeValue: { content: null, commit: { sha: 'deleted-commit', html_url: 'https://github.com/owner/repo/commit/deleted' } } });
   const result = await runtime.repository.delete({ id: metadata.id, currentFileSha: 'blob-0', actorLogin: 'octocat' });
-  const writes = runtime.calls.filter((call) => call.options.method === 'DELETE'); assert.equal(writes.length, 1); assert.ok(writes[0].url.endsWith('/contents/artifacts/prompts/nested/item.md'));
+  const writes = runtime.calls.filter((call) => call.options.method === 'DELETE'); assert.equal(writes.length, 1); assert.ok(writes[0].url.endsWith('/contents/prompts/nested/item.md'));
   assert.deepEqual(JSON.parse(writes[0].options.body), { message: 'Delete artifact new-prompt (requested by @octocat)', sha: 'blob-0', branch: 'main' });
-  assert.deepEqual(result, { artifactId: 'new-prompt', path: 'artifacts/prompts/nested/item.md', commitSha: 'deleted-commit', commitUrl: 'https://github.com/owner/repo/commit/deleted', repositoryRevision: 'deleted-commit' });
+  assert.deepEqual(result, { artifactId: 'new-prompt', path: 'prompts/nested/item.md', commitSha: 'deleted-commit', commitUrl: 'https://github.com/owner/repo/commit/deleted', repositoryRevision: 'deleted-commit' });
 });
 
 test('stale SHA blocks deletion while valid statusless Markdown deletes at its exact path', async () => {const path='prompts/new-prompt.md';const stale=fake({files:{[path]:existingMarkdown}});await assert.rejects(stale.repository.delete({id:metadata.id,currentFileSha:'stale',actorLogin:'octocat'}),ArtifactWriteConflictError);assert.equal(stale.calls.some(call=>call.options.method==='DELETE'),false);const current=fake({files:{[path]:existingMarkdown},writeValue:{content:null,commit:{sha:'deleted',html_url:'https://github.com/owner/repo/commit/deleted'}}});const result=await current.repository.delete({id:metadata.id,currentFileSha:'blob-0',actorLogin:'octocat'});const remove=current.calls.find(call=>call.options.method==='DELETE');assert.ok(remove.url.endsWith('/contents/prompts/new-prompt.md'));assert.equal(JSON.parse(remove.options.body).sha,'blob-0');assert.equal(result.path,path);assert.equal(current.calls.some(call=>/pulls|git\/refs|artifact-delete/.test(call.url)),false)});
 
 test('direct deletion maps changed state, authentication, permission and availability without retrying', async () => {
   for (const [status, ErrorType] of [[401, ArtifactWriteAuthenticationError], [403, ArtifactWritePermissionError], [404, ArtifactWriteConflictError], [409, ArtifactWriteConflictError], [422, ArtifactWriteConflictError], [429, ArtifactRepositoryUnavailableError], [503, ArtifactRepositoryUnavailableError]]) {
-    const runtime = fake({ files: { 'artifacts/prompts/item.md': existingMarkdown }, writeStatus: status, writeValue: { private: 'upstream-body' } });
+    const runtime = fake({ files: { 'prompts/item.md': existingMarkdown }, writeStatus: status, writeValue: { private: 'upstream-body' } });
     await assert.rejects(runtime.repository.delete({ id: metadata.id, currentFileSha: 'blob-0', actorLogin: 'octocat' }), ErrorType);
     assert.equal(runtime.calls.filter((call) => call.options.method === 'DELETE').length, 1);
   }
@@ -289,14 +277,14 @@ test('direct deletion maps changed state, authentication, permission and availab
 
 test('direct deletion rejects malformed success metadata and unsafe commit URLs', async () => {
   for (const value of [{ content: null }, { content: null, commit: { sha: 'c', html_url: 'https://evil.test/o/r/commit/c' } }]) {
-    const runtime = fake({ files: { 'artifacts/prompts/item.md': existingMarkdown }, writeValue: value });
+    const runtime = fake({ files: { 'prompts/item.md': existingMarkdown }, writeValue: value });
     await assert.rejects(runtime.repository.delete({ id: metadata.id, currentFileSha: 'blob-0', actorLogin: 'octocat' }), ArtifactWriteResponseError);
   }
 });
 
 test('direct deletion classifies credential-provider failures before DELETE', async () => {
   for (const [error, ErrorType] of [[new ArtifactWritePermissionError(), ArtifactWritePermissionError], [Object.assign(new Error(), { status: 401 }), ArtifactRepositoryAccessError], [Object.assign(new Error(), { status: 429 }), ArtifactRepositoryUnavailableError], [Object.assign(new Error(), { status: 503 }), ArtifactRepositoryUnavailableError], [new Error(), ArtifactRepositoryUnavailableError], [Object.assign(new Error(), { status: 400 }), ArtifactRepositoryConfigurationError]]) {
-    const runtime = fake({ files: { 'artifacts/prompts/item.md': existingMarkdown }, credentialProvider: async (capability) => capability === 'write' ? Promise.reject(error) : ({ token: 'read', permissions: { contents: 'read' } }) });
+    const runtime = fake({ files: { 'prompts/item.md': existingMarkdown }, credentialProvider: async (capability) => capability === 'write' ? Promise.reject(error) : ({ token: 'read', permissions: { contents: 'read' } }) });
     await assert.rejects(runtime.repository.delete({ id: metadata.id, currentFileSha: 'blob-0', actorLogin: 'octocat' }), ErrorType);
     assert.equal(runtime.calls.some((call) => call.options.method === 'DELETE'), false);
   }

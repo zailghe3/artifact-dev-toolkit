@@ -6,10 +6,8 @@ import type { WorkflowStep } from "cloudflare:workers";
 import { D1WorkflowRunStorage, type WorkflowD1Database } from "./workflow-d1-storage.ts";
 import { createAgentRuntimeRegistry } from "./agent-runtime.ts";
 import { codexRunnerDescriptor,resolveConnection } from "./workflow-connections.ts";
-import {D1WorkflowProviderConnectionStore,type ProviderConnectionDatabase} from "./workflow-provider-connection-store.ts";
-import { executeDurableGraphNodeTurn,executeDurableWorkflow,MAX_WORKFLOW_RUN_MS,NO_PLATFORM_RETRY, type DurableStep } from "./workflow-durable-driver.ts";
+import { executeDurableGraphNodeTurn,MAX_WORKFLOW_RUN_MS,NO_PLATFORM_RETRY, type DurableStep } from "./workflow-durable-driver.ts";
 import {resolveGitSnapshotCredential} from "./git-workflow-provider-connection-store.ts";
-import {createWorkflowProviderSecretResolver} from "./workflow-provider-secret-resolver.ts";
 import {D1ProviderCredentialVault,type ProviderCredentialVaultDatabase} from "./provider-credential-vault.ts";
 import {providerCredentialVaultV1KeyResolver} from "./provider-credential-vault-crypto.ts";
 import type {ConnectionDescriptor,ResolvedConnection} from "./workflow-connections.ts";
@@ -18,21 +16,20 @@ import {RemoteOpenAIAgentsRuntime,RemoteRuntimeFailure,type ADTRuntimeConfigurat
 import {issueCheckpointAuthority,issueGraphNodeAuthority,type GraphNodeAuthorityScope} from "./langgraph-checkpoints.ts";
 import type {WorkflowRun} from "./workflow-storage.ts";
 import {approvalEventType,D1WorkflowApprovalStore} from "./workflow-approvals.ts";
+import {assertRunExecutable} from "./workflow-run-legacy.ts";
 
-export function workflowExecutionDriver(run:Pick<WorkflowRun,"engineVersion">){return run.engineVersion==="1"?"sequential" as const:"langgraph" as const}
+export function workflowExecutionDriver(run:Pick<WorkflowRun,"engineVersion"|"executionPlan"|"connectionSnapshots">){assertRunExecutable(run);return "langgraph" as const}
 
 export function createWorkflowADTRuntimeConfiguration(env:Record<string,string|undefined>):ADTRuntimeConfiguration{return{baseUrl:env.ADT_RUNTIME_BASE_URL,authSecret:env.ADT_RUNTIME_AUTH_SECRET,wrappingPublicKey:env.ADT_RUNTIME_WRAPPING_PUBLIC_KEY,toolGatewayUrl:env.ADT_TOOL_GATEWAY_URL,toolAuthority:async invocation=>{const context=invocation.repositoryContext;if(!context)throw new Error("tool_repository_context_unavailable");return issueArtifactSearchAuthority({version:1,runId:invocation.runId,stepId:invocation.stepId,iteration:invocation.iteration,attempt:invocation.attempt,...context,expiresAt:Date.now()+5*60_000,nonce:crypto.randomUUID()},env.ADT_INTERNAL_AUTHORITY_SECRET??"")}}}
 
 export function createWorkflowExecutionConnectionResolver(env:CloudflareEnv){
- const providerSecrets=createWorkflowProviderSecretResolver(ref=>(env as unknown as Record<string,unknown>)[ref]);
- const providers=new D1WorkflowProviderConnectionStore(env.AUTH_SESSIONS_DB as unknown as ProviderConnectionDatabase,env.WORKFLOW_PROVIDER_SECRET_ENCRYPTION_KEY);
  const vault=new D1ProviderCredentialVault(env.AUTH_SESSIONS_DB as unknown as ProviderCredentialVaultDatabase,providerCredentialVaultV1KeyResolver(env.WORKFLOW_PROVIDER_SECRET_ENCRYPTION_KEY));
- return (key:string,snapshot?:ConnectionDescriptor):Promise<ResolvedConnection>=>snapshot?.management==="git"?Promise.resolve(resolveGitSnapshotCredential(key,snapshot,providerSecrets,vault)):providers.resolveCredential(key);
+ return (key:string,snapshot?:ConnectionDescriptor):Promise<ResolvedConnection>=>snapshot?resolveGitSnapshotCredential(key,snapshot,vault):Promise.reject(new Error("connection_unavailable"));
 }
 
 function executionComposition(env:CloudflareEnv){const resolveProviderConnection=createWorkflowExecutionConnectionResolver(env),runtimeEnv=env as unknown as Record<string,string|undefined>,runtimes=createAgentRuntimeRegistry(undefined,createWorkflowADTRuntimeConfiguration(runtimeEnv)),resolveConnectionForRun=(key:string,snapshot?:ConnectionDescriptor)=>key==="deterministic-test"?Promise.resolve(resolveConnection(key,env as unknown as Record<string,string|undefined>)):key==="codex-primary"?Promise.resolve({...codexRunnerDescriptor(true),serverConfiguration:{baseUrl:env.CODEX_RUNNER_BASE_URL,accessClientId:env.CODEX_RUNNER_ACCESS_CLIENT_ID,accessClientSecret:env.CODEX_RUNNER_ACCESS_CLIENT_SECRET,sharedSecret:env.CODEX_RUNNER_SHARED_SECRET}}):resolveProviderConnection(key,snapshot);return{runtimes,resolveConnectionForRun,runtimeEnv}}
 
-export async function executeWorkflowGraphNode(env:CloudflareEnv,scope:GraphNodeAuthorityScope,inputText:string){if(!env.AUTH_SESSIONS_DB)throw new Error("workflow_storage_unavailable");const storage=new D1WorkflowRunStorage(env.AUTH_SESSIONS_DB as unknown as WorkflowD1Database),detail=await storage.getRun(scope.runId),attempt=scope.activationId?detail?.attempts.filter(value=>value.stepId===scope.nodeId&&value.graphActivationId===scope.activationId).at(-1):detail?.attempts.filter(value=>value.stepId===scope.nodeId).at(-1);if(!detail||detail.run.engineVersion!=="2"||detail.run.workflowGeneration!==scope.workflowGeneration||!attempt||attempt.iteration!==scope.iteration||attempt.attempt!==scope.attempt)throw new Error("invalid_graph_node");const composition=executionComposition(env);return executeDurableGraphNodeTurn({runId:scope.runId,nodeId:scope.nodeId,activationId:scope.activationId,inputText,storage,runtimes:composition.runtimes,resolveConnection:composition.resolveConnectionForRun})}
+export async function executeWorkflowGraphNode(env:CloudflareEnv,scope:GraphNodeAuthorityScope,inputText:string){if(!env.AUTH_SESSIONS_DB)throw new Error("workflow_storage_unavailable");const storage=new D1WorkflowRunStorage(env.AUTH_SESSIONS_DB as unknown as WorkflowD1Database),detail=await storage.getRun(scope.runId),attempt=scope.activationId?detail?.attempts.filter(value=>value.stepId===scope.nodeId&&value.graphActivationId===scope.activationId).at(-1):detail?.attempts.filter(value=>value.stepId===scope.nodeId).at(-1);if(!detail||detail.run.engineVersion!=="2"||detail.run.workflowGeneration!==scope.workflowGeneration||!attempt||attempt.iteration!==scope.iteration||attempt.attempt!==scope.attempt)throw new Error("invalid_graph_node");assertRunExecutable(detail.run);const composition=executionComposition(env);return executeDurableGraphNodeTurn({runId:scope.runId,nodeId:scope.nodeId,activationId:scope.activationId,inputText,storage,runtimes:composition.runtimes,resolveConnection:composition.resolveConnectionForRun})}
 
 const MAX_LANGGRAPH_RECOVERY_FAILURES=6,MAX_LANGGRAPH_TRANSPORT_TURNS=32_768;
 const recoveryDelay=(failure:number)=>[1_000,2_000,5_000,10_000,30_000,30_000][Math.min(failure-1,5)];
@@ -83,8 +80,8 @@ export async function waitForApprovalWake(input:{runId:string;generation:number;
 
 export async function executeWorkflowRun(env: CloudflareEnv, runId: string, instanceId: string, step: WorkflowStep) {
  if (!env.AUTH_SESSIONS_DB) throw new Error("workflow_storage_unavailable");if (!runId || !instanceId) throw new Error("invalid_workflow_context");
- const storage=new D1WorkflowRunStorage(env.AUTH_SESSIONS_DB as unknown as WorkflowD1Database),detail=await storage.getRun(runId);if(!detail)throw new Error("run_not_found");await storage.attachWorkflowInstance(runId,detail.run.workflowGeneration,instanceId);
- const composition=executionComposition(env);if(workflowExecutionDriver(detail.run)==="sequential")return executeDurableWorkflow({runId,storage,runtimes:composition.runtimes,resolveConnection:composition.resolveConnectionForRun,step:step as unknown as DurableStep});
+ const storage=new D1WorkflowRunStorage(env.AUTH_SESSIONS_DB as unknown as WorkflowD1Database),detail=await storage.getRun(runId);if(!detail)throw new Error("run_not_found");assertRunExecutable(detail.run);await storage.attachWorkflowInstance(runId,detail.run.workflowGeneration,instanceId);
+ const composition=executionComposition(env);workflowExecutionDriver(detail.run);
  if(!detail.run.executionPlan)throw new Error("invalid_run_snapshot");const checkpointUrl=composition.runtimeEnv.ADT_CHECKPOINT_GATEWAY_URL,nodeUrl=composition.runtimeEnv.ADT_GRAPH_NODE_GATEWAY_URL;if(!checkpointUrl||!nodeUrl)throw new Error("langgraph_gateway_unavailable");
  return executeLangGraphWorkflow({runId,storage,remote:new RemoteOpenAIAgentsRuntime(createWorkflowADTRuntimeConfiguration(composition.runtimeEnv)),step:step as unknown as DurableStep,checkpointUrl,nodeUrl,checkpointAuthority:()=>issueCheckpointAuthority(runId,composition.runtimeEnv.ADT_INTERNAL_AUTHORITY_SECRET??""),suspendedMs:()=>new D1WorkflowApprovalStore(env.AUTH_SESSIONS_DB as unknown as WorkflowD1Database).suspendedMs(runId),nodeAuthority:scope=>issueGraphNodeAuthority(scope,composition.runtimeEnv.ADT_INTERNAL_AUTHORITY_SECRET??""),approval:{wait:(result,generation)=>waitForApprovalWake({runId,generation,result,storage,approvals:new D1WorkflowApprovalStore(env.AUTH_SESSIONS_DB as unknown as WorkflowD1Database),waitForEvent:(name,type)=>step.waitForEvent(name,{type,timeout:"30 days"})})}});
 }

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { handleVariationPreview } from '../lib/preview-route-handler.ts';
 
 const access = { owner: 'owner', repo: 'repo', repositoryId: 1, installationId: 2, installationCredentialProvider: async (capability) => ({ token: 'secret', permissions: capability === 'read' ? { contents: 'read' } : capability === 'write' ? { contents: 'write' } : { contents: 'write', pullRequests: 'write' } }) };
-const source = { id: 'source', title: 'Source', type: 'prompt', status: 'production', tags: ['writing'], aliases: ['start'], body: 'old', excerpt: 'old', path: 'artifacts/prompts/source.md' };
+const source = { id: 'source', title: 'Source', type: 'prompt', status: 'production', tags: ['writing'], aliases: ['start'], body: 'old', excerpt: 'old', path: 'prompts/source.md' };
 const dependencies = (overrides = {}) => ({ authorize: async () => ({ access, session: { login: 'octocat' } }), loadArtifact: async () => source, ...overrides });
 const request = (body) => new Request('https://example.test/api/artifacts/source/variation/preview', { method: 'POST', body });
 

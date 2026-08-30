@@ -13,14 +13,13 @@ const credentialKey = /(?:credential|password|secret|token|api.?key|private.?key
 export const AGENT_MASTER_PROMPT_MAX_LENGTH=65536;
 export const agentToolSchema=z.enum(["artifact_search"]);
 const agentBase={id,name:z.string().trim().min(1).max(120),description:z.string().max(2000),status:z.literal("draft"),connectionKey:id,tools:z.array(agentToolSchema).max(1).optional(),adapterOptions:z.unknown().optional()};
-const agentV1Schema=z.object({schemaVersion:z.literal(1),...agentBase,masterPrompt:z.string().min(1).max(AGENT_MASTER_PROMPT_MAX_LENGTH)}).strict();
+export const historicalAgentDefinitionV1Schema=z.object({schemaVersion:z.literal(1),...agentBase,masterPrompt:z.string().min(1).max(AGENT_MASTER_PROMPT_MAX_LENGTH)}).strict();
 const agentV2Schema=z.object({schemaVersion:z.literal(2),...agentBase,prompt:z.discriminatedUnion("source",[
   z.object({source:z.literal("custom"),text:z.string().min(1).max(AGENT_MASTER_PROMPT_MAX_LENGTH)}).strict(),
   z.object({source:z.literal("artifact"),artifactId:id}).strict(),
 ])}).strict();
 const withCompatibilityPrompt=(value:z.infer<typeof agentV2Schema>)=>({...value,masterPrompt:value.prompt.source==="custom"?value.prompt.text:""});
-const compatibleV2Schema=agentV2Schema.extend({masterPrompt:z.string()});
-export const agentDefinitionSchema = z.union([agentV1Schema,agentV2Schema,compatibleV2Schema]).transform(value=>{if(value.schemaVersion===2){const clean={...value} as z.infer<typeof compatibleV2Schema>;delete (clean as {masterPrompt?:string}).masterPrompt;return withCompatibilityPrompt(clean)}const {masterPrompt,...rest}=value;return withCompatibilityPrompt({...rest,schemaVersion:2 as const,prompt:{source:"custom" as const,text:masterPrompt}})}).pipe(z.object({
+export const agentDefinitionSchema = agentV2Schema.transform(withCompatibilityPrompt).pipe(z.object({
   schemaVersion:z.literal(2),...agentBase,prompt:agentV2Schema.shape.prompt,masterPrompt:z.string()
 })).superRefine((value, context) => {
   const visit = (item: unknown, path: PropertyKey[] = []) => {
@@ -33,16 +32,16 @@ export const agentDefinitionSchema = z.union([agentV1Schema,agentV2Schema,compat
   visit(value.adapterOptions, ["adapterOptions"]);
 });
 
-export const workflowStepSchema = z.object({
+export const historicalWorkflowStepSchema = z.object({
   id, name: z.string().trim().min(1).max(120), agentId: id,
   input: z.discriminatedUnion("source", [z.object({ source: z.literal("run_input") }).strict(), z.object({ source: z.literal("previous_step") }).strict()]),
   onSuccess: z.discriminatedUnion("type", [z.object({ type: z.literal("next") }).strict(), z.object({ type: z.literal("complete") }).strict()]),
   onFailure: z.object({ type: z.literal("fail") }).strict(),
 }).strict();
 
-export const workflowDefinitionV1Schema = z.object({
+export const historicalWorkflowDefinitionV1Schema = z.object({
   schemaVersion: z.literal(1), id, name: z.string().trim().min(1).max(120), description: z.string().max(2000), status: z.literal("draft"),
-  steps: z.array(workflowStepSchema).min(1).max(MAX_WORKFLOW_STEPS),
+  steps: z.array(historicalWorkflowStepSchema).min(1).max(MAX_WORKFLOW_STEPS),
   result: z.object({ source: z.literal("step_output"), stepId: id }).strict(),
   limits: z.object({ maxStepExecutions: z.number().int().min(1).max(MAX_STEP_EXECUTIONS) }).strict(),
 }).strict().superRefine((workflow, context) => {
@@ -77,11 +76,11 @@ function validateGraphTopology(workflow:{nodes:Array<{id:string;blockType:string
 }
 
 export const workflowDefinitionV2Schema=z.object({schemaVersion:z.literal(2),id,name:z.string().trim().min(1).max(120),description:z.string().max(2000),status:z.literal("draft"),exposableAsBlock:z.boolean().optional(),nodes:z.array(workflowNodeSchema).min(1).max(MAX_WORKFLOW_STEPS),edges:z.array(workflowEdgeSchema).max(MAX_STEP_EXECUTIONS),limits:z.object({maxStepExecutions:z.number().int().min(1).max(MAX_STEP_EXECUTIONS)}).strict()}).strict().superRefine((workflow,context)=>{const nodeIds=new Set<string>(),edgeIds=new Set<string>();workflow.nodes.forEach((node,index)=>{if(nodeIds.has(node.id))context.addIssue({code:"custom",message:"Node IDs must be unique.",path:["nodes",index,"id"]});nodeIds.add(node.id);try{workflowBlockRegistry.validate(node.blockType,node.blockVersion,node.config)}catch(error){context.addIssue({code:"custom",message:error instanceof Error?error.message:"Invalid block configuration.",path:["nodes",index,"config"]})}});workflow.edges.forEach((edge,index)=>{if(edgeIds.has(edge.id))context.addIssue({code:"custom",message:"Edge IDs must be unique.",path:["edges",index,"id"]});edgeIds.add(edge.id)});validateGraphTopology(workflow,context)});
-export const workflowDefinitionSchema=z.discriminatedUnion("schemaVersion",[workflowDefinitionV1Schema,workflowDefinitionV2Schema]);
+export const workflowDefinitionSchema=workflowDefinitionV2Schema;
 
 export type AgentPrompt=z.infer<typeof agentV2Schema>["prompt"];
 export type AgentDefinitionV1 = z.infer<typeof agentDefinitionSchema>;
-export type WorkflowDefinitionV1 = z.infer<typeof workflowDefinitionV1Schema>;
+export type WorkflowDefinitionV1 = z.infer<typeof historicalWorkflowDefinitionV1Schema>;
 export type WorkflowDefinitionV2 = z.infer<typeof workflowDefinitionV2Schema>;
 export type WorkflowDefinition = z.infer<typeof workflowDefinitionSchema>;
 const revision=z.string().min(1).max(100);
@@ -117,16 +116,8 @@ export function canonicalJson(value: unknown) {
   return `${JSON.stringify(sort(value), null, 2)}\n`;
 }
 
-export function buildSequentialWorkflow(input: { id: string; name: string; description?: string; agents: Array<{ id: string; name: string }>; maxStepExecutions?: number }): WorkflowDefinitionV1 {
-  const steps = input.agents.map((agent, index, all) => ({ id: `step-${index + 1}`, name: agent.name, agentId: agent.id,
-    input: { source: index === 0 ? "run_input" as const : "previous_step" as const },
-    onSuccess: { type: index === all.length - 1 ? "complete" as const : "next" as const }, onFailure: { type: "fail" as const } }));
-  return workflowDefinitionV1Schema.parse({ schemaVersion: 1, id: input.id, name: input.name, description: input.description ?? "", status: "draft", steps,
-    result: { source: "step_output", stepId: steps.at(-1)?.id }, limits: { maxStepExecutions: input.maxStepExecutions ?? Math.max(steps.length, 32) } });
-}
-
-export function workflowAgentReferences(workflow:WorkflowDefinition){return workflow.schemaVersion===1?workflow.steps.map(step=>step.agentId):workflow.nodes.flatMap(node=>workflowBlockRegistry.references(node.blockType,node.blockVersion,node.config).agentIds??[]);}
-export function workflowSubworkflowReferences(workflow:WorkflowDefinition){return workflow.schemaVersion===1?[]:workflow.nodes.flatMap(node=>workflowBlockRegistry.references(node.blockType,node.blockVersion,node.config).workflowIds??[]);}
+export function workflowAgentReferences(workflow:WorkflowDefinition){return workflow.nodes.flatMap(node=>workflowBlockRegistry.references(node.blockType,node.blockVersion,node.config).agentIds??[]);}
+export function workflowSubworkflowReferences(workflow:WorkflowDefinition){return workflow.nodes.flatMap(node=>workflowBlockRegistry.references(node.blockType,node.blockVersion,node.config).workflowIds??[]);}
 
 const MAX_COMPOSITE_DEPTH=8;
 const pathKey=(segments:readonly string[])=>segments.map(value=>`${new TextEncoder().encode(value).length}:${value}`).join("|");
@@ -143,7 +134,7 @@ export function composeVersionedWorkflowV2(root:VersionedWorkflowDefinition,vers
  const workflow=expand(rootWorkflow,[],[rootWorkflow.id]);if(workflow.nodes.length>MAX_WORKFLOW_STEPS||workflow.edges.length>MAX_STEP_EXECUTIONS)throw new Error("subworkflow_expansion_too_large");const outgoing=new Set(workflow.edges.map(edge=>edge.source)),terminal=workflow.nodes.find(node=>!outgoing.has(node.id));if(!terminal||terminal.blockType!=="agent"||workflow.nodes.some(node=>node.blockType==="subworkflow"))throw new Error("unsupported_workflow_topology:invalid_composite_terminal");return{workflow:workflowDefinitionV2Schema.parse(workflow),composition:workflowCompositionSnapshotSchema.parse({snapshotVersion:1,dependencies:[...used.values()].sort((a,b)=>a.workflowId.localeCompare(b.workflowId)),nodes:provenance})};
 }
 export function composeWorkflowV2(root:WorkflowDefinitionV2,dependencies:ReadonlyMap<string,WorkflowDefinitionV2>):WorkflowDefinitionV2{return composeVersionedWorkflowV2({definition:root,fileSha:"root"},[{definition:root,fileSha:"root"},...[...dependencies.values()].map(definition=>({definition,fileSha:`revision-${definition.id}`}))]).workflow}
-export function validateAndComposeWorkflow(workflow:WorkflowDefinition,definitions:readonly WorkflowDefinition[]){if(workflow.schemaVersion===1)return workflow;return composeVersionedWorkflowV2({definition:workflow,fileSha:"validation"},definitions.map(definition=>({definition,fileSha:`validation-${definition.id}`}))).workflow}
+export function validateAndComposeWorkflow(workflow:WorkflowDefinition,definitions:readonly WorkflowDefinition[]){return composeVersionedWorkflowV2({definition:workflow,fileSha:"validation"},definitions.map(definition=>({definition,fileSha:`validation-${definition.id}`}))).workflow}
 
 /** Fails closed when changing a reusable Workflow would invalidate a saved transitive dependent. */
 export function assertReusableWorkflowUpdateCompatible(current:WorkflowDefinition,proposed:WorkflowDefinition,definitions:readonly WorkflowDefinition[]){
@@ -152,20 +143,16 @@ export function assertReusableWorkflowUpdateCompatible(current:WorkflowDefinitio
  for(const definition of candidates){if(definition.id===current.id||!affected.has(definition.id)||definition.schemaVersion!==2)continue;try{validateAndComposeWorkflow(definition,candidates)}catch{throw new Error("workflow_dependency_incompatible")}}
 }
 
-export function compileWorkflowV2(workflow:WorkflowDefinitionV2,agents:readonly AgentDefinitionV1[]):WorkflowDefinitionV1{
- let parsed:WorkflowDefinitionV2;try{parsed=workflowDefinitionV2Schema.parse(workflow)}catch{throw new Error("unsupported_workflow_topology:invalid_graph")}if(parsed.nodes.some(node=>node.blockType!=="agent"))throw new Error("unsupported_workflow_topology:compatibility_projection_unavailable");const byId=new Map(parsed.nodes.map(node=>[node.id,node])),incoming=new Map(parsed.nodes.map(node=>[node.id,0])),outgoing=new Map(parsed.nodes.map(node=>[node.id,[] as string[]]));for(const edge of parsed.edges){incoming.set(edge.target,incoming.get(edge.target)!+1);outgoing.get(edge.source)!.push(edge.target)}const entry=[...incoming].find(([,count])=>count===0)![0],order:string[]=[];for(let cursor:string|undefined=entry;cursor;cursor=outgoing.get(cursor)?.[0])order.push(cursor);const agentById=new Map(agents.map(agent=>[agent.id,agent]));return workflowDefinitionV1Schema.parse({schemaVersion:1,id:parsed.id,name:parsed.name,description:parsed.description,status:parsed.status,steps:order.map((nodeId,index)=>{const config=workflowBlockRegistry.validate("agent",1,byId.get(nodeId)!.config) as {agentId:string},agent=agentById.get(config.agentId);if(!agent)throw new Error(`missing_agent:${config.agentId}`);return{id:nodeId,name:agent.name,agentId:agent.id,input:{source:index===0?"run_input":"previous_step"},onSuccess:{type:index===order.length-1?"complete":"next"},onFailure:{type:"fail"}}}),result:{source:"step_output",stepId:order.at(-1)},limits:parsed.limits});
-}
-
 function graphEntryNode(nodes:WorkflowDefinitionV2["nodes"],edges:WorkflowDefinitionV2["edges"]){const incoming=new Map(nodes.map(node=>[node.id,0]));for(const edge of edges)incoming.set(edge.target,incoming.get(edge.target)!+1);const roots=[...incoming].filter(([,count])=>count===0).map(([id])=>id);if(roots.length===1)return roots[0];const byId=new Map(nodes.map(node=>[node.id,node])),outgoing=new Map(nodes.map(node=>[node.id,[] as string[]]));for(const edge of edges)outgoing.get(edge.source)!.push(edge.target);const candidates=edges.filter(edge=>byId.get(edge.source)?.blockType==="condition"&&(()=>{const seen=new Set<string>();const visit=(id:string):boolean=>id===edge.source?true:seen.has(id)?false:(seen.add(id),outgoing.get(id)!.some(visit));return visit(edge.target)})()).map(edge=>edge.target);if(new Set(candidates).size!==1)throw new Error("unsupported_workflow_topology:ambiguous_entry");return candidates[0]}
 
 /** Immutable ADT-owned graph plan. Config and semantic ports are resolved at launch. */
 export function compileWorkflowV2ExecutionPlan(workflow:WorkflowDefinitionV2,agents:readonly AgentDefinitionV1[]):GenericWorkflowExecutionPlan{
  const parsed=workflowDefinitionV2Schema.parse(workflow),agentIds=new Set(agents.map(agent=>agent.id)),byId=new Map(parsed.nodes.map(node=>[node.id,node])),incoming=new Map(parsed.nodes.map(node=>[node.id,0])),outgoing=new Map(parsed.nodes.map(node=>[node.id,0]));for(const edge of parsed.edges){incoming.set(edge.target,incoming.get(edge.target)!+1);outgoing.set(edge.source,outgoing.get(edge.source)!+1)}for(const node of parsed.nodes)for(const agentId of workflowBlockRegistry.references(node.blockType,node.blockVersion,node.config).agentIds??[])if(!agentIds.has(agentId))throw new Error(`missing_agent:${agentId}`);return genericWorkflowExecutionPlanSchema.parse({planVersion:2,nodes:parsed.nodes.map(node=>({id:node.id,blockType:node.blockType,blockVersion:node.blockVersion,config:structuredClone(workflowBlockRegistry.validate(node.blockType,node.blockVersion,node.config))})),edges:parsed.edges.map(edge=>{const source=byId.get(edge.source)!,target=byId.get(edge.target)!;return{source:edge.source,sourcePort:workflowBlockRegistry.port(source.blockType,source.blockVersion,"outputs",edge.sourcePort),target:edge.target,targetPort:workflowBlockRegistry.port(target.blockType,target.blockVersion,"inputs",edge.targetPort)}}),entryNodeId:graphEntryNode(parsed.nodes,parsed.edges),terminalNodeId:[...outgoing].find(([,count])=>count===0)![0],maxStepExecutions:parsed.limits.maxStepExecutions});
 }
-export function executableWorkflow(workflow:WorkflowDefinition,agents:readonly AgentDefinitionV1[]){if(workflow.schemaVersion===1)return workflow;try{return compileWorkflowV2(workflow,agents)}catch(error){if(!(error instanceof Error)||!error.message.includes("compatibility_projection_unavailable"))throw error;const plan=compileWorkflowV2ExecutionPlan(workflow,agents),terminal=plan.nodes.find(node=>node.id===plan.terminalNodeId);if(!terminal||terminal.blockType!=="agent")throw new Error("unsupported_workflow_topology:invalid_terminal");const agent=agents.find(value=>value.id===terminal.config.agentId);if(!agent)throw new Error(`missing_agent:${terminal.config.agentId}`);return workflowDefinitionV1Schema.parse({schemaVersion:1,id:workflow.id,name:workflow.name,description:workflow.description,status:workflow.status,steps:[{id:terminal.id,name:agent.name,agentId:agent.id,input:{source:"run_input"},onSuccess:{type:"complete"},onFailure:{type:"fail"}}],result:{source:"step_output",stepId:terminal.id},limits:workflow.limits})}}
+
 
 export async function validateWorkflowReferences(workflow: WorkflowDefinition, agents: readonly AgentDefinitionV1[], availableConnections: ReadonlySet<string>) {
-  if(workflow.schemaVersion===2)compileWorkflowV2ExecutionPlan(workflow,agents);
+  compileWorkflowV2ExecutionPlan(workflow,agents);
   const byId = new Map(agents.map((agent) => [agent.id, agent]));
   for (const agentId of workflowAgentReferences(workflow)) {
     const agent = byId.get(agentId);

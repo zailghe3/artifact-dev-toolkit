@@ -18,7 +18,7 @@ const artifacts = [
   {
     id: 'review-agent',
     title: 'Review Assistant',
-    type: 'agent',
+    type: 'prompt',
     tags: ['quality', 'release'],
     aliases: ['code checker'],
     body: 'Reviews a production change for safety.',
@@ -127,7 +127,7 @@ test('slug generation normalizes punctuation, separators, unsupported characters
 });
 
 test('artifact parsing defaults empty metadata arrays and normalizes body-derived excerpts', () => {
-  const artifact = parseArtifactMarkdown('---\nid: sample\ntitle: Sample\ntype: prompt\n---\n\n First line.\n\nSecond   line. \n', 'artifacts/prompts/nested/sample.md');
+  const artifact = parseArtifactMarkdown('---\nid: sample\ntitle: Sample\ntype: prompt\n---\n\n First line.\n\nSecond   line. \n', 'prompts/nested/sample.md');
   assert.deepEqual(artifact.tags, []);
   assert.deepEqual(artifact.aliases, []);
   assert.equal(artifact.body, 'First line.\n\nSecond   line.');
@@ -137,14 +137,14 @@ test('artifact parsing defaults empty metadata arrays and normalizes body-derive
 });
 
 test('artifact paths allow supported nested directories and reject invalid top-level directories', () => {
-  assert.equal(validateArtifactPath('artifacts/prompts/team/nested/example.md'), undefined);
-  assert.match(validateArtifactPath('artifacts/unknown/example.md'), /stored under one of/);
-  assert.match(validateArtifactPath('other/prompts/example.md'), /stored under artifacts/);
+  assert.equal(validateArtifactPath('prompts/team/nested/example.md'), undefined);
+  assert.match(validateArtifactPath('unknown/example.md'), /stored under one of/);
+  assert.match(validateArtifactPath('other/prompts/example.md'), /stored under one of/);
 });
 
 test('artifact IDs must be unique even when artifacts have different types and paths', () => {
   assert.throws(
-    () => validateUniqueArtifactIds([{ id: 'shared', path: 'artifacts/prompts/a.md' }, { id: 'shared', path: 'artifacts/agents/b.md' }]),
-    /Duplicate artifact id "shared".*artifacts\/agents\/b\.md.*artifacts\/prompts\/a\.md/,
+    () => validateUniqueArtifactIds([{ id: 'shared', path: 'prompts/a.md' }, { id: 'shared', path: 'prompts/b.md' }]),
+    /Duplicate artifact id "shared".*prompts\/b\.md.*prompts\/a\.md/,
   );
 });

@@ -8,7 +8,7 @@ import { slugify } from "./artifact-id.ts";
 import { canonicalArtifactWritePath, classifyArtifactPath, isArtifactMarkdownCandidate, isSupportedArtifactMutationPath, isSupportedArtifactPath } from "./repository-layout.ts";
 export { slugify } from "./artifact-id.ts";
 
-const artifactsDir = path.join(process.cwd(), "artifacts");
+const repositoryDir = process.cwd();
 const githubApiBaseUrl = "https://api.github.com";
 const githubBlobConcurrency = 4;
 const githubMaxAttempts = 3;
@@ -177,23 +177,20 @@ export function prepareVariation(source: Artifact, title: string | undefined, ge
 }
 
 export class FileArtifactRepository implements ArtifactRepository {
-  private readonly rootDir: string;
+  private readonly repositoryDir: string;
 
-  constructor(rootDir = artifactsDir) {
-    this.rootDir = rootDir;
+  constructor(rootDir = repositoryDir) {
+    this.repositoryDir = rootDir;
   }
 
   async list(): Promise<Artifact[]> {
-    const repositoryDir = path.dirname(this.rootDir);
-    const futureFiles = await Promise.all(["prompts", "snippets", "templates", "app-ideas"].map((directory) => walkMarkdownFiles(path.join(/* turbopackIgnore: true */ repositoryDir, directory))));
-    const files = [...await walkMarkdownFiles(this.rootDir), ...futureFiles.flat()];
+    const files = (await Promise.all(["prompts", "snippets", "templates", "app-ideas"].map((directory) => walkMarkdownFiles(path.join(/* turbopackIgnore: true */ this.repositoryDir, directory))))).flat();
     const artifacts = await Promise.all(
       files.map(async (file) => {
         const raw = await fs.readFile(file, "utf8");
-        const displayPath = path.relative(repositoryDir, file).split(path.sep).join("/");
-        const legacyRoot = path.basename(this.rootDir);
-        if (!isSupportedArtifactPath(displayPath, legacyRoot)) throw new Error(`${displayPath}: unsupported artifact path.`);
-        return parseArtifactMarkdown(raw, displayPath, classifyArtifactPath(displayPath, legacyRoot));
+        const displayPath = path.relative(this.repositoryDir, file).split(path.sep).join("/");
+        if (!isSupportedArtifactPath(displayPath)) throw new Error(`${displayPath}: unsupported artifact path.`);
+        return parseArtifactMarkdown(raw, displayPath, classifyArtifactPath(displayPath));
       }),
     );
 
@@ -219,11 +216,9 @@ export class FileArtifactRepository implements ArtifactRepository {
   async createVariation({ source, body, title }: CreateVariationInput): Promise<CreateVariationResult> {
     const { id, metadata } = prepareVariation(source, title);
     const { markdown } = prepareArtifactWrite(metadata, body.trim());
-    const repositoryDir = path.dirname(this.rootDir);
-    const legacyRoot = path.basename(this.rootDir);
-    const target = canonicalArtifactWritePath(metadata.type, id, legacyRoot);
+    const target = canonicalArtifactWritePath(metadata.type, id);
     if (!target) throw new ArtifactWriteValidationError();
-    const filePath = path.join(repositoryDir, target);
+    const filePath = path.join(this.repositoryDir, target);
     if ((await this.list()).some((artifact) => artifact.id === id || artifact.path === target)) throw new ArtifactDuplicateError();
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     try { await fs.writeFile(filePath, markdown, { encoding: "utf8", flag: "wx" }); }
@@ -621,8 +616,8 @@ export function createArtifactRepository(access: RepositoryAccessContext): Artif
   const owner = process.env.GITHUB_ARTIFACT_REPOSITORY_OWNER;
   const repo = process.env.GITHUB_ARTIFACT_REPOSITORY_NAME;
   const branch = process.env.GITHUB_ARTIFACT_REPOSITORY_BRANCH ?? defaultGitHubArtifactBranch;
-  const rootPath = trimSlashes(process.env.GITHUB_ARTIFACT_REPOSITORY_ROOT ?? defaultGitHubArtifactRoot);
-  if (!owner || !repo || !branch || !rootPath) throw new ArtifactRepositoryConfigurationError("GitHub artifact repository configuration is incomplete.");
+  const rootPath = trimSlashes(defaultGitHubArtifactRoot);
+  if (!owner || !repo || !branch) throw new ArtifactRepositoryConfigurationError("GitHub artifact repository configuration is incomplete.");
   if (access.owner.toLowerCase() !== owner.toLowerCase() || access.repo.toLowerCase() !== repo.toLowerCase() || !Number.isSafeInteger(access.repositoryId)) throw new ArtifactRepositoryConfigurationError("Repository access context does not match configuration.");
   return new GitHubArtifactRepository({ owner: access.owner, repo: access.repo, branch, rootPath, credentialProvider: access.installationCredentialProvider });
 }

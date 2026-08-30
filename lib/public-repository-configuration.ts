@@ -1,4 +1,5 @@
 import { getArtifactRepositoryBackend } from "./artifact-repository.ts";
+import {DEFAULT_ARTIFACT_ROOT} from "./artifact-contract.ts";
 
 export type PublicRepositoryConfiguration = {
   backend: "github" | "file" | "invalid";
@@ -18,7 +19,7 @@ export function getPublicRepositoryConfiguration(): PublicRepositoryConfiguratio
   const owner = normalized(process.env.GITHUB_ARTIFACT_REPOSITORY_OWNER);
   const repository = normalized(process.env.GITHUB_ARTIFACT_REPOSITORY_NAME);
   const branch = normalized(process.env.GITHUB_ARTIFACT_REPOSITORY_BRANCH) ?? "main";
-  const root = (normalized(process.env.GITHUB_ARTIFACT_REPOSITORY_ROOT) ?? "artifacts").replace(/^\/+|\/+$/g, "");
+  const root = DEFAULT_ARTIFACT_ROOT;
   return { backend, ...(owner ? { owner } : {}), ...(repository ? { repository } : {}), branch, root, identityValid: backend === "file" || (backend === "github" && Boolean(owner && repository)) };
 }
 

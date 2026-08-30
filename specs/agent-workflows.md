@@ -2,7 +2,7 @@
 
 **Document status:** Baseline specification of implemented Agent Workflow behaviour  
 **Scope:** Current behaviour only; not a roadmap or implementation design  
-**Last updated:** 2026-08-29
+**Last updated:** 2026-08-30
 
 ## 1. Purpose
 
@@ -16,7 +16,7 @@
 
 - A **Connection** identifies an available execution provider without exposing its private credentials.
 - An **Agent** selects a connection, master prompt, and supported provider options.
-- A **Workflow** is either a compatible v1 ordered Agent sequence or a v2 semantic graph of versioned blocks and edges.
+- A **Workflow** is a v2 semantic graph of versioned blocks and edges.
 - A **Block Registry** defines the supported versioned block contracts; backend-executable blocks are Agent references, deterministic text Conditions, deterministic Join barriers, resumable human Approval gates, and reusable Workflow composites.
 - A **Workflow layout** is an optional visual arrangement of stable node identities and is not executable configuration.
 - A **Run** freezes the workflow and agent configuration used for one execution.
@@ -25,9 +25,9 @@
 
 ## 3. Workflow definitions
 
-- New visual workflows use the ADT-owned v2 semantic graph format; existing v1 ordered definitions remain readable, editable, and executable without automatic conversion.
+- Current Workflow definitions use the ADT-owned v2 semantic graph format.
 - Current executable v2 workflows contain one connected bounded graph with Agent blocks, bounded `contains` Conditions, structured parallel fan-out and Join, and Condition-controlled cycles. Condition routes have labelled `true` and `false` semantic ports; omitted ports retain the registered defaults for compatible definitions. Unsupported block contracts or graph topology fail closed before persistence or execution.
-- A Workflow v2 definition may be exposed as a reusable block. `subworkflow@1` references one exposed Workflow in the same definition repository and has one text input and one text output; Workflow v1 cannot be exposed.
+- A Workflow may be exposed as a reusable block. `subworkflow@1` references one exposed Workflow in the same definition repository and has one text input and one text output.
 - A reusable Workflow block may be the compact graph's successful terminal. Its child's terminal text is the block output, and launch-time composition must still produce a primitive graph whose successful terminal is an Agent.
 - Reusable Workflows may compose other exposed Workflow v2 definitions within a bounded depth. Missing, unexposed, cyclic, oversized, or unsupported composed graphs fail closed before launch.
 - A run freezes the complete transitive Workflow definitions, exact repository revisions, authored composite paths, and Agents before execution. Later edits to a referenced Workflow affect new runs only.
@@ -39,10 +39,8 @@
 - The safe connection snapshot includes Git provenance and any secret reference needed for later server-side resolution, but never the resolved credential.
 - Later Git connection changes do not alter an existing run's snapshotted runtime, model, or secret reference.
 - Changes to an Agent or Workflow do not rewrite the configuration of an already-created run.
-- Definition reads support non-conflicting legacy and root-level locations during repository migration.
-- New definitions use the root-level executable definition namespaces.
-- Existing definitions remain mutable at their exact observed path and revision in either supported layout.
-- Cross-layout identity collisions fail closed.
+- Definition reads use canonical root-level `agents/` and `workflows/` locations only.
+- Definitions are discovered and mutated only in the root-level executable definition namespaces.
 - Definition location does not affect Workflow references, execution, or immutable run snapshots.
 - Executable Agent and Workflow lifecycle state remains independent from Artifact Library Markdown lifecycle rules.
 - The Workflow view presents distinct Agent, Condition, Approval, and Join blocks with ADT semantic ports and edges, including structured fan-out and controlled back-edges.
@@ -53,12 +51,12 @@
 - At launch, a supported v2 chain is frozen with its semantic Workflow, Workflow revision, Agent revisions, Connection snapshots, and an explicit execution-engine version.
 - Reusable Workflow blocks expand into the existing primitive graph within the parent run. They do not create a separate run, checkpoint, cancellation lifecycle, provider authority, or execution count.
 - The root Workflow execution limit applies to every expanded Agent, Condition, Join, and Approval activation. Embedded Workflow limits do not establish another budget.
-- New v2 runs use the frozen semantic edges to reconstruct graph execution from the immutable versioned plan. Existing v1 and historical sequential-engine runs retain their original interpretation.
+- Current runs use frozen semantic edges to reconstruct graph execution from the immutable versioned plan. Historical v1 snapshots retain their original identity and interpretation only for read-only presentation.
 
-## 4. Sequential handoff
+## 4. Linear v2 graph handoff
 
-- The first step receives the user's initial workflow input.
-- Each later step receives the previous step's persisted textual output.
+- The first Agent in a linear v2 graph receives the user's initial Workflow input.
+- Each later Agent in that linear graph receives the previous Agent's persisted textual output.
 - The framework does not implicitly summarise, rewrite, trim, parse, or reinterpret a successful handoff.
 - Provider-specific framing may combine the configured master prompt with the workflow input while preserving the input content required by the provider contract.
 - Step output is bounded textual content suitable for persistence and handoff.
@@ -115,18 +113,15 @@
 - Git is authoritative for the non-secret identity, name, runtime, provider, model, credential source, and credential reference of a Git-defined connection.
 - Authorised users may edit supported non-secret Git fields through revision-aware mutations; stale or ambiguous repository writes fail without retry or silent overwrite.
 - Target Git credentials use logical `adt-vault` references. Their values are permanent encrypted ADT state and are managed through a write-only interface.
-- Source-less `WORKFLOW_PROVIDER_CONNECTION_*` Git references retain their transitional Cloudflare-binding meaning.
-- Legacy encrypted D1 provider connection rows remain transitional configuration for IDs absent from Git and compatibility state for historical runs.
+- Current Git OpenAI connections require an `adt-vault` credential reference.
+- Legacy D1 provider rows may remain physically present as inert historical or rollback data, but current discovery, mutation, and execution never use them.
 - Credential resolution is source-exact. A Git definition never falls back to same-ID D1 state, and an unavailable vault reference never falls back to a Cloudflare binding or D1 row.
-- New Workflow snapshots retain the safe credential source and reference. Historical source-less Git and D1 snapshots retain their previous meanings.
+- New Workflow snapshots retain the safe vault credential source and reference. Historical source-less Git and D1 snapshots remain displayable identifiers only and cannot resolve credentials or execute.
 - Vault configure, replace, remove, and recover operations verify the observed Git revision and derive the authoritative reference server-side. Stored plaintext is never returned.
 - Replacing or removing a vault credential does not mutate Git. Recovery restores the existing reference and cannot overwrite an existing value.
-- An authorised user can explicitly migrate one active legacy credential to the ADT vault. Migration is never automatic or performed by ordinary reads or execution.
-- D1-only migration decrypts the exact active legacy credential server-side, creates a fresh encrypted vault value, and creates a same-ID Git definition for OpenAI Responses. The inspected non-secret source version and absence of Git ownership are concurrency preconditions.
-- Source-less Git migration copies only the exact referenced Cloudflare binding server-side and revision-safely changes only its credential source and reference. Both supported OpenAI Git runtimes retain their runtime and non-secret configuration.
+- No current migration UI or API exists for retired D1 or source-less configuration; inert rows and bindings are never resolved for execution.
 - Credential plaintext, encrypted envelopes, and key material never pass through the browser, API representation, Git definition, or Workflow snapshot. Provider testing remains a separate explicit operation.
 - Definite repository conflicts remove only the newly unreferenced vault value. Ambiguous repository outcomes retain it, are not retried automatically, and require refreshed inspection.
-- Legacy Cloudflare bindings and D1 rows are not deleted by migration because historical source-less Git and D1 snapshots continue resolving their exact original sources. Already-vault Git connections are migration-complete.
 - Connection configuration, credential availability, live provider/model readiness, and ADT Runtime diagnostics are distinct states.
 - Saving or executing an Agent fails closed when required live provider configuration is invalid or unavailable.
 - Credentials are never stored in Agent, Workflow, or run definitions and never appear in diagnostics or logs.
@@ -134,7 +129,7 @@
 ## 10. OpenAI execution connections
 
 - Artifact Toolkit supports the existing `openai-responses` execution path and an additive `openai-agents` OpenAI Agents SDK execution path.
-- Historical D1 OpenAI connections continue to select `openai-responses`; only an explicit Git connection selects `openai-agents`.
+- Current OpenAI execution uses explicit Git connections backed by the encrypted ADT vault.
 - The configured Agent master prompt is supplied as provider instructions.
 - Workflow input is supplied as the agent input without framework summarisation.
 - Provider conversation state and tools are not implicitly enabled by the workflow framework.
@@ -240,3 +235,10 @@
 - There is no autonomous routing between agents.
 - There is no automatic production promotion of Workflow definitions.
 - Ordinary Codex Runner Workflow jobs do not publish Git commits or pull requests.
+
+## Historical run boundary
+
+- Current Workflow definitions are semantic v2 graphs and current execution uses the generic plan-version-2 LangGraph plan.
+- Cloudflare Workflows remains the durable outer shell.
+- Historical retired run formats remain viewable but are read only. They cannot retry, resume, rerun, relaunch, approve, cancel providers, resolve retired credentials, or create provider work.
+- Historical-only parsers may decode immutable persisted snapshots but never admit current configuration or execution.

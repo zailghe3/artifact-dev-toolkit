@@ -1,11 +1,12 @@
 import matter from "gray-matter";
 import { z } from "zod";
 import { artifactTypeSchema } from "./artifact-schemas.ts";
-import { classifyArtifactPath, LEGACY_ARTIFACT_DIRECTORIES } from "./repository-layout.ts";
+import { ARTIFACT_DIRECTORIES, classifyArtifactPath } from "./repository-layout.ts";
 
-export const ALLOWED_ARTIFACT_DIRECTORIES = LEGACY_ARTIFACT_DIRECTORIES;
+export const ALLOWED_ARTIFACT_DIRECTORIES = ARTIFACT_DIRECTORIES;
 export const DEFAULT_ARTIFACT_BRANCH = "main";
-export const DEFAULT_ARTIFACT_ROOT = "artifacts";
+/** Logical cache/authority scope for the canonical repository-root library. */
+export const DEFAULT_ARTIFACT_ROOT = "canonical-root-v1";
 /** Maximum UTF-8 size of a complete serialized Markdown artifact (1 MiB). */
 export const MAX_SERIALIZED_ARTIFACT_BYTES = 1024 * 1024;
 
@@ -25,7 +26,7 @@ export const artifactFrontMatterSchema = z.object({
 });
 
 export type ArtifactMetadata = z.infer<typeof artifactFrontMatterSchema>;
-export type ArtifactModel = ArtifactMetadata & { body: string; excerpt: string; path: string; layout?: "legacy" | "future" };
+export type ArtifactModel = ArtifactMetadata & { body: string; excerpt: string; path: string; layout?: "canonical" };
 export type ArtifactRepositoryValidationError = { file: string; reason: string };
 export type ArtifactRepositoryValidationResult = { valid: boolean; artifactCount: number; errors: ArtifactRepositoryValidationError[] };
 export class ArtifactMarkdownParseError extends Error {
@@ -67,8 +68,8 @@ export function formatZodIssue(issue: z.ZodIssue) {
 
 export function formatArtifactDiagnostic(file: string, reason: string) { return `${file}: ${reason}`; }
 
-export function validateArtifactPath(filePath: string, artifactRoot = DEFAULT_ARTIFACT_ROOT) {
-  const root = trimSlashes(artifactRoot);
+export function validateArtifactPath(filePath: string, _artifactRoot = DEFAULT_ARTIFACT_ROOT) {
+  const root = "";
   const normalized = filePath.replace(/\\/g, "/").replace(/^\/+/, "");
   const prefix = root ? `${root}/` : "";
   if (!normalized.startsWith(prefix)) return `Markdown artifacts must be stored under ${root || "the configured artifact root"}.`;
@@ -83,17 +84,17 @@ export function validateArtifactPath(filePath: string, artifactRoot = DEFAULT_AR
   return undefined;
 }
 
-export function parseArtifactMarkdown(raw: string, filePath: string, resolvedLayout?: "legacy" | "future"): ArtifactModel {
+export function parseArtifactMarkdown(raw: string, filePath: string, _resolvedLayout?: "canonical" | "legacy" | "future"): ArtifactModel {
   let parsed: matter.GrayMatterFile<string>;
   // Supplying options disables gray-matter's process-global cache. Repository reads
   // must parse each response independently so repeated loads cannot share mutable state.
   try { parsed = matter(raw, {}); } catch { throw new ArtifactMarkdownParseError("invalid_front_matter"); }
   if (!String(parsed.matter ?? "").trim()) throw new ArtifactMarkdownParseError("invalid_front_matter");
   try {
-    const layout = resolvedLayout ?? classifyArtifactPath(filePath) ?? "legacy";
+    if (filePath !== "artifact.md" && !classifyArtifactPath(filePath)) throw new ArtifactMarkdownParseError("invalid_metadata");
     const data = artifactFrontMatterSchema.parse(parsed.data);
     const normalizeList = (values: string[]) => Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
-    return { ...data, tags: normalizeList(data.tags), aliases: normalizeList(data.aliases), createdAt: data.createdAt instanceof Date ? data.createdAt.toISOString() : data.createdAt, body: parsed.content.trim(), excerpt: toExcerpt(parsed.content), path: filePath, layout };
+    return { ...data, tags: normalizeList(data.tags), aliases: normalizeList(data.aliases), createdAt: data.createdAt instanceof Date ? data.createdAt.toISOString() : data.createdAt, body: parsed.content.trim(), excerpt: toExcerpt(parsed.content), path: filePath, layout: "canonical" };
   } catch (error) {
     if (error instanceof z.ZodError) throw new ArtifactMarkdownParseError("invalid_metadata");
     throw error;

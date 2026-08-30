@@ -1,2 +1,4 @@
-import {ProviderConnectionEditor} from "@/components/ProviderConnectionEditor";import {getWorkflowProviderConnectionStore} from "@/lib/workflow-services";import {notFound} from "next/navigation";
-export default async function Page({searchParams}:{searchParams:Promise<{duplicate?:string}>}){const {duplicate}=await searchParams;if(!duplicate)return <><h1 className="text-3xl font-black">New connection</h1><ProviderConnectionEditor/></>;const store=await getWorkflowProviderConnectionStore(),source=await store.getSafeDescriptor(duplicate);if(!source)notFound();let proposed=`${source.key}-copy`,number=2;while(await store.getSafeDescriptor(proposed))proposed=`${source.key}-copy-${number++}`;return <><h1 className="text-3xl font-black">Duplicate connection</h1><ProviderConnectionEditor duplicateSource={source.key} initial={{key:proposed,name:`${source.name} copy`,model:source.defaultModel??""}}/></>}
+import {ProviderConnectionEditor} from "@/components/ProviderConnectionEditor";
+import {requireRepositoryAccess} from "@/lib/auth";
+
+export default async function Page(){await requireRepositoryAccess("/workflows/connections/new");return <><h1 className="text-3xl font-black">New connection</h1><p className="mt-2 text-slate-600 dark:text-slate-300">Create a Git-managed connection with a credential stored in the ADT vault.</p><ProviderConnectionEditor/></>}

@@ -4,7 +4,7 @@ import { ArtifactCatalogueService, MemoryCatalogueCache, catalogueFreshnessSecon
 import { ArtifactRepositoryAccessError, ArtifactRepositoryConfigurationError, ArtifactRepositoryContentError, ArtifactRepositoryUnavailableError } from '../lib/artifact-repository.ts';
 
 const identity = { repositoryId: 42, owner: 'acme', repository: 'private-artifacts', branch: 'main', root: 'artifacts' };
-const artifact = (id = 'one') => ({ id, title: `Title ${id}`, type: 'prompt', tags: [], aliases: [], body: `private body ${id}`, excerpt: `private body ${id}`, path: `artifacts/prompts/${id}.md` });
+const artifact = (id = 'one') => ({ id, title: `Title ${id}`, type: 'prompt', tags: [], aliases: [], body: `private body ${id}`, excerpt: `private body ${id}`, path: `prompts/${id}.md` });
 function repository(revision = 'aaaaaaaa', artifacts = [artifact()]) {
   const calls = { revisions: 0, catalogues: 0 };
   return { calls,
@@ -184,4 +184,4 @@ test('detail metadata identifies stale and degraded results separately', async (
   const degradedCache = new MemoryCatalogueCache(); degradedCache.get = async () => { throw new Error('KV down'); }; const degraded = await service(repository(), degradedCache, now).findByIdWithRevision('one'); assert.equal(degraded.catalogue.cacheState, 'degraded');
 });
 
-test('catalogue snapshots accept canonical statusless artifacts and enforce physical layout', async () => { const valid=[{...artifact('canonical'),path:'prompts/canonical.md',layout:'future'}];const cache=new MemoryCatalogueCache(),now={value:'2026-08-02T00:00:00.000Z'},repo=repository('aaaaaaaa',valid);const result=await service(repo,cache,now).list();assert.equal(result.artifacts.length,1);assert.equal('status' in result.artifacts[0],false); });
+test('catalogue snapshots accept canonical statusless artifacts and enforce physical layout', async () => { const valid=[{...artifact('canonical'),path:'prompts/canonical.md',layout:'canonical'}];const cache=new MemoryCatalogueCache(),now={value:'2026-08-02T00:00:00.000Z'},repo=repository('aaaaaaaa',valid);const result=await service(repo,cache,now).list();assert.equal(result.artifacts.length,1);assert.equal('status' in result.artifacts[0],false); });
