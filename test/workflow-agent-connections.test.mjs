@@ -22,7 +22,7 @@ test('Agent creation resolves OpenAI connection adapters before persistence and 
  assert.match(route,/listWorkflowConnectionDescriptors\([^)]*\)/);
  assert.match(route,/validateAgentForConnection\(base,connection\)/);
  assert.match(route,/createAgent\(definition\)/);
- const agent={schemaVersion:1,id:'openai-agent',name:'OpenAI agent',description:'',status:'draft',masterPrompt:'Respond carefully.',connectionKey:'openai-primary',adapterOptions:{reasoningEffort:'medium',verbosity:'medium'}};
+ const agent={schemaVersion:2,id:'openai-agent',name:'OpenAI agent',description:'',status:'draft',prompt:{source:'custom',text:'Respond carefully.'},connectionKey:'openai-primary',adapterOptions:{reasoningEffort:'medium',verbosity:'medium'}};
  assert.deepEqual(validateAgentAdapterOptions(agent,'openai-responses'),agent);
  assert.throws(()=>validateAgentAdapterOptions({...agent,adapterOptions:{reasoningEffort:'invalid'}},'openai-responses'));
 });

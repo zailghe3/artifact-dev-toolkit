@@ -116,14 +116,6 @@ export function canonicalJson(value: unknown) {
   return `${JSON.stringify(sort(value), null, 2)}\n`;
 }
 
-export function buildSequentialWorkflow(input: { id: string; name: string; description?: string; agents: Array<{ id: string; name: string }>; maxStepExecutions?: number }): WorkflowDefinitionV1 {
-  const steps = input.agents.map((agent, index, all) => ({ id: `step-${index + 1}`, name: agent.name, agentId: agent.id,
-    input: { source: index === 0 ? "run_input" as const : "previous_step" as const },
-    onSuccess: { type: index === all.length - 1 ? "complete" as const : "next" as const }, onFailure: { type: "fail" as const } }));
-  return historicalWorkflowDefinitionV1Schema.parse({ schemaVersion: 1, id: input.id, name: input.name, description: input.description ?? "", status: "draft", steps,
-    result: { source: "step_output", stepId: steps.at(-1)?.id }, limits: { maxStepExecutions: input.maxStepExecutions ?? Math.max(steps.length, 32) } });
-}
-
 export function workflowAgentReferences(workflow:WorkflowDefinition){return workflow.nodes.flatMap(node=>workflowBlockRegistry.references(node.blockType,node.blockVersion,node.config).agentIds??[]);}
 export function workflowSubworkflowReferences(workflow:WorkflowDefinition){return workflow.nodes.flatMap(node=>workflowBlockRegistry.references(node.blockType,node.blockVersion,node.config).workflowIds??[]);}
 

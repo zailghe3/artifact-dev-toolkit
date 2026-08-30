@@ -88,11 +88,10 @@ The product invariants are in [`specs/agent-workflows.md`](specs/agent-workflows
 ### Provider connections
 
 - OpenAI Responses and OpenAI Agents SDK runtimes are server-side execution providers.
-- Git is authoritative for provider connection IDs defined under `connections/`; D1 remains a transitional fallback only for other IDs.
+- Git definitions under `connections/` are the only current provider connection configuration; credentials resolve through the permanent ADT vault.
 - Target Git definitions use logical `adt-vault` references while encrypted provider credential values live permanently in the D1-backed ADT vault. Current Git definitions require `adt-vault`; source-less Cloudflare bindings and legacy D1 provider configuration are inert historical data only.
-- New connections use the permanent ADT vault. Authorised operators can explicitly migrate an active legacy D1 credential or source-less Cloudflare binding into it without transferring credential plaintext through the browser or Git.
-- Git is authoritative for non-secret connection configuration. The logical ADT vault is authoritative for target credential values; legacy Cloudflare bindings and encrypted D1 connection rows remain source-exact compatibility state.
-- Migration retains legacy bindings and D1 rows because immutable historical Workflow snapshots can still require their original source. The provider Runtime boundary is unchanged.
+- Legacy D1 provider rows and source-less Cloudflare bindings may remain physically present as inert history, but current configuration and execution never read, migrate, or resolve them.
+- Git is authoritative for non-secret connection configuration, and the ADT vault is authoritative for current credential values. Historical snapshots never resolve retired credential sources.
 - Live provider readiness is distinct from saved configuration.
 - External task creation, polling, retry, cancellation, and ambiguous outcomes are trust and billing boundaries.
 
@@ -130,7 +129,7 @@ Operational detail belongs in [`codex-runner/README.md`](codex-runner/README.md)
 | Repeatable Codex procedures | `.agents/skills/` |
 | Artifact content and Git-backed Agent, Workflow, and provider connection definitions | configured GitHub repository |
 | Artifact repository layout and metadata | `docs/external-artifact-repository-contract.md` plus validation code |
-| Application sessions, permanent encrypted provider credential vault, transitional provider connection fallback, and durable Workflow state | D1 schema, migrations, and source |
+| Application sessions, permanent encrypted provider credential vault, inert historical provider rows, and durable Workflow state | D1 schema, migrations, and source |
 | Catalogue acceleration | KV cache; GitHub remains authoritative |
 | Durable Workflow orchestration | v1 Cloudflare Workflow cursor; v2 Runtime LangGraph checkpoint state in control-plane D1 |
 | OpenAI Agents SDK provider execution | independently deployed stateless ADT Runtime |

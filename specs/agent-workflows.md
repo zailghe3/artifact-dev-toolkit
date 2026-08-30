@@ -39,7 +39,7 @@
 - The safe connection snapshot includes Git provenance and any secret reference needed for later server-side resolution, but never the resolved credential.
 - Later Git connection changes do not alter an existing run's snapshotted runtime, model, or secret reference.
 - Changes to an Agent or Workflow do not rewrite the configuration of an already-created run.
-- Definition reads support non-conflicting legacy and root-level locations during repository migration.
+- Definition reads use canonical root-level `agents/` and `workflows/` locations only.
 - New definitions use the root-level executable definition namespaces.
 - Existing definitions remain mutable at their exact observed path and revision in either supported layout.
 - Cross-layout identity collisions fail closed.
@@ -118,15 +118,12 @@
 - Current Git OpenAI connections require an `adt-vault` credential reference.
 - Legacy D1 provider rows may remain physically present as inert historical or rollback data, but current discovery, mutation, and execution never use them.
 - Credential resolution is source-exact. A Git definition never falls back to same-ID D1 state, and an unavailable vault reference never falls back to a Cloudflare binding or D1 row.
-- New Workflow snapshots retain the safe credential source and reference. Historical source-less Git and D1 snapshots retain their previous meanings.
+- New Workflow snapshots retain the safe vault credential source and reference. Historical source-less Git and D1 snapshots remain displayable identifiers only and cannot resolve credentials or execute.
 - Vault configure, replace, remove, and recover operations verify the observed Git revision and derive the authoritative reference server-side. Stored plaintext is never returned.
 - Replacing or removing a vault credential does not mutate Git. Recovery restores the existing reference and cannot overwrite an existing value.
-- Credential migration UI and APIs for retired D1 or source-less configuration are not current product capabilities.
-- D1-only migration decrypts the exact active legacy credential server-side, creates a fresh encrypted vault value, and creates a same-ID Git definition for OpenAI Responses. The inspected non-secret source version and absence of Git ownership are concurrency preconditions.
-- Source-less Git migration copies only the exact referenced Cloudflare binding server-side and revision-safely changes only its credential source and reference. Both supported OpenAI Git runtimes retain their runtime and non-secret configuration.
+- No current migration UI or API exists for retired D1 or source-less configuration; inert rows and bindings are never resolved for execution.
 - Credential plaintext, encrypted envelopes, and key material never pass through the browser, API representation, Git definition, or Workflow snapshot. Provider testing remains a separate explicit operation.
 - Definite repository conflicts remove only the newly unreferenced vault value. Ambiguous repository outcomes retain it, are not retried automatically, and require refreshed inspection.
-- Legacy Cloudflare bindings and D1 rows are not deleted by migration because historical source-less Git and D1 snapshots continue resolving their exact original sources. Already-vault Git connections are migration-complete.
 - Connection configuration, credential availability, live provider/model readiness, and ADT Runtime diagnostics are distinct states.
 - Saving or executing an Agent fails closed when required live provider configuration is invalid or unavailable.
 - Credentials are never stored in Agent, Workflow, or run definitions and never appear in diagnostics or logs.

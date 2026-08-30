@@ -5,7 +5,8 @@ import { ARTIFACT_DIRECTORIES, classifyArtifactPath } from "./repository-layout.
 
 export const ALLOWED_ARTIFACT_DIRECTORIES = ARTIFACT_DIRECTORIES;
 export const DEFAULT_ARTIFACT_BRANCH = "main";
-export const DEFAULT_ARTIFACT_ROOT = "";
+/** Logical cache/authority scope for the canonical repository-root library. */
+export const DEFAULT_ARTIFACT_ROOT = "canonical-root-v1";
 /** Maximum UTF-8 size of a complete serialized Markdown artifact (1 MiB). */
 export const MAX_SERIALIZED_ARTIFACT_BYTES = 1024 * 1024;
 

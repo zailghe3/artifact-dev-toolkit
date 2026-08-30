@@ -1,6 +1,6 @@
 import {type ConnectionDescriptor,type ResolvedConnection} from "./workflow-connections.ts";
 import type {WorkflowConnectionDefinitionRepository} from "./workflow-connection-definition-repository.ts";
-import type {ProviderConnectionInput,WorkflowProviderConnectionStore} from "./workflow-provider-connection-store.ts";
+import type {WorkflowProviderConnectionStore} from "./workflow-provider-connection-store.ts";
 import type {D1ProviderCredentialVault} from "./provider-credential-vault.ts";
 
 const capabilities=(runtime:string)=>runtime==="openai-agents"?{asynchronous:false,cancellation:false}:{asynchronous:true,cancellation:true};
@@ -14,8 +14,4 @@ export class GitAuthoritativeWorkflowProviderConnectionStore implements Workflow
  async listSafeDescriptors(){return Promise.all((await this.git.listConnections()).map(item=>this.safe(item)))}
  async getSafeDescriptor(key:string){const value=await this.git.getConnection(key);return value?this.safe(value):undefined}
  async resolveCredential(key:string,snapshot?:ConnectionDescriptor){if(snapshot)return resolveGitSnapshotCredential(key,snapshot,this.vault);const value=await this.git.getConnection(key);if(!value)throw new Error("connection_unavailable");return resolveGitSnapshotCredential(key,this.descriptor(value,true),this.vault)}
- async assertMutable(_key:string){throw new Error("git_connection_read_only")}
- async upsertConnection(_input:ProviderConnectionInput):Promise<never>{throw new Error("git_connection_read_only")}
- async duplicateConnection(_sourceKey:string,_input:Omit<ProviderConnectionInput,"credential">):Promise<never>{throw new Error("git_connection_read_only")}
- async deleteConnection(_key:string):Promise<never>{throw new Error("git_connection_read_only")}
 }

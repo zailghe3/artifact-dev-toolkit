@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {resolveWorkflowRunConnectionSnapshot} from '../lib/workflow-run-connection-snapshots.ts';
-import {validateWorkflowReferences,buildSequentialWorkflow,agentDefinitionSchema} from '../lib/workflow-definitions.ts';
+import {validateWorkflowReferences,agentDefinitionSchema} from '../lib/workflow-definitions.ts';
 
 const capabilities={asynchronous:true,cancellation:true};
 const descriptor=(key,adapter,extra={})=>({key,name:key,adapter,enabled:true,capabilities,...extra});
@@ -33,6 +33,6 @@ test('unsupported and unavailable connections fail closed',async()=>{
 });
 
 test('Workflow validation still rejects an unavailable Codex Runner before snapshot construction',async()=>{
- const gpt=agentDefinitionSchema.parse({schemaVersion:1,id:'gpt',name:'GPT',description:'',status:'draft',masterPrompt:'First.',connectionKey:'openai-primary'}),codex=agentDefinitionSchema.parse({schemaVersion:1,id:'codex',name:'Codex',description:'',status:'draft',masterPrompt:'Second.',connectionKey:'codex-primary',adapterOptions:{environmentKey:'ready'}}),workflow=buildSequentialWorkflow({id:'mixed',name:'Mixed',agents:[gpt,codex]});
+ const gpt=agentDefinitionSchema.parse({schemaVersion:2,id:'gpt',name:'GPT',description:'',status:'draft',prompt:{source:'custom',text:'First.'},connectionKey:'openai-primary'}),codex=agentDefinitionSchema.parse({schemaVersion:2,id:'codex',name:'Codex',description:'',status:'draft',prompt:{source:'custom',text:'Second.'},connectionKey:'codex-primary',adapterOptions:{environmentKey:'ready'}}),workflow={schemaVersion:2,id:'mixed',name:'Mixed',description:'',status:'draft',nodes:[{id:'gpt-node',blockType:'agent',blockVersion:1,config:{agentId:'gpt'}},{id:'codex-node',blockType:'agent',blockVersion:1,config:{agentId:'codex'}}],edges:[{id:'handoff',source:'gpt-node',target:'codex-node'}],limits:{maxStepExecutions:2}};
  await assert.rejects(validateWorkflowReferences(workflow,[gpt,codex],new Set(['openai-primary'])),/connection_unavailable/);
 });

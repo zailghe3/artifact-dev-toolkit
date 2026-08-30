@@ -2,13 +2,10 @@
 import { validateExternalArtifactRepository } from "../lib/external-artifact-repository.ts";
 
 function parseArgs(argv) {
-  const args = { checkoutDir: process.cwd(), artifactRoot: undefined };
+  const args = { checkoutDir: process.cwd() };
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
-    if (value === "--root") {
-      args.artifactRoot = argv[index + 1];
-      index += 1;
-    } else if (value === "--help" || value === "-h") {
+    if (value === "--help" || value === "-h") {
       args.help = true;
     } else if (!value.startsWith("--")) {
       args.checkoutDir = value;
@@ -20,7 +17,7 @@ function parseArgs(argv) {
 }
 
 function printHelp() {
-  console.log(`Usage: node scripts/validate-artifact-repository.mjs [checkout-dir] [--root artifacts]\n\nValidates a complete external artifact repository checkout against the DATA-001 Markdown contract.`);
+  console.log(`Usage: node scripts/validate-artifact-repository.mjs [checkout-dir]\n\nValidates a complete external artifact repository checkout against the DATA-001 contract.`);
 }
 
 try {
@@ -30,7 +27,7 @@ try {
     process.exit(0);
   }
 
-  const result = await validateExternalArtifactRepository(args.checkoutDir, { artifactRoot: args.artifactRoot });
+  const result = await validateExternalArtifactRepository(args.checkoutDir);
   if (result.valid) {
     console.log(`Artifact repository is valid. ${result.artifactCount} artifact(s) checked.`);
   } else {

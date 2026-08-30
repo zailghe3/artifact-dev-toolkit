@@ -1,6 +1,7 @@
 import { noStoreHeaders, type SessionRecord } from "./auth-core.ts";
 import { createGitHubAppJwt, getConfiguredRepository, getRepositoryInstallation, mintInstallationToken, type GitHubAppConfig, type RepositoryCredential, type RepositoryCredentialCapability } from "./github-app.ts";
 import { AuthenticationConfigurationError, requireAuthenticationValues } from "./auth-configuration.ts";
+import {DEFAULT_ARTIFACT_ROOT} from "./artifact-contract.ts";
 
 export const authorizationFreshnessMs = 7 * 60 * 1000;
 export type RepositoryAuthorizationFailureReason = "configuration" | "allowlist" | "app_access" | "user_access" | "temporary_unavailable";
@@ -39,7 +40,7 @@ export function parseAllowedGitHubLogins(value = process.env.GITHUB_ARTIFACT_ALL
 export function getRepositoryAuthorizationConfig(): GitHubAppConfig {
   const required = ["GITHUB_APP_ID", "GITHUB_APP_CLIENT_ID", "GITHUB_APP_CLIENT_SECRET", "GITHUB_APP_PRIVATE_KEY", "GITHUB_TOKEN_ENCRYPTION_KEY", "GITHUB_ARTIFACT_REPOSITORY_OWNER", "GITHUB_ARTIFACT_REPOSITORY_NAME"] as const;
   const values = requireAuthenticationValues(required);
-  return { appId: values.GITHUB_APP_ID, clientId: values.GITHUB_APP_CLIENT_ID, clientSecret: values.GITHUB_APP_CLIENT_SECRET, privateKey: values.GITHUB_APP_PRIVATE_KEY, owner: values.GITHUB_ARTIFACT_REPOSITORY_OWNER, repo: values.GITHUB_ARTIFACT_REPOSITORY_NAME, branch: process.env.GITHUB_ARTIFACT_REPOSITORY_BRANCH?.trim() || "main", rootPath: process.env.GITHUB_ARTIFACT_REPOSITORY_ROOT?.trim() || "artifacts", allowedLogins: parseAllowedGitHubLogins() };
+  return { appId: values.GITHUB_APP_ID, clientId: values.GITHUB_APP_CLIENT_ID, clientSecret: values.GITHUB_APP_CLIENT_SECRET, privateKey: values.GITHUB_APP_PRIVATE_KEY, owner: values.GITHUB_ARTIFACT_REPOSITORY_OWNER, repo: values.GITHUB_ARTIFACT_REPOSITORY_NAME, branch: process.env.GITHUB_ARTIFACT_REPOSITORY_BRANCH?.trim() || "main", rootPath: DEFAULT_ARTIFACT_ROOT, allowedLogins: parseAllowedGitHubLogins() };
 }
 
 function classify(error: unknown): RepositoryAuthorizationFailureReason {

@@ -1,0 +1,3 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {requireCurrentCheckpointRun} from '../lib/runtime-checkpoint-access.ts';
+const current={engineVersion:'2',executionPlan:{planVersion:2},connectionSnapshots:{c:{management:'git',credentialSource:'adt-vault'}}},legacy={...current,connectionSnapshots:{c:{management:'d1'}}};
+test('checkpoint access admits current runs and rejects legacy runs before checkpoint mutation',async()=>{let mutations=0;const currentStore={getRun:async()=>({run:current})},legacyStore={getRun:async()=>({run:legacy})};await requireCurrentCheckpointRun(currentStore,'current');mutations++;await assert.rejects(requireCurrentCheckpointRun(legacyStore,'legacy'),/checkpoint_authority_invalid/);assert.equal(mutations,1)});
