@@ -13,6 +13,8 @@ export function isSensitivePath(path) {
   const normalized = normalizePath(path);
 
   return (
+    /(^|\/)AGENTS\.md$/.test(normalized) ||
+    normalized.startsWith('.agents/') ||
     normalized.startsWith('.github/workflows/') ||
     normalized.startsWith('.github/actions/') ||
     normalized.startsWith('scripts/') ||
@@ -23,9 +25,8 @@ export function isSensitivePath(path) {
     normalized.startsWith('app/api/') ||
     normalized.startsWith('adt-runtime/') ||
     normalized.startsWith('codex-runner/') ||
-    normalized.startsWith('lib/codex-runner') ||
-    /^lib\/(?:auth(?:-|\.|$)|auth-session-store|auth-configuration|repository-authorization|github-app|workflow-provider|workflow-d1-storage|workflow-durable-driver)/.test(normalized) ||
-    /^lib\/[^/]*secret[^/]*$/i.test(normalized)
+    normalized.startsWith('lib/') ||
+    normalized === 'test/integration/workflow-runtime-integration.test.mjs'
   );
 }
 

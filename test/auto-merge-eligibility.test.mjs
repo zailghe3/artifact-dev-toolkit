@@ -68,6 +68,11 @@ test('sensitive file on a later paginated API page is skipped', () => {
 
 test('all configured sensitive path patterns are detected', () => {
   for (const path of [
+    'AGENTS.md',
+    'specs/AGENTS.md',
+    'docs/subsystem/AGENTS.md',
+    '.agents/skills/code-change-verification/SKILL.md',
+    '.agents/config/settings.json',
     '.github/workflows/ci.yml',
     '.github/actions/setup/action.yml',
     'package.json',
@@ -92,10 +97,20 @@ test('all configured sensitive path patterns are detected', () => {
     'adt-runtime/Dockerfile',
     'codex-runner/Dockerfile',
     'lib/codex-runner-client.ts',
+    'lib/format-date.ts',
+    'test/integration/workflow-runtime-integration.test.mjs',
   ]) {
     assert.equal(isSensitivePath(path), true, path);
   }
 
   assert.equal(isSensitivePath('docs/scripts/example.md'), false);
   assert.equal(isSensitivePath('app/page.tsx'), false);
+  assert.equal(isSensitivePath('components/example.tsx'), false);
+});
+
+test('renaming governance or Runtime publication paths cannot bypass sensitivity', () => {
+  for (const previous_filename of ['AGENTS.md', 'docs/subsystem/AGENTS.md', '.agents/config/settings.json', 'lib/format-date.ts']) {
+    const result = evaluate({ files: [{ filename: 'docs/renamed.md', previous_filename, status: 'renamed' }] });
+    assert.equal(result.eligible, false, previous_filename);
+  }
 });

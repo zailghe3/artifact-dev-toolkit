@@ -10,7 +10,7 @@ function normalize(path) { return String(path ?? '').replace(/^\.\//, ''); }
 export function isCanonicalFeaturePath(path) { return canonicalFeatureRe.test(normalize(path)); }
 export function isSensitivePath(path) {
   const p = normalize(path);
-  return p.startsWith('.github/workflows/') || p.startsWith('.github/actions/') || p.startsWith('scripts/') || exactSensitive.has(p) || /^open-next\.config\..+$/.test(p);
+  return /(^|\/)AGENTS\.md$/.test(p) || p.startsWith('.agents/') || p.startsWith('.github/workflows/') || p.startsWith('.github/actions/') || p.startsWith('scripts/') || p.startsWith('lib/') || p === 'test/integration/workflow-runtime-integration.test.mjs' || exactSensitive.has(p) || /^open-next\.config\..+$/.test(p);
 }
 export function isLockfileRepairRelevantPath(path) {
   const p = normalize(path);
@@ -22,7 +22,7 @@ export function isProductionPath(path) {
 }
 export function isDocumentationOrRequestPath(path) {
   const p = normalize(path);
-  return p.startsWith('docs/') || p.startsWith('specs/') || p.startsWith('.agents/skills/') || p.startsWith('requests/features/') || p === 'README.md' || /^[^/]+\.md$/.test(p);
+  return /(^|\/)AGENTS\.md$/.test(p) || p.startsWith('docs/') || p.startsWith('specs/') || p.startsWith('.agents/') || p.startsWith('requests/features/') || p === 'README.md' || /^[^/]+\.md$/.test(p);
 }
 
 function unique(values) { return [...new Set(values.filter(Boolean).map(normalize))].sort(); }
