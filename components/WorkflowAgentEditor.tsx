@@ -9,7 +9,7 @@ import type {WorkflowAgentPromptDescriptor} from "@/lib/workflow-agent-prompts";
 import type {CodexRunnerSnapshot} from "@/lib/workflow-services";
 import type {AgentPrompt} from "@/lib/workflow-definitions";
 type Initial={id:string;name:string;description:string;prompt?:AgentPrompt;masterPrompt?:string;connectionKey:string;tools?:"artifact_search"[];adapterOptions?:Record<string,unknown>};
-const field="block w-full rounded border p-2";
+const field="adt-field";
 export function buildCodexRunnerAgentOptions(environmentKey:string,model:string,reasoningEffort:string){return{environmentKey,...(model?{model}:{}),...(reasoningEffort?{reasoningEffort}:{})}}
 export function WorkflowAgentEditor({initial,fileSha,connections,initialArtifact,codexSnapshot}:{initial?:Initial;fileSha?:string;connections:ConnectionDescriptor[];initialArtifact?:WorkflowAgentPromptDescriptor;codexSnapshot?:CodexRunnerSnapshot}){
  const router=useRouter(),[error,setError]=useState(""),[codexEnvironment,setCodexEnvironment]=useState(String(initial?.adapterOptions?.environmentKey??"")),[codexModel,setCodexModel]=useState(String(initial?.adapterOptions?.model??"")),[codexEffort,setCodexEffort]=useState(String(initial?.adapterOptions?.reasoningEffort??"")),[key,setKey]=useState(initial?.connectionKey??connections.find(c=>c.enabled)?.key??""),[prompt,setPrompt]=useState<AgentPrompt>(initial?.prompt??{source:"custom",text:initial?.masterPrompt??""});
