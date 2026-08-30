@@ -31,7 +31,7 @@ openssl pkey -in runtime-private.pem -pubout -out runtime-public.pem
 
 ## Protocol and security
 
-- Readiness separately advertises `openai-agents`, `tool:artifact-search`, and `langgraph:linear` for historical plans and `langgraph:graph` for versioned bounded graph plans; ADT rejects capability-specific execution before provider use when the required capability is absent.
+- Readiness separately advertises `openai-agents`, `tool:artifact-search`, and `langgraph:graph` for versioned bounded graph plans; ADT rejects capability-specific execution before provider use when the required capability is absent.
 - The Worker-only `ADT_INTERNAL_AUTHORITY_SECRET` authenticates short-lived control-plane capabilities. Artifact-search authority remains scoped to the exact run attempt and repository snapshot; checkpoint authority remains run-scoped; graph-node authority remains bound to one run, node, graph activation, Workflow generation, iteration, and attempt. Token formats retain their separate purpose/audience and scope checks even though they share key material. Never provision this secret to Runtime or reuse `ADT_RUNTIME_AUTH_SECRET` for it.
 - Protocol `adt-runtime-v1` exposes authenticated readiness, OpenAI Agents execution, and bounded conditional, parallel, and controlled-cycle LangGraph advance operations.
 - One LangGraph advance reconstructs the immutable ADT plan, resumes the run thread through the remote saver, admits one bounded Agent frontier, checkpoints, and returns control to the outer Cloudflare Workflow.
