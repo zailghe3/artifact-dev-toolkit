@@ -115,13 +115,13 @@
 - Git is authoritative for the non-secret identity, name, runtime, provider, model, credential source, and credential reference of a Git-defined connection.
 - Authorised users may edit supported non-secret Git fields through revision-aware mutations; stale or ambiguous repository writes fail without retry or silent overwrite.
 - Target Git credentials use logical `adt-vault` references. Their values are permanent encrypted ADT state and are managed through a write-only interface.
-- Source-less `WORKFLOW_PROVIDER_CONNECTION_*` Git references retain their transitional Cloudflare-binding meaning.
-- Legacy encrypted D1 provider connection rows remain transitional configuration for IDs absent from Git and compatibility state for historical runs.
+- Current Git OpenAI connections require an `adt-vault` credential reference.
+- Legacy D1 provider rows may remain physically present as inert historical or rollback data, but current discovery, mutation, and execution never use them.
 - Credential resolution is source-exact. A Git definition never falls back to same-ID D1 state, and an unavailable vault reference never falls back to a Cloudflare binding or D1 row.
 - New Workflow snapshots retain the safe credential source and reference. Historical source-less Git and D1 snapshots retain their previous meanings.
 - Vault configure, replace, remove, and recover operations verify the observed Git revision and derive the authoritative reference server-side. Stored plaintext is never returned.
 - Replacing or removing a vault credential does not mutate Git. Recovery restores the existing reference and cannot overwrite an existing value.
-- An authorised user can explicitly migrate one active legacy credential to the ADT vault. Migration is never automatic or performed by ordinary reads or execution.
+- Credential migration UI and APIs for retired D1 or source-less configuration are not current product capabilities.
 - D1-only migration decrypts the exact active legacy credential server-side, creates a fresh encrypted vault value, and creates a same-ID Git definition for OpenAI Responses. The inspected non-secret source version and absence of Git ownership are concurrency preconditions.
 - Source-less Git migration copies only the exact referenced Cloudflare binding server-side and revision-safely changes only its credential source and reference. Both supported OpenAI Git runtimes retain their runtime and non-secret configuration.
 - Credential plaintext, encrypted envelopes, and key material never pass through the browser, API representation, Git definition, or Workflow snapshot. Provider testing remains a separate explicit operation.
@@ -134,7 +134,7 @@
 ## 10. OpenAI execution connections
 
 - Artifact Toolkit supports the existing `openai-responses` execution path and an additive `openai-agents` OpenAI Agents SDK execution path.
-- Historical D1 OpenAI connections continue to select `openai-responses`; only an explicit Git connection selects `openai-agents`.
+- Current OpenAI execution uses explicit Git connections backed by the encrypted ADT vault.
 - The configured Agent master prompt is supplied as provider instructions.
 - Workflow input is supplied as the agent input without framework summarisation.
 - Provider conversation state and tools are not implicitly enabled by the workflow framework.
@@ -240,3 +240,10 @@
 - There is no autonomous routing between agents.
 - There is no automatic production promotion of Workflow definitions.
 - Ordinary Codex Runner Workflow jobs do not publish Git commits or pull requests.
+
+## Historical run boundary
+
+- Current Workflow definitions are semantic v2 graphs and current execution uses the generic plan-version-2 LangGraph plan.
+- Cloudflare Workflows remains the durable outer shell.
+- Historical retired run formats remain viewable but are read only. They cannot retry, resume, rerun, relaunch, approve, cancel providers, resolve retired credentials, or create provider work.
+- Historical-only parsers may decode immutable persisted snapshots but never admit current configuration or execution.

@@ -1,5 +1,6 @@
 import { reconcileWorkflowLaunch, type WorkflowBinding } from "./workflow-launch.ts";
 import { getWorkflowEnvironment, getWorkflowRunStorage } from "./workflow-services.ts";
+import {isLegacyRunReadOnly} from "./workflow-run-legacy.ts";
 import type { RunDetail, WorkflowRunStorage } from "./workflow-storage.ts";
 
 type RunDetailDependencies = {
@@ -17,6 +18,7 @@ export async function getWorkflowRunDetail(
   if (!detail) return undefined;
 
   const { run } = detail;
+  if(isLegacyRunReadOnly(run))return detail;
   if (run.workflowLaunchState !== "launching" || ["succeeded", "failed", "cancelled"].includes(run.status)) {
     return detail;
   }

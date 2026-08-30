@@ -11,7 +11,7 @@ import {
   type ArtifactRepositoryValidationError,
   type ArtifactRepositoryValidationResult,
 } from "./artifact-contract.ts";
-import { classifyArtifactPath, FUTURE_ARTIFACT_DIRECTORIES, normalizeRepositoryRoot } from "./repository-layout.ts";
+import { ARTIFACT_DIRECTORIES, classifyArtifactPath } from "./repository-layout.ts";
 import matter from "gray-matter";
 import { z } from "zod";
 import {CONNECTION_ROOT,CONNECTION_SUFFIX,parseConnectionDefinition} from "./workflow-connection-definitions.ts";
@@ -38,42 +38,10 @@ async function walkConnectionFiles(dir:string):Promise<string[]>{try{const entri
 function normalizeRelative(file: string, root: string) { return path.relative(root, file).split(path.sep).join("/"); }
 
 export async function validateExternalArtifactRepository(checkoutDir: string, options: { artifactRoot?: string } = {}): Promise<ArtifactRepositoryValidationResult> {
-  const configuredRoot = options.artifactRoot ?? DEFAULT_ARTIFACT_ROOT;
-  const artifactRoot = normalizeRepositoryRoot(configuredRoot);
-  if (!artifactRoot) return { valid: false, artifactCount: 0, errors: [{ file: configuredRoot, reason: "The configured artifact root must be a safe repository-relative path without empty or traversal segments." }] };
-  const checkoutRoot = path.resolve(checkoutDir);
-  const rootDir = path.resolve(checkoutRoot, artifactRoot);
-  const errors: ArtifactRepositoryValidationError[] = [];
-  const ids = new Map<string, string>();
-  let artifactCount = 0;
-  const legacyExists = await pathExists(rootDir);
-  const futureRoots = FUTURE_ARTIFACT_DIRECTORIES.map((directory) => path.resolve(checkoutRoot, directory));
-  const existingFutureRoots = (await Promise.all(futureRoots.map(async (root) => await pathExists(root) ? root : undefined))).filter((root): root is string => Boolean(root));
-  if (!legacyExists && existingFutureRoots.length === 0) errors.push({ file: artifactRoot, reason: "Neither the configured legacy artifact root nor a compatible root-level artifact directory exists." });
-  const discoveryRoots = [...new Set([...(legacyExists ? [rootDir] : []), ...existingFutureRoots])];
-  const files = new Map<string, string>();
-  for (const file of (await Promise.all(discoveryRoots.map(walkMarkdownFiles))).flat()) files.set(normalizeRelative(file, checkoutRoot), file);
-  for (const [displayPath, file] of files) {
-    const layout = classifyArtifactPath(displayPath, artifactRoot);
-    if (!layout) {
-      errors.push({ file: displayPath, reason: validateArtifactPath(displayPath, artifactRoot) ?? "Markdown artifact path is not supported by the configured repository layout." });
-      continue;
-    }
-    if (layout === "legacy") { const pathError = validateArtifactPath(displayPath, artifactRoot); if (pathError) errors.push({ file: displayPath, reason: pathError }); }
-    let parsed: matter.GrayMatterFile<string>;
-    try { parsed = matter(await fs.readFile(file, "utf8"), {}); } catch (error) { errors.push({ file: displayPath, reason: `Unable to parse Markdown front matter: ${(error as Error).message}` }); continue; }
-    if (!String(parsed.matter ?? "").trim()) { errors.push({ file: displayPath, reason: "Missing YAML front matter." }); continue; }
-    try {
-      const data = artifactFrontMatterSchema.parse(parsed.data);
-      artifactCount += 1;
-      const previous = ids.get(data.id);
-      if (previous) errors.push({ file: displayPath, reason: `Duplicate artifact id "${data.id}" already used by ${previous}.` });
-      else ids.set(data.id, displayPath);
-    } catch (error) {
-      if (error instanceof z.ZodError) for (const issue of error.issues) errors.push({ file: displayPath, reason: formatZodIssue(issue) });
-      else errors.push({ file: displayPath, reason: (error as Error).message });
-    }
-  }
+  const checkoutRoot=path.resolve(checkoutDir),errors:ArtifactRepositoryValidationError[]=[],ids=new Map<string,string>();let artifactCount=0;
+  const roots=ARTIFACT_DIRECTORIES.map(directory=>path.join(checkoutRoot,directory));
+  const files=new Map<string,string>();for(const file of (await Promise.all(roots.map(walkMarkdownFiles))).flat())files.set(normalizeRelative(file,checkoutRoot),file);
+  for(const [displayPath,file] of files){if(!classifyArtifactPath(displayPath)){errors.push({file:displayPath,reason:"Markdown artifact path is not canonical."});continue}let parsed:matter.GrayMatterFile<string>;try{parsed=matter(await fs.readFile(file,"utf8"),{})}catch(error){errors.push({file:displayPath,reason:`Unable to parse Markdown front matter: ${(error as Error).message}`});continue}if(!String(parsed.matter??"").trim()){errors.push({file:displayPath,reason:"Missing YAML front matter."});continue}try{const data=artifactFrontMatterSchema.parse(parsed.data);artifactCount++;const previous=ids.get(data.id);if(previous)errors.push({file:displayPath,reason:`Duplicate artifact id "${data.id}" already used by ${previous}.`});else ids.set(data.id,displayPath)}catch(error){if(error instanceof z.ZodError)for(const issue of error.issues)errors.push({file:displayPath,reason:formatZodIssue(issue)});else errors.push({file:displayPath,reason:(error as Error).message})}}
   const connectionIds=new Map<string,string>();
   for(const file of await walkConnectionFiles(path.join(checkoutRoot,CONNECTION_ROOT))){const displayPath=normalizeRelative(file,checkoutRoot);if(!displayPath.endsWith(CONNECTION_SUFFIX)||displayPath.split("/").length!==2){errors.push({file:displayPath,reason:"Connection definitions must use connections/<id>.connection.json."});continue}try{const definition=parseConnectionDefinition(JSON.parse(await fs.readFile(file,"utf8")),displayPath),previous=connectionIds.get(definition.id);if(previous)errors.push({file:displayPath,reason:`Duplicate connection id "${definition.id}" already used by ${previous}.`});else connectionIds.set(definition.id,displayPath)}catch(error){if(error instanceof z.ZodError)for(const issue of error.issues)errors.push({file:displayPath,reason:formatZodIssue(issue)});else errors.push({file:displayPath,reason:(error as Error).message})}}
   return { valid: errors.length === 0, artifactCount, errors };

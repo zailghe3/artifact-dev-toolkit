@@ -1,3 +1,4 @@
+import {assertRunExecutable} from "./workflow-run-legacy.ts";
 import type { RunDetail, WorkflowRunStorage } from "./workflow-storage.ts";
 
 export type WorkflowBinding = { create(input: { id: string; params: { runId: string } }): Promise<{ id: string }> };
@@ -7,6 +8,7 @@ export type WorkflowLaunchResult =
   | { state: "in_progress"; instanceId: string; launched: false };
 
 export async function ensureWorkflowLaunched(storage: WorkflowRunStorage, binding: WorkflowBinding, runId: string, generation: number): Promise<WorkflowLaunchResult> {
+  const detail=await storage.getRun(runId);if(!detail)throw new Error("run_not_found");assertRunExecutable(detail.run);
   const proposed = `${runId}-g${generation}`, claim = await storage.claimWorkflowLaunch(runId, generation, proposed);
   if (claim.result === "terminal") throw new Error("invalid_launch_state");
   if (claim.result === "already_attached") return { state: "attached", instanceId: claim.instanceId, launched: false };
@@ -25,7 +27,7 @@ export async function ensureWorkflowLaunched(storage: WorkflowRunStorage, bindin
 
 /** Launches only runs whose persisted launch state calls for reconciliation. */
 export async function reconcileWorkflowLaunch(storage: WorkflowRunStorage, binding: WorkflowBinding, detail: RunDetail): Promise<WorkflowLaunchResult | undefined> {
-  const { run } = detail;
+  const { run } = detail;assertRunExecutable(run);
   if (run.workflowLaunchState === "attached") return undefined;
   if (run.workflowLaunchState === "launching" && !["succeeded", "failed", "cancelled"].includes(run.status)) return ensureWorkflowLaunched(storage, binding, run.id, run.workflowGeneration);
   if (run.workflowLaunchState === "unclaimed" || run.workflowLaunchState === "launch_failed") return ensureWorkflowLaunched(storage, binding, run.id, run.workflowGeneration);

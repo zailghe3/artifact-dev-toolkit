@@ -18,8 +18,7 @@ Next.js -> OpenNext -> Cloudflare Worker
     +--> Cloudflare D1
     |       - application sessions
     |       - permanent encrypted provider credential vault
-    |       - transitional encrypted provider connection fallback state
-    |       - durable Workflow run and attempt state
+    |     |       - durable Workflow run and attempt state
     |
     +--> Cloudflare KV
     |       - validated artifact catalogue cache
@@ -68,16 +67,16 @@ Authentication, repository access, session persistence, and privileged mutation 
 
 - Connections identify supported execution providers without exposing credentials.
 - Agents bind a connection, master prompt reference, and supported provider options.
-- Workflows support compatible v1 ordered Agent steps and canonical v2 semantic block graphs; the ADT Block Registry validates registered Agent, Condition, Approval, Join, and reusable Workflow ports plus bounded structured fan-out and controlled-cycle topology.
+- Workflows use canonical v2 semantic block graphs; the ADT Block Registry validates registered Agent, Condition, Approval, Join, and reusable Workflow ports plus bounded structured fan-out and controlled-cycle topology.
 - Definitions are persisted through the configured GitHub-backed definition repository and use repository revisions for optimistic concurrency.
-- Root-level executable definition paths are canonical while temporary legacy-layout compatibility preserves exact-path, revision-aware mutation during repository migration.
+- Executable definitions are discovered and mutated only at root-level `agents/` and `workflows/` paths.
 
 Current product behaviour is defined by [`specs/agent-workflows.md`](specs/agent-workflows.md).
 
 ### Durable Workflow execution
 
 - Runs snapshot the definitions used for one execution, including transitive reusable Workflow composition resolved from the configured definition repository.
-- Cloudflare Workflows drives durable sequential execution for v1 and remains the outer launch/recovery and human-event wait shell for new v2 runs.
+- Cloudflare Workflows is the durable outer launch, recovery, and human-event wait shell; LangGraph in ADT Runtime is the only current sequencing engine.
 - New v2 runs freeze an ADT-owned versioned graph execution plan. LangGraph checkpoints determine v2 execution position; D1 run and attempt rows remain audit, provider-safety, and status projections.
 - A provider-neutral AgentRuntime boundary delegates one Agent step's execution to the selected provider implementation.
 - D1 persists run, step, attempt, provider-task, human approval, retry, cancellation, and reconciliation state.
@@ -90,7 +89,7 @@ The product invariants are in [`specs/agent-workflows.md`](specs/agent-workflows
 
 - OpenAI Responses and OpenAI Agents SDK runtimes are server-side execution providers.
 - Git is authoritative for provider connection IDs defined under `connections/`; D1 remains a transitional fallback only for other IDs.
-- Target Git definitions use logical `adt-vault` references while encrypted provider credential values live permanently in the D1-backed ADT vault. Source-less `WORKFLOW_PROVIDER_CONNECTION_*` references remain a transitional Cloudflare-binding contract.
+- Target Git definitions use logical `adt-vault` references while encrypted provider credential values live permanently in the D1-backed ADT vault. Current Git definitions require `adt-vault`; source-less Cloudflare bindings and legacy D1 provider configuration are inert historical data only.
 - New connections use the permanent ADT vault. Authorised operators can explicitly migrate an active legacy D1 credential or source-less Cloudflare binding into it without transferring credential plaintext through the browser or Git.
 - Git is authoritative for non-secret connection configuration. The logical ADT vault is authoritative for target credential values; legacy Cloudflare bindings and encrypted D1 connection rows remain source-exact compatibility state.
 - Migration retains legacy bindings and D1 rows because immutable historical Workflow snapshots can still require their original source. The provider Runtime boundary is unchanged.
@@ -168,3 +167,9 @@ Operational detail belongs in [`codex-runner/README.md`](codex-runner/README.md)
 ## Keeping this map current
 
 Update this document when a change materially alters a major component, source-of-truth boundary, persistence responsibility, trust boundary, or external-system relationship. Do not update it for ordinary internal refactors that preserve those relationships.
+
+## Retired-format boundary
+
+- Historical engine-v1, pre-generic graph-plan, D1-provider, and source-less credential runs remain readable as immutable history.
+- Retired formats cannot retry, resume, relaunch, cancel providers, approve, or create provider work.
+- Current generic plan-version-2 runs backed by supported current connection snapshots remain recoverable across deployments.

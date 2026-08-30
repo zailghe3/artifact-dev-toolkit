@@ -1,7 +1,4 @@
-export const LEGACY_ARTIFACT_DIRECTORIES = ["prompts", "agents", "snippets", "templates", "app-ideas", "variations"] as const;
-export const FUTURE_ARTIFACT_DIRECTORIES = ["prompts", "snippets", "templates", "app-ideas"] as const;
-
-export type RepositoryLayout = "legacy" | "future";
+export const ARTIFACT_DIRECTORIES = ["prompts", "snippets", "templates", "app-ideas"] as const;
 
 function safeSegments(value: string) {
   const normalized = value.replace(/\\/g, "/").replace(/^\/+/, "");
@@ -19,49 +16,37 @@ export function normalizeRepositoryRoot(value: string) {
   return safeRootSegments(value)?.join("/");
 }
 
-export function classifyArtifactPath(filePath: string, legacyRoot = "artifacts"): RepositoryLayout | undefined {
+export function classifyArtifactPath(filePath: string, _legacyRoot?: string): "canonical" | undefined {
   const segments = safeSegments(filePath);
   if (!segments) return undefined;
-  const root = safeRootSegments(legacyRoot);
-  if (!root) return undefined;
-  const legacyDirectory = segments[root.length];
-  if (root.every((segment, index) => segments[index] === segment) && LEGACY_ARTIFACT_DIRECTORIES.includes(legacyDirectory as (typeof LEGACY_ARTIFACT_DIRECTORIES)[number])) return "legacy";
-  if (FUTURE_ARTIFACT_DIRECTORIES.includes(segments[0] as (typeof FUTURE_ARTIFACT_DIRECTORIES)[number])) return "future";
+  if (ARTIFACT_DIRECTORIES.includes(segments[0] as (typeof ARTIFACT_DIRECTORIES)[number])) return "canonical";
   return undefined;
 }
 
-export function isSupportedArtifactPath(filePath: string, legacyRoot = "artifacts") {
-  return classifyArtifactPath(filePath, legacyRoot) !== undefined && filePath.replace(/\\/g, "/").endsWith(".md");
+export function isSupportedArtifactPath(filePath: string, _legacyRoot?: string) {
+  return classifyArtifactPath(filePath) !== undefined && filePath.replace(/\\/g, "/").endsWith(".md");
 }
 
 const artifactTypeDirectories = {
   prompt: "prompts",
-  agent: "agents",
   snippet: "snippets",
   template: "templates",
   "app-idea": "app-ideas",
 } as const;
 
 /** Return the trusted Phase 2 write target for a newly-created Artifact Library item. */
-export function canonicalArtifactWritePath(type: keyof typeof artifactTypeDirectories, id: string, legacyRoot = "artifacts") {
-  const root = safeRootSegments(legacyRoot)?.join("/");
-  if (!root || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id)) return undefined;
+export function canonicalArtifactWritePath(type: keyof typeof artifactTypeDirectories, id: string, _legacyRoot?: string) {
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id)) return undefined;
   const directory = artifactTypeDirectories[type];
-  return type === "agent" ? `${root}/${directory}/${id}.md` : `${directory}/${id}.md`;
+  return `${directory}/${id}.md`;
 }
 
 /** Existing mutations may target either layout, but only an exact supported Markdown path. */
-export function isSupportedArtifactMutationPath(filePath: string, legacyRoot = "artifacts") {
-  return isSupportedArtifactPath(filePath, legacyRoot);
+export function isSupportedArtifactMutationPath(filePath: string, _legacyRoot?: string) {
+  return isSupportedArtifactPath(filePath);
 }
 
-export function isArtifactMarkdownCandidate(filePath: string, legacyRoot = "artifacts") {
+export function isArtifactMarkdownCandidate(filePath: string, _legacyRoot?: string) {
   const normalized = filePath.replace(/\\/g, "/").replace(/^\/+/, "");
-  const root = safeRootSegments(legacyRoot)?.join("/");
-  return normalized.endsWith(".md") && (Boolean(root && normalized.startsWith(`${root}/`)) || FUTURE_ARTIFACT_DIRECTORIES.some((directory) => normalized.startsWith(`${directory}/`)));
-}
-
-export function definitionReadRoots(legacyRoot: string, futureRoot: string) {
-  const roots = [legacyRoot, futureRoot].map((root) => root.replace(/^\/+|\/+$/g, ""));
-  return roots.filter((root, index) => Boolean(root) && roots.indexOf(root) === index);
+  return normalized.endsWith(".md") && ARTIFACT_DIRECTORIES.some((directory) => normalized.startsWith(`${directory}/`));
 }

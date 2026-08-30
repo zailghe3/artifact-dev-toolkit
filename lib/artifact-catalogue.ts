@@ -25,7 +25,7 @@ type RefreshOptions = { force?: boolean; full?: boolean; manual?: boolean };
 type Flight = { level: number; promise: Promise<ResolvedCatalogue> };
 
 const shaSchema = z.string().regex(/^[a-f0-9]{7,64}$/i);
-const artifactSchema = artifactFrontMatterSchema.extend({ body: z.string(), excerpt: z.string(), path: z.string(), layout: z.enum(["legacy", "future"]).optional() });
+const artifactSchema = artifactFrontMatterSchema.extend({ body: z.string(), excerpt: z.string(), path: z.string(), layout: z.literal("canonical").optional() });
 const pointerSchema = z.object({ schemaVersion: z.literal(schemaVersion), repositoryId: z.number().int().positive(), owner: z.string(), repository: z.string(), branch: z.string(), root: z.string(), revision: shaSchema, refreshedAt: z.string().datetime(), generation: z.string().optional(), publicationId: z.string().optional(), chunks: z.array(z.string().min(1)).min(1) });
 const chunkSchema = z.object({ schemaVersion: z.literal(schemaVersion), repositoryId: z.number().int().positive(), owner: z.string(), repository: z.string(), branch: z.string(), root: z.string(), revision: shaSchema, index: z.number().int().nonnegative(), entries: z.array(z.object({ artifact: artifactSchema, fileSha: shaSchema })) });
 const generationSchema = z.object({ schemaVersion: z.literal(schemaVersion), generation: z.string().min(1) });
