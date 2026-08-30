@@ -2,13 +2,13 @@
 
 **Document status:** Baseline specification of implemented application behaviour  
 **Scope:** Current behaviour only; not a roadmap or implementation design  
-**Last updated:** 2026-08-24
+**Last updated:** 2026-08-30
 
 ## 1. Purpose and scope
 
 - Artifact Toolkit helps authorised users manage reusable work assets stored in GitHub.
 - The primary asset domain is the Artifact Library.
-- The application also supports durable sequential Agent Workflows as a separate functional domain.
+- The application also supports durable graph-based Agent Workflows as a separate functional domain.
 - This specification describes stable product behaviour and important safety invariants.
 - Implementation details belong in code, component documentation, operational documentation, or external contracts.
 - Agent Workflow behaviour is specified separately in [Agent Workflows](agent-workflows.md).
@@ -78,16 +78,13 @@
 
 ## 6. Artifact repository contract
 
-- Artifacts are Markdown-based reusable assets with structured metadata.
-- Supported artifact categories include prompts, agents, snippets, templates, app ideas, and variations.
-- Historical Markdown Agent artifacts remain isolated to the legacy Artifact Library namespace; root-level Agent and Workflow namespaces contain executable JSON definitions and are not Artifact Library Markdown locations.
-- Artifact IDs are unique within the configured artifact repository.
-- Repository content is validated before it becomes part of the application catalogue.
-- During repository-layout migration, the library reads non-conflicting legacy and root-level artifacts, creates ordinary artifacts in their root-level namespaces, and mutates artifacts at their exact source paths.
-- A logical identity present in both repository layouts fails closed. Statusless Markdown is canonical, and top-level Artifact Library `status` metadata is invalid.
-- Invalid paths, malformed metadata, duplicate identities, unsupported content, and unsafe artifact data are rejected.
-- The canonical repository layout, metadata schema, and validation rules are defined by the [External Artifact Repository Contract](../docs/external-artifact-repository-contract.md).
-- The application specification should not duplicate that contract.
+- Artifact Library content is Markdown with structured metadata.
+- Current Artifact Library categories are prompts, snippets, templates, and app ideas.
+- Variations are ordinary same-type artifacts linked through `sourceId`.
+- Executable Agents, Workflows, layouts, and provider connections use separate canonical JSON namespaces and are not Artifact Library Markdown.
+- Repository content is validated before it becomes active application content.
+- Unsupported or retired locations, malformed metadata, duplicate identities, and unsafe content fail closed.
+- The canonical repository layout and validation rules are defined by the [External Artifact Repository Contract](../docs/external-artifact-repository-contract.md).
 
 ## 7. Catalogue freshness and refresh
 
@@ -126,14 +123,14 @@
 
 ## 10. Agent Workflows
 
-- Artifact Toolkit supports durable sequential workflows composed of configured agents.
-- Workflows, runs, provider connections, retries, cancellation, and the Codex Runner form a separate functional domain from the Artifact Library.
+- Artifact Toolkit supports durable Workflow v2 graphs composed of configured Agents and deterministic control blocks.
+- Workflows, runs, provider connections, retries, cancellation, approvals, and execution providers form a separate functional domain from the Artifact Library.
 - Workflow execution must remain bounded, durable, observable, and safe against accidental duplicate external work.
-- Provider and Runner credentials remain outside user-authored workflow definitions.
-- Current workflow capabilities and limitations are defined in [Agent Workflows](agent-workflows.md).
+- Provider and Runner credentials remain outside user-authored Workflow definitions.
+- Current graph capabilities, execution semantics, and limitations are defined in [Agent Workflows](agent-workflows.md).
 
 ## 11. Current product boundaries
 
 - Artifact repository configuration and external service provisioning remain operator responsibilities.
-- Operational documentation may prescribe specific deployment technologies, versions, limits, or recovery procedures without making those implementation choices part of this product specification.
-- Agent Workflows are currently sequential and bounded; their detailed limitations are maintained in the dedicated workflow specification.
+- Operational documentation may prescribe deployment technologies, versions, limits, or recovery procedures without making those mechanics part of this product specification.
+- Detailed Agent Workflow, provider, Runtime, and Runner behaviour remains in the dedicated Workflow specification and component documentation.

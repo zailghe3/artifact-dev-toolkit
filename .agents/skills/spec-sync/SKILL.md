@@ -18,7 +18,9 @@ Use this Skill after implementation when product behaviour or a stable product i
 7. Link to external contracts or operational/component documentation rather than copying their mechanics into the specification.
 8. Keep implementation algorithms, storage mechanisms, internal state machines, exact retries/timeouts, dependency versions, protocol payloads, and build details out unless they form an external product contract.
 9. Keep roadmap ideas and historical implementation decisions outside current-state specifications.
-10. Inspect the resulting diff for concise wording, correct scope, and consistency with the implemented behavior and acceptance criteria.
+10. For cross-domain changes, migrations, or retirements, check other current-state specifications, the root README, and shipped examples for newly contradictory statements; update only affected material.
+11. Where a shipped example embodies an enforceable contract, validate it through the same semantic validator when practical.
+12. Inspect the resulting diff for concise wording, correct scope, and consistency with the implemented behavior and acceptance criteria.
 
 ## Domain guidance
 
