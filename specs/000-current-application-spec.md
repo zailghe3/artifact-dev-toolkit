@@ -39,14 +39,14 @@
 - Users can search the loaded artifact catalogue interactively.
 - Search is case-insensitive.
 - Multiple search terms narrow the result set.
-- Search covers artifact identity, type, tags, aliases, and body content.
+- Search covers title, description, type, tags, aliases, and body content.
 - An empty search returns the complete catalogue.
 - The matching result count updates with the search.
 
 ### 3.3 Artifact detail
 
 - Users can open an artifact from the catalogue.
-- The detail view presents its title, type, tags, aliases, and rendered Markdown body.
+- The detail view presents its title, description, type, tags, aliases, and rendered Markdown body.
 - Users can navigate back to the catalogue without losing the application context.
 - Missing artifacts resolve to the application's not-found experience rather than an operational failure.
 

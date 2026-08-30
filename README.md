@@ -24,7 +24,7 @@ Artifact Dev Toolkit helps authorised users manage reusable work assets in GitHu
 
 ## Product principles
 
-- GitHub is authoritative for reusable artifacts and non-secret executable configuration.
+- GitHub is authoritative for reusable artifacts and Git-backed non-secret executable configuration.
 - Provider credential values live in the encrypted ADT vault rather than Git.
 - Cloudflare remains the authorised control and durable-state plane.
 - ADT's semantic Workflow model remains independent from visual, orchestration, and provider frameworks.

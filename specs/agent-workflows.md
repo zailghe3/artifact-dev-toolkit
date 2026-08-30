@@ -15,7 +15,8 @@
 ## 2. Core concepts
 
 - A **Connection** identifies an available execution provider without exposing its private credentials.
-- An **Agent** selects a connection, master prompt, and supported provider options.
+- An **Agent** selects a connection, prompt, and supported provider options.
+- An Agent prompt is either custom text or a reference to an Artifact Library prompt.
 - A **Workflow** is a v2 semantic graph of versioned blocks and edges.
 - A **Block Registry** defines the supported versioned block contracts; backend-executable blocks are Agent references, deterministic text Conditions, deterministic Join barriers, resumable human Approval gates, and reusable Workflow composites.
 - A **Workflow layout** is an optional visual arrangement of stable node identities and is not executable configuration.
@@ -35,6 +36,7 @@
 - Each workflow has bounded step count and execution limits.
 - Workflow definitions are separate from run history.
 - A run uses an immutable snapshot of the definitions selected at launch.
+- Referenced prompt artifacts are resolved at launch and their text is frozen into the run; later prompt edits affect new runs only.
 - Tool-enabled runs also freeze the authorised repository identity and catalogue scope without persisting repository credentials.
 - The safe connection snapshot includes Git provenance and any secret reference needed for later server-side resolution, but never the resolved credential.
 - Later Git connection changes do not alter an existing run's snapshotted runtime, model, or secret reference.
@@ -48,7 +50,7 @@
 - Missing or out-of-date layout information does not prevent a current Workflow step from being displayed or executed.
 - Visual position and viewport changes remain separate presentation-only layout mutations and never change semantic order, handoff, result selection, limits, or run snapshots.
 - For v2 workflows, adding, removing, configuring, connecting, or disconnecting a block is an intentional semantic Workflow mutation and must produce a valid bounded graph; the editor exposes Agent, Condition, structured fan-out, Join, controlled back-edge, and explicit execution-bound authoring.
-- At launch, a supported v2 chain is frozen with its semantic Workflow, Workflow revision, Agent revisions, Connection snapshots, and an explicit execution-engine version.
+- At launch, a supported v2 graph is frozen with its semantic Workflow, Workflow revision, Agent revisions, Connection snapshots, and an explicit execution-engine version.
 - Reusable Workflow blocks expand into the existing primitive graph within the parent run. They do not create a separate run, checkpoint, cancellation lifecycle, provider authority, or execution count.
 - The root Workflow execution limit applies to every expanded Agent, Condition, Join, and Approval activation. Embedded Workflow limits do not establish another budget.
 - Current runs use frozen semantic edges to reconstruct graph execution from the immutable versioned plan. Historical v1 snapshots retain their original identity and interpretation only for read-only presentation.
@@ -58,7 +60,7 @@
 - The first Agent in a linear v2 graph receives the user's initial Workflow input.
 - Each later Agent in that linear graph receives the previous Agent's persisted textual output.
 - The framework does not implicitly summarise, rewrite, trim, parse, or reinterpret a successful handoff.
-- Provider-specific framing may combine the configured master prompt with the workflow input while preserving the input content required by the provider contract.
+- Provider-specific framing may combine the resolved Agent prompt with the workflow input while preserving the input content required by the provider contract.
 - Step output is bounded textual content suitable for persistence and handoff.
 
 ## 5. Durable execution
@@ -68,7 +70,7 @@
 - Approval resumes the exact frozen execution checkpoint and launch snapshot. Later definition edits cannot change a paused run.
 - Human waiting does not consume the bounded active execution duration. Cancellation remains available while waiting and prevents downstream admission when it wins durably.
 - Approval decisions identify one exact block activation and are idempotent. A stale decision cannot approve a later visit to the same block.
-- Phase 14 supports one active Approval interrupt per run; Approval within a parallel fan-out is rejected. Generic graph runs present their immutable semantic snapshot, simultaneous active Agents, and visit-aware Agent attempt history without implying a linear step order.
+- One active Approval interrupt is supported per run; Approval within a parallel fan-out is rejected. Generic graph runs present their immutable semantic snapshot, simultaneous active Agents, and visit-aware Agent attempt history without implying a linear step order.
 - Composition preserves the current direct structured-parallel limitation and rejects composed topology that would introduce unsupported nested parallelism or simultaneous Approval interrupts.
 - Run activity and Approval requests within reusable Workflows remain attributable to meaningful frozen composite paths, including repeated invocation identity, and never appear as independent child runs.
 - For new v2 runs, durable graph state determines which node executes next. Run cursors are projections and cannot independently select a node.
@@ -130,7 +132,7 @@
 
 - Artifact Toolkit supports the existing `openai-responses` execution path and an additive `openai-agents` OpenAI Agents SDK execution path.
 - Current OpenAI execution uses explicit Git connections backed by the encrypted ADT vault.
-- The configured Agent master prompt is supplied as provider instructions.
+- The resolved Agent prompt is supplied as provider instructions.
 - Workflow input is supplied as the agent input without framework summarisation.
 - Provider conversation state and tools are not implicitly enabled by the workflow framework.
 - Only bounded textual agent output becomes workflow output.
