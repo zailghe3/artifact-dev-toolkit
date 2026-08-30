@@ -18,7 +18,7 @@ Next.js -> OpenNext -> Cloudflare Worker
     +--> Cloudflare D1
     |       - application sessions
     |       - permanent encrypted provider credential vault
-    |     |       - durable Workflow run and attempt state
+    |       - durable Workflow run and attempt state
     |
     +--> Cloudflare KV
     |       - validated artifact catalogue cache
@@ -131,7 +131,7 @@ Operational detail belongs in [`codex-runner/README.md`](codex-runner/README.md)
 | Artifact repository layout and metadata | `docs/external-artifact-repository-contract.md` plus validation code |
 | Application sessions, permanent encrypted provider credential vault, inert historical provider rows, and durable Workflow state | D1 schema, migrations, and source |
 | Catalogue acceleration | KV cache; GitHub remains authoritative |
-| Durable Workflow orchestration | v1 Cloudflare Workflow cursor; v2 Runtime LangGraph checkpoint state in control-plane D1 |
+| Durable Workflow orchestration | Cloudflare Workflows outer launch/recovery shell; LangGraph sequencing and checkpoints in control-plane D1 |
 | OpenAI Agents SDK provider execution | independently deployed stateless ADT Runtime |
 | Codex authentication and workspaces | isolated Codex Runner executor |
 | Runner jobs, idempotency, and emergency latch | Codex Runner controller |
