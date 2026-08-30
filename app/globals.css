@@ -12,6 +12,20 @@
   --shadow-soft: 0 18px 60px -30px rgba(15, 23, 42, 0.45);
 }
 
+@layer components {
+  .adt-field {
+    @apply block w-full rounded border p-2;
+  }
+
+  .adt-panel {
+    @apply rounded-lg border p-4;
+  }
+
+  .adt-empty-state {
+    @apply rounded-lg border border-dashed p-6;
+  }
+}
+
 :root {
   color-scheme: light;
   --accent-selection: #bae6fd;
