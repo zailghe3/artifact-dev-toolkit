@@ -7,7 +7,7 @@ import { canTestProviderConnection, providerConnectionOutputLimit, providerConne
 
 const requireTsx = installTsxHook();
 const { CodexRunnerConnection } = requireTsx('../components/CodexRunnerConnection.tsx');
-const { OperationFeedback, providerTestFeedbackAfterCredentialOperation } = requireTsx('../components/ProviderConnectionEditor.tsx');
+const { OperationFeedback, isCurrentProviderTestSequence, providerTestFeedbackAfterCredentialOperation } = requireTsx('../components/ProviderConnectionEditor.tsx');
 
 test('OpenAI connection testing is enabled only for configured idle connections', () => {
   assert.equal(canTestProviderConnection({ busy: false, configured: true }), true);
@@ -37,6 +37,17 @@ test('connection editor operation feedback has distinct accessible presentation'
   assert.doesNotMatch(credential, /Provider connection test result|ADT Runtime diagnostic result/);
   assert.equal(providerTestFeedbackAfterCredentialOperation('Connection successful.', true), '');
   assert.equal(providerTestFeedbackAfterCredentialOperation('Connection successful.', false), 'Connection successful.');
+});
+
+test('provider test sequencing ignores completions invalidated by a credential change', () => {
+  let currentSequence = 0;
+  const originalTest = ++currentSequence;
+  assert.equal(isCurrentProviderTestSequence(currentSequence, originalTest), true);
+  currentSequence += 1;
+  assert.equal(isCurrentProviderTestSequence(currentSequence, originalTest), false);
+  const currentTest = ++currentSequence;
+  assert.equal(isCurrentProviderTestSequence(currentSequence, currentTest), true);
+  assert.equal(isCurrentProviderTestSequence(currentSequence, originalTest), false);
 });
 
 test('Codex Runner connection presents the advertised job-execution capability', () => {
