@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile,access} from 'node:fs/promises';
 import {duplicateConnectionDraft} from '../lib/provider-connection-presentation.ts';
+import {connectionDefinitionSchema} from '../lib/workflow-connection-definitions.ts';
+import {DEFINITION_ID_MAX_LENGTH} from '../lib/definition-id.ts';
 
 test('Connections exposes target-only Git and vault creation',async()=>{
  const [page,catalogue,newPage,editor]=await Promise.all([
@@ -29,6 +31,23 @@ test('duplicate drafts contain only editable non-secret configuration and use a 
  assert.match(draft.key,/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
  assert.doesNotMatch(JSON.stringify(draft),/sec_secret|revision|configured|credentialSource/);
  assert.equal(source.key,'openai-primary');
+});
+
+test('duplicate drafts remain valid at canonical ID and display-name boundaries',()=>{
+ const sourceKey='a'.repeat(DEFINITION_ID_MAX_LENGTH),sourceName='N'.repeat(120);
+ const source={key:sourceKey,name:sourceName,adapter:'openai-responses',defaultModel:'gpt-5',enabled:true,configured:true,credentialSource:'adt-vault',credentialSecretRef:'sec_secret',repositoryRevision:'revision',management:'git',capabilities:{asynchronous:true,cancellation:true}};
+ const first=duplicateConnectionDraft(source,new Set([sourceKey]));
+ const second=duplicateConnectionDraft(source,new Set([sourceKey,first.key]));
+ assert.equal(first.key.length,DEFINITION_ID_MAX_LENGTH);
+ assert.equal(second.key.length,DEFINITION_ID_MAX_LENGTH);
+ assert.notEqual(first.key,sourceKey);
+ assert.notEqual(second.key,first.key);
+ assert.match(second.key,/-copy-2$/);
+ assert.equal(first.name.length,120);
+ assert.equal(connectionDefinitionSchema.safeParse({schemaVersion:1,id:second.key,name:second.name,runtime:second.runtime,provider:'openai',model:second.model,credential:{source:'adt-vault',secretRef:`sec_${'a'.repeat(43)}`}}).success,true);
+ assert.doesNotMatch(JSON.stringify(second),/sec_secret|revision|configured|credentialSource/);
+ assert.equal(source.key,sourceKey);
+ assert.equal(source.name,sourceName);
 });
 
 test('legacy Codex Cloud environment management page and navigation are retired',async()=>{

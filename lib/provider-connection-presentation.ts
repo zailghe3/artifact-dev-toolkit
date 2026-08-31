@@ -1,4 +1,6 @@
 import type { ConnectionDescriptor } from './workflow-connections';
+import { DEFINITION_ID_MAX_LENGTH, definitionIdFromName } from './definition-id.ts';
+import { CONNECTION_NAME_MAX_LENGTH } from './workflow-connection-definitions.ts';
 
 const failureMessages: Record<string, string> = {
   connection_unavailable: 'Connection is not configured.',
@@ -32,12 +34,14 @@ export function providerConnectionTestFeedback(value: unknown, responseOk = true
 }
 
 export function duplicateConnectionDraft(source: ConnectionDescriptor, existingKeys: Set<string>) {
-  const base = `${source.key}-copy`;
-  let key = base;
-  for (let suffix = 2; existingKeys.has(key); suffix += 1) key = `${base}-${suffix}`;
+  const sourceKey = definitionIdFromName(source.key);
+  const candidate = (suffix: string) => `${sourceKey.slice(0, DEFINITION_ID_MAX_LENGTH - suffix.length).replace(/-+$/g, '')}${suffix}`;
+  let key = candidate('-copy');
+  for (let copy = 2; existingKeys.has(key) || key === source.key; copy += 1) key = candidate(`-copy-${copy}`);
+  const nameSuffix = ' copy';
   return {
     key,
-    name: `${source.name} copy`,
+    name: `${source.name.slice(0, CONNECTION_NAME_MAX_LENGTH - nameSuffix.length).trimEnd()}${nameSuffix}`,
     model: source.defaultModel ?? '',
     runtime: source.adapter as 'openai-responses' | 'openai-agents',
   };
