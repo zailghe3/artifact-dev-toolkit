@@ -18,10 +18,7 @@ const agentV2Schema=z.object({schemaVersion:z.literal(2),...agentBase,prompt:z.d
   z.object({source:z.literal("custom"),text:z.string().min(1).max(AGENT_MASTER_PROMPT_MAX_LENGTH)}).strict(),
   z.object({source:z.literal("artifact"),artifactId:id}).strict(),
 ])}).strict();
-const withCompatibilityPrompt=(value:z.infer<typeof agentV2Schema>)=>({...value,masterPrompt:value.prompt.source==="custom"?value.prompt.text:""});
-export const agentDefinitionSchema = agentV2Schema.transform(withCompatibilityPrompt).pipe(z.object({
-  schemaVersion:z.literal(2),...agentBase,prompt:agentV2Schema.shape.prompt,masterPrompt:z.string()
-})).superRefine((value, context) => {
+export const persistedAgentDefinitionSchema=agentV2Schema.superRefine((value, context) => {
   const visit = (item: unknown, path: PropertyKey[] = []) => {
     if (!item || typeof item !== "object") return;
     for (const [key, child] of Object.entries(item as Record<string, unknown>)) {
@@ -31,6 +28,9 @@ export const agentDefinitionSchema = agentV2Schema.transform(withCompatibilityPr
   };
   visit(value.adapterOptions, ["adapterOptions"]);
 });
+export type PersistedAgentDefinition=z.infer<typeof persistedAgentDefinitionSchema>;
+export const hydrateAgentDefinition=(value:PersistedAgentDefinition)=>({...value,masterPrompt:value.prompt.source==="custom"?value.prompt.text:""});
+export const agentDefinitionSchema=persistedAgentDefinitionSchema.transform(hydrateAgentDefinition);
 
 export const historicalWorkflowStepSchema = z.object({
   id, name: z.string().trim().min(1).max(120), agentId: id,
@@ -106,13 +106,16 @@ export type WorkflowV2ExecutionPlan=z.infer<typeof workflowV2ExecutionPlanSchema
 export function validateAgentAdapterOptions(agent:AgentDefinitionV1,adapter:string){return {...agent,adapterOptions:validateAdapterOptions(adapter,agent.adapterOptions)};}
 export function validateAgentForConnection(agent:AgentDefinitionV1,connection:{adapter:string;defaultModel?:string}){const definition=validateAgentAdapterOptions(agent,connection.adapter);if(definition.tools?.length&&connection.adapter!=="openai-agents")throw new Error("agent_tool_runtime_unsupported");if(connection.adapter==="openai-responses"||connection.adapter==="openai-agents")validateOpenAIModelAgentOptions(connection.defaultModel,definition.adapterOptions as import("./workflow-adapter.ts").OpenAIResponsesOptions);return definition;}
 
+/** Validates and returns the only representation permitted in current Agent Git files. */
+export function persistedAgentDefinition(agent:AgentDefinitionV1):PersistedAgentDefinition {const persisted:Record<string,unknown>={...agent};delete persisted.masterPrompt;return persistedAgentDefinitionSchema.parse(persisted);}
+
 export const agentDefinitionPath = (idValue: string, root = "agents") => `${root.replace(/^\/+|\/+$/g, "")}/${id.parse(idValue)}.agent.json`;
 export const workflowDefinitionPath = (idValue: string, root = "workflows") => `${root.replace(/^\/+|\/+$/g, "")}/${id.parse(idValue)}.workflow.json`;
 
 /** Canonical UTF-8 representation used in Git and immutable run snapshots. */
 export function canonicalJson(value: unknown) {
   const sort = (item: unknown): unknown => Array.isArray(item) ? item.map(sort) : item && typeof item === "object"
-    ? Object.fromEntries(Object.entries(item as Record<string, unknown>).filter(([key, child]) => child !== undefined && !(key==="masterPrompt"&&(item as Record<string,unknown>).schemaVersion===2)).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => [key, sort(child)])) : item;
+    ? Object.fromEntries(Object.entries(item as Record<string, unknown>).filter(([, child]) => child !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => [key, sort(child)])) : item;
   return `${JSON.stringify(sort(value), null, 2)}\n`;
 }
 
