@@ -6,20 +6,13 @@ import { installTsxHook } from './render-tsx.mjs';
 import { canTestProviderConnection, providerConnectionOutputLimit, providerConnectionTestFeedback } from '../lib/provider-connection-presentation.ts';
 
 const requireTsx = installTsxHook();
-const { ProviderConnectionForm } = requireTsx('../components/ProviderConnectionForm.tsx');
 const { CodexRunnerConnection } = requireTsx('../components/CodexRunnerConnection.tsx');
-const { ADTRuntimeDiagnosticButton, adtRuntimeDiagnosticMessage } = requireTsx('../components/ADTRuntimeDiagnosticButton.tsx');
+const { OperationFeedback, isCurrentProviderTestSequence, providerTestFeedbackAfterCredentialOperation } = requireTsx('../components/ProviderConnectionEditor.tsx');
 
 test('OpenAI connection testing is enabled only for configured idle connections', () => {
   assert.equal(canTestProviderConnection({ busy: false, configured: true }), true);
   assert.equal(canTestProviderConnection({ busy: true, configured: true }), false);
   assert.equal(canTestProviderConnection({ busy: false, configured: false }), false);
-
-  const ready = renderToStaticMarkup(React.createElement(ProviderConnectionForm, { model: 'gpt-test', ready: true, storageAvailable: true }));
-  const unavailable = renderToStaticMarkup(React.createElement(ProviderConnectionForm, { model: 'gpt-test', ready: false, storageAvailable: true }));
-  assert.match(ready, />Test connection<\/button>/);
-  assert.doesNotMatch(ready, /<button[^>]*disabled=""[^>]*>Test connection<\/button>/);
-  assert.match(unavailable, /<button[^>]*disabled=""[^>]*>Test connection<\/button>/);
 });
 
 test('OpenAI connection test feedback is bounded, fail-safe, and ignores provider-supplied secret fields', () => {
@@ -32,6 +25,29 @@ test('OpenAI connection test feedback is bounded, fail-safe, and ignores provide
   assert.equal(providerConnectionTestFeedback({ ok: false, category: 'authentication_failed', message: 'upstream secret' }), 'Authentication failed.');
   assert.equal(providerConnectionTestFeedback({ ok: true, output: 'should not be trusted' }, false), 'Connection test could not be completed.');
   assert.equal(providerConnectionTestFeedback({ ok: false, category: 'unknown', stack: 'secret stack' }), 'Connection test could not be completed.');
+});
+
+test('connection editor operation feedback has distinct accessible presentation', () => {
+  const credential = renderToStaticMarkup(React.createElement(OperationFeedback, { label: 'Credential operation result', message: 'Credential configured.' }));
+  const provider = renderToStaticMarkup(React.createElement(OperationFeedback, { label: 'Provider connection test result', message: 'Connection successful.' }));
+  const runtime = renderToStaticMarkup(React.createElement(OperationFeedback, { label: 'ADT Runtime diagnostic result', message: 'ADT Runtime: reachable yes.' }));
+  assert.match(credential, /aria-label="Credential operation result"[^>]*>Credential configured\./);
+  assert.match(provider, /aria-label="Provider connection test result"[^>]*>Connection successful\./);
+  assert.match(runtime, /aria-label="ADT Runtime diagnostic result"[^>]*>ADT Runtime: reachable yes\./);
+  assert.doesNotMatch(credential, /Provider connection test result|ADT Runtime diagnostic result/);
+  assert.equal(providerTestFeedbackAfterCredentialOperation('Connection successful.', true), '');
+  assert.equal(providerTestFeedbackAfterCredentialOperation('Connection successful.', false), 'Connection successful.');
+});
+
+test('provider test sequencing ignores completions invalidated by a credential change', () => {
+  let currentSequence = 0;
+  const originalTest = ++currentSequence;
+  assert.equal(isCurrentProviderTestSequence(currentSequence, originalTest), true);
+  currentSequence += 1;
+  assert.equal(isCurrentProviderTestSequence(currentSequence, originalTest), false);
+  const currentTest = ++currentSequence;
+  assert.equal(isCurrentProviderTestSequence(currentSequence, currentTest), true);
+  assert.equal(isCurrentProviderTestSequence(currentSequence, originalTest), false);
 });
 
 test('Codex Runner connection presents the advertised job-execution capability', () => {

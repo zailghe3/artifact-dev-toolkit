@@ -19,7 +19,7 @@ test('Workflow submenu maps exact and nested routes to one active section', () =
   assert.equal(activeSection('/workflows/definitions/example/edit'), 'Workflows');
   assert.equal(activeSection('/workflows/agents/example'), 'Agents');
   assert.equal(activeSection('/workflows/connections/openai-primary'), 'Connections');
-  assert.equal(activeSection('/workflows/codex-environments/example'), 'Codex environments');
+  assert.equal(activeSection('/workflows/codex-environments/example'), undefined);
   assert.equal(workflowSectionState('/workflows/runs/123').filter((item) => item.active).length, 1);
 });
 
