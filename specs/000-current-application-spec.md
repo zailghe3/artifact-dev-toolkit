@@ -102,10 +102,11 @@
 - Authorised users can inspect a protected diagnostics view.
 - Diagnostics groups overall health, authentication and access, Artifact Library, application control-plane, ADT Runtime, and Codex Runner observations into distinct operational domains.
 - Runtime and Runner readiness diagnostics remain bounded, exclude secrets and private Runner information, and do not invoke a provider or start model-directed execution.
+- An authorised user may explicitly run a non-mutating Runtime execution-path diagnostic that reports checkpoint, graph-node, and optional Artifact Search callback reachability, narrow-authority acceptance, and required control-plane backend availability. Passive page loading never starts this diagnostic, and its ephemeral result does not change overall health.
 - Overall health includes required ADT Runtime configuration and current Workflow graph capability, while an intentionally unconfigured optional Codex Runner does not make the application unhealthy.
 - Codex Runner overview health includes compatible connection and CLI versions plus bounded execution-boundary, enabled-environment, sandbox, current-operation, and authentication-environment observations.
 - Detailed Codex Runner operational controls and explicit functional testing remain separate from the unified diagnostics overview.
-- Diagnostics is observational unless the user explicitly invokes a supported recovery action such as catalogue refresh.
+- Diagnostics is observational unless the user explicitly invokes a supported active action such as catalogue refresh or the non-mutating Runtime execution-path test.
 - Operational states distinguish healthy, degraded, unavailable, unauthorised, misconfigured, and invalid-content conditions where relevant.
 - Degraded states should preserve safe usable functionality where possible.
 - Blocking states should provide concise recovery guidance.

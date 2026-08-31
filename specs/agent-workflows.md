@@ -153,6 +153,8 @@
 - Durable graph state remains in the application control plane behind exact run-scoped checkpoint authority. Provider execution callbacks additionally require authority for the exact admitted node, graph activation, iteration, and attempt. Runtime replacement requires no local persistent volume.
 - Runtime readiness, protocol compatibility, capability availability, and provider execution failure are distinct conditions.
 - Authorised users can diagnose Runtime configuration, reachability, request authentication, protocol compatibility, capability availability, and wrapping-key compatibility without invoking a provider.
+- Authorised users can explicitly diagnose the bidirectional Runtime callback path through the configured checkpoint, graph-node, and optional Artifact Search gateways. Diagnostic authorities are short-lived, purpose- and target-scoped, cannot authorize execution operations, and permit only bounded read-only prerequisite checks.
+- Runtime execution-path diagnostics never create or alter Workflow/checkpoint state, resolve provider credentials, invoke an Agent or provider, search Artifact contents, or access GitHub.
 - Runtime commissioning is separate from the provider credential and model Connection Test.
 - Application and Runtime rollout may occur independently; compatibility is determined by the explicit protocol and capability contract rather than matching revisions.
 - An `openai-agents` failure after provider execution begins is not replayed automatically because no durable provider task identity is available for reconciliation.
