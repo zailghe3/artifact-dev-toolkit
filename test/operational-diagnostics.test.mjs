@@ -40,9 +40,16 @@ test("every visible negative auth check contributes to bounded needs attention w
   assert.doesNotMatch(JSON.stringify(contributors), /GITHUB_APP_PRIVATE_KEY|SESSION_SECRET|provider-secret|ciphertext/i);
 });
 
-test("Artifact Library includes repository, revision, cache binding, cache, and validation health", () => {
-  const value = repository(); value.configuration.cacheBinding = "missing";
-  const library = domain(value, runtime(), runner(), "artifact-library");
+test("Artifact Library uses one repository presentation for domain and visible card health", () => {
+  const missingIdentity = repository(); delete missingIdentity.configuration.owner;
+  let library = domain(missingIdentity, runtime(), runner(), "artifact-library");
+  assert.equal(library.state, "failed");
+  assert.equal(library.checks.find(check => check.id === "artifact-repository").status.tone, "negative");
+  const fileBackend = repository(); fileBackend.configuration = { ...fileBackend.configuration, backend: "file" }; delete fileBackend.configuration.owner; delete fileBackend.configuration.repository;
+  library = domain(fileBackend, runtime(), runner(), "artifact-library");
+  assert.equal(library.checks.find(check => check.id === "artifact-repository").status.tone, "positive");
+  const missingCache = repository(); missingCache.configuration.cacheBinding = "missing";
+  library = domain(missingCache, runtime(), runner(), "artifact-library");
   assert.equal(library.state, "failed"); assert.ok(library.checks.some(check => check.id === "cache-binding"));
 });
 
