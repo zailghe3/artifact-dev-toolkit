@@ -23,7 +23,7 @@ export default async function DiagnosticsPage() {
   const [repositoryResult, runtimeResult, runnerResult] = await Promise.allSettled([generateRepositoryDiagnostics(session), diagnoseADTRuntime(), collectSafeRunnerDiagnostics()]);
   const repository = repositoryResult.status === "fulfilled" ? repositoryResult.value : null;
   const runtime = runtimeResult.status === "fulfilled" ? runtimeResult.value : { configured: true, reachable: false, authenticationAccepted: null, protocolCompatible: false, capabilityAvailable: false, graphCapabilityAvailable: false, wrappingKeyMatches: false, elapsedMs: 0 };
-  const runner = runnerResult.status === "fulfilled" ? runnerResult.value : { connection: { state: "unavailable" as const, label: "Runner unavailable" }, control: { state: "unavailable" as const }, environments: { state: "unavailable" as const }, jobs: { state: "unavailable" as const }, authEnvironment: { state: "unavailable" as const } };
+  const runner = runnerResult.status === "fulfilled" ? runnerResult.value : { connection: { state: "unavailable" as const, label: "Runner unavailable" }, capabilities: { state: "unavailable" as const }, authentication: { state: "unavailable" as const }, control: { state: "unavailable" as const }, environments: { state: "unavailable" as const }, jobs: { state: "unavailable" as const }, authEnvironment: { state: "unavailable" as const } };
   const domains = deriveOperationalDomains(repository, runtime, runner, Boolean(deploymentMetadata));
   const byKey = Object.fromEntries(domains.map(domain => [domain.key, domain])) as Record<DiagnosticDomain["key"], DiagnosticDomain>;
   const overall = operationalOverall(domains), contributors = operationalContributors(domains);

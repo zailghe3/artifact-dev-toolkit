@@ -2,13 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { installTsxHook } from "./render-tsx.mjs";
 const require = installTsxHook();
-const { authenticationDiagnosticChecks, deriveOperationalDomains, operationalContributors, operationalOverall, runnerDiagnosticChecks, runtimeDiagnosticChecks } = require("../lib/operational-diagnostics.ts");
+const { authenticationDiagnosticChecks, authEnvironmentStatusPresentation, deriveOperationalDomains, operationalContributors, operationalOverall, runnerDiagnosticChecks, runtimeDiagnosticChecks } = require("../lib/operational-diagnostics.ts");
 const { collectSafeRunnerDiagnostics } = require("../lib/codex-runner-diagnostics.ts");
 
 const runtime = (changes = {}) => ({ configured: true, reachable: true, authenticationAccepted: true, protocolCompatible: true, capabilityAvailable: true, graphCapabilityAvailable: true, wrappingKeyMatches: true, runtimeRevision: "runtime-revision", elapsedMs: 12, ...changes });
 const connection = (changes = {}) => ({ state: "connected", label: "Connected to ChatGPT", capabilities: { protocolVersion: 1, runnerVersion: "a".repeat(40), codexAvailable: true, deviceAuth: true, jobExecution: true, releaseMetadata: "current", runnerRevision: 1, codexVersion: "1.2.3" }, compatibility: { protocol: "compatible", runnerRevision: "current", codexVersion: "current" }, auth: { connected: true }, ...changes });
-const authEnvironment = { runnerReachable: true, codexAppServerReady: true, codexVersionMatchesExpected: true, systemCaBundlePresent: true, systemCaBundleReadable: true, systemCaBundleNonEmpty: true, codexHomeReadable: true, codexHomeWritable: true, dnsResolution: "ok" };
-const runner = (changes = {}) => ({ connection: connection(), control: { state: "available", value: { emergencyStopped: false, updatedAt: "2026-01-01T00:00:00Z", hardRestart: { attempted: false, succeeded: false }, role: "integrated", executor: null } }, environments: { state: "available", value: [] }, jobs: { state: "available", value: { capacity: { maxActive: 1, activeJobId: null }, jobs: [] } }, authEnvironment: { state: "available", value: authEnvironment }, ...changes });
+const authEnvironment = { runnerReachable: true, codexAppServerReady: true, codexVersion: "1.2.3", codexVersionMatchesExpected: true, codexNativeLibc: "glibc", codexAddressPolicyApplies: true, customCaSource: "none", systemCaBundlePresent: true, systemCaBundleReadable: true, systemCaBundleNonEmpty: true, httpProxyConfigured: false, httpsProxyConfigured: false, allProxyConfigured: false, noProxyConfigured: false, dnsResolution: "ok", ipv4Available: true, ipv6Available: false, systemResolverFirstFamily: "ipv4", runnerAddressPolicy: "system_default", runnerAddressPolicyEffective: true, kernelIpv6Disabled: false, ipv4TcpConnectivity: "ok", ipv6TcpConnectivity: "unavailable", ipv4TlsConnectivity: "ok", ipv6TlsConnectivity: "unavailable", deviceAuthRoute: { responseReceived: true, status: 405 }, codexHomeReadable: true, codexHomeWritable: true, summary: [] };
+const readyEnvironment = { environment: { key: "dev", name: "Dev", enabled: true, ready: true, sandbox: "workspace-write" }, workspace: { state: "available", value: { environmentKey: "dev", filesystemReady: true, gitAvailable: true, gitRepository: true, headCommit: "a".repeat(40), dirty: false } }, sandbox: { state: "available", value: { environmentKey: "dev", status: "available", backend: "container", reason: "ok" } } };
+const runner = (changes = {}) => ({ connection: connection(), capabilities: { state: "available", value: connection().capabilities }, authentication: { state: "available", value: { connected: true } }, control: { state: "available", value: { emergencyStopped: false, updatedAt: "2026-01-01T00:00:00Z", hardRestart: { attempted: false, succeeded: false }, role: "integrated", executor: null } }, environments: { state: "available", value: [readyEnvironment] }, jobs: { state: "available", value: { capacity: { maxActive: 1, activeJobId: null }, jobs: [] } }, authEnvironment: { state: "available", value: authEnvironment }, ...changes });
 const configuredSecrets = { GITHUB_APP_ID: "configured", GITHUB_APP_CLIENT_ID: "configured", GITHUB_APP_CLIENT_SECRET: "configured", GITHUB_APP_PRIVATE_KEY: "configured", GITHUB_TOKEN_ENCRYPTION_KEY: "configured", SESSION_SECRET: "configured" };
 const repository = (changes = {}) => ({ identity: { login: "operator", githubId: 42 }, configuration: { backend: "github", owner: "acme", repository: "artifacts", branch: "main", artifactRoot: "artifacts", cacheBinding: "configured", authSecrets: { ...configuredSecrets } }, authorization: { repositoryMatches: true, liveState: "authorized" }, installation: { state: "detected" }, permissions: { contentsRead: { effective: true, reason: "granted" }, contentsWrite: { effective: true, reason: "granted" } }, repositoryRevision: { state: "available", value: "abc" }, cache: { state: "fresh" }, validation: { state: "valid" }, ...changes });
 
@@ -66,7 +67,7 @@ test("Runner operational observations and CLI compatibility prevent false Health
   for (const value of cases) assert.notEqual(domain(repository(), runtime(), value, "codex-runner").state, "healthy");
   const jobs = runnerDiagnosticChecks(cases[4]).find(check => check.id === "runner-operations"); assert.equal(jobs.status.label, "Unknown");
   assert.equal(runnerDiagnosticChecks(cases[5]).find(check => check.id === "runner-codex-cli").status.label, "Version mismatch");
-  const missing = runner({ connection: { state: "configuration-missing", label: "missing" } });
+  const missing = runner({ connection: { state: "configuration-missing", label: "missing" }, capabilities: { state: "unavailable" }, authentication: { state: "unavailable" } });
   assert.equal(domain(repository(), runtime(), missing, "codex-runner").state, "not-configured");
   assert.equal(operationalOverall(deriveOperationalDomains(repository(), runtime(), missing, true)).state, "healthy");
 });
@@ -81,4 +82,71 @@ test("safe Runner collector isolates read-only observations and never invokes fu
 test("presentation models never serialize private Runner or secret inputs", () => {
   const value = runner(); value.privatePath = "/private/workspace"; value.token = "provider-secret";
   assert.doesNotMatch(JSON.stringify(runnerDiagnosticChecks(value)), /private\/workspace|provider-secret|token|remote|filename|authority/);
+});
+
+test("Runner capability evidence preserves reachability when CLI or authentication is unavailable", () => {
+  const noCodexCapabilities = { ...connection().capabilities, codexAvailable: false };
+  const noCodex = runner({ connection: { ...connection(), state: "unavailable", label: "Runner unavailable", capabilities: noCodexCapabilities }, capabilities: { state: "available", value: noCodexCapabilities } });
+  let checks = runnerDiagnosticChecks(noCodex);
+  assert.equal(checks.find(check => check.id === "runner-reachability").status.label, "Available");
+  assert.equal(checks.find(check => check.id === "runner-codex-cli").status.label, "Unavailable");
+  assert.notEqual(domain(repository(), runtime(), noCodex, "codex-runner").state, "healthy");
+
+  const authUnknown = runner({ connection: { ...connection(), state: "unavailable", label: "Auth unavailable" }, authentication: { state: "unavailable" } });
+  checks = runnerDiagnosticChecks(authUnknown);
+  assert.equal(checks.find(check => check.id === "runner-reachability").status.label, "Available");
+  assert.equal(checks.find(check => check.id === "runner-protocol").status.label, "Compatible");
+  assert.equal(checks.find(check => check.id === "runner-authentication").status.label, "Unknown");
+  assert.ok(checks.some(check => check.id === "runner-operations"));
+
+  const noDeviceCapabilities = { ...connection().capabilities, deviceAuth: false };
+  const noDevice = runner({ connection: { ...connection(), state: "update-required", label: "Update", capabilities: noDeviceCapabilities }, capabilities: { state: "available", value: noDeviceCapabilities } });
+  checks = runnerDiagnosticChecks(noDevice);
+  assert.equal(checks.find(check => check.id === "runner-protocol").status.label, "Compatible");
+  assert.equal(checks.find(check => check.id === "runner-device-auth").status.label, "Unavailable");
+
+  const unreachable = runner({ connection: { state: "unavailable", label: "Unavailable" }, capabilities: { state: "unavailable" }, authentication: { state: "unavailable" } });
+  assert.equal(runnerDiagnosticChecks(unreachable).find(check => check.id === "runner-reachability").status.label, "Unavailable");
+});
+
+test("Runner Healthy readiness requires at least one enabled ready environment", () => {
+  for (const environments of [[], [{ ...readyEnvironment, environment: { ...readyEnvironment.environment, enabled: false } }], [{ ...readyEnvironment, environment: { ...readyEnvironment.environment, ready: false } }]]) {
+    const value = runner({ environments: { state: "available", value: environments } });
+    assert.equal(domain(repository(), runtime(), value, "codex-runner").state, "failed");
+  }
+  const healthy = runner();
+  assert.equal(runnerDiagnosticChecks(healthy).find(check => check.id === "runner-environments").status.label, "Ready");
+  assert.equal(domain(repository(), runtime(), healthy, "codex-runner").state, "healthy");
+});
+
+test("auth-environment health requires a viable bounded TLS route and readable configured CA", () => {
+  assert.equal(authEnvironmentStatusPresentation(authEnvironment).tone, "positive");
+  assert.equal(authEnvironmentStatusPresentation({ ...authEnvironment, ipv6Available: true, ipv4TlsConnectivity: "failed", ipv6TlsConnectivity: "failed", deviceAuthRoute: { responseReceived: false } }).tone, "negative");
+  assert.equal(authEnvironmentStatusPresentation({ ...authEnvironment, dnsResolution: "ok", ipv4TlsConnectivity: "failed", ipv6TlsConnectivity: "unavailable", deviceAuthRoute: { responseReceived: false } }).tone, "negative");
+  assert.equal(authEnvironmentStatusPresentation({ ...authEnvironment, customCaSource: "ssl_cert_file", customCaFileReadable: false }).tone, "negative");
+  assert.equal(authEnvironmentStatusPresentation({ ...authEnvironment, dnsResolution: "failed", ipv4TlsConnectivity: "failed", deviceAuthRoute: { responseReceived: true, status: 405 }, httpsProxyConfigured: true }).tone, "positive");
+});
+
+test("historical restart failure follows current execution-boundary health", () => {
+  const failedRestart = { attempted: true, succeeded: false, reason: "request_failed" };
+  const active = runner({ control: { state: "available", value: { emergencyStopped: true, updatedAt: "2026-01-01T00:00:00Z", hardRestart: failedRestart, role: "controller", executor: { healthy: true, generation: "new", activeExecutionId: null, activity: null, boundary: "container" } } } });
+  assert.equal(runnerDiagnosticChecks(active).find(check => check.id === "runner-hard-restart").status.tone, "negative");
+  const recovered = runner({ control: { state: "available", value: { emergencyStopped: false, updatedAt: "2026-01-01T00:00:00Z", hardRestart: failedRestart, role: "controller", executor: { healthy: true, generation: "new", activeExecutionId: null, activity: null, boundary: "container" } } } });
+  assert.equal(runnerDiagnosticChecks(recovered).find(check => check.id === "runner-hard-restart").status.tone, "warning");
+  assert.notEqual(domain(repository(), runtime(), recovered, "codex-runner").state, "failed");
+  const unhealthy = runner({ control: { state: "available", value: { emergencyStopped: false, updatedAt: "2026-01-01T00:00:00Z", hardRestart: { attempted: true, succeeded: true }, role: "controller", executor: { healthy: false, generation: "new", activeExecutionId: null, activity: null, boundary: "container" } } } });
+  assert.equal(domain(repository(), runtime(), unhealthy, "codex-runner").state, "failed");
+});
+
+test("safe Runner collector retains capability and other observations when auth status fails", async () => {
+  const calls = [], client = { capabilities: async () => connection().capabilities, authStatus: async () => { throw Error("private auth body"); }, controlStatus: async () => { calls.push("control"); return runner().control.value; }, environments: async () => { calls.push("environments"); return []; }, jobs: async () => { calls.push("jobs"); return { capacity: { maxActive: 1, activeJobId: null }, jobs: [] }; }, authEnvironmentDiagnostics: async () => { calls.push("auth-environment"); return authEnvironment; }, workspaceDiagnostics: async () => { throw Error("unused"); }, sandboxDiagnostics: async () => { throw Error("unused"); } };
+  const logs = [], result = await collectSafeRunnerDiagnostics({ clientFactory: () => client, logger: value => logs.push(value) });
+  assert.equal(result.capabilities.state, "available");
+  assert.equal(result.authentication.state, "unavailable");
+  assert.equal(result.control.state, "available");
+  assert.equal(result.environments.state, "available");
+  assert.equal(result.jobs.state, "available");
+  assert.equal(result.authEnvironment.state, "available");
+  assert.doesNotMatch(JSON.stringify({ result, logs }), /private auth body/);
+  assert.deepEqual(calls.sort(), ["auth-environment", "control", "environments", "jobs"].sort());
 });
