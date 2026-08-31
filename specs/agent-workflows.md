@@ -221,6 +221,7 @@
 - Workflow state is visible without exposing provider secrets or private execution content beyond authorised run output.
 - Logs and diagnostics use bounded safe categories and identifiers.
 - The protected application diagnostics overview may summarize distinct ADT Runtime and Codex Runner readiness conditions without invoking provider or Codex execution; detailed Runner mutation controls remain on its operational status interface.
+- Current Workflow execution readiness requires an authenticated, protocol-compatible ADT Runtime that advertises both provider execution and generic graph capabilities.
 - Runner status may derive bounded activity category, count, timestamp, and duration signals from provider lifecycle events, but never exposes their payloads.
 - Raw provider error bodies, credentials, tokens, reasoning, private paths, and arbitrary upstream headers are excluded.
 - Provider-side failure must not be misrepresented as an application authorisation problem when the distinction is known.
