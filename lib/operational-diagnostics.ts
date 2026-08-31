@@ -1,6 +1,6 @@
 import type { ADTRuntimeDiagnostic } from "./adt-runtime-client.ts";
 import type { RunnerAuthEnvironmentDiagnostics } from "./codex-runner-client.ts";
-import type { SafeRunnerDiagnostics } from "./codex-runner-diagnostics.ts";
+import type { RunnerObservation, SafeRunnerDiagnostics } from "./codex-runner-diagnostics.ts";
 import { authorizationStatusPresentation, configurationStatusPresentation, installationStatusPresentation, permissionStatusPresentation, repositoryMatchPresentation, revisionStatusPresentation, cacheStatusPresentation, validationStatusPresentation, type DiagnosticStatusPresentation } from "./diagnostics-presentation.ts";
 import type { RepositoryDiagnostics } from "./repository-diagnostics.ts";
 
@@ -61,23 +61,37 @@ export function runtimeDiagnosticChecks(runtime: ADTRuntimeDiagnostic): Diagnost
 
 export function authEnvironmentStatusPresentation(auth: RunnerAuthEnvironmentDiagnostics): DiagnosticStatusPresentation {
   const tlsPathReady = auth.ipv4TlsConnectivity === "ok" || auth.ipv6TlsConnectivity === "ok";
-  const routeObserved = auth.deviceAuthRoute.responseReceived;
-  const networkReady = tlsPathReady || routeObserved;
+  const networkReady = tlsPathReady;
   const customCaReady = auth.customCaSource === "none" || auth.customCaFileReadable === true;
   const ready = auth.codexAppServerReady && auth.codexVersionMatchesExpected && auth.systemCaBundlePresent && auth.systemCaBundleReadable && auth.systemCaBundleNonEmpty && customCaReady && auth.codexHomeReadable && auth.codexHomeWritable && networkReady;
   return ready ? status("Ready", "positive") : status("Needs attention", "negative", "One or more bounded Codex authentication, CA, DNS, or TLS-path prerequisites are unavailable.");
+}
+
+function workspaceStatus(value: RunnerObservation<import("./codex-runner-client.ts").RunnerWorkspaceDiagnostics>): DiagnosticStatusPresentation {
+  if (value.state === "not-observed") return status("Not observed", "neutral");
+  if (value.state === "unavailable") return status("Unavailable", "negative");
+  return value.value.filesystemReady ? status("Ready", "positive") : status("Unavailable", "negative");
+}
+
+function sandboxStatus(value: RunnerObservation<import("./codex-runner-client.ts").RunnerSandboxDiagnostics | null>): DiagnosticStatusPresentation {
+  if (value.state === "not-observed") return status("Not observed", "neutral", "Passive diagnostics do not run the split execution-boundary probe.");
+  if (value.state === "unavailable") return status("Unknown", "warning");
+  if (value.value === null) return status("Unsupported", "warning");
+  if (value.value.status === "available") return status("Available", "positive");
+  return value.value.status === "unavailable" ? status("Unavailable", "negative", `Safe reason: ${value.value.reason}.`) : status("Unknown", "warning");
 }
 
 export function runnerDiagnosticChecks(runner: SafeRunnerDiagnostics): DiagnosticCheck[] {
   if (runner.connection.state === "configuration-missing") return [{ id: "runner-configuration", label: "Configuration", status: status("Not configured", "neutral", "Codex Runner is an optional execution provider until configured.") }];
   const checks: DiagnosticCheck[] = [{ id: "runner-configuration", label: "Configuration", status: status("Configured", "positive") }];
   if (runner.capabilities.state === "unavailable") {
-    checks.push({ id: "runner-reachability", label: "Reachability", status: status("Unavailable", "negative", "Runner capabilities could not be obtained safely.") });
-    checks.push({ id: "runner-protocol", label: "Protocol compatibility", status: status("Unknown", "warning") });
-    checks.push({ id: "runner-revision", label: "Runner revision", status: status("Unknown", "warning") });
-    checks.push({ id: "runner-codex-cli", label: "Codex CLI", status: status("Unknown", "warning") });
-    checks.push({ id: "runner-device-auth", label: "Device authentication", status: status("Unknown", "warning") });
-    checks.push({ id: "runner-job-execution", label: "Job execution", status: status("Unknown", "warning") });
+    const responded = ["update-required", "access-denied", "invalid-response"].includes(runner.capabilities.reason);
+    checks.push({ id: "runner-reachability", label: "Reachability", status: responded ? status("Available", "positive") : runner.capabilities.reason === "unreachable" ? status("Unavailable", "negative", "Runner capabilities could not be reached.") : status("Unknown", "warning") });
+    checks.push({ id: "runner-protocol", label: "Protocol compatibility", status: runner.capabilities.reason === "update-required" ? status("Update required", "negative") : status("Unknown", "warning") });
+    checks.push({ id: "runner-revision", label: "Runner revision", status: status("Not verified", "warning") });
+    checks.push({ id: "runner-codex-cli", label: "Codex CLI", status: status("Not verified", "warning") });
+    checks.push({ id: "runner-device-auth", label: "Device authentication", status: status("Not verified", "warning") });
+    checks.push({ id: "runner-job-execution", label: "Job execution", status: status("Not verified", "warning") });
   } else {
     const capabilities = runner.capabilities.value, compatibility = runner.connection.compatibility;
     checks.push({ id: "runner-reachability", label: "Reachability", status: status("Available", "positive") });
@@ -87,8 +101,8 @@ export function runnerDiagnosticChecks(runner: SafeRunnerDiagnostics): Diagnosti
     checks.push({ id: "runner-device-auth", label: "Device authentication", status: capabilities.deviceAuth ? status("Available", "positive") : status("Unavailable", "negative") });
     checks.push({ id: "runner-job-execution", label: "Job execution", status: capabilities.jobExecution ? status("Available", "positive") : status("Unavailable", "negative") });
   }
-  checks.push({ id: "runner-authentication", label: "Codex authentication", status: runner.authentication.state === "unavailable" ? status("Unknown", "warning") : runner.authentication.value.connected ? status("Connected", "positive") : status("Disconnected", "warning", "Connect the Runner to ChatGPT from the existing connection interface.") });
-  if (runner.control.state === "unavailable") checks.push({ id: "runner-control", label: "Execution boundary", status: status("Unknown", "warning") });
+  checks.push({ id: "runner-authentication", label: "Codex authentication", status: runner.authentication.state !== "available" ? status("Unknown", "warning") : runner.authentication.value.connected ? status("Connected", "positive") : status("Disconnected", "warning", "Connect the Runner to ChatGPT from the existing connection interface.") });
+  if (runner.control.state !== "available") checks.push({ id: "runner-control", label: "Execution boundary", status: status("Unknown", "warning") });
   else {
     const control = runner.control.value;
     checks.push({ id: "runner-emergency-stop", label: "Emergency-stop latch", status: control.emergencyStopped ? status("Active", "negative") : status("Clear", "positive") });
@@ -99,26 +113,26 @@ export function runnerDiagnosticChecks(runner: SafeRunnerDiagnostics): Diagnosti
       checks.push({ id: "runner-hard-restart", label: "Last hard restart", status: control.hardRestart.succeeded ? status("Succeeded", "positive") : historicalFailure ? status("Historical failure", "warning", "The current execution boundary has recovered since the retained restart result.") : status("Failed", "negative") });
     }
   }
-  if (runner.environments.state === "unavailable") checks.push({ id: "runner-environments", label: "Environment catalogue", status: status("Unknown", "warning") });
+  if (runner.environments.state !== "available") checks.push({ id: "runner-environments", label: "Environment catalogue", status: status("Unknown", "warning") });
   else {
     const enabled = runner.environments.value.filter(item => item.environment.enabled), ready = enabled.filter(item => item.environment.ready);
     checks.push({ id: "runner-environments", label: "Environment catalogue", status: ready.length ? status("Ready", "positive") : status(enabled.length ? "No ready environments" : "No enabled environments", "negative"), value: `${ready.length} ready · ${enabled.length} enabled` });
     for (const item of enabled) {
       const prefix = `runner-environment-${item.environment.key}`;
       checks.push({ id: prefix, label: item.environment.name, status: item.environment.ready ? status("Ready", "positive") : status("Unavailable", "negative"), value: item.environment.key });
-      checks.push({ id: `${prefix}-workspace`, label: `${item.environment.name} workspace`, status: item.workspace.state === "unavailable" ? status("Unavailable", "negative") : item.workspace.value.filesystemReady ? status("Ready", "positive") : status("Unavailable", "negative"), ...(item.workspace.state === "available" && item.workspace.value.headCommit ? { value: `${item.workspace.value.headCommit.slice(0, 12)} · ${item.workspace.value.dirty === true ? "Modified" : item.workspace.value.dirty === false ? "Clean" : "State unknown"}` } : {}) });
-      checks.push({ id: `${prefix}-sandbox`, label: `${item.environment.name} sandbox`, status: item.sandbox.state === "unavailable" ? status("Unknown", "warning") : item.sandbox.value === null ? status("Unsupported", "warning") : item.sandbox.value.status === "available" ? status("Available", "positive") : item.sandbox.value.status === "unavailable" ? status("Unavailable", "negative", `Safe reason: ${item.sandbox.value.reason}.`) : status("Unknown", "warning"), ...(item.sandbox.state === "available" && item.sandbox.value ? { value: item.sandbox.value.backend } : {}) });
+      checks.push({ id: `${prefix}-workspace`, label: `${item.environment.name} workspace`, status: workspaceStatus(item.workspace), ...(item.workspace.state === "available" && item.workspace.value.headCommit ? { value: `${item.workspace.value.headCommit.slice(0, 12)} · ${item.workspace.value.dirty === true ? "Modified" : item.workspace.value.dirty === false ? "Clean" : "State unknown"}` } : {}) });
+      checks.push({ id: `${prefix}-sandbox`, label: `${item.environment.name} sandbox`, status: sandboxStatus(item.sandbox), ...(item.sandbox.state === "available" && item.sandbox.value ? { value: item.sandbox.value.backend } : {}) });
     }
   }
-  if (runner.jobs.state === "unavailable") checks.push({ id: "runner-operations", label: "Current operations", status: status("Unknown", "warning", "The latest job observation failed; idle cannot be inferred.") });
+  if (runner.jobs.state !== "available") checks.push({ id: "runner-operations", label: "Current operations", status: status("Unknown", "warning", "The latest job observation failed; idle cannot be inferred.") });
   else {
     const activeId = runner.jobs.value.capacity.activeJobId, active = activeId ? runner.jobs.value.jobs.find(job => job.jobId === activeId) : undefined;
     checks.push({ id: "runner-operations", label: "Current operations", status: status(active ? "Active" : "Idle", "positive"), value: active ? `${active.state} · ${active.environmentKey}` : `${runner.jobs.value.jobs.length} recent job(s)` });
   }
-  if (runner.authEnvironment.state === "unavailable") checks.push({ id: "runner-auth-environment", label: "Auth environment", status: status("Unknown", "warning") });
+  if (runner.authEnvironment.state !== "available") checks.push({ id: "runner-auth-environment", label: "Auth environment", status: status("Unknown", "warning") });
   else {
     const auth = runner.authEnvironment.value;
-    checks.push({ id: "runner-auth-environment", label: "Auth environment", status: authEnvironmentStatusPresentation(auth), value: `App Server ${auth.codexAppServerReady ? "ready" : "unavailable"} · TLS ${auth.ipv4TlsConnectivity === "ok" || auth.ipv6TlsConnectivity === "ok" || auth.deviceAuthRoute.responseReceived ? "reachable" : "unavailable"} · CA ${auth.systemCaBundleReadable && auth.systemCaBundleNonEmpty && (auth.customCaSource === "none" || auth.customCaFileReadable) ? "ready" : "unavailable"}` });
+    checks.push({ id: "runner-auth-environment", label: "Auth environment", status: authEnvironmentStatusPresentation(auth), value: `App Server ${auth.codexAppServerReady ? "ready" : "unavailable"} · TLS ${auth.ipv4TlsConnectivity === "ok" || auth.ipv6TlsConnectivity === "ok" ? "verified" : "unavailable"} · Route ${auth.deviceAuthRoute.responseReceived ? "observed" : "unavailable"} · CA ${auth.systemCaBundleReadable && auth.systemCaBundleNonEmpty && (auth.customCaSource === "none" || auth.customCaFileReadable) ? "ready" : "unavailable"}` });
   }
   return checks;
 }
