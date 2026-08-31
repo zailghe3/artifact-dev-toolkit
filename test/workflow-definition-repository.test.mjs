@@ -1,13 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {GitHubWorkflowDefinitionRepository,InMemoryWorkflowDefinitionRepository} from '../lib/workflow-definition-repository.ts';
+import {agentDefinitionSchema,validateAgentForConnection} from '../lib/workflow-definitions.ts';
 
 const agents=[
  {schemaVersion:2,id:'openai-agent',name:'OpenAI agent',description:'',status:'draft',prompt:{source:'custom',text:'Respond carefully.'},connectionKey:'openai-primary',adapterOptions:{reasoningEffort:'medium',verbosity:'medium'}},
  {schemaVersion:2,id:'deterministic-agent',name:'Deterministic agent',description:'',status:'draft',prompt:{source:'custom',text:'Respond predictably.'},connectionKey:'deterministic-test'},
  {schemaVersion:2,id:'codex-agent',name:'Codex agent',description:'',status:'draft',prompt:{source:'custom',text:'Work in the environment.'},connectionKey:'codex-cloud-primary',adapterOptions:{environmentKey:'adt-development'}},
+ {schemaVersion:2,id:'framer',name:'framer',description:'',status:'draft',prompt:{source:'artifact',artifactId:'role-narrative-framer'},connectionKey:'openai-primary',adapterOptions:{}},
 ];
-const normalized=agent=>({schemaVersion:2,id:agent.id,name:agent.name,description:agent.description,status:agent.status,connectionKey:agent.connectionKey,...(agent.adapterOptions?{adapterOptions:agent.adapterOptions}:{}),prompt:agent.prompt,masterPrompt:agent.prompt.text});
+const normalized=agent=>({schemaVersion:2,id:agent.id,name:agent.name,description:agent.description,status:agent.status,connectionKey:agent.connectionKey,...(agent.adapterOptions?{adapterOptions:agent.adapterOptions}:{}),prompt:agent.prompt,masterPrompt:agent.prompt.source==='custom'?agent.prompt.text:''});
 
 function gitFixture(){
  const files=new Map(),mutations=[];
@@ -41,6 +43,16 @@ test('in-memory Agent definitions apply the same structural-only persistence rul
  const repository=new InMemoryWorkflowDefinitionRepository();
  for(const agent of agents)assert.deepEqual((await repository.createAgent(agent)).definition,normalized(agent));
  assert.deepEqual((await repository.listAgents()).map(item=>item.definition),agents.map(normalized));
+});
+
+test('validated custom and Artifact Agents create and update without re-validating hydrated fields',async()=>{
+ for(const make of [()=>new InMemoryWorkflowDefinitionRepository(),()=>gitFixture().repository])for(const raw of [agents[1],agents[3]]){
+  const repository=make(),validated=validateAgentForConnection(agentDefinitionSchema.parse(raw),{adapter:'openai-responses',defaultModel:'gpt-5-nano'}),created=await repository.createAgent(validated);
+  assert.deepEqual(created.definition.prompt,raw.prompt);assert.equal(created.definition.masterPrompt,raw.prompt.source==='custom'?raw.prompt.text:'');
+  await assert.rejects(repository.updateAgent({...validated,name:'stale'},'stale-sha'),/changed/);
+  const updated=await repository.updateAgent({...validated,name:`${raw.name} updated`},created.fileSha);
+  assert.equal(updated.definition.name,`${raw.name} updated`);assert.deepEqual(updated.definition.prompt,raw.prompt);
+ }
 });
 
 const workflow={schemaVersion:2,id:'review-flow',name:'Review flow',description:'',status:'draft',nodes:[{id:'step-1',blockType:'agent',blockVersion:1,config:{agentId:'openai-agent'}}],edges:[],limits:{maxStepExecutions:1}};
