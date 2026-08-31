@@ -2,7 +2,7 @@
 
 **Document status:** Baseline specification of implemented Agent Workflow behaviour  
 **Scope:** Current behaviour only; not a roadmap or implementation design  
-**Last updated:** 2026-08-30
+**Last updated:** 2026-08-31
 
 ## 1. Purpose
 
@@ -127,6 +127,9 @@
 - Connection configuration, credential availability, live provider/model readiness, and ADT Runtime diagnostics are distinct states.
 - Saving or executing an Agent fails closed when required live provider configuration is invalid or unavailable.
 - Credentials are never stored in Agent, Workflow, or run definitions and never appear in diagnostics or logs.
+- The Connections catalogue presents safe readiness summaries and navigation; credential management and explicit provider testing are connection-editor operations.
+- Duplicating a Git connection creates an unsaved draft from non-secret configuration. It never copies a credential, revision, or source identity, and persists only through normal validated creation.
+- Legacy Codex Cloud environment records remain historical compatibility data and have no user-facing management surface. Codex Runner environments remain operator-managed and discovered from the Runner.
 
 ## 10. OpenAI execution connections
 

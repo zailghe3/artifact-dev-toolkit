@@ -1,3 +1,5 @@
+import type { ConnectionDescriptor } from './workflow-connections';
+
 const failureMessages: Record<string, string> = {
   connection_unavailable: 'Connection is not configured.',
   authentication_failed: 'Authentication failed.',
@@ -27,4 +29,16 @@ export function providerConnectionTestFeedback(value: unknown, responseOk = true
     ? value.category
     : 'internal_error';
   return failureMessages[category] ?? failureMessages.internal_error;
+}
+
+export function duplicateConnectionDraft(source: ConnectionDescriptor, existingKeys: Set<string>) {
+  const base = `${source.key}-copy`;
+  let key = base;
+  for (let suffix = 2; existingKeys.has(key); suffix += 1) key = `${base}-${suffix}`;
+  return {
+    key,
+    name: `${source.name} copy`,
+    model: source.defaultModel ?? '',
+    runtime: source.adapter as 'openai-responses' | 'openai-agents',
+  };
 }

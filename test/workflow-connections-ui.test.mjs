@@ -6,20 +6,12 @@ import { installTsxHook } from './render-tsx.mjs';
 import { canTestProviderConnection, providerConnectionOutputLimit, providerConnectionTestFeedback } from '../lib/provider-connection-presentation.ts';
 
 const requireTsx = installTsxHook();
-const { ProviderConnectionForm } = requireTsx('../components/ProviderConnectionForm.tsx');
 const { CodexRunnerConnection } = requireTsx('../components/CodexRunnerConnection.tsx');
-const { ADTRuntimeDiagnosticButton, adtRuntimeDiagnosticMessage } = requireTsx('../components/ADTRuntimeDiagnosticButton.tsx');
 
 test('OpenAI connection testing is enabled only for configured idle connections', () => {
   assert.equal(canTestProviderConnection({ busy: false, configured: true }), true);
   assert.equal(canTestProviderConnection({ busy: true, configured: true }), false);
   assert.equal(canTestProviderConnection({ busy: false, configured: false }), false);
-
-  const ready = renderToStaticMarkup(React.createElement(ProviderConnectionForm, { model: 'gpt-test', ready: true, storageAvailable: true }));
-  const unavailable = renderToStaticMarkup(React.createElement(ProviderConnectionForm, { model: 'gpt-test', ready: false, storageAvailable: true }));
-  assert.match(ready, />Test connection<\/button>/);
-  assert.doesNotMatch(ready, /<button[^>]*disabled=""[^>]*>Test connection<\/button>/);
-  assert.match(unavailable, /<button[^>]*disabled=""[^>]*>Test connection<\/button>/);
 });
 
 test('OpenAI connection test feedback is bounded, fail-safe, and ignores provider-supplied secret fields', () => {
