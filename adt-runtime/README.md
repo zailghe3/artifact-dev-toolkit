@@ -63,4 +63,4 @@ Runtime logs are structured safe JSON events. Use their stage, result, HTTP stat
 
 ### Workflow orchestration failure evidence
 
-LangGraph safe-error responses may include optional, allowlisted orchestration-stage evidence for known checkpoint or graph-node gateway failures. The additive field does not change protocol v1 or successful results, and clients must ignore malformed or unknown evidence. It contains no callback body, authority, credential, URL, header, prompt, Artifact content, or raw exception text.
+LangGraph safe-error responses may include optional, allowlisted orchestration-stage evidence for known checkpoint or graph-node gateway failures. The additive field does not change protocol v1 or successful results, and clients must ignore malformed or unknown evidence. Known callback evidence distinguishes a received HTTP response from a bounded timeout or generic network failure. It contains no callback body, authority, credential, URL, header, prompt, Artifact content, or raw exception text.
