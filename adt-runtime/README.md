@@ -41,7 +41,7 @@ openssl pkey -in runtime-private.pem -pubout -out runtime-public.pem
 - Web Crypto implements RSA-OAEP, SHA-256, AES-GCM, and HMAC in both Cloudflare Workers and Node 24. The construction uses only those standard algorithms.
 - Execution POSTs are never retried by the Runtime client. Lost or malformed post-execution outcomes are reported as non-retryable ambiguity.
 - Runtime and application revisions need not match. Readiness advertises the independent image revision, protocol, capability, and wrapping-key identity; compatibility is explicit rather than an atomic-rollout assumption.
-- Production images bake the trusted source revision at build time. The Swarm stack does not override it, so a Shepherd `latest` rollout automatically advertises the new image revision.
+- Production images bake the trusted source revision into an image-owned file at build time. Runtime environment variables cannot override that identity. The Swarm stack does not set a revision, so a Shepherd `latest` rollout automatically advertises the new image revision. If readiness reports an older revision, check the deployed image digest/tag, updater rollout state, replica task images, and any upstream routing to another Runtime service.
 
 ## Commissioning and troubleshooting
 

@@ -2,7 +2,8 @@ import type { ConnectionDescriptor, ResolvedConnection } from "./workflow-connec
 import type {RunRepositoryContext} from "./workflow-storage.ts";
 import { z } from "zod";
 
-export type FailureCategory = "configuration_invalid" | "connection_unavailable" | "authentication_failed" | "permission_denied" | "provider_rejected" | "provider_start_ambiguous" | "provider_publish_ambiguous" | "rate_limited" | "provider_unavailable" | "provider_timeout" | "malformed_response" | "output_too_large" | "cancelled" | "internal_error";
+export const failureCategories = ["configuration_invalid", "connection_unavailable", "authentication_failed", "permission_denied", "provider_rejected", "provider_start_ambiguous", "provider_publish_ambiguous", "rate_limited", "provider_unavailable", "provider_timeout", "malformed_response", "output_too_large", "cancelled", "internal_error"] as const;
+export type FailureCategory = typeof failureCategories[number];
 export type AdapterInvocation = { runId: string; stepId: string; iteration: number; attempt: number; providerPollCount: number; idempotencyKey: string; agentName: string; masterPrompt: string; inputText: string; tools?: readonly "artifact_search"[]; repositoryContext?:RunRepositoryContext; connection: ResolvedConnection; providerOptions?: unknown };
 export type ProviderTransportReason="cross_request_io"|"invalid_request_context"|"network_connection_lost"|"aborted"|"fetch_type_error"|"unknown";
 export type ProviderRuntimeErrorName="TypeError"|"AbortError"|"Error";
