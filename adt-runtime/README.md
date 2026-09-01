@@ -31,7 +31,8 @@ openssl pkey -in runtime-private.pem -pubout -out runtime-public.pem
 
 ## Protocol and security
 
-- Readiness separately advertises `openai-agents`, `tool:artifact-search`, and `langgraph:graph` for versioned bounded graph plans; ADT rejects capability-specific execution before provider use when the required capability is absent.
+- Readiness separately advertises `openai-agents`, `tool:artifact-search`, `langgraph:graph`, and the optional `diagnostic:execution-path` capability; ADT rejects capability-specific execution before provider use when the required capability is absent.
+- The authenticated execution-path diagnostic calls the exact checkpoint, graph-node, and optional Artifact Search gateway URLs supplied by the control plane. Each callback uses a separate, short-lived, target-scoped diagnostic authority and performs bounded schema-presence reads only. It never creates Workflow state, resolves credentials, invokes an Agent or provider, loads Artifacts, or accesses GitHub.
 - The Worker-only `ADT_INTERNAL_AUTHORITY_SECRET` authenticates short-lived control-plane capabilities. Artifact-search authority remains scoped to the exact run attempt and repository snapshot; checkpoint authority remains run-scoped; graph-node authority remains bound to one run, node, graph activation, Workflow generation, iteration, and attempt. Token formats retain their separate purpose/audience and scope checks even though they share key material. Never provision this secret to Runtime or reuse `ADT_RUNTIME_AUTH_SECRET` for it.
 - Protocol `adt-runtime-v1` exposes authenticated readiness, OpenAI Agents execution, and bounded conditional, parallel, and controlled-cycle LangGraph advance operations.
 - One LangGraph advance reconstructs the immutable ADT plan, resumes the run thread through the remote saver, admits one bounded Agent frontier, checkpoints, and returns control to the outer Cloudflare Workflow.
@@ -52,9 +53,10 @@ Commission without trial-running an Agent:
 4. Confirm the protocol is compatible.
 5. Confirm the `openai-agents` capability is present.
 6. Confirm the configured public wrapping key matches the Runtime private key.
-7. Run the separate provider **Test connection** diagnostic for the credential and model.
-8. Only after both diagnostics pass, try a real `openai-agents` Workflow.
+7. On the unified Diagnostics page, explicitly select **Test execution path** to verify the Runtime can call the configured checkpoint and graph-node gateways and, when configured, the optional Artifact Search gateway.
+8. Run the separate provider **Test connection** diagnostic for the credential and model.
+9. Only after the applicable diagnostics pass, try a real `openai-agents` Workflow.
 
-Safe diagnostic states distinguish startup configuration failure, ingress/runtime unreachable, request-authentication mismatch, protocol mismatch, missing capability, and wrapping-key mismatch. Provider Connection Test separately identifies provider credential failures. Real execution can report provider timeout, rate limiting, rejection, or unavailability. A lost or malformed response after execution dispatch remains non-retryable ambiguity because provider work may have occurred.
+Passive readiness states distinguish startup configuration failure, ingress/runtime unreachable, request-authentication mismatch, protocol mismatch, missing capability, and wrapping-key mismatch. The operator-triggered execution-path diagnostic is non-mutating and reports callback reachability, diagnostic-authority acceptance, and required local backend availability per gateway. Provider Connection Test separately identifies provider credential failures. Real execution can report provider timeout, rate limiting, rejection, or unavailability. A lost or malformed response after execution dispatch remains non-retryable ambiguity because provider work may have occurred.
 
 Runtime logs are structured safe JSON events. Use their stage, result, HTTP status, correlation ID, duration, and `providerExecutionEntered` fields; never print or compare secret values while troubleshooting.
