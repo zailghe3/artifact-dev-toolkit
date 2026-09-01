@@ -12,3 +12,7 @@ export function workflowOrchestrationDiagnosticPresentation(stage:WorkflowOrches
 export function workflowOrchestrationDiagnosticTitle(status:RunStatus){return ["queued","running"].includes(status)?"Workflow orchestration is recovering":status==="failed"?"Workflow orchestration diagnostics":"Last orchestration observation"}
 export function workflowOrchestrationGatewayLabel(stage:WorkflowOrchestrationStage){return stage==="checkpoint_gateway"?"Checkpoint callback":stage==="graph_node_gateway"?"Graph-node callback":undefined}
 export function workflowOrchestrationTransportLabel(outcome:"response_received"|"timeout"|"network_error"){return outcome==="response_received"?"Response received":outcome==="timeout"?"Timed out":"Network error"}
+
+const orchestrationTransportReasons={cross_request_io:"Cross-request I/O",invalid_request_context:"Invalid request context",network_connection_lost:"Network connection lost",aborted:"Request aborted",fetch_type_error:"Fetch type error",unknown:"Unknown transport error"} as const;
+export function workflowOrchestrationTransportReasonLabel(reason:keyof typeof orchestrationTransportReasons){return orchestrationTransportReasons[reason]}
+export function workflowOrchestrationRuntimeErrorNameLabel(name:"Error"|"TypeError"|"AbortError"){return name}
