@@ -60,3 +60,7 @@ Commission without trial-running an Agent:
 Passive readiness states distinguish startup configuration failure, ingress/runtime unreachable, request-authentication mismatch, protocol mismatch, missing capability, and wrapping-key mismatch. The operator-triggered execution-path diagnostic is non-mutating and reports callback reachability, diagnostic-authority acceptance, and required local backend availability per gateway. Provider Connection Test separately identifies provider credential failures. Real execution can report provider timeout, rate limiting, rejection, or unavailability. A lost or malformed response after execution dispatch remains non-retryable ambiguity because provider work may have occurred.
 
 Runtime logs are structured safe JSON events. Use their stage, result, HTTP status, correlation ID, duration, and `providerExecutionEntered` fields; never print or compare secret values while troubleshooting.
+
+### Workflow orchestration failure evidence
+
+LangGraph safe-error responses may include optional, allowlisted orchestration-stage evidence for known checkpoint or graph-node gateway failures. The additive field does not change protocol v1 or successful results, and clients must ignore malformed or unknown evidence. Known callback evidence distinguishes a received HTTP response from a bounded timeout or generic network failure. It contains no callback body, authority, credential, URL, header, prompt, Artifact content, or raw exception text.

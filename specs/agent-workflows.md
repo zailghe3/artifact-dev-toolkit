@@ -224,6 +224,10 @@
 ## 16. Safety and observability
 
 - Workflow state is visible without exposing provider secrets or private execution content beyond authorised run output.
+- Real Workflow runs retain bounded, versioned orchestration evidence separately from provider diagnostics on Agent attempts; control-plane-to-Runtime and Runtime-to-gateway transport observations remain distinct.
+- Orchestration evidence may exist before any Agent attempt is admitted. Transient evidence is cleared after successful recovery, cancellation, or an unrelated terminal outcome, while evidence that belongs to a terminal orchestration failure remains visible on the failed run.
+- Diagnostic reconciliation follows the current durable run generation and lifecycle; stale orchestration work cannot overwrite a replacement generation or turn cancellation and provider-terminal transitions into orchestration failures.
+- Run-level orchestration evidence excludes secrets, raw errors, callback bodies, provider data, prompts, and Artifact contents.
 - Logs and diagnostics use bounded safe categories and identifiers.
 - The protected application diagnostics overview may summarize distinct ADT Runtime and Codex Runner readiness conditions without invoking provider or Codex execution; detailed Runner mutation controls remain on its operational status interface.
 - Current Workflow execution readiness requires an authenticated, protocol-compatible ADT Runtime that advertises both provider execution and generic graph capabilities.
