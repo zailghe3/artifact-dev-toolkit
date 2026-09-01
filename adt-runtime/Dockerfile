@@ -8,9 +8,9 @@ RUN npm run build && npm prune --omit=dev
 
 FROM node:24.13.1-alpine
 ARG ADT_RUNTIME_REVISION=development
-ENV ADT_RUNTIME_REVISION=$ADT_RUNTIME_REVISION
 ENV NODE_ENV=production ADT_RUNTIME_HOST=0.0.0.0 ADT_RUNTIME_PORT=8080
 WORKDIR /runtime
+RUN printf '%s' "$ADT_RUNTIME_REVISION" > /runtime/REVISION
 COPY --from=build --chown=node:node /runtime/package.json ./package.json
 COPY --from=build --chown=node:node /runtime/node_modules ./node_modules
 COPY --from=build --chown=node:node /runtime/dist ./dist
