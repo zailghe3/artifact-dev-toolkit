@@ -73,10 +73,9 @@ test('Workflow navigation model keeps the definitions destination labelled Workf
  assert.equal(workflowSections.some(item=>item.label==='Definitions'),false);
 });
 
-test('Codex remains selectable even when live execution is unavailable',()=>{
+test('unavailable Codex remains visible but disabled',()=>{
  const html=render(React.createElement(WorkflowAgentEditor,{connections:[connection,codexConnection],codexSnapshot:snapshot({available:false,authenticated:false,modelCatalogAvailable:false,models:[]})}));
- assert.match(html,/<option value="codex-primary"/);
- assert.doesNotMatch(html,/<option value="codex-primary" disabled/);
+ assert.match(html,/<option value="codex-primary" disabled=""/);
 });
 
 test('Codex environment choices preserve ready selection, disable unavailable environments, and expose no private Runner settings',()=>{
@@ -86,18 +85,20 @@ test('Codex environment choices preserve ready selection, disable unavailable en
  assert.doesNotMatch(html,/cwd|CODEX_RUNNER_SHARED_SECRET|runner-secret/);
 });
 
-test('unavailable Codex capabilities block save without disabling the saved connection',()=>{
+test('unavailable Codex capabilities disable the saved connection and retain detailed blockers',()=>{
  for(const overrides of [{available:false,codexAvailable:false},{available:false,capabilitiesAvailable:false,codexAvailable:false,jobExecution:false},{available:false,jobExecution:false}]){
   const html=render(React.createElement(WorkflowAgentEditor,{connections:[codexConnection],initial:savedAgent({environmentKey:'dev'}),codexSnapshot:snapshot(overrides)}));
   assert.equal(saveDisabled(html),true);
-  assert.doesNotMatch(html,/<option value="codex-primary" disabled/);
+  assert.match(html,/<option value="codex-primary" disabled="" selected=""/);
   assert.match(html,/<option value="dev"/);
+  assert.match(html,/This Agent cannot currently be saved:/);
  }
 });
 
 test('fully ready Codex configuration enables save',()=>{
- const html=render(React.createElement(WorkflowAgentEditor,{connections:[codexConnection],initial:savedAgent({environmentKey:'dev'}),codexSnapshot:snapshot()}));
+ const html=render(React.createElement(WorkflowAgentEditor,{connections:[{...codexConnection,enabled:true}],initial:savedAgent({environmentKey:'dev'}),codexSnapshot:snapshot()}));
  assert.equal(saveDisabled(html),false);
+ assert.doesNotMatch(html,/<option value="codex-primary" disabled/);
 });
 
 test('saved missing model remains represented and blocks save',()=>{
@@ -114,7 +115,7 @@ test('saved unsupported reasoning effort remains represented and blocks save',()
 
 test('advertised model choices and provider defaults do not introduce a readiness blocker',()=>{
  for(const adapterOptions of [{environmentKey:'dev'},{environmentKey:'dev',model:'model-a',reasoningEffort:'high'}]){
-  const html=render(React.createElement(WorkflowAgentEditor,{connections:[codexConnection],initial:savedAgent(adapterOptions),codexSnapshot:snapshot()}));
+  const html=render(React.createElement(WorkflowAgentEditor,{connections:[{...codexConnection,enabled:true}],initial:savedAgent(adapterOptions),codexSnapshot:snapshot()}));
   assert.equal(saveDisabled(html),false);
  }
 });
@@ -166,7 +167,7 @@ test('Agent authoring excludes retired connections but preserves a saved legacy 
  const create=render(React.createElement(WorkflowAgentEditor,{connections:[legacy,currentUnavailable,codexConnection]}));
  assert.doesNotMatch(create,/Codex Cloud/);
  assert.match(create,/<option value="openai-current" disabled=""/);
- assert.match(create,/<option value="codex-primary"/);
+ assert.match(create,/<option value="codex-primary" disabled=""/);
  const edit=render(React.createElement(WorkflowAgentEditor,{connections:[legacy,currentUnavailable],initial:{id:'legacy',name:'Legacy',description:'',prompt:{source:'custom',text:'Act.'},connectionKey:'codex-cloud-primary'}}));
  assert.match(edit,/<option value="codex-cloud-primary" disabled=""[^>]*>Codex Cloud \(Saved legacy connection — unavailable\)<\/option>/);
  assert.equal(saveDisabled(edit),true);
