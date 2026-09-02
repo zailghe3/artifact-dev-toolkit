@@ -73,10 +73,9 @@ test('Workflow navigation model keeps the definitions destination labelled Workf
  assert.equal(workflowSections.some(item=>item.label==='Definitions'),false);
 });
 
-test('Codex remains selectable even when live execution is unavailable',()=>{
+test('unavailable Codex remains visible but disabled',()=>{
  const html=render(React.createElement(WorkflowAgentEditor,{connections:[connection,codexConnection],codexSnapshot:snapshot({available:false,authenticated:false,modelCatalogAvailable:false,models:[]})}));
- assert.match(html,/<option value="codex-primary"/);
- assert.doesNotMatch(html,/<option value="codex-primary" disabled/);
+ assert.match(html,/<option value="codex-primary" disabled=""/);
 });
 
 test('Codex environment choices preserve ready selection, disable unavailable environments, and expose no private Runner settings',()=>{
@@ -86,18 +85,20 @@ test('Codex environment choices preserve ready selection, disable unavailable en
  assert.doesNotMatch(html,/cwd|CODEX_RUNNER_SHARED_SECRET|runner-secret/);
 });
 
-test('unavailable Codex capabilities block save without disabling the saved connection',()=>{
+test('unavailable Codex capabilities disable the saved connection and retain detailed blockers',()=>{
  for(const overrides of [{available:false,codexAvailable:false},{available:false,capabilitiesAvailable:false,codexAvailable:false,jobExecution:false},{available:false,jobExecution:false}]){
   const html=render(React.createElement(WorkflowAgentEditor,{connections:[codexConnection],initial:savedAgent({environmentKey:'dev'}),codexSnapshot:snapshot(overrides)}));
   assert.equal(saveDisabled(html),true);
-  assert.doesNotMatch(html,/<option value="codex-primary" disabled/);
+  assert.match(html,/<option value="codex-primary" disabled="" selected=""/);
   assert.match(html,/<option value="dev"/);
+  assert.match(html,/This Agent cannot currently be saved:/);
  }
 });
 
 test('fully ready Codex configuration enables save',()=>{
- const html=render(React.createElement(WorkflowAgentEditor,{connections:[codexConnection],initial:savedAgent({environmentKey:'dev'}),codexSnapshot:snapshot()}));
+ const html=render(React.createElement(WorkflowAgentEditor,{connections:[{...codexConnection,enabled:true}],initial:savedAgent({environmentKey:'dev'}),codexSnapshot:snapshot()}));
  assert.equal(saveDisabled(html),false);
+ assert.doesNotMatch(html,/<option value="codex-primary" disabled/);
 });
 
 test('saved missing model remains represented and blocks save',()=>{
@@ -114,7 +115,7 @@ test('saved unsupported reasoning effort remains represented and blocks save',()
 
 test('advertised model choices and provider defaults do not introduce a readiness blocker',()=>{
  for(const adapterOptions of [{environmentKey:'dev'},{environmentKey:'dev',model:'model-a',reasoningEffort:'high'}]){
-  const html=render(React.createElement(WorkflowAgentEditor,{connections:[codexConnection],initial:savedAgent(adapterOptions),codexSnapshot:snapshot()}));
+  const html=render(React.createElement(WorkflowAgentEditor,{connections:[{...codexConnection,enabled:true}],initial:savedAgent(adapterOptions),codexSnapshot:snapshot()}));
   assert.equal(saveDisabled(html),false);
  }
 });
@@ -151,3 +152,23 @@ test('OpenAI Agents editor preserves explicit artifact_search while other runtim
 test('read-only Workflow graph renders Approval distinctly with its immutable message',()=>{const {WorkflowLayoutEditor}=requireTsx('../components/WorkflowLayoutEditor.tsx'),workflow={schemaVersion:2,id:'approval-layout',name:'Approval',description:'',status:'draft',nodes:[{id:'start',blockType:'agent',blockVersion:1,config:{agentId:'planning-agent'}},{id:'review',blockType:'approval',blockVersion:1,config:{message:'Approve this exact result?'}},{id:'finish',blockType:'agent',blockVersion:1,config:{agentId:'planning-agent'}}],edges:[{id:'one',source:'start',target:'review'},{id:'two',source:'review',target:'finish'}],limits:{maxStepExecutions:3}},html=render(React.createElement(WorkflowLayoutEditor,{workflow,agents:{'planning-agent':'Planning Agent'}}));assert.match(html,/>Approval</);assert.match(html,/Approve this exact result\?/);assert.doesNotMatch(html,/review[^]*Wait for every branch/)});
 
 test('composite run labels use frozen Agent and Block Registry labels with distinct invocation paths',()=>{const agentNodeId=`swn-${'a'.repeat(64)}`,approvalNodeId=`swn-${'b'.repeat(64)}`,repeatedNodeId=`swn-${'c'.repeat(64)}`,run={semanticWorkflowSnapshot:{name:'Assessment'},compositionSnapshot:{nodes:[{executionNodeId:agentNodeId,semanticNodeId:'researcher',invocationPath:[{workflowId:'research-flow',workflowName:'Research Flow',invocationNodeId:'research-call'}]},{executionNodeId:approvalNodeId,semanticNodeId:'approve-child',invocationPath:[{workflowId:'review-flow',workflowName:'Review Flow',invocationNodeId:'review-call'}]},{executionNodeId:repeatedNodeId,semanticNodeId:'researcher',invocationPath:[{workflowId:'research-flow',workflowName:'Research Flow',invocationNodeId:'second-research-call'}]}]},executionPlan:{planVersion:2,nodes:[{id:agentNodeId,blockType:'agent',blockVersion:1,config:{agentId:'research-agent'}},{id:approvalNodeId,blockType:'approval',blockVersion:1,config:{message:'Review'}},{id:repeatedNodeId,blockType:'agent',blockVersion:1,config:{agentId:'research-agent'}}]},agentSnapshots:{'research-agent':{name:'Researcher'}}};assert.equal(workflowRunNodeLabel(run,agentNodeId),'Assessment / Research Flow (research-call) / Researcher');assert.equal(workflowRunNodeLabel(run,approvalNodeId),'Assessment / Review Flow (review-call) / Approval');assert.equal(workflowRunNodeLabel(run,repeatedNodeId),'Assessment / Research Flow (second-research-call) / Researcher');assert.equal(workflowRunNodeLabel(run,'unknown'),'unknown')});
+
+test('Workflow run input templates are editable launch-time starter text',()=>{
+ const withTemplate=render(React.createElement(WorkflowDefinitionEditor,{agents:[agent],initial:{schemaVersion:2,id:'templated',name:'Templated',description:'',status:'draft',runInputTemplate:'Review:\n- ',nodes:[{id:'node-1',blockType:'agent',blockVersion:1,config:{agentId:agent.id}}],edges:[],limits:{maxStepExecutions:32}}}));
+ assert.match(withTemplate,/<textarea(?=[^>]*name="runInputTemplate")(?=[^>]*maxLength="65536")[^>]*>Review:\n- <\/textarea>/);
+ const {WorkflowRunStart}=requireTsx('../components/WorkflowRunControls.tsx');
+ assert.match(render(React.createElement(WorkflowRunStart,{workflowId:'templated',initialInput:'Review:\n- '})),/<textarea(?=[^>]*name="input")(?=[^>]*maxLength="65536")[^>]*>Review:\n- <\/textarea>/);
+ assert.match(render(React.createElement(WorkflowRunStart,{workflowId:'plain'})),/<textarea(?=[^>]*name="input")[^>]*><\/textarea>/);
+});
+
+test('Agent authoring excludes retired connections but preserves a saved legacy value as disabled',()=>{
+ const legacy={key:'codex-cloud-primary',name:'Codex Cloud',adapter:'codex-cloud',enabled:false,capabilities:{asynchronous:true,cancellation:false}};
+ const currentUnavailable={key:'openai-current',name:'Current OpenAI',adapter:'openai-responses',enabled:false,capabilities:{asynchronous:true,cancellation:true}};
+ const create=render(React.createElement(WorkflowAgentEditor,{connections:[legacy,currentUnavailable,codexConnection]}));
+ assert.doesNotMatch(create,/Codex Cloud/);
+ assert.match(create,/<option value="openai-current" disabled=""/);
+ assert.match(create,/<option value="codex-primary" disabled=""/);
+ const edit=render(React.createElement(WorkflowAgentEditor,{connections:[legacy,currentUnavailable],initial:{id:'legacy',name:'Legacy',description:'',prompt:{source:'custom',text:'Act.'},connectionKey:'codex-cloud-primary'}}));
+ assert.match(edit,/<option value="codex-cloud-primary" disabled=""[^>]*>Codex Cloud \(Saved legacy connection — unavailable\)<\/option>/);
+ assert.equal(saveDisabled(edit),true);
+});

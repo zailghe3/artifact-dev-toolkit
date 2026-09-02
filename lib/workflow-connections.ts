@@ -8,6 +8,8 @@ export const codexCloudConnection:ConnectionDescriptor={key:"codex-cloud-primary
 export const codexRunnerConnection:ConnectionDescriptor={key:"codex-primary",name:"Codex",adapter:"codex-runner",enabled:false,capabilities:{asynchronous:true,cancellation:true}};
 export function codexRunnerDescriptor(enabled:boolean):ConnectionDescriptor{return{...codexRunnerConnection,enabled}}
 export function deterministicConnection(environment:Record<string,string|undefined>=process.env){const enabled=environment.NODE_ENV==="test"||environment.NODE_ENV==="development"||environment.WORKFLOW_ENABLE_DETERMINISTIC_TEST_CONNECTION==="true";return{...deterministic,enabled};}
+/** Connections offered by current Agent authoring. A saved retired value is retained only as disabled history. */
+export function agentConnectionOptions(values:readonly ConnectionDescriptor[],savedKey?:string){return values.filter(value=>value.adapter!=="codex-cloud"||value.key===savedKey);}
 /** Process configuration contains no provider credentials. Provider descriptors are composed server-side. */
 export function listConnectionDescriptors(environment:Record<string,string|undefined>=process.env):ConnectionDescriptor[]{return[deterministicConnection(environment),codexRunnerConnection,codexCloudConnection];}
 export function resolveConnection(key:string,environment:Record<string,string|undefined>=process.env):ResolvedConnection{const item=listConnectionDescriptors(environment).find(c=>c.key===key);if(!item?.enabled)throw new Error("connection_unavailable");return item;}
