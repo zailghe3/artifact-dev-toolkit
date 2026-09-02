@@ -28,6 +28,9 @@ test('the run page and API route delegate to the same reconciliation-aware loade
   assert.match(page, /Provider diagnostics/);
   for (const label of ["Client request ID","Transport outcome","Transport reason","Request duration","Provider request ID","HTTP status","Provider processing"]) assert.match(page,new RegExp(label));
   assert.doesNotMatch(page,/raw provider body|authorization|cookie/i);
+  assert.match(page,/CopyButton text=\{run\.initialInput\} compact label="run input"/);
+  assert.match(page,/CopyButton text=\{attempt\.outputText\} compact label=\{`raw output for \${step\.name}`\}/);
+  assert.doesNotMatch(page,/CopyButton text=\{attempt\.inputText|CopyButton text=\{run\.finalOutput/);
   for (const source of [page, route]) {
     assert.match(source, /import \{getWorkflowRunDetail\} from "@\/lib\/workflow-run-detail"/);
     assert.match(source, /await getWorkflowRunDetail\(/);

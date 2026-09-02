@@ -2,7 +2,7 @@
 
 **Document status:** Baseline specification of implemented Agent Workflow behaviour  
 **Scope:** Current behaviour only; not a roadmap or implementation design  
-**Last updated:** 2026-08-31
+**Last updated:** 2026-09-02
 
 ## 1. Purpose
 
@@ -28,6 +28,7 @@
 
 - Current Workflow definitions use the ADT-owned v2 semantic graph format.
 - Current executable v2 workflows contain one connected bounded graph with Agent blocks, bounded `contains` Conditions, structured parallel fan-out and Join, and Condition-controlled cycles. Condition routes have labelled `true` and `false` semantic ports; omitted ports retain the registered defaults for compatible definitions. Unsupported block contracts or graph topology fail closed before persistence or execution.
+- A Workflow may define optional starter input for manual launch. It remains editable before submission, and does not supply implicit input to reusable Workflow blocks.
 - A Workflow may be exposed as a reusable block. `subworkflow@1` references one exposed Workflow in the same definition repository and has one text input and one text output.
 - A reusable Workflow block may be the compact graph's successful terminal. Its child's terminal text is the block output, and launch-time composition must still produce a primitive graph whose successful terminal is an Agent.
 - Reusable Workflows may compose other exposed Workflow v2 definitions within a bounded depth. Missing, unexposed, cyclic, oversized, or unsupported composed graphs fail closed before launch.
@@ -44,7 +45,7 @@
 - Definition reads use canonical root-level `agents/` and `workflows/` locations only.
 - Definitions are discovered and mutated only in the root-level executable definition namespaces.
 - Definition location does not affect Workflow references, execution, or immutable run snapshots.
-- Executable Agent and Workflow lifecycle state remains independent from Artifact Library Markdown lifecycle rules.
+- Definition Draft state is retained only for format compatibility and is not presented as an Agent or Workflow lifecycle concept.
 - The Workflow view presents distinct Agent, Condition, Approval, and Join blocks with ADT semantic ports and edges, including structured fan-out and controlled back-edges.
 - Users may move visual nodes, pan or zoom the view, and save that layout independently from the Workflow definition.
 - Missing or out-of-date layout information does not prevent a current Workflow step from being displayed or executed.
@@ -168,8 +169,8 @@
 - Codex execution is distinct from a normal OpenAI Responses model call.
 - The supported self-hosted Codex path is exposed as a `codex-runner` connection.
 - The legacy Codex Cloud connection remains readable for compatibility but is unavailable for real execution until a supported server-to-server transport exists.
-- Codex connections may remain selectable in configuration so the application can show precise readiness problems.
-- Selection does not imply that the connection is currently executable.
+- Retired Codex Cloud connections remain readable on historical Agents but are not offered for new configuration.
+- Current supported connections remain visible with explicit readiness problems when temporarily unavailable; visibility does not imply executability.
 
 ## 12. Codex Runner responsibilities
 

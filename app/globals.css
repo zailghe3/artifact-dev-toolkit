@@ -50,3 +50,14 @@ body {
 ::selection {
   background: var(--accent-selection);
 }
+
+.workflow-graph .react-flow__controls-button { background: #fff; border-color: #94a3b8; color: #0f172a; }
+.workflow-graph .react-flow__controls-button:hover,
+.workflow-graph .react-flow__controls-button:focus-visible { background: #e2e8f0; outline: 2px solid #0369a1; }
+.workflow-graph .react-flow__attribution { background: rgba(255,255,255,.92); color: #334155; }
+.workflow-graph .react-flow__attribution a { color: inherit; }
+.dark .workflow-graph .react-flow__controls-button { background: #1e293b; border-color: #64748b; color: #f8fafc; }
+.dark .workflow-graph .react-flow__controls-button:hover,
+.dark .workflow-graph .react-flow__controls-button:focus-visible { background: #334155; outline-color: #fb923c; }
+.dark .workflow-graph .react-flow__attribution { background: rgba(15,23,42,.92); color: #e2e8f0; }
+@media (max-width: 639px) { .workflow-graph-scroll-gutter { padding-right: 1.25rem; } }
