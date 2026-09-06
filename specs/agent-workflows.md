@@ -19,7 +19,7 @@
 - An Agent prompt is either custom text or a reference to an Artifact Library prompt.
 - A **Workflow** is a v2 semantic graph of versioned blocks and edges.
 - A **Block Registry** defines the supported versioned block contracts; backend-executable blocks are Agent references, deterministic text Conditions, deterministic Join barriers, resumable human Approval gates, and reusable Workflow composites.
-- A **Workflow layout** is an optional visual arrangement of stable node identities and is not executable configuration.
+- A **Workflow layout** is an optional visual arrangement of stable node identities and presentation-only edge waypoints; it is not executable configuration.
 - A **Run** freezes the workflow and agent configuration used for one execution.
 - An **Attempt** records one execution attempt for a workflow step.
 - Provider task identifiers may be retained when needed to safely observe or reconcile external work.
@@ -49,7 +49,8 @@
 - The Workflow view presents distinct Agent, Condition, Approval, and Join blocks with ADT semantic ports and edges, including structured fan-out and controlled back-edges.
 - Users may move visual nodes, pan or zoom the view, and save that layout independently from the Workflow definition.
 - Missing or out-of-date layout information does not prevent a current Workflow step from being displayed or executed.
-- Visual position and viewport changes remain separate presentation-only layout mutations and never change semantic order, handoff, result selection, limits, or run snapshots.
+- Visual position, viewport, and edge-waypoint changes remain separate presentation-only layout mutations and never change semantic topology, order, handoff, result selection, limits, or run snapshots.
+- The Workflow execution limit remains an integer of at least one; an empty authoring draft normalizes to one when saved.
 - For v2 workflows, adding, removing, configuring, connecting, or disconnecting a block is an intentional semantic Workflow mutation and must produce a valid bounded graph; the editor exposes Agent, Condition, structured fan-out, Join, controlled back-edge, and explicit execution-bound authoring.
 - At launch, a supported v2 graph is frozen with its semantic Workflow, Workflow revision, Agent revisions, Connection snapshots, and an explicit execution-engine version.
 - Reusable Workflow blocks expand into the existing primitive graph within the parent run. They do not create a separate run, checkpoint, cancellation lifecycle, provider authority, or execution count.
@@ -143,6 +144,8 @@
 - Provider reasoning and raw provider responses are not exposed as workflow output.
 - The `openai-responses` runtime retains a provider task identity when required for durable polling and cancellation.
 - The `openai-agents` runtime completes within one bounded invocation and has no SDK handoffs, persistent SDK Session or conversation, SDK tracing, provider cancellation, or asynchronous provider task.
+- An OpenAI Agents Agent may configure one integer execution timeout from 5 through 120 seconds. Existing Agents default to 30 seconds. Runs and recovery use the snapshotted Agent setting.
+- Runtime transport and HTTP-server allowances are derived or internal safety bounds, not additional Agent settings.
 - Agents are tool-free by default. An Agent may explicitly enable `artifact_search` only with `openai-agents`, and runs snapshot that availability.
 - `artifact_search` returns bounded content and safe metadata from the authorised validated Artifact Library. It cannot select a repository, ref, path, URL, or credential.
 - Tool authority is scoped to the exact active run attempt and repository snapshot, and uses control-plane-only authority material that is not available to the Runtime.
