@@ -5,6 +5,7 @@ import {executeOpenAIAgents,RuntimeFailure,type Factories} from "./openai-agents
 import {advanceGenericGraph,graphExecutionSchema,GraphNodeGatewayFailure,CheckpointGatewayFailure,LANGGRAPH_EXECUTE_PATH,LANGGRAPH_APPROVAL_CAPABILITY,LANGGRAPH_GRAPH_CAPABILITY} from "./langgraph.js";
 import {diagnoseExecutionPath,executionPathDiagnosticSchema,EXECUTION_PATH_DIAGNOSTIC_CAPABILITY,EXECUTION_PATH_DIAGNOSTIC_PATH} from "./execution-path-diagnostic.js";
 
+export const RUNTIME_INBOUND_REQUEST_TIMEOUT_MS=60_000,RUNTIME_HEADERS_TIMEOUT_MS=10_000,RUNTIME_EXECUTION_RESPONSE_TIMEOUT_MS=150_000;
 type Logger=(event:Record<string,unknown>)=>void;
 type Options={host:string;port:number;authSecret:string;privateKeyPem:string;revision:string;factories?:Partial<Factories>;now?:()=>number;logger?:Logger};
 type ErrorCode="runtime_authentication_failed"|"invalid_request"|"credential_invalid"|"unsupported_operation"|"protocol_incompatible"|"capability_unavailable"|"runtime_unavailable"|"execution_failed";
@@ -31,7 +32,7 @@ export async function createRuntimeServer(options:Options){
   emit("runtime_provider_execution_started",{operation,requestId,providerExecutionEntered:true});
   try{const outputText=await executeOpenAIAgents(request,credential,options.factories);emit("runtime_provider_execution_completed",{operation,requestId,result:"completed",httpStatus:200,elapsedMs:Date.now()-started,providerExecutionEntered:true});return safe(res,200,{protocolVersion:PROTOCOL_VERSION,ok:true,result:{state:"completed",outputText}})}
   catch(value){const failure=value instanceof RuntimeFailure?value:new RuntimeFailure("internal_error","The Agents runtime failed unexpectedly.");emit("runtime_provider_execution_failed",{operation,requestId,result:"execution_failed",failureCategory:failure.category,httpStatus:422,elapsedMs:Date.now()-started,providerExecutionEntered:true});return error(res,422,"execution_failed",failure.category,failure.safeMessage.length>512?"Runtime execution failed.":failure.safeMessage,true)}finally{credential=""}
- });server.requestTimeout=150_000;server.headersTimeout=10_000;
+ });server.requestTimeout=RUNTIME_INBOUND_REQUEST_TIMEOUT_MS;server.headersTimeout=RUNTIME_HEADERS_TIMEOUT_MS;server.timeout=RUNTIME_EXECUTION_RESPONSE_TIMEOUT_MS;
  return{server,keyId,replays,listen:()=>new Promise<void>((resolve,reject)=>server.listen(options.port,options.host,resolve).once("error",reject)),close:()=>new Promise<void>((resolve,reject)=>server.close(value=>value?reject(value):resolve())),shutdown(){shuttingDown=true;server.closeIdleConnections()}};
 }
 function startup(event:string,stage:string){process.stderr.write(`${JSON.stringify({event,protocolVersion:PROTOCOL_VERSION,stage})}\n`)}

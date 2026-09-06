@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import React from 'react';import {renderToStaticMarkup} from 'react-dom/server';import {installTsxHook} from './render-tsx.mjs';
 import {workflowLayoutSchema,normalizeWorkflowLayout,placeNodeInViewport,workflowExecutionLimitFromDraft} from '../lib/workflow-layout.ts';
 import {agentExecutionTimeoutSeconds,openAIAgentsOptionsSchema} from '../lib/workflow-adapter.ts';
 import {runtimeTransportTimeoutMs} from '../lib/adt-runtime-client.ts';
@@ -24,3 +25,8 @@ test('Agent execution timeout validates bounds/default and derives transport all
  for(const value of [4,121,5.5])assert.throws(()=>openAIAgentsOptionsSchema.parse({executionTimeoutSeconds:value}));
  assert.equal(runtimeTransportTimeoutMs(30),36000);assert.equal(runtimeTransportTimeoutMs(120),126000);
 });
+
+const requireTsx=installTsxHook(),{PendingButtonContent}=requireTsx('../components/PendingButtonContent.tsx'),{WorkflowWaypointEdge}=requireTsx('../components/WorkflowWaypointEdge.tsx'),{ReactFlowProvider}=requireTsx('@xyflow/react');
+test('shared pending content is accessible and condition labels survive custom waypoint rendering',()=>{const pending=renderToStaticMarkup(React.createElement(PendingButtonContent,{pending:true},'Saving…'));assert.match(pending,/aria-hidden="true"/);assert.match(pending,/Saving…/);const edge=renderToStaticMarkup(React.createElement(ReactFlowProvider,null,React.createElement(WorkflowWaypointEdge,{id:'condition-true',source:'condition',target:'yes',sourceX:0,sourceY:0,targetX:100,targetY:50,sourcePosition:'right',targetPosition:'left',label:'true',data:{waypoints:[{x:50,y:10}],editable:false}})));assert.match(edge,/<text[^>]*>true<\/text>/)});
+
+test('inventoried durable mutation surfaces use the shared pending treatment and definitive cleanup',async()=>{const {readFile}=await import('node:fs/promises');for(const file of ['ArtifactEditor.tsx','ArtifactDeleteButton.tsx','VariationForm.tsx','DefinitionCatalogue.tsx','ProviderConnectionEditor.tsx','VaultCredentialControl.tsx','CatalogueRefresh.tsx','ADTRuntimeDiagnosticButton.tsx','ADTRuntimeExecutionPathDiagnostic.tsx','CodexRunnerConnection.tsx','CodexRunnerOperationalStatus.tsx','WorkflowAgentEditor.tsx','WorkflowDefinitionEditor.tsx','WorkflowLayoutEditor.tsx','WorkflowRunControls.tsx']){const source=await readFile(new URL(`../components/${file}`,import.meta.url),'utf8');assert.match(source,/PendingButtonContent/,file);assert.match(source,/aria-busy/,file)}for(const file of ['ProviderConnectionEditor.tsx','VaultCredentialControl.tsx','CatalogueRefresh.tsx','WorkflowLayoutEditor.tsx','WorkflowRunControls.tsx'])assert.match(await readFile(new URL(`../components/${file}`,import.meta.url),'utf8'),/finally\s*\{[^}]*set[A-Za-z]*(?:\(false\)|\(undefined\))/,`${file} clears pending after handled completion`);const workflow=await readFile(new URL('../components/WorkflowDefinitionEditor.tsx',import.meta.url),'utf8');assert.match(workflow,/setCreatedId\(value\.id\);setPending\(undefined\);setError\("Workflow was created, but its optional layout was not saved/)});

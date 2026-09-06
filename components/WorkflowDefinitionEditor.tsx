@@ -39,7 +39,7 @@ function V2Editor({agents,reusableWorkflows=[],initial,fileSha,initialLayout}:{a
    await persistWorkflowSemantics(fetch,value,fileSha);
    if(workflow){setStatus("Workflow definition saved. Layout was not changed.");setPending(undefined);router.refresh();return;}
    try{await persistWorkflowLayout(fetch,normalizeWorkflowLayout(value,Object.fromEntries(nodes.map(node=>[node.id,node.position])),viewport,edgeWaypoints));}
-   catch{setStatus("");setCreatedId(value.id);setError("Workflow was created, but its optional layout was not saved. Open the created Workflow and save layout there; do not create it again.");return;}
+   catch{setStatus("");setCreatedId(value.id);setPending(undefined);setError("Workflow was created, but its optional layout was not saved. Open the created Workflow and save layout there; do not create it again.");return;}
    router.push(`/workflows/definitions/${value.id}`);router.refresh();
   }catch(cause){setStatus("");setError(cause instanceof Error?cause.message:"Workflow could not be saved.");setPending(undefined);}
  }
