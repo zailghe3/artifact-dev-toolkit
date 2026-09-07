@@ -1,0 +1,1 @@
+export function PendingButtonContent({pending,children}:{pending:boolean;children:React.ReactNode}){return <span className="inline-flex items-center justify-center gap-2">{pending?<span aria-hidden="true" className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-r-transparent"/>:null}<span>{children}</span></span>}

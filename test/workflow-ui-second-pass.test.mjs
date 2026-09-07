@@ -10,6 +10,9 @@ import {defaultWorkflowRunSort,nextWorkflowRunSort,sortWorkflowRunRows,workflowR
 
 const requireTsx=installTsxHook();
 const {WorkflowRunsTable}=requireTsx('../components/WorkflowRunsTable.tsx');
+const {WorkflowAgentEditor}=requireTsx('../components/WorkflowAgentEditor.tsx');
+const {AppRouterContext}=requireTsx('next/dist/shared/lib/app-router-context.shared-runtime');
+const renderAgent=component=>renderToStaticMarkup(React.createElement(AppRouterContext.Provider,{value:{back(){},forward(){},refresh(){},push(){},replace(){},prefetch(){}}},component));
 const {WorkflowAgentPromptSelector}=requireTsx('../components/WorkflowAgentPromptSelector.tsx');
 
 const artifact=(id,type,title,body=`body ${id}`)=>({id,type,title,description:'',tags:[],aliases:[],body,excerpt:`excerpt ${id}`,path:`artifacts/${id}.md`});
@@ -82,4 +85,12 @@ test('OpenAI capabilities are exact and unknown models are conservative',()=>{
  assert.throws(()=>validateOpenAIModelAgentOptions('gpt-5',{reasoningEffort:'xhigh'}));
  assert.deepEqual(validateOpenAIModelAgentOptions('unknown-model',{}),{});
  assert.throws(()=>validateOpenAIModelAgentOptions('unknown-model',{verbosity:'high'}));
+});
+
+test('OpenAI Agents execution timeout defaults and saved values render as one bounded setting',()=>{
+ const connection={key:'agents',name:'Agents Runtime',adapter:'openai-agents',enabled:true,defaultModel:'gpt-5.2'};
+ const create=renderAgent(React.createElement(WorkflowAgentEditor,{connections:[connection]}));
+ assert.match(create,/<input(?=[^>]*name="executionTimeoutSeconds")(?=[^>]*min="5")(?=[^>]*max="120")(?=[^>]*value="30")/);
+ const edit=renderAgent(React.createElement(WorkflowAgentEditor,{connections:[connection],initial:{id:'saved',name:'Saved',description:'',prompt:{source:'custom',text:'Act.'},connectionKey:'agents',adapterOptions:{executionTimeoutSeconds:120}}}));
+ assert.match(edit,/<input(?=[^>]*name="executionTimeoutSeconds")(?=[^>]*value="120")/);
 });

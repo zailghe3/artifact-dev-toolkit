@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import {PendingButtonContent} from "@/components/PendingButtonContent";
 import { unknownVariationErrorMessage, variationErrorMessage } from "@/lib/variation-errors";
 import { hasPreview, safeGitHubUrl } from "@/lib/edit-ui";
 
@@ -69,8 +70,8 @@ export function VariationForm({ artifactId, defaultBody, defaultTitle }: { artif
       </label>
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <button disabled={saving} onClick={previewVariation} className="rounded-xl border border-sky-600 px-4 py-2 text-sm font-semibold text-sky-700 dark:border-orange-400 dark:text-orange-300">Preview</button>
-        <button disabled={saving} onClick={saveVariation} className="rounded-xl bg-sky-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-700 focus:outline-none focus:ring-4 focus:ring-sky-200 disabled:opacity-60 dark:bg-orange-500 dark:text-slate-950 dark:hover:bg-orange-400 dark:focus:ring-orange-500/35">
-          {saving ? "Saving..." : "Save variation"}
+        <button disabled={saving} aria-busy={saving} onClick={saveVariation} className="rounded-xl bg-sky-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-700 focus:outline-none focus:ring-4 focus:ring-sky-200 disabled:opacity-60 dark:bg-orange-500 dark:text-slate-950 dark:hover:bg-orange-400 dark:focus:ring-orange-500/35">
+          <PendingButtonContent pending={saving}>{saving ? "Saving…" : "Save variation"}</PendingButtonContent>
         </button>
         {message ? <p className="text-sm text-slate-600 dark:text-slate-300">{message}</p> : null}
       </div>
