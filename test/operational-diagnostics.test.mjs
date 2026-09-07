@@ -128,6 +128,24 @@ test("Runner Healthy readiness requires at least one enabled ready environment",
   assert.equal(domain(repository(), runtime(), healthy, "codex-runner").state, "healthy");
 });
 
+test("intentionally unobserved active auth diagnostics do not degrade passive Runner or overall health", () => {
+  const passive = runner({ authEnvironment: { state: "not-observed" } });
+  const checks = runnerDiagnosticChecks(passive);
+  assert.equal(checks.some(check => check.id === "runner-auth-environment"), false);
+  assert.equal(domain(repository(), runtime(), passive, "codex-runner").state, "healthy");
+  assert.equal(operationalOverall(deriveOperationalDomains(repository(), runtime(), passive, true)).state, "healthy");
+
+  const failedObservation = runner({ authEnvironment: { state: "unavailable" } });
+  const failedCheck = runnerDiagnosticChecks(failedObservation).find(check => check.id === "runner-auth-environment");
+  assert.equal(failedCheck.status.label, "Unknown");
+  assert.equal(failedCheck.status.tone, "warning");
+  assert.equal(domain(repository(), runtime(), failedObservation, "codex-runner").state, "degraded");
+
+  const activeCheck = runnerDiagnosticChecks(runner()).find(check => check.id === "runner-auth-environment");
+  assert.equal(activeCheck.status.label, "Ready");
+  assert.equal(activeCheck.status.tone, "positive");
+});
+
 test("auth-environment health requires a viable bounded TLS route and readable configured CA", () => {
   assert.equal(authEnvironmentStatusPresentation(authEnvironment).tone, "positive");
   assert.equal(authEnvironmentStatusPresentation({ ...authEnvironment, ipv6Available: true, ipv4TlsConnectivity: "failed", ipv6TlsConnectivity: "failed", deviceAuthRoute: { responseReceived: false } }).tone, "negative");
