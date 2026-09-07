@@ -16,7 +16,7 @@ export type SafeRunnerDiagnostics = {
   authEnvironment: RunnerObservation<RunnerAuthEnvironmentDiagnostics>;
 };
 
-type RunnerDiagnosticClient = Pick<ReturnType<typeof getCodexRunnerClient>, "capabilities" | "authStatus" | "controlStatus" | "environments" | "workspaceDiagnostics" | "sandboxDiagnostics" | "jobs" | "authEnvironmentDiagnostics">;
+type RunnerDiagnosticClient = Pick<ReturnType<typeof getCodexRunnerClient>, "capabilities" | "authStatus" | "controlStatus" | "environments" | "workspaceDiagnostics" | "sandboxDiagnostics" | "jobs">;
 type Dependencies = { clientFactory?: () => RunnerDiagnosticClient; logger?: (message: string) => void };
 const unavailable = <T>(): RunnerObservation<T> => ({ state: "unavailable" });
 const notObserved = <T>(): RunnerObservation<T> => ({ state: "not-observed" });
@@ -31,12 +31,15 @@ function capabilityFailure(error: unknown): RunnerCapabilityFailure {
   return "unknown";
 }
 
-async function collectEnvironments(client: RunnerDiagnosticClient, integrated: boolean): Promise<SafeRunnerEnvironmentDiagnostic[]> {
-  const environments = await client.environments();
+async function collectEnvironmentDiagnostics(client: RunnerDiagnosticClient, environments: RunnerEnvironmentDescriptor[], integrated: boolean): Promise<SafeRunnerEnvironmentDiagnostic[]> {
   return Promise.all(environments.map(async environment => {
     if (!environment.enabled) return { environment, workspace: notObserved(), sandbox: notObserved() };
-    const workspace = observation((await Promise.allSettled([client.workspaceDiagnostics(environment.key)]))[0]);
-    const sandbox = integrated ? observation((await Promise.allSettled([client.sandboxDiagnostics(environment.key)]))[0]) : notObserved<RunnerSandboxDiagnostics | null>();
+    const [workspaceResult, sandboxResult] = await Promise.allSettled([
+      client.workspaceDiagnostics(environment.key),
+      integrated ? client.sandboxDiagnostics(environment.key) : Promise.resolve(null),
+    ]);
+    const workspace = observation(workspaceResult);
+    const sandbox = integrated ? observation(sandboxResult) : notObserved<RunnerSandboxDiagnostics | null>();
     return { environment, workspace, sandbox };
   }));
 }
@@ -56,19 +59,25 @@ export async function collectSafeRunnerDiagnostics(dependencies: Dependencies = 
   try { client = (dependencies.clientFactory ?? getCodexRunnerClient)(); }
   catch (error) {
     const connection: SafeCodexConnectionStatus = error instanceof CodexRunnerError && error.category === "configuration_missing" ? { state: "configuration-missing", label: "Runner configuration missing" } : { state: "unavailable", label: "Runner unavailable" };
-    return { connection, capabilities: { state: "unavailable", reason: "unknown" }, authentication: unavailable(), control: unavailable(), environments: unavailable(), jobs: unavailable(), authEnvironment: unavailable() };
+    return { connection, capabilities: { state: "unavailable", reason: "unknown" }, authentication: unavailable(), control: unavailable(), environments: unavailable(), jobs: unavailable(), authEnvironment: notObserved() };
   }
   const capabilitiesResult = (await Promise.allSettled([client.capabilities()]))[0];
   const capabilitiesFailure = capabilitiesResult.status === "rejected" ? capabilityFailure(capabilitiesResult.reason) : undefined;
   const capabilities: RunnerCapabilityObservation = capabilitiesResult.status === "fulfilled" ? { state: "available", value: capabilitiesResult.value } : { state: "unavailable", reason: capabilitiesFailure! };
   if (capabilitiesFailure) logger(JSON.stringify({ event: "codex_runner_diagnostics_failed", stage: "capabilities", reason: capabilitiesFailure }));
-  const authenticationResult = capabilities.state === "available" ? (await Promise.allSettled([client.authStatus()]))[0] : { status: "rejected", reason: undefined } as PromiseRejectedResult;
+  if (capabilities.state === "unavailable") {
+    return { connection: connectionFrom(capabilities, unavailable()), capabilities, authentication: unavailable(), control: unavailable(), environments: unavailable(), jobs: unavailable(), authEnvironment: notObserved() };
+  }
+  const [authenticationResult, controlResult, environmentsResult, jobsResult] = await Promise.allSettled([client.authStatus(), client.controlStatus(), client.environments(), client.jobs(5)]);
   const authentication = observation(authenticationResult);
-  if (capabilities.state === "available" && authenticationResult.status === "rejected") logger(JSON.stringify({ event: "codex_runner_diagnostics_failed", stage: "auth_status" }));
+  if (authenticationResult.status === "rejected") logger(JSON.stringify({ event: "codex_runner_diagnostics_failed", stage: "auth_status" }));
   const connection = connectionFrom(capabilities, authentication);
-  const [controlResult, jobs, authEnvironment] = await Promise.allSettled([client.controlStatus(), client.jobs(5), client.authEnvironmentDiagnostics()]);
   const control = observation(controlResult);
   const integrated = control.state === "available" && control.value.role === "integrated";
-  const environments = observation((await Promise.allSettled([collectEnvironments(client, integrated)]))[0]);
-  return { connection, capabilities, authentication, control, environments, jobs: observation(jobs), authEnvironment: observation(authEnvironment) };
+  let environments: RunnerObservation<SafeRunnerEnvironmentDiagnostic[]> = unavailable();
+  if (environmentsResult.status === "fulfilled") {
+    const [environmentDiagnosticsResult] = await Promise.allSettled([collectEnvironmentDiagnostics(client, environmentsResult.value, integrated)]);
+    environments = observation(environmentDiagnosticsResult);
+  }
+  return { connection, capabilities, authentication, control, environments, jobs: observation(jobsResult), authEnvironment: notObserved() };
 }
