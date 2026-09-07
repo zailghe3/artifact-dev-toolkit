@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {installTsxHook} from "./render-tsx.mjs";
 
 const require=installTsxHook();
-const {CodexRunnerClient,parseRunnerControlStatus}=require("../lib/codex-runner-client.ts");
+const {CodexRunnerClient,RUNNER_CAPABILITIES_TIMEOUT_MS,parseRunnerControlStatus}=require("../lib/codex-runner-client.ts");
 const {getSafeCodexConnectionStatus}=require("../lib/codex-runner-status.ts");
 const {runnerActionFailure}=require("../lib/codex-runner-actions.ts");
 const {EXPECTED_RUNNER_RELEASE}=require("../lib/codex-runner-release.ts");
@@ -41,11 +41,13 @@ test("logs a safe fetch transport reason without a sensitive raw fetch error",as
  assert.deepEqual(status,{state:"unavailable",label:"Runner unavailable"});
 });
 
-test("logs a safe timeout transport reason",async()=>{
- const timeoutConfiguration={...configuration,timeoutMs:1};
+test("logs a safe timeout transport reason",async t=>{
+ t.mock.timers.enable({apis:["setTimeout"]});
  const logs=[];
  const fetcher=async(_url,{signal})=>new Promise((resolve,reject)=>signal.addEventListener("abort",()=>reject(new Error("thrown-error-sentinel")),{once:true}));
- const status=await getSafeCodexConnectionStatus({clientFactory:()=>new CodexRunnerClient(timeoutConfiguration,fetcher),logger:value=>logs.push(value)});
+ const pending=getSafeCodexConnectionStatus({clientFactory:()=>new CodexRunnerClient(configuration,fetcher),logger:value=>logs.push(value)});
+ t.mock.timers.tick(RUNNER_CAPABILITIES_TIMEOUT_MS);
+ const status=await pending;
  assert.deepEqual(JSON.parse(logs[0]),{event:"codex_runner_status_failed",stage:"capabilities",category:"runner_unavailable",transport:"timeout"});
  assert.deepEqual(status,{state:"unavailable",label:"Runner unavailable"});
  for(const secret of secrets)assert.doesNotMatch(logs[0],new RegExp(secret));
@@ -155,11 +157,21 @@ test("auth diagnostic proxy accepts only the operational bounded shape",async()=
  await assert.rejects(new CodexRunnerClient(configuration,async()=>Response.json({...diagnostic,rawOutput:"secret"})).authEnvironmentDiagnostics(),error=>error.category==="invalid_response");
 });
 
-test("Runner timeout remains short for device start while diagnostics has a bounded 40 second override",async()=>{
+test("Runner timeout remains short for device start while readiness and active diagnostics use narrow overrides",async()=>{
  const source=await import("node:fs/promises").then(fs=>fs.readFile(new URL("../lib/codex-runner-client.ts",import.meta.url),"utf8"));
- assert.match(source,/DEFAULT_RUNNER_TIMEOUT_MS=8_000/);assert.match(source,/AUTH_DIAGNOSTICS_TIMEOUT_MS=40_000/);assert.match(source,/auth-environment\",\"GET\",AUTH_DIAGNOSTICS_TIMEOUT_MS/);assert.doesNotMatch(source,/auth\/device\/start\",\"POST\",AUTH_DIAGNOSTICS_TIMEOUT_MS/);
+ assert.equal(RUNNER_CAPABILITIES_TIMEOUT_MS,12_000);assert.match(source,/DEFAULT_RUNNER_TIMEOUT_MS=8_000/);assert.match(source,/AUTH_DIAGNOSTICS_TIMEOUT_MS=40_000/);assert.match(source,/auth-environment\",\"GET\",AUTH_DIAGNOSTICS_TIMEOUT_MS/);assert.doesNotMatch(source,/auth\/device\/start\",\"POST\",AUTH_DIAGNOSTICS_TIMEOUT_MS/);
  const client=new CodexRunnerClient({...configuration,timeoutMs:5},async(_url,options)=>new Promise((_resolve,reject)=>options.signal.addEventListener("abort",()=>reject(new Error("aborted")))));
  await assert.rejects(client.startDeviceAuth(),error=>error.category==="runner_unavailable"&&error.transport==="timeout");
+});
+
+test("capabilities can finish after eight seconds but remain bounded by their readiness deadline",async t=>{
+ t.mock.timers.enable({apis:["setTimeout"]});
+ const delayed=new CodexRunnerClient(configuration,async()=>new Promise(resolve=>setTimeout(()=>resolve(Response.json(capabilities)),8_200)));
+ const inside=delayed.capabilities();t.mock.timers.tick(8_200);
+ assert.deepEqual(await inside,{...capabilities,releaseMetadata:"current"});
+ const bounded=new CodexRunnerClient(configuration,async(_url,options)=>new Promise((_resolve,reject)=>options.signal.addEventListener("abort",()=>reject(new Error("aborted")))));
+ const outside=bounded.capabilities();t.mock.timers.tick(RUNNER_CAPABILITIES_TIMEOUT_MS);
+ await assert.rejects(outside,error=>error.category==="runner_unavailable"&&error.transport==="timeout");
 });
 
 test("diagnostics can outlive eight seconds but fail closed at forty seconds without real waiting",async t=>{

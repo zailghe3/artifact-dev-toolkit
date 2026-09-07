@@ -94,11 +94,18 @@ test("presentation models never serialize private Runner or secret inputs", () =
 });
 
 test("Runner capability evidence preserves reachability when CLI or authentication is unavailable", () => {
-  const noCodexCapabilities = { ...connection().capabilities, codexAvailable: false };
+  const noCodexCapabilities = { ...connection().capabilities, codexAvailable: false, deviceAuth: false };
   const noCodex = runner({ connection: { ...connection(), state: "unavailable", label: "Runner unavailable", capabilities: noCodexCapabilities }, capabilities: { state: "available", value: noCodexCapabilities } });
   let checks = runnerDiagnosticChecks(noCodex);
   assert.equal(checks.find(check => check.id === "runner-reachability").status.label, "Available");
+  assert.equal(checks.find(check => check.id === "runner-protocol").status.label, "Compatible");
+  assert.equal(checks.find(check => check.id === "runner-revision").status.label, "Current");
   assert.equal(checks.find(check => check.id === "runner-codex-cli").status.label, "Unavailable");
+  assert.equal(checks.find(check => check.id === "runner-revision").value, String(noCodexCapabilities.runnerRevision));
+  assert.equal(checks.find(check => check.id === "runner-codex-cli").value, noCodexCapabilities.codexVersion);
+  assert.equal(checks.find(check => check.id === "runner-device-auth").status.label, "Unavailable");
+  assert.equal(checks.find(check => check.id === "runner-job-execution").status.label, "Available");
+  assert.doesNotMatch(JSON.stringify(checks), /Runner capabilities could not be reached/);
   assert.notEqual(domain(repository(), runtime(), noCodex, "codex-runner").state, "healthy");
 
   const authUnknown = runner({ connection: { ...connection(), state: "unavailable", label: "Auth unavailable" }, authentication: { state: "unavailable" } });
