@@ -9,6 +9,7 @@ import {join} from "node:path";
 export interface AccountSnapshot {connected:boolean;authMode?:string;planType?:string;runtime:"app-server-ready"}
 export interface DeviceCeremony {loginId:string;verificationUrl:string;userCode:string}
 export type CodexTestFailureReason="codex_not_connected"|"app_server_unavailable"|"thread_start_failed"|"turn_start_failed"|"turn_failed"|"timeout"|"unexpected_output"|"unexpected_tool_activity"|"test_in_progress";
+export const APP_SERVER_REQUEST_TIMEOUT_MS=8_000;
 export type CodexTestResult={ok:true;durationMs:number}|{ok:false;reason:CodexTestFailureReason};
 export interface SafeCodexModel{id:string;threadModel:string;displayName:string;isDefault:boolean;defaultReasoningEffort:string;supportedReasoningEfforts:{reasoningEffort:string;description:string}[]}
 export type WorkflowTurnResult={ok:true;outputText:string;threadId:string;turnId:string}|{ok:false;reason:"runner_restarted"|"thread_start_failed"|"turn_start_failed"|"turn_failed"|"interaction_required"|"output_too_large";threadId?:string;turnId?:string};
@@ -51,7 +52,7 @@ export class StdioAppServerClient implements AppServerClient{
   private turnLifecycle?:{threadId:string;turnId?:string;agentText?:string;tool:boolean;resolve:(result:"completed"|"failed"|"tool")=>void};
   private testRunning=false;
   private workflowLifecycle?:{threadId:string;turnId?:string;agentText?:string;onActivity?:(category:"model"|"tool"|"interaction")=>void;resolve:(result:"completed"|"failed"|"interaction")=>void};
-  constructor(private readonly command="codex",private readonly runnerVersion="development",private readonly timeoutMs=8_000,private readonly spawnProcess:Spawn=spawn,private readonly healthTimeoutMs=52_000,private readonly cleanupReserveMs=2_000,private readonly configOverrides:string[]=[]){ }
+  constructor(private readonly command="codex",private readonly runnerVersion="development",private readonly timeoutMs=APP_SERVER_REQUEST_TIMEOUT_MS,private readonly spawnProcess:Spawn=spawn,private readonly healthTimeoutMs=52_000,private readonly cleanupReserveMs=2_000,private readonly configOverrides:string[]=[]){ }
 
   async readiness(){try{await this.ready();return true}catch{return false}}
   status(){return this.afterReady("account/read",{refreshToken:false})}

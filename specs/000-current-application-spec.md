@@ -104,7 +104,7 @@
 - Runtime and Runner readiness diagnostics remain bounded, exclude secrets and private Runner information, and do not invoke a provider or start model-directed execution.
 - An authorised user may explicitly run a non-mutating Runtime execution-path diagnostic that reports checkpoint, graph-node, and optional Artifact Search callback reachability, narrow-authority acceptance, and required control-plane backend availability. Passive page loading never starts this diagnostic, and its ephemeral result does not change overall health.
 - Overall health includes required ADT Runtime configuration and current Workflow graph capability, while an intentionally unconfigured optional Codex Runner does not make the application unhealthy.
-- Codex Runner overview health uses short, passive readiness observations and stops after a failed basic connection probe. Deeper authentication-environment connectivity diagnostics run only when an authorised user explicitly requests them.
+- Codex Runner overview health uses short, passive readiness observations and stops after a failed basic connection probe. A valid capability response preserves Runner reachability even when Codex is unavailable. Deeper authentication-environment connectivity diagnostics run only when an authorised user explicitly requests them.
 - Detailed Codex Runner operational controls and explicit functional testing remain separate from the unified diagnostics overview.
 - Diagnostics is observational unless the user explicitly invokes a supported active action such as catalogue refresh or the non-mutating Runtime execution-path test.
 - Operational states distinguish healthy, degraded, unavailable, unauthorised, misconfigured, and invalid-content conditions where relevant.
