@@ -84,7 +84,8 @@ test("safe Runner collector isolates read-only observations and never invokes fu
   const called = [], client = { capabilities: async () => connection().capabilities, authStatus: async () => ({ connected: true }), controlStatus: async () => { called.push("controlStatus"); throw Error("private"); }, environments: async () => { called.push("environments"); return []; }, jobs: async limit => { called.push(`jobs:${limit}`); return { capacity: { maxActive: 1, activeJobId: null }, jobs: [] }; }, authEnvironmentDiagnostics: async () => { called.push("authEnvironmentDiagnostics"); return authEnvironment; }, workspaceDiagnostics: async () => { throw Error("unused"); }, sandboxDiagnostics: async () => { throw Error("unused"); }, testCodex: async () => { called.push("testCodex"); }, emergencyStop: async () => { called.push("emergencyStop"); } };
   const result = await collectSafeRunnerDiagnostics({ clientFactory: () => client, logger: () => {} });
   assert.equal(result.control.state, "unavailable"); assert.equal(result.jobs.state, "available");
-  assert.deepEqual(called.sort(), ["authEnvironmentDiagnostics", "controlStatus", "environments", "jobs:5"].sort());
+  assert.equal(result.authEnvironment.state, "not-observed");
+  assert.deepEqual(called.sort(), ["controlStatus", "environments", "jobs:5"].sort());
 });
 
 test("presentation models never serialize private Runner or secret inputs", () => {
@@ -127,6 +128,24 @@ test("Runner Healthy readiness requires at least one enabled ready environment",
   assert.equal(domain(repository(), runtime(), healthy, "codex-runner").state, "healthy");
 });
 
+test("intentionally unobserved active auth diagnostics do not degrade passive Runner or overall health", () => {
+  const passive = runner({ authEnvironment: { state: "not-observed" } });
+  const checks = runnerDiagnosticChecks(passive);
+  assert.equal(checks.some(check => check.id === "runner-auth-environment"), false);
+  assert.equal(domain(repository(), runtime(), passive, "codex-runner").state, "healthy");
+  assert.equal(operationalOverall(deriveOperationalDomains(repository(), runtime(), passive, true)).state, "healthy");
+
+  const failedObservation = runner({ authEnvironment: { state: "unavailable" } });
+  const failedCheck = runnerDiagnosticChecks(failedObservation).find(check => check.id === "runner-auth-environment");
+  assert.equal(failedCheck.status.label, "Unknown");
+  assert.equal(failedCheck.status.tone, "warning");
+  assert.equal(domain(repository(), runtime(), failedObservation, "codex-runner").state, "degraded");
+
+  const activeCheck = runnerDiagnosticChecks(runner()).find(check => check.id === "runner-auth-environment");
+  assert.equal(activeCheck.status.label, "Ready");
+  assert.equal(activeCheck.status.tone, "positive");
+});
+
 test("auth-environment health requires a viable bounded TLS route and readable configured CA", () => {
   assert.equal(authEnvironmentStatusPresentation(authEnvironment).tone, "positive");
   assert.equal(authEnvironmentStatusPresentation({ ...authEnvironment, ipv6Available: true, ipv4TlsConnectivity: "failed", ipv6TlsConnectivity: "failed", deviceAuthRoute: { responseReceived: false } }).tone, "negative");
@@ -156,9 +175,9 @@ test("safe Runner collector retains capability and other observations when auth 
   assert.equal(result.control.state, "available");
   assert.equal(result.environments.state, "available");
   assert.equal(result.jobs.state, "available");
-  assert.equal(result.authEnvironment.state, "available");
+  assert.equal(result.authEnvironment.state, "not-observed");
   assert.doesNotMatch(JSON.stringify({ result, logs }), /private auth body/);
-  assert.deepEqual(calls.sort(), ["auth-environment", "control", "environments", "jobs"].sort());
+  assert.deepEqual(calls.sort(), ["control", "environments", "jobs"].sort());
 });
 
 test("unified Runner collection probes sandbox only for known integrated enabled environments", async () => {
@@ -195,10 +214,17 @@ test("unified Runner collection probes sandbox only for known integrated enabled
 });
 
 test("capability failure classification preserves protocol response and transport semantics", async () => {
-  const collect = async error => collectSafeRunnerDiagnostics({ clientFactory: () => ({ capabilities: async () => { throw error; }, authStatus: async () => { throw Error("must not run"); }, controlStatus: async () => runner().control.value, environments: async () => [], workspaceDiagnostics: async () => { throw Error("unused"); }, sandboxDiagnostics: async () => { throw Error("must not run"); }, jobs: async () => runner().jobs.value, authEnvironmentDiagnostics: async () => authEnvironment }), logger: () => {} });
+  const collect = async error => {
+    const calls = [];
+    const result = await collectSafeRunnerDiagnostics({ clientFactory: () => ({ capabilities: async () => { calls.push("capabilities"); throw error; }, authStatus: async () => { calls.push("auth"); throw Error("must not run"); }, controlStatus: async () => { calls.push("control"); return runner().control.value; }, environments: async () => { calls.push("environments"); return []; }, workspaceDiagnostics: async () => { calls.push("workspace"); throw Error("must not run"); }, sandboxDiagnostics: async () => { calls.push("sandbox"); throw Error("must not run"); }, jobs: async () => { calls.push("jobs"); return runner().jobs.value; }, authEnvironmentDiagnostics: async () => { calls.push("auth-environment"); return authEnvironment; } }), logger: () => {} });
+    assert.deepEqual(calls, ["capabilities"]);
+    assert.equal(result.authEnvironment.state, "not-observed");
+    return result;
+  };
   const update = await collect(new CodexRunnerError("runner_update_required"));
   let checks = runnerDiagnosticChecks(update);
   assert.equal(update.capabilities.reason, "update-required");
+  assert.equal(update.connection.state, "update-required");
   assert.equal(checks.find(check => check.id === "runner-reachability").status.label, "Available");
   assert.equal(checks.find(check => check.id === "runner-protocol").status.label, "Update required");
   const transport = await collect(new CodexRunnerError("runner_unavailable", "timeout"));
@@ -206,4 +232,12 @@ test("capability failure classification preserves protocol response and transpor
   assert.equal(transport.capabilities.reason, "unreachable");
   assert.equal(checks.find(check => check.id === "runner-reachability").status.label, "Unavailable");
   assert.equal(checks.find(check => check.id === "runner-protocol").status.label, "Unknown");
+});
+
+test("failed Runner capabilities degrade the overall diagnostics model without blocking safe fallback checks", async () => {
+  const unavailable = await collectSafeRunnerDiagnostics({ clientFactory: () => ({ capabilities: async () => { throw new CodexRunnerError("runner_unavailable", "timeout"); } }), logger: () => {} });
+  const runnerDomain = domain(repository(), runtime(), unavailable, "codex-runner");
+  assert.equal(runnerDomain.state, "failed");
+  assert.equal(runnerDomain.checks.find(check => check.id === "runner-reachability").status.label, "Unavailable");
+  assert.ok(runnerDomain.checks.length > 1);
 });

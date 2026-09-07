@@ -129,8 +129,8 @@ export function runnerDiagnosticChecks(runner: SafeRunnerDiagnostics): Diagnosti
     const activeId = runner.jobs.value.capacity.activeJobId, active = activeId ? runner.jobs.value.jobs.find(job => job.jobId === activeId) : undefined;
     checks.push({ id: "runner-operations", label: "Current operations", status: status(active ? "Active" : "Idle", "positive"), value: active ? `${active.state} · ${active.environmentKey}` : `${runner.jobs.value.jobs.length} recent job(s)` });
   }
-  if (runner.authEnvironment.state !== "available") checks.push({ id: "runner-auth-environment", label: "Auth environment", status: status("Unknown", "warning") });
-  else {
+  if (runner.authEnvironment.state === "unavailable") checks.push({ id: "runner-auth-environment", label: "Auth environment", status: status("Unknown", "warning") });
+  else if (runner.authEnvironment.state === "available") {
     const auth = runner.authEnvironment.value;
     checks.push({ id: "runner-auth-environment", label: "Auth environment", status: authEnvironmentStatusPresentation(auth), value: `App Server ${auth.codexAppServerReady ? "ready" : "unavailable"} · TLS ${auth.ipv4TlsConnectivity === "ok" || auth.ipv6TlsConnectivity === "ok" ? "verified" : "unavailable"} · Route ${auth.deviceAuthRoute.responseReceived ? "observed" : "unavailable"} · CA ${auth.systemCaBundleReadable && auth.systemCaBundleNonEmpty && (auth.customCaSource === "none" || auth.customCaFileReadable) ? "ready" : "unavailable"}` });
   }
