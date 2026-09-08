@@ -29,6 +29,7 @@ runner_state_volume="${container_name}-runner-state"
 key_directory=$(mktemp -d)
 signing_key="$key_directory/signing-key.pem"
 verifying_key="$key_directory/verifying-key.pem"
+canonical_request="$key_directory/canonical-request"
 
 cleanup() {
   docker rm -f "$container_name" >/dev/null 2>&1 || true
@@ -215,8 +216,10 @@ for _attempt in {1..20}; do
   timestamp=$(date +%s%3N)
   nonce=$(openssl rand -hex 24)
   empty_digest=$(printf '' | sha256sum | cut -d' ' -f1)
-  canonical=$(printf 'adt-executor-v1\nGET\n/internal/v1/status\n%s\n%s\n%s' "$timestamp" "$nonce" "$empty_digest")
-  signature=$(printf '%s' "$canonical" | openssl pkeyutl -sign -rawin -inkey "$signing_key" | openssl base64 -A | tr '+/' '-_' | tr -d '=')
+  printf 'adt-executor-v1\nGET\n/internal/v1/status\n%s\n%s\n%s' \
+    "$timestamp" "$nonce" "$empty_digest" > "$canonical_request"
+  signature=$(openssl pkeyutl -sign -rawin -in "$canonical_request" -inkey "$signing_key" \
+    | openssl base64 -A | tr '+/' '-_' | tr -d '=')
   status=$(curl --fail --silent --max-time 2 \
     -H "X-Codex-Executor-Timestamp: $timestamp" \
     -H "X-Codex-Executor-Nonce: $nonce" \

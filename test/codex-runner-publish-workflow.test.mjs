@@ -81,6 +81,8 @@ test('shared smoke proves signed executor-role App Server readiness without weak
   assert.match(smoke, /CODEX_RUNNER_EXECUTOR_VERIFYING_PUBLIC_KEY_FILE/);
   assert.match(smoke, /openssl genpkey -algorithm ED25519/);
   assert.match(smoke, /adt-executor-v1\\nGET\\n\/internal\/v1\/status/);
+  assert.match(smoke, /openssl pkeyutl -sign -rawin -in "\$canonical_request" -inkey "\$signing_key"/);
+  assert.doesNotMatch(smoke, /printf '%s' "\$canonical" \| openssl pkeyutl/);
   assert.match(smoke, /\.healthy == true[\s\S]*\.boundary == "container"/);
   assert.match(smoke, /HTTP_PROXY=http:\/\/127\.0\.0\.1:9/);
   assert.doesNotMatch(smoke, /--privileged|--cap-add|SYS_ADMIN|--network host|docker\.sock|seccomp=unconfined|apparmor=unconfined/);
