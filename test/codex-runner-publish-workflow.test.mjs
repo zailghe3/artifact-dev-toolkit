@@ -25,9 +25,9 @@ test('publication prepares both dependency graphs before testing merged Runner s
   assert.ok(runnerTest < buildAndSmoke && buildAndSmoke < login);
 });
 
-test('trusted publication exclusively owns the Runner image smoke', () => {
-  assert.equal(verify.match(invocation)?.length ?? 0, 0);
-  assert.doesNotMatch(verify, /docker build[^\n]*codex-runner|adt-codex-runner|codex-runner\/scripts\/smoke-image\.sh/);
+test('pull-request verification and trusted publication share the Runner image smoke', () => {
+  assert.equal(verify.match(invocation)?.length, 1);
+  assert.match(verify, /docker build[^\n]*adt-codex-runner:pr-verified codex-runner/);
   assert.match(verify, /docker build[^\n]*adt-runtime/);
   assert.equal(publish.match(invocation)?.length, 1);
   assert.doesNotMatch(verify, /\/v1\/(?:capabilities|auth\/status)/);
@@ -53,7 +53,10 @@ test('shared smoke waits independently for HTTP and Codex readiness', () => {
   assert.doesNotMatch(smoke, /expected_(?:codex_version|runner_revision)=/);
   assert.match(smoke, /node dist\/validate-device-auth-schema\.js codex/);
   assert.match(smoke, /CODEX_RUNNER_SHARED_SECRET_FILE=\/run\/secrets\/runner/);
-  assert.doesNotMatch(smoke, /CODEX_HOME/);
+  assert.match(smoke, /--read-only/);
+  assert.match(smoke, /--cap-drop ALL/);
+  assert.match(smoke, /codex_home_volume/);
+  assert.match(smoke, /test -s "\$CODEX_HOME\/installation_id"/);
   assert.match(smoke, /http_healthy=false[\s\S]*for _attempt in \{1\.\.20\}[\s\S]*http_healthy=true/);
   assert.match(smoke, /codex_ready=false[\s\S]*for _attempt in \{1\.\.20\}[\s\S]*\/v1\/capabilities[\s\S]*codex_ready=true/);
   assert.match(smoke, /\.protocolVersion == \$release\.protocolVersion/);
@@ -71,4 +74,18 @@ test('shared smoke never initiates authentication', () => {
   for (const source of [smoke, verify, publish]) {
     assert.doesNotMatch(source, /\/v1\/auth\/device\/start|chatgptDeviceCode|device-code|openai\.com/);
   }
+});
+
+test('shared smoke proves signed executor-role App Server readiness without weakening isolation', () => {
+  assert.match(smoke, /CODEX_RUNNER_ROLE=executor/);
+  assert.match(smoke, /CODEX_RUNNER_EXECUTOR_VERIFYING_PUBLIC_KEY_FILE/);
+  assert.match(smoke, /openssl genpkey -algorithm ED25519/);
+  assert.match(smoke, /adt-executor-v1\\nGET\\n\/internal\/v1\/status/);
+  assert.match(smoke, /openssl pkeyutl -sign -rawin -in "\$canonical_request" -inkey "\$signing_key"/);
+  assert.doesNotMatch(smoke, /printf '%s' "\$canonical" \| openssl pkeyutl/);
+  assert.match(smoke, /\.healthy == true[\s\S]*\.boundary == "container"/);
+  assert.match(smoke, /HTTP_PROXY=http:\/\/127\.0\.0\.1:9/);
+  assert.doesNotMatch(smoke, /--privileged|--cap-add|SYS_ADMIN|--network host|docker\.sock|seccomp=unconfined|apparmor=unconfined/);
+  const executorRun=smoke.slice(smoke.indexOf('docker run -d --name "$container_name" --read-only',smoke.indexOf('CODEX_RUNNER_ROLE=executor')-500));
+  assert.doesNotMatch(executorRun,/CODEX_RUNNER_SHARED_SECRET|signing-key\.pem:|\/data\/runner|runner_state_volume/);
 });

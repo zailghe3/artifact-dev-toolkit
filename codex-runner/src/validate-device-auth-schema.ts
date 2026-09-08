@@ -10,7 +10,7 @@ export interface SchemaDocument {filename:string;schema:unknown}
 
 function object(value:unknown):value is Schema{return typeof value==="object"&&value!==null&&!Array.isArray(value)}
 function normalize(documents:unknown[]):SchemaDocument[]{return documents.map((value,index)=>object(value)&&typeof value.filename==="string"&&"schema" in value?{filename:value.filename,schema:value.schema}:{filename:`document-${index}.json`,schema:value})}
-function documentWithTitle(documents:SchemaDocument[],title:string){return documents.find(document=>object(document.schema)&&document.schema.title===title)}
+function documentWithTitle(documents:SchemaDocument[],title:string){const matches=documents.filter(document=>object(document.schema)&&document.schema.title===title);return matches.find(document=>document.filename.startsWith("v2/"))??matches[0]}
 function properties(schema:unknown){return object(schema)&&object(schema.properties)?schema.properties:undefined}
 function required(schema:unknown,name:string){return object(schema)&&Array.isArray(schema.required)&&schema.required.includes(name)}
 
@@ -123,14 +123,14 @@ export function validateDeviceAuthSchemas(input:unknown[]){
  return true;
 }
 
-/** Build-time guard for the narrow Codex 0.147 health-turn wire contract. */
+/** Build-time guard for the narrow Codex 0.153.4 health-turn wire contract. */
 export function validateCodexTestSchemas(input:unknown[]){
  const documents=normalize(input),client=documentWithTitle(documents,"ClientRequest"),notifications=documentWithTitle(documents,"ServerNotification");
  if(!client||!notifications)throw new Error("codex_test_schema_missing_routes");
  const routed=(document:SchemaDocument,method:string)=>{const branch=requestBranch(document,method),params=branch&&branchParams(document,branch);if(!params)throw new Error(`codex_test_schema_missing_route_${method}`);return params};
  const accepts=(document:SchemaDocument,schema:unknown,value:string,depth=0):boolean=>depth<4&&resolvedVariants(document,schema).some(variant=>{const resolved=resolveSchema(document,variant);return Boolean(resolved&&(Array.isArray(resolved.enum)&&resolved.enum.includes(value)||accepts(document,resolved,value,depth+1)))});
  const thread=routed(client,"thread/start"),threadProps=properties(thread);
- if(!threadProps||!supportsProperties(thread,["cwd","approvalPolicy","sandbox","ephemeral","model"])||!schemaAcceptsType(client,threadProps.cwd,"string")||!accepts(client,threadProps.approvalPolicy,"never")||!accepts(client,threadProps.sandbox,"read-only")||!accepts(client,threadProps.sandbox,"workspace-write")||!schemaAcceptsType(client,threadProps.ephemeral,"boolean")||required(thread,"model"))throw new Error("codex_test_schema_missing_thread_contract");
+ if(!threadProps||!supportsProperties(thread,["cwd","approvalPolicy","sandbox","ephemeral","model"])||!schemaAcceptsType(client,threadProps.cwd,"string")||!accepts(client,threadProps.approvalPolicy,"never")||!accepts(client,threadProps.sandbox,"read-only")||!accepts(client,threadProps.sandbox,"workspace-write")||!accepts(client,threadProps.sandbox,"danger-full-access")||!schemaAcceptsType(client,threadProps.ephemeral,"boolean")||required(thread,"model"))throw new Error("codex_test_schema_missing_thread_contract");
  const turn=routed(client,"turn/start"),turnProps=properties(turn),inputSchema=turnProps&&resolveSchema(client,turnProps.input),textInput=inputSchema&&inputSchema.items,textVariant=textInput&&discriminatorVariant(client,textInput,"type","text"),textProps=(textVariant&&properties(textVariant)) as Record<string,unknown>|undefined;
  if(!turnProps||!required(turn,"threadId")||!schemaAcceptsType(client,turnProps.threadId,"string")||!required(turn,"input")||!inputSchema||!schemaAcceptsType(client,inputSchema,"array")||!textVariant||!required(textVariant,"text")||!textProps||!schemaAcceptsType(client,textProps["text"],"string")||!schemaAcceptsType(client,turnProps.effort,"string"))throw new Error("codex_test_schema_missing_turn_contract");
  const modelList=routed(client,"model/list"),modelListProps=properties(modelList);
