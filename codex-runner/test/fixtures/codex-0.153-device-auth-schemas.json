@@ -1,5 +1,5 @@
 {
-  "$comment": "Curated from rust-v0.147.0 codex-rs/app-server-protocol/schema/json/{ClientRequest,LoginAccountParams,LoginAccountResponse}.json; intentionally only the ADT auth relationships are retained.",
+  "$comment": "Curated from rust-v0.153.4 codex-rs/app-server-protocol/schema/json/{ClientRequest,LoginAccountParams,LoginAccountResponse}.json; intentionally only the ADT auth relationships are retained.",
   "documents": [
     {
       "filename": "ClientRequest.json",

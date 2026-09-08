@@ -4,7 +4,7 @@ The ADT Codex Runner is an independently deployed, shared-secret-protected bridg
 
 The packaged Codex binary is an experimental GNU/glibc build. It is neither release-equivalent nor an OpenAI-published GNU prebuilt artifact.
 
-`release.json` is the canonical source for the packaged Codex version, protocol version, and Runner revision. Build and protocol implementation details remain authoritative in source, tests, and publication workflows.
+`release.json` is the canonical source for the packaged Codex version, currently 0.153.4, protocol version, and Runner revision. Build and protocol implementation details remain authoritative in source, tests, and publication workflows.
 
 ## Runtime roles and Swarm boundary
 
@@ -20,7 +20,7 @@ Generate the pair outside the stack with `openssl genpkey -algorithm ED25519 -ou
 
 Internal responses are byte-bounded and exact-shape validated. Executor transport loss, a missing ephemeral execution, or a changed generation reconciles the existing controller job durably as `runner_restarted`; it does not mark controller storage unhealthy. Capacity is released only after that terminal record is written, so a healthy replacement executor can accept later work without restarting the controller while idempotent lookup continues to return the original record.
 
-Codex 0.147.0's generated `ThreadStartParams` fixture in this repository explicitly defines `danger-full-access` in `SandboxMode`. Only the executor maps an admitted `workspace-write` environment to that value, always with approval policy `never`. Bubblewrap is intentionally not nested in split Swarm mode because Swarm cannot apply the per-service unconfined settings needed for nested namespaces. Docker's normal seccomp/AppArmor policy, capabilities, mounts, service identity, and network topology are the execution boundary. Do not set `CODEX_UNSAFE_ALLOW_NO_SANDBOX`, privileged mode, `SYS_ADMIN`, unconfined node policy, or mount the Docker socket.
+Codex 0.153.4's generated `ThreadStartParams` schema explicitly defines `danger-full-access` in `SandboxMode`. Only the executor maps an admitted `workspace-write` environment to that value, always with approval policy `never`. This is intentional: the executor container is the split-mode sandbox boundary, with workspace access constrained by mounts and canonical path/readiness validation. Successful Bubblewrap initialization is not required in split mode; Codex's native sandbox remains the boundary in integrated mode. Do not enable legacy Landlock as part of this release, set `CODEX_UNSAFE_ALLOW_NO_SANDBOX`, use privileged mode, add `SYS_ADMIN`, select an unconfined node policy, or mount the Docker socket.
 
 Executor App Server launches apply Runner-owned highest-precedence overrides: login shells and web search are disabled, inherited command environment is empty, and an explicit allowlist restores only core command variables plus validated HTTP(S)/all/no-proxy settings from the executor deployment. Secret-, token-, key-, password-, credential-, and auth-like names remain excluded, and repository configuration cannot loosen these launch overrides.
 
@@ -41,7 +41,7 @@ The accepted residual risk is that commands with executor full access can read C
 
 `internal: true` disables external routing for an overlay. It is unrelated to Compose `external: true`, which says that the network lifecycle is operator-owned. The controller alias `codex-runner` lets an existing tunnel origin such as `codex-runner:8789` continue to resolve after migration. Executor and proxy ports are not published.
 
-The repository-owned `squid.conf` allows public HTTP(S) only after destination-address ACLs reject loopback, carrier-grade NAT, RFC1918, link-local, documentation, multicast, reserved, unique-local IPv6, and IPv6 link-local targets. This supports OpenAI, GitHub, package registries, and ordinary public development sites without giving the executor a direct uplink. Access logging is disabled so URLs, queries, and credentials are not intentionally recorded. Use the trusted publication image `poulti/adt-codex-runner:<merged Git SHA>` for both controller and executor. The example keeps finite executor CPU, memory, and PID limits, a read-only root filesystem, and bounded writable temporary filesystems; operators may tune the finite limits but must not remove them. The proxy is itself trusted: application policy does not protect against compromise of the proxy process.
+The repository-owned Squid service remains the external egress enforcement layer. Its `squid.conf` allows public HTTP(S) only after destination-address ACLs reject loopback, carrier-grade NAT, RFC1918, link-local, documentation, multicast, reserved, unique-local IPv6, and IPv6 link-local targets. This supports OpenAI, GitHub, package registries, and ordinary public development sites without giving the executor a direct uplink. Access logging is disabled so URLs, queries, and credentials are not intentionally recorded. Use the trusted publication image `poulti/adt-codex-runner:<merged Git SHA>` for both controller and executor. The example keeps finite executor CPU, memory, and PID limits, a read-only root filesystem, and bounded writable temporary filesystems; operators may tune the finite limits but must not remove them. The proxy is itself trusted: application policy does not protect against compromise of the proxy process.
 
 Broad public proxy access permits data exfiltration and is not a data-loss-prevention boundary. Because full-access commands can read `CODEX_HOME`, that exposure is an accepted residual risk for this iteration. Additional egress restriction requires an explicit operator policy change.
 
@@ -85,7 +85,7 @@ A Runner environment is a pre-provisioned workspace.
 
 ## Authentication and readiness
 
-- ChatGPT/Codex authentication belongs to the Runner and persists under `CODEX_HOME`.
+- ChatGPT/Codex authentication and `installation_id` belong to the executor and persist in writable `CODEX_HOME=/data/codex`; the controller must not mount that volume.
 - ADT does not store the Runner's ChatGPT/Codex credential.
 - Connection state, authentication state, model discovery, environment readiness, and job readiness are distinct conditions.
 - **Test Codex** performs a bounded authenticated model-turn health check; it is separate from normal workflow execution.
@@ -156,7 +156,7 @@ Diagnostics may report safe classifications for:
 
 Diagnostics must not expose addresses, credentials, response bodies, arbitrary headers, certificates, raw socket/TLS errors, raw App Server errors, or Codex protocol output.
 
-`GET /v1/environments/<key>/sandbox-diagnostics` runs pinned Codex 0.147's debug sandbox command with an explicit `sandbox_mode` matching the environment and a fixed `true` no-op. This direct command path has no model turn or managed permissions profile; the Runner supplies no network, Git, approval, authentication, or mutation operation. The three-second, 8 KiB byte-bounded probe is non-destructive and advisory. Its response and failure log contain only an allowlisted status, semantic reason, and a backend only when process output identifies it safely.
+`GET /v1/environments/<key>/sandbox-diagnostics` runs pinned Codex 0.153.4's debug sandbox command with an explicit `sandbox_mode` matching the environment and a fixed `true` no-op. This direct command path has no model turn or managed permissions profile; the Runner supplies no network, Git, approval, authentication, or mutation operation. The three-second, 8 KiB byte-bounded probe is non-destructive and advisory. Its response and failure log contain only an allowlisted status, semantic reason, and a backend only when process output identifies it safely.
 
 - Successful Codex authentication does not prove that local tool execution works.
 - Filesystem and Git readiness do not prove that the local execution sandbox can initialize.

@@ -64,6 +64,10 @@ jobs:
       - name: Validate Codex Runner
         working-directory: codex-runner
         run: npm test && npm run typecheck
+      - name: Build and smoke-test Codex Runner image
+        run: |
+          docker build --progress=plain --build-arg CODEX_RUNNER_VERSION="${{ inputs.ref }}" -t adt-codex-runner:pr-verified codex-runner
+          codex-runner/scripts/smoke-image.sh adt-codex-runner:pr-verified
       - name: Test control-plane and ADT Runtime integration
         run: npm run test:workflow-runtime-integration
       - name: Build and smoke-test ADT Runtime image without publishing

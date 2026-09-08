@@ -6,12 +6,12 @@ RUN npm ci
 COPY src ./src
 RUN npm run build && npm prune --omit=dev
 
-# rust-v0.147.0 dereferences to this commit. The release used Rust 1.93.1;
+# rust-v0.153.4 dereferences to this commit. The release used Rust 1.95.0;
 # compilation uses OpenAI's unchanged package builder and supported GNU target.
-FROM rust:1.93.1-bookworm AS codex-gnu-build
+FROM rust:1.95.0-bookworm AS codex-gnu-build
 COPY release.json /tmp/release.json
 ARG TARGETARCH
-ARG CODEX_SOURCE_COMMIT=be6e8eac029b183056b7e4402879f15d2c85f61b
+ARG CODEX_SOURCE_COMMIT=3d2ee51ca2d5db578f328aa75e20aa22c0197c9a
 ENV CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2
 RUN test "$TARGETARCH" = amd64 || { echo 'Codex GNU build supports linux/amd64 only' >&2; exit 1; }
 RUN apt-get update && apt-get install -y --no-install-recommends binutils git python3 pkg-config libssl-dev libcap-dev clang && rm -rf /var/lib/apt/lists/*
@@ -47,7 +47,7 @@ RUN test "$(grep -Ec '^precedence[[:space:]]+' /tmp/gai.conf)" = 5 && \
     grep -Eq '^precedence[[:space:]]+::ffff:0:0/96[[:space:]]+100$' /tmp/gai.conf && \
     ! grep -Eiq 'openai|cloudflare|([0-9]{1,3}\.){3}[0-9]{1,3}' /tmp/gai.conf && \
     install -m 0644 /tmp/gai.conf /etc/gai.conf && rm /tmp/gai.conf
-# Satisfy Codex 0.147's configured-home contract before executing the CLI.
+# Satisfy Codex 0.153.4's configured-home contract before executing the CLI.
 RUN mkdir -p /data/codex /data/runner && chown node:node /data/codex /data/runner && chmod 0700 /data/codex /data/runner && test -d /data/codex && test -d /data/runner
 # Install exactly one authoritative Codex entrypoint without executing it.
 RUN ln -s /opt/codex/bin/codex /usr/local/bin/codex && \

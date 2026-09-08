@@ -10,7 +10,7 @@ export interface SchemaDocument {filename:string;schema:unknown}
 
 function object(value:unknown):value is Schema{return typeof value==="object"&&value!==null&&!Array.isArray(value)}
 function normalize(documents:unknown[]):SchemaDocument[]{return documents.map((value,index)=>object(value)&&typeof value.filename==="string"&&"schema" in value?{filename:value.filename,schema:value.schema}:{filename:`document-${index}.json`,schema:value})}
-function documentWithTitle(documents:SchemaDocument[],title:string){return documents.find(document=>object(document.schema)&&document.schema.title===title)}
+function documentWithTitle(documents:SchemaDocument[],title:string){const matches=documents.filter(document=>object(document.schema)&&document.schema.title===title);return matches.find(document=>document.filename.startsWith("v2/"))??matches[0]}
 function properties(schema:unknown){return object(schema)&&object(schema.properties)?schema.properties:undefined}
 function required(schema:unknown,name:string){return object(schema)&&Array.isArray(schema.required)&&schema.required.includes(name)}
 
@@ -123,7 +123,7 @@ export function validateDeviceAuthSchemas(input:unknown[]){
  return true;
 }
 
-/** Build-time guard for the narrow Codex 0.147 health-turn wire contract. */
+/** Build-time guard for the narrow Codex 0.153.4 health-turn wire contract. */
 export function validateCodexTestSchemas(input:unknown[]){
  const documents=normalize(input),client=documentWithTitle(documents,"ClientRequest"),notifications=documentWithTitle(documents,"ServerNotification");
  if(!client||!notifications)throw new Error("codex_test_schema_missing_routes");

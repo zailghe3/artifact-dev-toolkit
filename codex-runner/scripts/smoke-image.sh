@@ -23,9 +23,13 @@ fi
 secret=ci-smoke-secret
 secret_file=$(mktemp)
 container_name="adt-codex-runner-smoke-${GITHUB_RUN_ID:-local}-$$"
+codex_home_volume="${container_name}-codex-home"
+runner_state_volume="${container_name}-runner-state"
 
 cleanup() {
   docker rm -f "$container_name" >/dev/null 2>&1 || true
+  docker volume rm -f "$codex_home_volume" >/dev/null 2>&1 || true
+  docker volume rm -f "$runner_state_volume" >/dev/null 2>&1 || true
   rm -f "$secret_file"
 }
 trap cleanup EXIT
@@ -75,9 +79,15 @@ docker run --rm "$image" node dist/validate-device-auth-schema.js codex
 
 printf '%s' "$secret" > "$secret_file"
 chmod 0444 "$secret_file"
-docker run -d --name "$container_name" -p 127.0.0.1::8789 \
+docker volume create "$codex_home_volume" >/dev/null
+docker volume create "$runner_state_volume" >/dev/null
+docker run -d --name "$container_name" --read-only \
+  --cap-drop ALL --tmpfs /tmp:size=268435456,mode=1777 --tmpfs /run:size=16777216,mode=0755 \
+  -p 127.0.0.1::8789 \
   -e CODEX_RUNNER_SHARED_SECRET_FILE=/run/secrets/runner \
-  -v "$secret_file:/run/secrets/runner:ro" "$image" >/dev/null
+  -v "$secret_file:/run/secrets/runner:ro" \
+  -v "$codex_home_volume:/data/codex" \
+  -v "$runner_state_volume:/data/runner" "$image" >/dev/null
 
 host_port=$(docker port "$container_name" 8789/tcp | sed -nE 's/^.*:([0-9]+)$/\1/p')
 if [[ -z "$host_port" ]]; then
@@ -118,6 +128,20 @@ for _attempt in {1..20}; do
 done
 if [[ "$codex_ready" != true ]]; then
   echo "Runner HTTP became healthy but Codex App Server did not become ready." >&2
+  exit 1
+fi
+
+# Initialization runs the real pinned App Server without inference. It must
+# persist its installation identity in the sole writable CODEX_HOME while the
+# image root remains read-only, and remain usable for the following account read.
+if ! docker exec "$container_name" sh -c '
+  test "$CODEX_HOME" = /data/codex &&
+  test -s "$CODEX_HOME/installation_id" &&
+  test -r "$CODEX_HOME/installation_id" &&
+  test -w "$CODEX_HOME/installation_id" &&
+  test -w "$CODEX_HOME"
+'; then
+  echo "Codex App Server did not establish a writable installation identity in CODEX_HOME." >&2
   exit 1
 fi
 
