@@ -75,3 +75,15 @@ test('shared smoke never initiates authentication', () => {
     assert.doesNotMatch(source, /\/v1\/auth\/device\/start|chatgptDeviceCode|device-code|openai\.com/);
   }
 });
+
+test('shared smoke proves signed executor-role App Server readiness without weakening isolation', () => {
+  assert.match(smoke, /CODEX_RUNNER_ROLE=executor/);
+  assert.match(smoke, /CODEX_RUNNER_EXECUTOR_VERIFYING_PUBLIC_KEY_FILE/);
+  assert.match(smoke, /openssl genpkey -algorithm ED25519/);
+  assert.match(smoke, /adt-executor-v1\\nGET\\n\/internal\/v1\/status/);
+  assert.match(smoke, /\.healthy == true[\s\S]*\.boundary == "container"/);
+  assert.match(smoke, /HTTP_PROXY=http:\/\/127\.0\.0\.1:9/);
+  assert.doesNotMatch(smoke, /--privileged|--cap-add|SYS_ADMIN|--network host|docker\.sock|seccomp=unconfined|apparmor=unconfined/);
+  const executorRun=smoke.slice(smoke.indexOf('docker run -d --name "$container_name" --read-only',smoke.indexOf('CODEX_RUNNER_ROLE=executor')-500));
+  assert.doesNotMatch(executorRun,/CODEX_RUNNER_SHARED_SECRET|signing-key\.pem:|\/data\/runner|runner_state_volume/);
+});

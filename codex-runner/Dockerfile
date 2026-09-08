@@ -23,7 +23,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/source/codex-rs/target \
     --mount=type=cache,target=/tmp/codex-package \
-    python3 scripts/build_codex_package.py --target x86_64-unknown-linux-gnu --cargo-profile dev-small --variant codex --package-dir /out/codex-package && \
+    CODEX_REPO_ROOT=/source python3 scripts/build_codex_package.py --target x86_64-unknown-linux-gnu --cargo-profile dev-small --variant codex --package-dir /out/codex-package && \
     python3 -c 'import json; p=json.load(open("/out/codex-package/codex-package.json")); expected={"layoutVersion":1,"version":json.load(open("/tmp/release.json"))["codexVersion"],"target":"x86_64-unknown-linux-gnu","variant":"codex","entrypoint":"bin/codex"}; assert all(p.get(k)==v for k,v in expected.items()), "invalid Codex package metadata"' && \
     test -x /out/codex-package/bin/codex && test -d /out/codex-package/codex-resources && test -d /out/codex-package/codex-path && \
     readelf -l /out/codex-package/bin/codex | grep -Eq 'Requesting program interpreter: .*/ld-linux-x86-64\.so\.2' && \

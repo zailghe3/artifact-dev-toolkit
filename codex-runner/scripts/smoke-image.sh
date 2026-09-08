@@ -24,12 +24,18 @@ secret=ci-smoke-secret
 secret_file=$(mktemp)
 container_name="adt-codex-runner-smoke-${GITHUB_RUN_ID:-local}-$$"
 codex_home_volume="${container_name}-codex-home"
+executor_codex_home_volume="${container_name}-executor-codex-home"
 runner_state_volume="${container_name}-runner-state"
+key_directory=$(mktemp -d)
+signing_key="$key_directory/signing-key.pem"
+verifying_key="$key_directory/verifying-key.pem"
 
 cleanup() {
   docker rm -f "$container_name" >/dev/null 2>&1 || true
   docker volume rm -f "$codex_home_volume" >/dev/null 2>&1 || true
+  docker volume rm -f "$executor_codex_home_volume" >/dev/null 2>&1 || true
   docker volume rm -f "$runner_state_volume" >/dev/null 2>&1 || true
+  rm -rf "$key_directory"
   rm -f "$secret_file"
 }
 trap cleanup EXIT
@@ -162,5 +168,78 @@ if ! jq -e 'keys == ["environments"] and .environments == []' >/dev/null 2>&1 <<
 fi
 if ! docker exec "$container_name" sh -c 'test "$(id -u)" = "1000" && test -d /data/runner && test -r /data/runner && test -w /data/runner && test -x /data/runner && test "$(stat -c %a /data/runner)" = "700"'; then
   echo "Runner state directory is not securely writable by the runtime user." >&2
+  exit 1
+fi
+
+# Exercise the production executor construction path, including its immutable
+# Codex configuration overrides. The private key remains on the host; only the
+# verifying key is mounted into the executor.
+docker rm -f "$container_name" >/dev/null
+docker volume create "$executor_codex_home_volume" >/dev/null
+openssl genpkey -algorithm ED25519 -out "$signing_key" >/dev/null 2>&1
+openssl pkey -in "$signing_key" -pubout -out "$verifying_key" >/dev/null 2>&1
+chmod 0444 "$verifying_key"
+docker run -d --name "$container_name" --read-only \
+  --cap-drop ALL --tmpfs /tmp:size=268435456,mode=1777 --tmpfs /run:size=16777216,mode=0755 \
+  -p 127.0.0.1::8790 \
+  -e CODEX_RUNNER_ROLE=executor -e PORT=8790 \
+  -e CODEX_RUNNER_EXECUTOR_VERIFYING_PUBLIC_KEY_FILE=/run/config/executor-verifying-public-key.pem \
+  -e CODEX_RUNNER_WORKSPACE_ROOT=/workspaces \
+  -e HTTP_PROXY=http://127.0.0.1:9 -e HTTPS_PROXY=http://127.0.0.1:9 -e ALL_PROXY=http://127.0.0.1:9 \
+  -e NO_PROXY=localhost,127.0.0.1,codex-runner-controller,codex-runner-executor \
+  -v "$verifying_key:/run/config/executor-verifying-public-key.pem:ro" \
+  -v "$executor_codex_home_volume:/data/codex" "$image" >/dev/null
+
+executor_port=$(docker port "$container_name" 8790/tcp | sed -nE 's/^.*:([0-9]+)$/\1/p')
+if [[ -z "$executor_port" ]]; then
+  echo "Docker did not publish the executor smoke port." >&2
+  exit 1
+fi
+executor_url="http://127.0.0.1:$executor_port"
+executor_http=false
+for _attempt in {1..20}; do
+  if curl --fail --silent --show-error --max-time 2 "$executor_url/health" \
+    | jq -e '.ok == true and .role == "executor" and (.generation | test("^[0-9a-f-]{36}$"))' >/dev/null 2>&1; then
+    executor_http=true
+    break
+  fi
+  sleep 1
+done
+if [[ "$executor_http" != true ]]; then
+  echo "Executor HTTP did not become healthy." >&2
+  exit 1
+fi
+
+executor_ready=false
+for _attempt in {1..20}; do
+  timestamp=$(date +%s%3N)
+  nonce=$(openssl rand -hex 24)
+  empty_digest=$(printf '' | sha256sum | cut -d' ' -f1)
+  canonical=$(printf 'adt-executor-v1\nGET\n/internal/v1/status\n%s\n%s\n%s' "$timestamp" "$nonce" "$empty_digest")
+  signature=$(printf '%s' "$canonical" | openssl pkeyutl -sign -rawin -inkey "$signing_key" | openssl base64 -A | tr '+/' '-_' | tr -d '=')
+  status=$(curl --fail --silent --max-time 2 \
+    -H "X-Codex-Executor-Timestamp: $timestamp" \
+    -H "X-Codex-Executor-Nonce: $nonce" \
+    -H "X-Codex-Executor-Signature: $signature" \
+    "$executor_url/internal/v1/status" || true)
+  if jq -e '
+    (.generation | test("^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")) and
+    .healthy == true and .activeExecutionId == null and .activity == null and
+    .boundary == "container"
+  ' >/dev/null 2>&1 <<< "$status"; then
+    executor_ready=true
+    break
+  fi
+  sleep 1
+done
+if [[ "$executor_ready" != true ]]; then
+  echo "Executor HTTP became reachable but its Codex App Server did not become ready." >&2
+  exit 1
+fi
+if ! docker exec "$container_name" sh -c '
+  test "$CODEX_HOME" = /data/codex && test -s "$CODEX_HOME/installation_id" &&
+  test -r "$CODEX_HOME/installation_id" && test -w "$CODEX_HOME/installation_id" && test -w "$CODEX_HOME"
+'; then
+  echo "Executor Codex App Server cannot use its writable CODEX_HOME." >&2
   exit 1
 fi
