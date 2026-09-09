@@ -269,9 +269,11 @@
 ## Managed Codex repository publication
 
 - A Codex Runner Agent may opt into a trusted managed Git environment.
-- Every new managed task starts in an isolated worktree pinned to the latest configured base commit observed at admission.
-- Refreshing the base never mutates an active task worktree.
-- Repository identity, base branch, task branch, and worktree location are not model-selected.
+- Every new managed task starts in an isolated checkout pinned to the latest configured base commit observed at admission.
+- Repository mirrors, Git control data, and durable task authority live in repository-manager-private storage that the executor cannot mount; executor-visible task files are never consulted as repository or remote authority by a credentialed Git process.
+- Refreshing the base never mutates an active task checkout.
+- Repository identity, base branch, task branch, continuation branch, and checkout location are not model-selected.
+- A Publish GitHub PR block may follow its configured managed Codex Agent and creates or updates the persisted ADT-managed draft or ready pull request; later managed tasks may continue only that validated association.
 - Codex never receives a GitHub installation credential.
 - A completed managed task may be committed and pushed only through the trusted repository manager.
 - ADT creates or updates only the associated ADT-owned pull-request branch in the authorised repository.

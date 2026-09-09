@@ -37,7 +37,7 @@ Next.js -> OpenNext -> Cloudflare Worker
     +--> independently deployed Codex Runner
             - ADT-facing controller and durable job/control state
             - isolated Codex executor and operator-provisioned or managed workspaces
-            - internal repository manager for Git synchronization, worktrees, and authenticated branch publication
+            - internal repository manager for Git synchronization, isolated task checkouts, and authenticated branch publication
             - trusted egress proxy between executor and public Internet
 ```
 

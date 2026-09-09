@@ -24,7 +24,7 @@ export const openAIResponsesOptionsSchema=z.object({reasoningEffort:z.enum(["non
 export const AGENT_EXECUTION_TIMEOUT_DEFAULT_SECONDS=30,AGENT_EXECUTION_TIMEOUT_MIN_SECONDS=5,AGENT_EXECUTION_TIMEOUT_MAX_SECONDS=120;
 export const openAIAgentsOptionsSchema=openAIResponsesOptionsSchema.extend({executionTimeoutSeconds:z.number().int().min(AGENT_EXECUTION_TIMEOUT_MIN_SECONDS).max(AGENT_EXECUTION_TIMEOUT_MAX_SECONDS).optional()});
 export function agentExecutionTimeoutSeconds(options:unknown){return openAIAgentsOptionsSchema.parse(options??{}).executionTimeoutSeconds??AGENT_EXECUTION_TIMEOUT_DEFAULT_SECONDS}
-export const codexRunnerOptionsSchema=z.object({environmentKey:z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(80),model:z.string().min(1).max(120).optional(),reasoningEffort:z.string().min(1).max(40).optional(),managedGit:z.boolean().optional()}).strict();
+export const codexRunnerOptionsSchema=z.object({environmentKey:z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(80),model:z.string().min(1).max(120).optional(),reasoningEffort:z.string().min(1).max(40).optional(),managedGit:z.boolean().optional(),continueFrom:z.object({runId:z.string().uuid(),publishNodeId:z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(80)}).strict().optional()}).strict().superRefine((value,context)=>{if(value.continueFrom&&!value.managedGit)context.addIssue({code:"custom",message:"Continuation requires managed Git."})});
 export type CodexRunnerOptions=z.infer<typeof codexRunnerOptionsSchema>;
 export const codexCloudOptionsSchema=z.object({environmentKey:z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(80)}).strict();
 export type OpenAIResponsesOptions=z.infer<typeof openAIResponsesOptionsSchema>;

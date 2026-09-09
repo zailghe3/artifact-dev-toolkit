@@ -74,6 +74,7 @@ services:
       CODEX_RUNNER_EXECUTOR_VERIFYING_PUBLIC_KEY_FILE: /run/config/executor-verifying-public-key.pem
       CODEX_RUNNER_ENVIRONMENTS_FILE: /run/config/codex-environments.json
       CODEX_RUNNER_WORKSPACE_ROOT: /workspaces
+      CODEX_RUNNER_REPOSITORY_STATE_ROOT: /data/repositories
       HTTP_PROXY: http://codex-runner-egress-proxy:3128
       HTTPS_PROXY: http://codex-runner-egress-proxy:3128
       ALL_PROXY: http://codex-runner-egress-proxy:3128
@@ -82,6 +83,7 @@ services:
     read_only: true
     volumes:
       - codex-runner-workspace:/workspaces
+      - codex-runner-repository-state:/data/repositories
       - type: tmpfs
         target: /tmp
         tmpfs:
@@ -128,6 +130,8 @@ volumes:
   codex-runner-sqlite: {}
   codex-runner-state: {}
   codex-runner-workspace: {}
+  # Trusted mirrors, Git control files, and task records. Never mount this into executor.
+  codex-runner-repository-state: {}
 networks:
   codex-ingress: {external: true}
   codex-runner-control-overlay: {driver: overlay, internal: true}

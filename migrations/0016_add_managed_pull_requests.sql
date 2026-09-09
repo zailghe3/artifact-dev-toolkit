@@ -16,6 +16,5 @@ CREATE TABLE workflow_managed_pull_requests (
  state TEXT NOT NULL CHECK (state IN ('open', 'closed')),
  created_at TEXT NOT NULL,
  updated_at TEXT NOT NULL,
- PRIMARY KEY (run_id, step_id),
- UNIQUE (repository_id, head_branch)
+ PRIMARY KEY (run_id, step_id)
 );

@@ -28,6 +28,7 @@ executor_codex_home_volume="${container_name}-executor-codex-home"
 executor_sqlite_home_volume="${container_name}-executor-sqlite-home"
 runner_state_volume="${container_name}-runner-state"
 repository_workspace_volume="${container_name}-repository-workspace"
+repository_state_volume="${container_name}-repository-state"
 key_directory=$(mktemp -d)
 signing_key="$key_directory/signing-key.pem"
 verifying_key="$key_directory/verifying-key.pem"
@@ -41,6 +42,7 @@ cleanup() {
   docker volume rm -f "$executor_sqlite_home_volume" >/dev/null 2>&1 || true
   docker volume rm -f "$runner_state_volume" >/dev/null 2>&1 || true
   docker volume rm -f "$repository_workspace_volume" >/dev/null 2>&1 || true
+  docker volume rm -f "$repository_state_volume" >/dev/null 2>&1 || true
   rm -rf "$key_directory"
   rm -f "$secret_file"
 }
@@ -199,14 +201,16 @@ cat >"$repository_environments" <<'JSON'
 JSON
 chmod 0444 "$repository_environments"
 docker volume create "$repository_workspace_volume" >/dev/null
+docker volume create "$repository_state_volume" >/dev/null
 docker run --rm -v "$repository_workspace_volume:/workspaces" "$image" mkdir -p /workspaces/smoke
 docker run -d --name "$container_name" --read-only --cap-drop ALL \
   --tmpfs /tmp:size=16777216,mode=1777 --tmpfs /run:size=16777216,mode=0755 \
   -p 127.0.0.1::8791 -e CODEX_RUNNER_ROLE=repository-manager -e PORT=8791 \
   -e CODEX_RUNNER_EXECUTOR_VERIFYING_PUBLIC_KEY_FILE=/run/config/executor-verifying-public-key.pem \
   -e CODEX_RUNNER_ENVIRONMENTS_FILE=/run/config/environments.json -e CODEX_RUNNER_WORKSPACE_ROOT=/workspaces \
+  -e CODEX_RUNNER_REPOSITORY_STATE_ROOT=/data/repositories \
   -v "$verifying_key:/run/config/executor-verifying-public-key.pem:ro" -v "$repository_environments:/run/config/environments.json:ro" \
-  -v "$repository_workspace_volume:/workspaces" "$image" >/dev/null
+  -v "$repository_workspace_volume:/workspaces" -v "$repository_state_volume:/data/repositories" "$image" >/dev/null
 repository_port=$(docker port "$container_name" 8791/tcp | sed -nE 's/^.*:([0-9]+)$/\1/p')
 for _attempt in {1..20}; do curl --fail --silent --max-time 2 "http://127.0.0.1:$repository_port/health" | jq -e '.ok == true and .role == "repository-manager"' >/dev/null 2>&1 && break; sleep 1; done
 docker exec "$container_name" sh -c 'git --version >/dev/null && ! cat /proc/[0-9]*/cmdline 2>/dev/null | tr "\000" " " | grep -F "codex app-server"'
@@ -220,7 +224,14 @@ docker run -d --name "$container_name" --read-only \
   -e HTTP_PROXY=http://127.0.0.1:9 -e HTTPS_PROXY=http://127.0.0.1:9 -e ALL_PROXY=http://127.0.0.1:9 \
   -e NO_PROXY=localhost,127.0.0.1,codex-runner-controller,codex-runner-executor \
   -v "$verifying_key:/run/config/executor-verifying-public-key.pem:ro" \
-  -v "$executor_codex_home_volume:/data/codex" -v "$executor_sqlite_home_volume:/data/codex-sqlite" "$image" >/dev/null
+  -v "$executor_codex_home_volume:/data/codex" -v "$executor_sqlite_home_volume:/data/codex-sqlite" \
+  -v "$repository_workspace_volume:/workspaces" "$image" >/dev/null
+
+# Executor receives the shared mutable task checkout volume, but never the
+# Repository Manager's authority-bearing mirror/control volume.
+docker inspect "$container_name" | jq -e --arg private "$repository_state_volume" '
+  .[0].Mounts | any(.Name == $private) | not
+' >/dev/null
 
 executor_port=$(docker port "$container_name" 8790/tcp | sed -nE 's/^.*:([0-9]+)$/\1/p')
 if [[ -z "$executor_port" ]]; then
