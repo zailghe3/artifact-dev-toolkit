@@ -243,8 +243,12 @@ if [[ "$executor_ready" != true ]]; then
   exit 1
 fi
 if ! docker exec "$container_name" sh -c '
-  test "$CODEX_HOME" = /data/codex && test "$CODEX_SQLITE_HOME" = /data/codex-sqlite && test -w "$CODEX_SQLITE_HOME" && test -s "$CODEX_HOME/installation_id" &&
-  test -r "$CODEX_HOME/installation_id" && test -w "$CODEX_HOME/installation_id" && test -w "$CODEX_HOME"
+  test "$CODEX_HOME" = /data/codex && test "$CODEX_SQLITE_HOME" = /data/codex-sqlite && test "$CODEX_HOME" != "$CODEX_SQLITE_HOME" &&
+  test -w "$CODEX_SQLITE_HOME" && find "$CODEX_SQLITE_HOME" -maxdepth 1 -type f -name "*.sqlite" -print -quit | grep -q . &&
+  ! find "$CODEX_HOME" -maxdepth 1 -type f -name "*.sqlite" -print -quit | grep -q . &&
+  test -s "$CODEX_HOME/installation_id" && test -r "$CODEX_HOME/installation_id" && test -w "$CODEX_HOME/installation_id" && test -w "$CODEX_HOME" &&
+  test ! -w / && test "$(stat -c %a /tmp)" = 1777 && test "$(stat -c %a /run)" = 755 &&
+  test "$(stat -f -c %T /tmp)" = tmpfs && test "$(stat -f -c %T /run)" = tmpfs
 '; then
   echo "Executor Codex App Server cannot use its writable CODEX_HOME." >&2
   exit 1
