@@ -187,3 +187,22 @@ ADT and Runner Git commits are not expected to match. Compatibility is determine
 - Unsupported protocol or required capability remains fail-closed.
 
 Image rollout timing, Docker/Portainer configuration, mounts, persistent storage, and service lifecycle remain operator-owned.
+
+## SQLite storage, backup, and recovery
+
+Codex 0.153.4 supports `CODEX_SQLITE_HOME`; the Runner keeps durable non-SQLite state and live database state on different storage:
+
+- Keep `CODEX_HOME` on durable storage. It may be NFS-backed for authentication/configuration, sessions, installation identity, user-managed material, and ADT backup sets.
+- Mount `/data/codex-sqlite` as a writable local Docker volume or block filesystem and set `CODEX_SQLITE_HOME=/data/codex-sqlite`. Never place this path on NFS, NFS4, CIFS, or SMB.
+- The executor alone sees both paths. `CODEX_SQLITE_HOME` is inherited by Codex App Server and reinforced with a Runner-owned `sqlite_home` CLI override so a legacy durable `config.toml` cannot take precedence, while it remains excluded from model-directed workflow shell environments by the existing allowlist policy.
+- Stop the prior executor/App Server before the first migration so the legacy NFS databases are quiescent. On the first start with an empty SQLite home, the new executor stages and copies legacy SQLite databases plus WAL/SHM recovery sidecars from `CODEX_HOME` before App Server starts. It never deletes the durable source and never overwrites an initialized local store.
+- The executor uses SQLite's online `.backup` API into hidden staging directories inside the mounted local SQLite volume, not `/tmp` or the read-only `/data` parent. It verifies SHA-256 checksums, then copies cold standalone databases and a safe manifest to `$CODEX_HOME/.adt/sqlite-backups`. It never copies live WAL/SHM files into a completed backup.
+- Backups run every 24 hours and retain 14 completed sets by default. Configure `CODEX_RUNNER_SQLITE_BACKUP_INTERVAL_MS`, `CODEX_RUNNER_SQLITE_BACKUP_RETENTION`, or `CODEX_RUNNER_SQLITE_BACKUP_ROOT` when required.
+- Use **Back up now** and **Restore backup** on the Codex Runner status page. Restore refuses active work, validates the selected set, confirms App Server exit, takes a local pre-restore snapshot, replaces SQLite databases only, performs bounded readiness, and rolls back the local snapshot if readiness fails. If rollback cannot be confirmed, the safety copy is retained and execution remains fail-closed for operator recovery.
+- During restore or unsafe recovery, executor status remains available but reports unhealthy without starting App Server. If App Server termination cannot be confirmed, SQLite is left unchanged and the executor remains fail-closed; restart or redeploy that executor before resuming work.
+
+A normal Docker volume is node-local in Swarm. Pin the executor with a sufficiently specific placement constraint. If it is rescheduled to a node without that volume, expect an empty local SQLite store and restore a completed NFS backup through ADT. No iSCSI or external storage orchestrator is required.
+
+Use the split stack's long-form `tmpfs` mounts. They create `/tmp` with size `268435456`/mode `01777` and `/run` with size `16777216`/mode `0755`; `/run` is not intended to be writable at its root by UID 1000.
+
+After a Runner code/image change, publish one immutable image and redeploy both controller and executor at that same digest/tag. Squid needs no redeploy unless its configuration changed. The ADT Worker must receive the normal ADT deployment for UI/API changes.

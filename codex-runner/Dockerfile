@@ -48,7 +48,7 @@ RUN test "$(grep -Ec '^precedence[[:space:]]+' /tmp/gai.conf)" = 5 && \
     ! grep -Eiq 'openai|cloudflare|([0-9]{1,3}\.){3}[0-9]{1,3}' /tmp/gai.conf && \
     install -m 0644 /tmp/gai.conf /etc/gai.conf && rm /tmp/gai.conf
 # Satisfy Codex 0.153.4's configured-home contract before executing the CLI.
-RUN mkdir -p /data/codex /data/runner && chown node:node /data/codex /data/runner && chmod 0700 /data/codex /data/runner && test -d /data/codex && test -d /data/runner
+RUN mkdir -p /data/codex /data/codex-sqlite /data/runner && chown node:node /data/codex /data/codex-sqlite /data/runner && chmod 0700 /data/codex /data/codex-sqlite /data/runner
 # Install exactly one authoritative Codex entrypoint without executing it.
 RUN ln -s /opt/codex/bin/codex /usr/local/bin/codex && \
     test "$(command -v codex)" = /usr/local/bin/codex && \
@@ -56,7 +56,7 @@ RUN ln -s /opt/codex/bin/codex /usr/local/bin/codex && \
     test ! -e /usr/local/lib/node_modules/@openai/codex
 # Install the minimal runtime libraries, trust store, and Git workspace tooling.
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends libssl3 ca-certificates git && \
+    apt-get install -y --no-install-recommends libssl3 ca-certificates git sqlite3 && \
     rm -rf /var/lib/apt/lists/* && \
     dpkg-query -W -f='${Status}\n' ca-certificates | grep -Fxq 'install ok installed' && \
     test -f /etc/ssl/certs/ca-certificates.crt && \

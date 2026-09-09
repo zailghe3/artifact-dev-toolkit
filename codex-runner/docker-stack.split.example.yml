@@ -27,23 +27,38 @@ services:
       PORT: "8790"
       CODEX_RUNNER_EXECUTOR_VERIFYING_PUBLIC_KEY_FILE: /run/config/executor-verifying-public-key.pem
       CODEX_RUNNER_WORKSPACE_ROOT: /workspaces
+      CODEX_HOME: /data/codex
+      CODEX_SQLITE_HOME: /data/codex-sqlite
+      CODEX_RUNNER_SQLITE_BACKUP_INTERVAL_MS: "86400000"
+      CODEX_RUNNER_SQLITE_BACKUP_RETENTION: "14"
       HTTP_PROXY: http://codex-runner-egress-proxy:3128
       HTTPS_PROXY: http://codex-runner-egress-proxy:3128
       ALL_PROXY: http://codex-runner-egress-proxy:3128
       NO_PROXY: localhost,127.0.0.1,codex-runner-controller,codex-runner-executor
     cap_drop: [ALL]
     read_only: true
-    tmpfs:
-      - /tmp:size=268435456,mode=1777
-      - /run:size=16777216,mode=0755
     volumes:
       - codex-runner-config:/data/codex
+      - codex-runner-sqlite:/data/codex-sqlite
       - codex-runner-workspace:/workspaces
+      - type: tmpfs
+        target: /tmp
+        tmpfs:
+          size: 268435456
+          mode: 01777
+      - type: tmpfs
+        target: /run
+        tmpfs:
+          size: 16777216
+          mode: 0755
     configs:
       - source: executor_verifying_public_key
         target: /run/config/executor-verifying-public-key.pem
         mode: 0444
     deploy:
+      placement:
+        constraints:
+          - node.labels.codex-runner-sqlite == true
       resources:
         limits:
           cpus: "2.0"
@@ -67,6 +82,9 @@ configs:
   codex_runner_squid: {file: ./squid.conf}
 volumes:
   codex-runner-config: {}
+  # A normal local Docker volume is node-local. Keep the placement constraint
+  # above or be prepared to restore an NFS backup after rescheduling.
+  codex-runner-sqlite: {}
   codex-runner-state: {}
   codex-runner-workspace: {}
 networks:

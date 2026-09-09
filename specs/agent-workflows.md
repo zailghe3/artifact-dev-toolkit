@@ -186,6 +186,9 @@
 - Interactive approval requests are not part of normal Workflow execution.
 - The Runner returns only bounded final agent text to the Workflow.
 - Split deployments isolate the ADT-facing control plane from the process allowed to execute model-generated commands.
+- Live Codex SQLite state remains on executor-local filesystem storage, separate from durable non-SQLite Codex home state.
+- The executor manages consistent durable SQLite backups and a confirmed restore operation that refuses active work, quiesces App Server, validates backup integrity, and leaves unrelated durable home and workspace state untouched.
+- Storage and recovery operations retain the existing controller authentication and signed internal executor boundary and expose only bounded safe metadata.
 - In split deployments the executor container is the primary execution boundary; admitted workspace-write jobs run Codex with full access inside that boundary rather than depending on Codex's native Linux sandbox.
 - The executor never receives the ADT Runner credential, a credential capable of authenticating controller requests, durable controller state, or infrastructure restart credential.
 - Split-mode public network access traverses the dedicated Squid egress boundary; broad public access and executor-readable Codex authentication material remain an explicit residual data-exfiltration risk rather than a data-loss-prevention guarantee.
