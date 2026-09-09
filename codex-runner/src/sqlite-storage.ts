@@ -2,10 +2,9 @@ import { createHash, randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 import {
   access, constants, copyFile, lstat, mkdir, mkdtemp, open, readFile,
-  readdir, realpath, rename, rm, stat, writeFile,
+  readdir, realpath, rename, rm, stat, statfs, writeFile,
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { tmpdir } from "node:os";
 import type { RunnerConfiguration } from "./configuration.js";
 import { SafeError } from "./errors.js";
 
@@ -16,9 +15,13 @@ const BOOTSTRAP_MARKER = ".adt-bootstrap-v1";
 const BACKUP_SCHEMA = 1;
 const MAX_DATABASES = 64;
 const MAX_DATABASE_SIZE = 16 * 1024 * 1024 * 1024;
+type LocalStagePurpose = "bootstrap" | "backup" | "restore" | "pre-restore";
+export function localStagingPrefix(sqliteHome: string, purpose: LocalStagePurpose) {
+  return join(sqliteHome, `.adt-${purpose}-`);
+}
 
 export type FilesystemClass = "local" | "network" | "unknown";
-export type StorageFailure = "no_sqlite_databases" | "sqlite_backup_failed" | "backup_verification_failed";
+export type StorageFailure = "no_sqlite_databases" | "sqlite_backup_failed" | "backup_verification_failed" | "sqlite_backup_insufficient_space";
 export interface BackupMetadata {
   backupId: string;
   createdAt: string;
@@ -40,7 +43,7 @@ export interface SqliteStorageStatus {
   retainedBackupCount: number;
   retention: number;
   operation: "idle" | "backup" | "restore";
-  warning?: "network_filesystem_unsupported_for_sqlite" | "sqlite_home_not_separated";
+  warning?: "network_filesystem_unsupported_for_sqlite" | "sqlite_home_not_separated" | "restore_recovery_required";
 }
 
 type Mount = { mountPoint: string; filesystemType: string };
@@ -139,7 +142,7 @@ export async function bootstrapLegacySqlite(config: RunnerConfiguration, operati
   const legacy = await databases(config.codexHome);
   if (legacy.length > MAX_DATABASES) throw new Error("sqlite_bootstrap_failed");
   if (!legacy.length) { await operations.writeFile(marker, "empty\n", { mode: 0o600, flag: "wx" }); return; }
-  const stage = await mkdtemp(join(dirname(config.sqliteHome), ".adt-sqlite-bootstrap-"));
+  const stage = await mkdtemp(localStagingPrefix(config.sqliteHome, "bootstrap"));
   const promoted: string[] = [];
   const stagedNames: string[] = [];
   try {
@@ -171,11 +174,24 @@ export class SqliteStorageManager {
   private operation: SqliteStorageStatus["operation"] = "idle";
   private lastFailure?: StorageFailure;
   private timer?: NodeJS.Timeout;
-  constructor(private readonly config: RunnerConfiguration, private readonly codexVersion: string) {}
+  private recoveryRequired = false;
+  constructor(
+    private readonly config: RunnerConfiguration,
+    private readonly codexVersion: string,
+    private readonly fileOperations: Pick<typeof import("node:fs/promises"), "copyFile" | "rename" | "rm" | "writeFile"> = { copyFile, rename, rm, writeFile },
+  ) {}
 
   async initialize() {
     if (!this.config.sqliteHome) return;
     await mkdir(this.config.sqliteHome, { recursive: true, mode: 0o700 });
+    for (const entry of await readdir(this.config.sqliteHome, { withFileTypes: true })) {
+      if (entry.isDirectory() && entry.name.startsWith(".adt-pre-restore-") &&
+          await usable(join(this.config.sqliteHome, entry.name, ".adt-recovery-required"), constants.R_OK)) {
+        this.recoveryRequired = true;
+        this.operation = "restore";
+        throw new Error("restore_recovery_required");
+      }
+    }
     const mounts = parseMountInfo(await readFile("/proc/self/mountinfo", "utf8").catch(() => ""));
     if (classifyFilesystem(this.config.sqliteHome, mounts) === "network") throw new Error("network_filesystem_unsupported_for_sqlite");
     await bootstrapLegacySqlite(this.config);
@@ -216,7 +232,8 @@ export class SqliteStorageManager {
       ...(backups[0] ? { lastSuccessfulBackupAt: backups[0].createdAt, latestBackupId: backups[0].backupId } : {}),
       ...(this.lastFailure ? { lastBackupFailureCategory: this.lastFailure } : {}),
       retainedBackupCount: backups.length, retention: this.config.sqliteBackupRetention, operation: this.operation,
-      ...(sqliteFilesystemClass === "network" ? { warning: "network_filesystem_unsupported_for_sqlite" as const } :
+      ...(this.recoveryRequired ? { warning: "restore_recovery_required" as const } :
+        sqliteFilesystemClass === "network" ? { warning: "network_filesystem_unsupported_for_sqlite" as const } :
         !this.config.sqliteHome ? { warning: "sqlite_home_not_separated" as const } : {}),
     };
   }
@@ -229,7 +246,10 @@ export class SqliteStorageManager {
     try {
       const names = await databases(this.config.sqliteHome);
       if (!names.length || names.length > MAX_DATABASES) throw new Error("no_sqlite_databases");
-      local = await mkdtemp(join(tmpdir(), "adt-sqlite-backup-"));
+      const requiredBytes = (await Promise.all(names.map((name) => stat(join(this.config.sqliteHome!, name))))).reduce((sum, file) => sum + file.size, 0);
+      const filesystem = await statfs(this.config.sqliteHome);
+      if (Number(filesystem.bavail) * Number(filesystem.bsize) < requiredBytes) throw new Error("sqlite_backup_insufficient_space");
+      local = await mkdtemp(localStagingPrefix(this.config.sqliteHome, "backup"));
       const createdAt = new Date().toISOString();
       const backupId = `b-${createdAt.replace(/[-:]/g, "").replace(/\.\d{3}/, "")}-${randomBytes(6).toString("hex")}`;
       for (const name of names) await sqliteBackup(join(this.config.sqliteHome, name), join(local, name));
@@ -254,9 +274,9 @@ export class SqliteStorageManager {
       await this.prune();
       return parseBackupMetadata(manifest, backupId);
     } catch (error) {
-      const category = error instanceof Error && ["no_sqlite_databases", "sqlite_backup_failed", "backup_verification_failed"].includes(error.message) ? error.message as StorageFailure : "sqlite_backup_failed";
+      const category = error instanceof Error && ["no_sqlite_databases", "sqlite_backup_failed", "backup_verification_failed", "sqlite_backup_insufficient_space"].includes(error.message) ? error.message as StorageFailure : "sqlite_backup_failed";
       this.lastFailure = category;
-      throw new SafeError("sqlite_backup_failed", 503);
+      throw new SafeError(category === "sqlite_backup_insufficient_space" ? category : "sqlite_backup_failed", 503);
     } finally {
       if (local) await rm(local, { recursive: true, force: true });
       if (durableStage) await rm(durableStage, { recursive: true, force: true });
@@ -285,32 +305,71 @@ export class SqliteStorageManager {
         const source = join(directory, database.filename);
         if (await checksum(source) !== database.sha256 || (await stat(source)).size !== database.size) throw new SafeError("invalid_backup", 409);
       }
-      stage = await mkdtemp(join(dirname(this.config.sqliteHome), ".adt-restore-"));
+      stage = await mkdtemp(localStagingPrefix(this.config.sqliteHome, "restore"));
       for (const database of manifest.databases) await copyFile(join(directory, database.filename), join(stage, database.filename), constants.COPYFILE_EXCL);
-      await hooks.closeAndWait();
-      safety = await mkdtemp(join(dirname(this.config.sqliteHome), ".adt-pre-restore-"));
-      for (const name of await readdir(this.config.sqliteHome)) {
-        if (DATABASE_FILENAME.test(name) || name.endsWith("-wal") || name.endsWith("-shm")) await rename(join(this.config.sqliteHome, name), join(safety, name));
+      try { await hooks.closeAndWait(); }
+      catch { throw new SafeError("app_server_shutdown_unconfirmed", 503); }
+      safety = await mkdtemp(localStagingPrefix(this.config.sqliteHome, "pre-restore"));
+      const preRestoreSafety = safety;
+      const originalNames = (await readdir(this.config.sqliteHome)).filter((name) => DATABASE_FILENAME.test(name) || name.endsWith("-wal") || name.endsWith("-shm"));
+      const movedNames: string[] = [];
+      try {
+        for (const name of originalNames) {
+          await this.fileOperations.rename(join(this.config.sqliteHome, name), join(preRestoreSafety, name));
+          movedNames.push(name);
+        }
+      } catch {
+        try {
+          for (const name of movedNames.reverse()) await this.fileOperations.rename(join(preRestoreSafety, name), join(this.config.sqliteHome, name));
+          await this.fileOperations.rm(preRestoreSafety, { recursive: true, force: true });
+          safety = undefined;
+          throw new SafeError("restore_failed_rolled_back", 503);
+        } catch (rollbackError) {
+          if (rollbackError instanceof SafeError && rollbackError.code === "restore_failed_rolled_back") throw rollbackError;
+          this.recoveryRequired = true;
+          this.operation = "restore";
+          await this.fileOperations.writeFile(join(preRestoreSafety, ".adt-recovery-required"), "restore rollback incomplete\n", { mode: 0o600 }).catch(() => undefined);
+          throw new SafeError("restore_rollback_failed", 503);
+        }
       }
       movedCurrent = true;
-      for (const database of manifest.databases) await rename(join(stage, database.filename), join(this.config.sqliteHome, database.filename));
+      for (const database of manifest.databases) await this.fileOperations.rename(join(stage, database.filename), join(this.config.sqliteHome, database.filename));
       if (!await hooks.ready()) throw new Error("restore_readiness_failed");
+      if (safety) await this.fileOperations.rm(safety, { recursive: true, force: true });
+      safety = undefined;
       return { backupId: selected, rollbackOccurred: false };
     } catch (error) {
       if (movedCurrent && safety) {
-        await hooks.closeAndWait().catch(() => undefined);
-        for (const name of await readdir(this.config.sqliteHome).catch(() => [])) {
-          if (DATABASE_FILENAME.test(name) || name.endsWith("-wal") || name.endsWith("-shm")) await rm(join(this.config.sqliteHome, name), { force: true });
+        const safetyDirectory = safety;
+        try { await hooks.closeAndWait(); }
+        catch {
+          this.recoveryRequired = true;
+          this.operation = "restore";
+          await this.fileOperations.writeFile(join(safetyDirectory, ".adt-recovery-required"), "restore rollback incomplete\n", { mode: 0o600 }).catch(() => undefined);
+          throw new SafeError("restore_rollback_failed", 503);
         }
-        for (const name of await readdir(safety).catch(() => [])) await rename(join(safety, name), join(this.config.sqliteHome, name));
-        await hooks.ready().catch(() => false);
-        throw new SafeError("restore_failed_rolled_back", 503);
+        try {
+          for (const name of await readdir(this.config.sqliteHome).catch(() => [])) {
+            if (DATABASE_FILENAME.test(name) || name.endsWith("-wal") || name.endsWith("-shm")) await this.fileOperations.rm(join(this.config.sqliteHome, name), { force: true });
+          }
+          for (const name of await readdir(safetyDirectory)) await this.fileOperations.copyFile(join(safetyDirectory, name), join(this.config.sqliteHome, name), constants.COPYFILE_EXCL);
+          if (!await hooks.ready()) throw new Error("rollback_readiness_failed");
+          await this.fileOperations.rm(safety, { recursive: true, force: true });
+          safety = undefined;
+          throw new SafeError("restore_failed_rolled_back", 503);
+        } catch (rollbackError) {
+          if (rollbackError instanceof SafeError && rollbackError.code === "restore_failed_rolled_back") throw rollbackError;
+          this.recoveryRequired = true;
+          this.operation = "restore";
+          await this.fileOperations.writeFile(join(safetyDirectory, ".adt-recovery-required"), "restore rollback incomplete\n", { mode: 0o600 }).catch(() => undefined);
+          throw new SafeError("restore_rollback_failed", 503);
+        }
       }
       throw error;
     } finally {
       if (stage) await rm(stage, { recursive: true, force: true });
-      if (safety) await rm(safety, { recursive: true, force: true });
-      this.operation = "idle";
+      if (!this.recoveryRequired && safety) await rm(safety, { recursive: true, force: true });
+      if (!this.recoveryRequired) this.operation = "idle";
     }
   }
 }

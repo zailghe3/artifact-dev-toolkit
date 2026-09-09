@@ -108,6 +108,7 @@
 - Detailed Codex Runner operational controls and explicit functional testing remain separate from the unified diagnostics overview.
 - Codex Runner keeps live SQLite state on executor-local storage separately from durable Codex home state, and manages consistent durable backups plus confirmed, quiesced SQLite-only restore.
 - Authorised Runner operations expose only safe storage and backup metadata; restore never replaces workspaces, credentials, sessions, or other durable non-SQLite state.
+- A restore never mutates live SQLite before App Server termination is confirmed, and an incomplete rollback preserves recoverable safety state while execution remains fail-closed.
 - Advanced Runner authentication, environment, filesystem, and startup observations remain explicit on-demand diagnostics and are not gathered during passive page load.
 
 - Diagnostics is observational unless the user explicitly invokes a supported active action such as catalogue refresh or the non-mutating Runtime execution-path test.

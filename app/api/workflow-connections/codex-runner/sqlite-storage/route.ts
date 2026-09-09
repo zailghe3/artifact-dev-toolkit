@@ -3,7 +3,7 @@ import {requireApiRepositoryAccess} from "@/lib/auth";
 import {noStoreHeaders} from "@/lib/auth-core";
 import {CodexRunnerError,getCodexRunnerClient,type RunnerOperationError} from "@/lib/codex-runner-client";
 
-const statuses:Record<RunnerOperationError,number>={device_auth_start_failed:503,codex_logout_failed:503,codex_auth_unavailable:503,runner_busy:409,backup_not_found:404,invalid_backup:409,sqlite_backup_failed:503,restore_failed_rolled_back:503,sqlite_home_not_configured:409};
+const statuses:Record<RunnerOperationError,number>={device_auth_start_failed:503,codex_logout_failed:503,codex_auth_unavailable:503,runner_busy:409,backup_not_found:404,invalid_backup:409,sqlite_backup_failed:503,sqlite_backup_insufficient_space:503,app_server_shutdown_unconfirmed:503,restore_failed_rolled_back:503,restore_rollback_failed:503,storage_operation_result_unknown:503,sqlite_home_not_configured:409};
 function sameOrigin(request:Request){const origin=request.headers.get("origin");return !!origin&&origin===new URL(request.url).origin}
 function failure(error:unknown){if(error instanceof CodexRunnerError&&error.runnerCode&&Object.hasOwn(statuses,error.runnerCode))return NextResponse.json({error:error.runnerCode},{status:statuses[error.runnerCode],headers:noStoreHeaders});return NextResponse.json({error:"runner_storage_operation_failed"},{status:503,headers:noStoreHeaders})}
 export async function GET(request:Request){const auth=await requireApiRepositoryAccess(request);if(auth instanceof Response)return auth;try{return NextResponse.json(await getCodexRunnerClient().sqliteStorage(),{headers:noStoreHeaders})}catch(error){return failure(error)}}

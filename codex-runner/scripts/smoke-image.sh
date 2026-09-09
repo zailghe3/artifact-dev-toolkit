@@ -180,6 +180,10 @@ fi
 docker rm -f "$container_name" >/dev/null
 docker volume create "$executor_codex_home_volume" >/dev/null
 docker volume create "$executor_sqlite_home_volume" >/dev/null
+# Seed legacy state before the executor starts. Bootstrap must copy this while
+# /data itself remains read-only and the mounted SQLite home remains writable.
+docker run --rm -v "$executor_codex_home_volume:/data/codex" "$image" \
+  sqlite3 /data/codex/legacy-smoke.sqlite 'CREATE TABLE smoke(value TEXT); INSERT INTO smoke VALUES("legacy");'
 openssl genpkey -algorithm ED25519 -out "$signing_key" >/dev/null 2>&1
 openssl pkey -in "$signing_key" -pubout -out "$verifying_key" >/dev/null 2>&1
 chmod 0444 "$verifying_key"
@@ -200,6 +204,19 @@ if [[ -z "$executor_port" ]]; then
   exit 1
 fi
 executor_url="http://127.0.0.1:$executor_port"
+signed_executor_request() {
+  local method=$1 path=$2 body=${3-} timestamp nonce digest signature
+  timestamp=$(date +%s%3N)
+  nonce=$(openssl rand -hex 24)
+  digest=$(printf '%s' "$body" | sha256sum | cut -d' ' -f1)
+  printf 'adt-executor-v1\n%s\n%s\n%s\n%s\n%s' "$method" "$path" "$timestamp" "$nonce" "$digest" > "$canonical_request"
+  signature=$(openssl pkeyutl -sign -rawin -in "$canonical_request" -inkey "$signing_key" | openssl base64 -A | tr '+/' '-_' | tr -d '=')
+  local args=(--fail --silent --show-error --max-time 110 -X "$method"
+    -H "X-Codex-Executor-Timestamp: $timestamp" -H "X-Codex-Executor-Nonce: $nonce"
+    -H "X-Codex-Executor-Signature: $signature")
+  if [[ -n "$body" ]]; then args+=(-H 'Content-Type: application/json' --data "$body"); fi
+  curl "${args[@]}" "$executor_url$path"
+}
 executor_http=false
 for _attempt in {1..20}; do
   if curl --fail --silent --show-error --max-time 2 "$executor_url/health" \
@@ -245,11 +262,40 @@ fi
 if ! docker exec "$container_name" sh -c '
   test "$CODEX_HOME" = /data/codex && test "$CODEX_SQLITE_HOME" = /data/codex-sqlite && test "$CODEX_HOME" != "$CODEX_SQLITE_HOME" &&
   test -w "$CODEX_SQLITE_HOME" && find "$CODEX_SQLITE_HOME" -maxdepth 1 -type f -name "*.sqlite" -print -quit | grep -q . &&
-  ! find "$CODEX_HOME" -maxdepth 1 -type f -name "*.sqlite" -print -quit | grep -q . &&
+  test -f "$CODEX_HOME/legacy-smoke.sqlite" && test -f "$CODEX_SQLITE_HOME/legacy-smoke.sqlite" &&
   test -s "$CODEX_HOME/installation_id" && test -r "$CODEX_HOME/installation_id" && test -w "$CODEX_HOME/installation_id" && test -w "$CODEX_HOME" &&
-  test ! -w / && test "$(stat -c %a /tmp)" = 1777 && test "$(stat -c %a /run)" = 755 &&
+  test ! -w / && test ! -w /data && test "$(stat -c %a /tmp)" = 1777 && test "$(stat -c %a /run)" = 755 &&
   test "$(stat -f -c %T /tmp)" = tmpfs && test "$(stat -f -c %T /run)" = tmpfs
 '; then
   echo "Executor Codex App Server cannot use its writable CODEX_HOME." >&2
+  exit 1
+fi
+
+backup_response=$(signed_executor_request POST /internal/v1/sqlite-storage/backups)
+backup_id=$(jq -er '.backup.backupId | select(test("^b-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{12}$"))' <<< "$backup_response")
+if ! docker exec "$container_name" sh -c "
+  backup=/data/codex/.adt/sqlite-backups/$backup_id
+  test -f \"\$backup/manifest.json\" &&
+  ! find \"\$backup\" -maxdepth 1 -type f \( -name '*-wal' -o -name '*-shm' \) -print -quit | grep -q . &&
+  for database in \"\$backup\"/*.sqlite \"\$backup\"/*.db; do
+    test -e \"\$database\" || continue
+    test \"\$(sqlite3 \"\$database\" 'PRAGMA integrity_check;')\" = ok || exit 1
+  done
+"; then
+  echo "Executor manual backup did not produce a cold verified backup set." >&2
+  exit 1
+fi
+restore_body=$(jq -cn --arg backupId "$backup_id" '{backupId:$backupId}')
+restore_response=$(signed_executor_request POST /internal/v1/sqlite-storage/restore "$restore_body")
+if ! jq -e --arg id "$backup_id" '.backupId == $id and .rollbackOccurred == false' >/dev/null <<< "$restore_response"; then
+  echo "Executor storage restore did not complete safely." >&2
+  exit 1
+fi
+post_restore_status=$(signed_executor_request GET /internal/v1/status)
+if ! jq -e '.healthy == true' >/dev/null <<< "$post_restore_status" || ! docker exec "$container_name" sh -c '
+  test -f "$CODEX_HOME/legacy-smoke.sqlite" && test -f "$CODEX_SQLITE_HOME/legacy-smoke.sqlite" &&
+  ! find "$CODEX_SQLITE_HOME" -mindepth 1 -maxdepth 1 -type d -name ".adt-*" -print -quit | grep -q .
+'; then
+  echo "Executor restore did not recover readiness or clean local staging." >&2
   exit 1
 fi
