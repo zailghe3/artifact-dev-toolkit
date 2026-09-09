@@ -10,6 +10,9 @@ export interface AccountSnapshot {connected:boolean;authMode?:string;planType?:s
 export interface DeviceCeremony {loginId:string;verificationUrl:string;userCode:string}
 export type CodexTestFailureReason="codex_not_connected"|"app_server_unavailable"|"thread_start_failed"|"turn_start_failed"|"turn_failed"|"timeout"|"unexpected_output"|"unexpected_tool_activity"|"test_in_progress";
 export const APP_SERVER_REQUEST_TIMEOUT_MS=8_000;
+export type AppServerStartupCategory="ready"|"spawn_failed"|"process_exited"|"initialize_timeout"|"initialize_rpc_error"|"invalid_protocol_response"|"stdin_failure"|"stdout_closed"|"unknown";
+export interface AppServerStartupDiagnostic{category:AppServerStartupCategory;elapsedMs:number;exitCode?:number;signal?:string;stderrTail:string[]}
+export function sanitizeAppServerStderr(value:string){return value.replace(/(authorization\s*[:=]\s*bearer\s+)[^\s,;]+/ig,"$1[REDACTED]").replace(/((?:api[_-]?key|access[_-]?token|refresh[_-]?token|secret|password|credential)s?\s*[:=]\s*)[^\s,;"']+/ig,"$1[REDACTED]").replace(/(https?:\/\/)[^\s/@:]+:[^\s/@]+@/ig,"$1[REDACTED]@").slice(0,512)}
 export type CodexTestResult={ok:true;durationMs:number}|{ok:false;reason:CodexTestFailureReason};
 export interface SafeCodexModel{id:string;threadModel:string;displayName:string;isDefault:boolean;defaultReasoningEffort:string;supportedReasoningEfforts:{reasoningEffort:string;description:string}[]}
 export type WorkflowTurnResult={ok:true;outputText:string;threadId:string;turnId:string}|{ok:false;reason:"runner_restarted"|"thread_start_failed"|"turn_start_failed"|"turn_failed"|"interaction_required"|"output_too_large";threadId?:string;turnId?:string};
@@ -52,9 +55,11 @@ export class StdioAppServerClient implements AppServerClient{
   private turnLifecycle?:{threadId:string;turnId?:string;agentText?:string;tool:boolean;resolve:(result:"completed"|"failed"|"tool")=>void};
   private testRunning=false;
   private workflowLifecycle?:{threadId:string;turnId?:string;agentText?:string;onActivity?:(category:"model"|"tool"|"interaction")=>void;resolve:(result:"completed"|"failed"|"interaction")=>void};
+  private startup:AppServerStartupDiagnostic={category:"unknown",elapsedMs:0,stderrTail:[]};private startupAt=0;
   constructor(private readonly command="codex",private readonly runnerVersion="development",private readonly timeoutMs=APP_SERVER_REQUEST_TIMEOUT_MS,private readonly spawnProcess:Spawn=spawn,private readonly healthTimeoutMs=52_000,private readonly cleanupReserveMs=2_000,private readonly configOverrides:string[]=[]){ }
 
   async readiness(){try{await this.ready();return true}catch{return false}}
+  startupDiagnostic(){return{...this.startup,stderrTail:[...this.startup.stderrTail]}}
   status(){return this.afterReady("account/read",{refreshToken:false})}
   startDeviceLogin(){return this.afterReady("account/login/start",{type:"chatgptDeviceCode"})}
   logout(){return this.afterReady("account/logout")}
@@ -101,16 +106,18 @@ export class StdioAppServerClient implements AppServerClient{
   private start(){
     let child:ChildProcessWithoutNullStreams;
     const args=this.configOverrides.flatMap(value=>["-c",value]);
-    try{child=this.spawnProcess(this.command,[...args,"app-server"],{stdio:["pipe","pipe","pipe"],env:process.env})}catch{throw new Error("app_server_unavailable")}
+    this.startupAt=Date.now();this.startup={category:"unknown",elapsedMs:0,stderrTail:[]};
+    try{child=this.spawnProcess(this.command,[...args,"app-server"],{stdio:["pipe","pipe","pipe"],env:process.env})}catch{this.startup={category:"spawn_failed",elapsedMs:Date.now()-this.startupAt,stderrTail:[]};throw new Error("app_server_unavailable")}
     this.process=child;
     this.lines=createInterface({input:child.stdout});
     this.lines.on("line",line=>this.receive(line));
-    child.stderr.resume();
-    child.once("error",()=>this.failProcess());
-    child.once("exit",()=>this.failProcess());
-    child.stdin.once("error",()=>this.failProcess());
+    child.stderr.setEncoding("utf8");child.stderr.on("data",chunk=>{for(const line of String(chunk).split(/\r?\n/)){if(!line)continue;this.startup.stderrTail.push(sanitizeAppServerStderr(line));if(this.startup.stderrTail.length>12)this.startup.stderrTail.shift()}});
+    child.once("error",()=>{this.startup={...this.startup,category:"spawn_failed",elapsedMs:Date.now()-this.startupAt};this.failProcess()});
+    child.once("exit",(code,signal)=>{if(this.startup.category==="unknown")this.startup={...this.startup,category:"process_exited",elapsedMs:Date.now()-this.startupAt,...(code===null?{}:{exitCode:code}),...(signal?{signal}:{})};this.failProcess()});
+    child.stdin.once("error",()=>{this.startup={...this.startup,category:"stdin_failure",elapsedMs:Date.now()-this.startupAt};this.failProcess()});
+    child.stdout.once("close",()=>{if(this.startup.category!=="ready")this.startup={...this.startup,category:"stdout_closed",elapsedMs:Date.now()-this.startupAt}});
   }
-  private async initialize(){try{await this.request("initialize",{clientInfo:{name:"adt_codex_runner",title:"ADT Codex Runner",version:this.runnerVersion}});this.notify("initialized");}catch{this.failProcess();throw new Error("app_server_initialization_failed")}}
+  private async initialize(){try{await this.request("initialize",{clientInfo:{name:"adt_codex_runner",title:"ADT Codex Runner",version:this.runnerVersion}});this.notify("initialized");this.startup={...this.startup,category:"ready",elapsedMs:Date.now()-this.startupAt};}catch(error){this.startup={...this.startup,category:error instanceof RequestTimeoutError?"initialize_timeout":"initialize_rpc_error",elapsedMs:Date.now()-this.startupAt};this.failProcess();throw new Error("app_server_initialization_failed")}}
   private receive(line:string){try{const message=JSON.parse(line) as {id?:unknown;method?:unknown;params?:unknown;result?:unknown;error?:unknown};const hasId=Object.hasOwn(message,"id");if(typeof message.method==="string"){if(hasId)this.receiveServerRequest(message.params);else this.receiveTurnNotification(message.method,message.params);return}if(typeof message.id!=="number")return;const pending=this.pending.get(message.id);if(!pending)return;this.pending.delete(message.id);clearTimeout(pending.timer);if(message.error===undefined)pending.resolve(message.result);else pending.reject(appServerError(message.error))}catch{/* Raw protocol messages are intentionally discarded. */}}
   private receiveServerRequest(params:unknown){const workflow=this.workflowLifecycle;if(workflow&&params&&typeof params==="object"){const value=params as Record<string,unknown>;if(value.threadId===workflow.threadId&&(!workflow.turnId||value.turnId===undefined||value.turnId===workflow.turnId)){workflow.onActivity?.("interaction");workflow.resolve("interaction");return}}const active=this.turnLifecycle;if(!active||!params||typeof params!=="object")return;const value=params as Record<string,unknown>;if(value.threadId!==active.threadId||(active.turnId&&value.turnId!==undefined&&value.turnId!==active.turnId))return;active.tool=true;active.resolve("tool")}
   private receiveTurnNotification(method:unknown,params:unknown){if(typeof method!=="string"||!params||typeof params!=="object")return;const value=params as Record<string,unknown>,workflow=this.workflowLifecycle;if(workflow&&value.threadId===workflow.threadId&&(!workflow.turnId||value.turnId===undefined||value.turnId===workflow.turnId)){const item=value.item&&typeof value.item==="object"?value.item as Record<string,unknown>:undefined;if(method==="item/started"&&typeof item?.type==="string")workflow.onActivity?.(["userMessage","agentMessage","reasoning"].includes(item.type)?"model":"tool");if(method==="item/completed"&&item?.type==="agentMessage"&&typeof item.text==="string")workflow.agentText=item.text;if(method==="turn/completed"){const turn=value.turn as Record<string,unknown>|undefined;workflow.resolve(turn?.status==="completed"?"completed":"failed")}return}const active=this.turnLifecycle;if(!active)return;if(value.threadId!==active.threadId||(active.turnId&&value.turnId!==undefined&&value.turnId!==active.turnId))return;const item=value.item&&typeof value.item==="object"?value.item as Record<string,unknown>:undefined,type=item?.type;if(method==="item/started"&&typeof type==="string"&&!["userMessage","agentMessage","reasoning"].includes(type)){active.tool=true;active.resolve("tool");return}if(method==="item/completed"&&type==="agentMessage"&&typeof item?.text==="string")active.agentText=item.text;if(method==="turn/completed"){const turn=value.turn as Record<string,unknown>|undefined;if(turn&&typeof turn.id==="string"&&!active.turnId)active.turnId=turn.id;active.resolve(turn?.status==="completed"?"completed":"failed")}}

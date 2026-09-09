@@ -25,6 +25,7 @@ secret_file=$(mktemp)
 container_name="adt-codex-runner-smoke-${GITHUB_RUN_ID:-local}-$$"
 codex_home_volume="${container_name}-codex-home"
 executor_codex_home_volume="${container_name}-executor-codex-home"
+executor_sqlite_home_volume="${container_name}-executor-sqlite-home"
 runner_state_volume="${container_name}-runner-state"
 key_directory=$(mktemp -d)
 signing_key="$key_directory/signing-key.pem"
@@ -35,6 +36,7 @@ cleanup() {
   docker rm -f "$container_name" >/dev/null 2>&1 || true
   docker volume rm -f "$codex_home_volume" >/dev/null 2>&1 || true
   docker volume rm -f "$executor_codex_home_volume" >/dev/null 2>&1 || true
+  docker volume rm -f "$executor_sqlite_home_volume" >/dev/null 2>&1 || true
   docker volume rm -f "$runner_state_volume" >/dev/null 2>&1 || true
   rm -rf "$key_directory"
   rm -f "$secret_file"
@@ -177,6 +179,7 @@ fi
 # verifying key is mounted into the executor.
 docker rm -f "$container_name" >/dev/null
 docker volume create "$executor_codex_home_volume" >/dev/null
+docker volume create "$executor_sqlite_home_volume" >/dev/null
 openssl genpkey -algorithm ED25519 -out "$signing_key" >/dev/null 2>&1
 openssl pkey -in "$signing_key" -pubout -out "$verifying_key" >/dev/null 2>&1
 chmod 0444 "$verifying_key"
@@ -185,11 +188,11 @@ docker run -d --name "$container_name" --read-only \
   -p 127.0.0.1::8790 \
   -e CODEX_RUNNER_ROLE=executor -e PORT=8790 \
   -e CODEX_RUNNER_EXECUTOR_VERIFYING_PUBLIC_KEY_FILE=/run/config/executor-verifying-public-key.pem \
-  -e CODEX_RUNNER_WORKSPACE_ROOT=/workspaces \
+  -e CODEX_RUNNER_WORKSPACE_ROOT=/workspaces -e CODEX_SQLITE_HOME=/data/codex-sqlite \
   -e HTTP_PROXY=http://127.0.0.1:9 -e HTTPS_PROXY=http://127.0.0.1:9 -e ALL_PROXY=http://127.0.0.1:9 \
   -e NO_PROXY=localhost,127.0.0.1,codex-runner-controller,codex-runner-executor \
   -v "$verifying_key:/run/config/executor-verifying-public-key.pem:ro" \
-  -v "$executor_codex_home_volume:/data/codex" "$image" >/dev/null
+  -v "$executor_codex_home_volume:/data/codex" -v "$executor_sqlite_home_volume:/data/codex-sqlite" "$image" >/dev/null
 
 executor_port=$(docker port "$container_name" 8790/tcp | sed -nE 's/^.*:([0-9]+)$/\1/p')
 if [[ -z "$executor_port" ]]; then
@@ -240,7 +243,7 @@ if [[ "$executor_ready" != true ]]; then
   exit 1
 fi
 if ! docker exec "$container_name" sh -c '
-  test "$CODEX_HOME" = /data/codex && test -s "$CODEX_HOME/installation_id" &&
+  test "$CODEX_HOME" = /data/codex && test "$CODEX_SQLITE_HOME" = /data/codex-sqlite && test -w "$CODEX_SQLITE_HOME" && test -s "$CODEX_HOME/installation_id" &&
   test -r "$CODEX_HOME/installation_id" && test -w "$CODEX_HOME/installation_id" && test -w "$CODEX_HOME"
 '; then
   echo "Executor Codex App Server cannot use its writable CODEX_HOME." >&2
