@@ -1,0 +1,21 @@
+CREATE TABLE workflow_managed_pull_requests (
+ run_id TEXT NOT NULL REFERENCES workflow_runs(id) ON DELETE CASCADE,
+ step_id TEXT NOT NULL,
+ runner_job_id TEXT NOT NULL,
+ repository_task_id TEXT NOT NULL,
+ repository_id INTEGER NOT NULL,
+ installation_id INTEGER NOT NULL,
+ owner TEXT NOT NULL,
+ repository TEXT NOT NULL,
+ base_branch TEXT NOT NULL,
+ head_branch TEXT NOT NULL,
+ commit_sha TEXT NOT NULL,
+ pull_request_number INTEGER NOT NULL,
+ pull_request_url TEXT NOT NULL,
+ draft INTEGER NOT NULL CHECK (draft IN (0, 1)),
+ state TEXT NOT NULL CHECK (state IN ('open', 'closed')),
+ created_at TEXT NOT NULL,
+ updated_at TEXT NOT NULL,
+ PRIMARY KEY (run_id, step_id),
+ UNIQUE (repository_id, head_branch)
+);

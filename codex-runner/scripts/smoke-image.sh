@@ -27,10 +27,12 @@ codex_home_volume="${container_name}-codex-home"
 executor_codex_home_volume="${container_name}-executor-codex-home"
 executor_sqlite_home_volume="${container_name}-executor-sqlite-home"
 runner_state_volume="${container_name}-runner-state"
+repository_workspace_volume="${container_name}-repository-workspace"
 key_directory=$(mktemp -d)
 signing_key="$key_directory/signing-key.pem"
 verifying_key="$key_directory/verifying-key.pem"
 canonical_request="$key_directory/canonical-request"
+repository_environments="$key_directory/repository-environments.json"
 
 cleanup() {
   docker rm -f "$container_name" >/dev/null 2>&1 || true
@@ -38,6 +40,7 @@ cleanup() {
   docker volume rm -f "$executor_codex_home_volume" >/dev/null 2>&1 || true
   docker volume rm -f "$executor_sqlite_home_volume" >/dev/null 2>&1 || true
   docker volume rm -f "$runner_state_volume" >/dev/null 2>&1 || true
+  docker volume rm -f "$repository_workspace_volume" >/dev/null 2>&1 || true
   rm -rf "$key_directory"
   rm -f "$secret_file"
 }
@@ -187,6 +190,27 @@ docker run --rm -v "$executor_codex_home_volume:/data/codex" "$image" \
 openssl genpkey -algorithm ED25519 -out "$signing_key" >/dev/null 2>&1
 openssl pkey -in "$signing_key" -pubout -out "$verifying_key" >/dev/null 2>&1
 chmod 0444 "$verifying_key"
+
+# The third role uses the same read-only/cap-drop image, starts no Codex App
+# Server, owns only the workspace volume, and exposes only its internal health
+# port for this local smoke observation.
+cat >"$repository_environments" <<'JSON'
+{"schemaVersion":1,"environments":[{"key":"smoke","name":"Smoke","cwd":"/workspaces/smoke","enabled":true,"sandbox":"workspace-write","repository":{"managed":true,"owner":"example","repo":"smoke","baseBranch":"main"}}]}
+JSON
+chmod 0444 "$repository_environments"
+docker volume create "$repository_workspace_volume" >/dev/null
+docker run --rm -v "$repository_workspace_volume:/workspaces" "$image" mkdir -p /workspaces/smoke
+docker run -d --name "$container_name" --read-only --cap-drop ALL \
+  --tmpfs /tmp:size=16777216,mode=1777 --tmpfs /run:size=16777216,mode=0755 \
+  -p 127.0.0.1::8791 -e CODEX_RUNNER_ROLE=repository-manager -e PORT=8791 \
+  -e CODEX_RUNNER_EXECUTOR_VERIFYING_PUBLIC_KEY_FILE=/run/config/executor-verifying-public-key.pem \
+  -e CODEX_RUNNER_ENVIRONMENTS_FILE=/run/config/environments.json -e CODEX_RUNNER_WORKSPACE_ROOT=/workspaces \
+  -v "$verifying_key:/run/config/executor-verifying-public-key.pem:ro" -v "$repository_environments:/run/config/environments.json:ro" \
+  -v "$repository_workspace_volume:/workspaces" "$image" >/dev/null
+repository_port=$(docker port "$container_name" 8791/tcp | sed -nE 's/^.*:([0-9]+)$/\1/p')
+for _attempt in {1..20}; do curl --fail --silent --max-time 2 "http://127.0.0.1:$repository_port/health" | jq -e '.ok == true and .role == "repository-manager"' >/dev/null 2>&1 && break; sleep 1; done
+docker exec "$container_name" sh -c 'git --version >/dev/null && ! cat /proc/[0-9]*/cmdline 2>/dev/null | tr "\000" " " | grep -F "codex app-server"'
+docker rm -f "$container_name" >/dev/null
 docker run -d --name "$container_name" --read-only \
   --cap-drop ALL --tmpfs /tmp:size=268435456,mode=1777 --tmpfs /run:size=16777216,mode=0755 \
   -p 127.0.0.1::8790 \

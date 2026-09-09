@@ -257,7 +257,7 @@
 - There is no workflow scheduling.
 - There is no autonomous routing between agents.
 - There is no automatic production promotion of Workflow definitions.
-- Ordinary Codex Runner Workflow jobs do not publish Git commits or pull requests.
+- Non-managed Codex Runner Workflow jobs do not publish Git commits or pull requests.
 
 ## Historical run boundary
 
@@ -265,3 +265,15 @@
 - Cloudflare Workflows remains the durable outer shell.
 - Historical retired run formats remain viewable but are read only. They cannot retry, resume, rerun, relaunch, approve, cancel providers, resolve retired credentials, or create provider work.
 - Historical-only parsers may decode immutable persisted snapshots but never admit current configuration or execution.
+
+## Managed Codex repository publication
+
+- A Codex Runner Agent may opt into a trusted managed Git environment.
+- Every new managed task starts in an isolated worktree pinned to the latest configured base commit observed at admission.
+- Refreshing the base never mutates an active task worktree.
+- Repository identity, base branch, task branch, and worktree location are not model-selected.
+- Codex never receives a GitHub installation credential.
+- A completed managed task may be committed and pushed only through the trusted repository manager.
+- ADT creates or updates only the associated ADT-owned pull-request branch in the authorised repository.
+- Draft and normal pull-request creation are supported; merging and force-pushing are not.
+- Safe workflow state may retain repository task, branch, commit, and pull-request association metadata, but never installation tokens.

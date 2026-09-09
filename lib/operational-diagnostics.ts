@@ -6,12 +6,12 @@ import type { RepositoryDiagnostics } from "./repository-diagnostics.ts";
 
 export type DomainKey = "authentication-access" | "artifact-library" | "application-control-plane" | "adt-runtime" | "codex-runner";
 export type DomainState = "healthy" | "degraded" | "failed" | "not-configured";
-export type DiagnosticCheck = { id: string; label: string; status: DiagnosticStatusPresentation; value?: string; guidance?: string };
+export type DiagnosticCheck = { id: string; label: string; status: DiagnosticStatusPresentation; value?: string; guidance?: string; contributes?:boolean };
 export type DiagnosticDomain = { key: DomainKey; title: string; state: DomainState; checks: DiagnosticCheck[] };
 export type OperationalContributor = { id: string; message: string; href: string };
 
 const status = (label: string, tone: DiagnosticStatusPresentation["tone"], description?: string): DiagnosticStatusPresentation => ({ label, tone, ...(description ? { description } : {}) });
-const checkState = (checks: DiagnosticCheck[]): DomainState => checks.some(check => check.status.tone === "negative") ? "failed" : checks.some(check => check.status.tone === "warning" || check.status.tone === "neutral") ? "degraded" : "healthy";
+const checkState = (checks: DiagnosticCheck[]): DomainState => checks.some(check => check.contributes!==false&&check.status.tone === "negative") ? "failed" : checks.some(check => check.contributes!==false&&(check.status.tone === "warning" || check.status.tone === "neutral")) ? "degraded" : "healthy";
 const groupedConfiguration = (d: RepositoryDiagnostics, names: string[]) => {
   const states = names.map(name => d.configuration.authSecrets[name]);
   return configurationStatusPresentation(states.includes("invalid") ? "invalid" : states.includes("missing") ? "missing" : "configured");
@@ -121,7 +121,7 @@ export function runnerDiagnosticChecks(runner: SafeRunnerDiagnostics): Diagnosti
       const prefix = `runner-environment-${item.environment.key}`;
       checks.push({ id: prefix, label: item.environment.name, status: item.environment.ready ? status("Ready", "positive") : status("Unavailable", "negative"), value: item.environment.key });
       checks.push({ id: `${prefix}-workspace`, label: `${item.environment.name} workspace`, status: workspaceStatus(item.workspace), ...(item.workspace.state === "available" && item.workspace.value.headCommit ? { value: `${item.workspace.value.headCommit.slice(0, 12)} · ${item.workspace.value.dirty === true ? "Modified" : item.workspace.value.dirty === false ? "Clean" : "State unknown"}` } : {}) });
-      checks.push({ id: `${prefix}-sandbox`, label: `${item.environment.name} sandbox`, status: sandboxStatus(item.sandbox), ...(item.sandbox.state === "available" && item.sandbox.value ? { value: item.sandbox.value.backend } : {}) });
+      checks.push({ id: `${prefix}-sandbox`, label: `${item.environment.name} sandbox`, status: sandboxStatus(item.sandbox),...(item.sandbox.state==="not-observed"?{contributes:false}:{}), ...(item.sandbox.state === "available" && item.sandbox.value ? { value: item.sandbox.value.backend } : {}) });
     }
   }
   if (runner.jobs.state !== "available") checks.push({ id: "runner-operations", label: "Current operations", status: status("Unknown", "warning", "The latest job observation failed; idle cannot be inferred.") });

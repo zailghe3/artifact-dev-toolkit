@@ -206,3 +206,36 @@ A normal Docker volume is node-local in Swarm. Pin the executor with a sufficien
 Use the split stack's long-form `tmpfs` mounts. They create `/tmp` with size `268435456`/mode `01777` and `/run` with size `16777216`/mode `0755`; `/run` is not intended to be writable at its root by UID 1000.
 
 After a Runner code/image change, publish one immutable image and redeploy both controller and executor at that same digest/tag. Squid needs no redeploy unless its configuration changed. The ADT Worker must receive the normal ADT deployment for UI/API changes.
+
+## Managed Git workspaces and pull requests
+
+The same immutable Runner image now supports `CODEX_RUNNER_ROLE=repository-manager` in addition to controller and executor. The repository manager is an internal-only signed-RPC service. It mounts `/workspaces` and the environment configuration, but not `CODEX_HOME`, SQLite storage, controller state, the public Runner secret, the signing private key, or the redeploy webhook. The split stack gives it the internal control and egress overlays; GitHub traffic therefore uses the existing Squid boundary. It has no published port or Cloudflare route. No additional long-lived GitHub or Portainer secret is introduced.
+
+Managed mode is explicit trusted operator configuration:
+
+```json
+{
+  "schemaVersion": 1,
+  "environments": [{
+    "key": "artifact-dev-toolkit",
+    "name": "Artifact Dev Toolkit",
+    "cwd": "/workspaces/artifact-dev-toolkit",
+    "enabled": true,
+    "sandbox": "workspace-write",
+    "repository": {
+      "managed": true,
+      "owner": "zailghe3",
+      "repo": "artifact-dev-toolkit",
+      "baseBranch": "main"
+    }
+  }]
+}
+```
+
+The first managed task may adopt an empty root only. Unexpected contents fail safely. The repository manager stores its bare repository below `.adt/repository`, fetches the configured base before each new task, resolves an immutable base SHA, and creates an isolated task worktree under `tasks/` on a deterministic `adt/codex/*` branch. Active worktrees remain pinned when upstream moves; later tasks see the refreshed base. A later task may instead start from the current remote head of a validated ADT-owned branch.
+
+ADT uses the already-authorised GitHub App installation and exact repository ID to mint separate short-lived credentials for `contents: read`, `contents: write`, and `pull_requests: write`. Git credentials exist only in the repository-manager request and process environment for the bounded operation. They are never placed in argv, remotes, Git config, Runner job/idempotency state, D1, logs, API results, or the Codex environment. Publishing stages changed files, skips empty commits, commits as `ADT Codex Runner <codex-runner@adt.invalid>`, and performs a non-force push. ADT then creates or updates the exact associated draft or normal pull request through native GitHub REST requests.
+
+The GitHub App must be granted **Contents: write** and **Pull requests: write**. GitHub may require an installation owner to approve the permission change before managed publication becomes available.
+
+This version does not merge pull requests, delete remote branches, accept arbitrary repositories/remotes/refs, force-push or rebase published branches, resolve conflicts automatically, ingest GitHub webhooks, or allow model-authenticated pushes.
