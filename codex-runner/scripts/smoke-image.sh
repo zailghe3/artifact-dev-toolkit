@@ -202,7 +202,13 @@ JSON
 chmod 0444 "$repository_environments"
 docker volume create "$repository_workspace_volume" >/dev/null
 docker volume create "$repository_state_volume" >/dev/null
-docker run --rm -v "$repository_workspace_volume:/workspaces" "$image" mkdir -p /workspaces/smoke
+# Fresh local volumes inherit the image mount-root ownership. Prove the normal
+# non-root runtime user can initialize both without capabilities or a writable
+# container root.
+docker run --rm --read-only --cap-drop ALL \
+  -v "$repository_workspace_volume:/workspaces" \
+  -v "$repository_state_volume:/data/repositories" "$image" \
+  sh -c 'test "$(id -un)" = node && mkdir /workspaces/smoke && touch /workspaces/.writable /data/repositories/.writable && rm /workspaces/.writable /data/repositories/.writable'
 docker run -d --name "$container_name" --read-only --cap-drop ALL \
   --tmpfs /tmp:size=16777216,mode=1777 --tmpfs /run:size=16777216,mode=0755 \
   -p 127.0.0.1::8791 -e CODEX_RUNNER_ROLE=repository-manager -e PORT=8791 \

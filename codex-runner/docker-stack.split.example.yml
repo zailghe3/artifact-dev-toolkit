@@ -102,6 +102,12 @@ services:
         target: /run/config/executor-verifying-public-key.pem
         mode: 0444
     deploy:
+      # codex-runner-workspace uses the local driver. Keep this service on the
+      # exact executor node so both roles see one physical task volume; the
+      # private repository-state volume remains mounted only here.
+      placement:
+        constraints:
+          - node.labels.codex-runner-sqlite == true
       resources:
         limits:
           cpus: "1.0"

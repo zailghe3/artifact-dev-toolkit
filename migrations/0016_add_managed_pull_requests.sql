@@ -13,6 +13,7 @@ CREATE TABLE workflow_managed_pull_requests (
  pull_request_number INTEGER NOT NULL,
  pull_request_url TEXT NOT NULL,
  draft INTEGER NOT NULL CHECK (draft IN (0, 1)),
+ publication_created INTEGER NOT NULL CHECK (publication_created IN (0, 1)),
  state TEXT NOT NULL CHECK (state IN ('open', 'closed')),
  created_at TEXT NOT NULL,
  updated_at TEXT NOT NULL,

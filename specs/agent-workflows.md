@@ -274,6 +274,8 @@
 - Refreshing the base never mutates an active task checkout.
 - Repository identity, base branch, task branch, continuation branch, and checkout location are not model-selected.
 - A Publish GitHub PR block may follow its configured managed Codex Agent and creates or updates the persisted ADT-managed draft or ready pull request; later managed tasks may continue only that validated association.
+- Only a ready managed Codex Runner Agent may be selected as a Publish GitHub PR source, and launch validation enforces the same rule.
+- Interrupted preparation and publication resume from deterministic trusted identities; a lost callback must reconcile a completed persisted association rather than create another branch or pull request.
 - Codex never receives a GitHub installation credential.
 - A completed managed task may be committed and pushed only through the trusted repository manager.
 - ADT creates or updates only the associated ADT-owned pull-request branch in the authorised repository.
