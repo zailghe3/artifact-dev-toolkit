@@ -36,7 +36,11 @@ Next.js -> OpenNext -> Cloudflare Worker
     |
     +--> independently deployed Codex Runner
             - ADT-facing controller and durable job/control state
-            - isolated Codex executor and operator-provisioned workspaces
+            - isolated Codex executor and operator-provisioned or managed workspaces
+            - internal repository manager for Git synchronization, isolated task checkouts, and authenticated branch publication
+            - executor and repository manager co-located when their shared task workspace uses node-local storage; private repository authority remains repository-manager-only
+            - at most one managed checkout exposed to the executor; completed task edits sealed privately before the next checkout is materialized
+            - controller job admission durably reserves a lookup-visible single-job identity before repository preparation may seal or materialize a checkout
             - trusted egress proxy between executor and public Internet
 ```
 
@@ -164,7 +168,7 @@ Operational detail belongs in [`codex-runner/README.md`](codex-runner/README.md)
 - **Application -> OpenAI/provider APIs:** the existing Responses path remains direct; provider creation may be billable or side-effecting and ambiguous outcomes must not cause blind duplicate work.
 - **Application -> ADT Runtime:** authenticate and integrity-bind every protocol operation, encrypt invocation credentials independently of transport TLS, and fail closed on replay, incompatibility, missing capability, or ambiguous execution outcomes.
 - **Application -> Codex Runner:** expose only bounded safe configuration and diagnostics; never transfer the Runner's ChatGPT/Codex credential to ADT.
-- **Runner controller -> executor:** authenticate the private control API with controller-held signing material and an executor-held verifier; never place a request-signing, ADT, or redeploy credential in the full-access executor.
+- **Runner controller -> executor/repository manager:** authenticate each private control API with controller-held signing material and an executor-held verifier; never place a request-signing, ADT, or redeploy credential in the full-access executor.
 - **Executor -> workspace/Internet:** filesystem and network access are controlled by container mounts, isolated overlays, and the trusted egress proxy.
 - **ADT repository -> artifact repository:** application code and reusable artifact content are separate repositories and must not be mutated interchangeably without explicit task scope.
 

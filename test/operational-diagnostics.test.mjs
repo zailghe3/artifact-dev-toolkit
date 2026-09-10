@@ -248,3 +248,5 @@ test("failed Runner capabilities degrade the overall diagnostics model without b
   assert.equal(runnerDomain.checks.find(check => check.id === "runner-reachability").status.label, "Unavailable");
   assert.ok(runnerDomain.checks.length > 1);
 });
+
+test("passive split sandbox Not observed does not degrade an otherwise healthy Runner",()=>{const passive=runner({environments:{state:"available",value:[{...readyEnvironment,sandbox:{state:"not-observed"}}]}}),domain=deriveOperationalDomains(repository(),runtime(),passive,true).find(value=>value.key==="codex-runner");assert.equal(domain.state,"healthy");const failed=runner({environments:{state:"available",value:[{...readyEnvironment,sandbox:{state:"available",value:{environmentKey:"dev",status:"unavailable",backend:"container",reason:"execution_probe_failed"}}}]}});assert.equal(deriveOperationalDomains(repository(),runtime(),failed,true).find(value=>value.key==="codex-runner").state,"failed")});

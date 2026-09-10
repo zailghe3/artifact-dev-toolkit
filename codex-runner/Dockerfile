@@ -48,7 +48,9 @@ RUN test "$(grep -Ec '^precedence[[:space:]]+' /tmp/gai.conf)" = 5 && \
     ! grep -Eiq 'openai|cloudflare|([0-9]{1,3}\.){3}[0-9]{1,3}' /tmp/gai.conf && \
     install -m 0644 /tmp/gai.conf /etc/gai.conf && rm /tmp/gai.conf
 # Satisfy Codex 0.153.4's configured-home contract before executing the CLI.
-RUN mkdir -p /data/codex /data/codex-sqlite /data/runner && chown node:node /data/codex /data/codex-sqlite /data/runner && chmod 0700 /data/codex /data/codex-sqlite /data/runner
+RUN mkdir -p /data/codex /data/codex-sqlite /data/runner /data/repositories /workspaces && \
+    chown node:node /data/codex /data/codex-sqlite /data/runner /data/repositories /workspaces && \
+    chmod 0700 /data/codex /data/codex-sqlite /data/runner /data/repositories /workspaces
 # Install exactly one authoritative Codex entrypoint without executing it.
 RUN ln -s /opt/codex/bin/codex /usr/local/bin/codex && \
     test "$(command -v codex)" = /usr/local/bin/codex && \

@@ -129,6 +129,9 @@ test('saved catalogue values remain represented when live catalogues no longer a
 test('Codex Agent options persist only selected public catalogue tokens',()=>{
  assert.deepEqual(buildCodexRunnerAgentOptions('dev','',''),{environmentKey:'dev'});
  assert.deepEqual(buildCodexRunnerAgentOptions('dev','model-a','high'),{environmentKey:'dev',model:'model-a',reasoningEffort:'high'});
+ const continuation={runId:'123e4567-e89b-42d3-a456-426614174000',publishNodeId:'publish'};
+ assert.deepEqual(buildCodexRunnerAgentOptions('dev','model-a','high',true,continuation),{environmentKey:'dev',model:'model-a',reasoningEffort:'high',managedGit:true,continueFrom:continuation});
+ assert.equal(buildCodexRunnerAgentOptions('dev','','',false,continuation).continueFrom,undefined);
 });
 
 test('workflow run presentation keeps pending external cancellation non-terminal and pollable',()=>{

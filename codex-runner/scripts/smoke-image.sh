@@ -27,10 +27,13 @@ codex_home_volume="${container_name}-codex-home"
 executor_codex_home_volume="${container_name}-executor-codex-home"
 executor_sqlite_home_volume="${container_name}-executor-sqlite-home"
 runner_state_volume="${container_name}-runner-state"
+repository_workspace_volume="${container_name}-repository-workspace"
+repository_state_volume="${container_name}-repository-state"
 key_directory=$(mktemp -d)
 signing_key="$key_directory/signing-key.pem"
 verifying_key="$key_directory/verifying-key.pem"
 canonical_request="$key_directory/canonical-request"
+repository_environments="$key_directory/repository-environments.json"
 
 cleanup() {
   docker rm -f "$container_name" >/dev/null 2>&1 || true
@@ -38,6 +41,8 @@ cleanup() {
   docker volume rm -f "$executor_codex_home_volume" >/dev/null 2>&1 || true
   docker volume rm -f "$executor_sqlite_home_volume" >/dev/null 2>&1 || true
   docker volume rm -f "$runner_state_volume" >/dev/null 2>&1 || true
+  docker volume rm -f "$repository_workspace_volume" >/dev/null 2>&1 || true
+  docker volume rm -f "$repository_state_volume" >/dev/null 2>&1 || true
   rm -rf "$key_directory"
   rm -f "$secret_file"
 }
@@ -187,6 +192,56 @@ docker run --rm -v "$executor_codex_home_volume:/data/codex" "$image" \
 openssl genpkey -algorithm ED25519 -out "$signing_key" >/dev/null 2>&1
 openssl pkey -in "$signing_key" -pubout -out "$verifying_key" >/dev/null 2>&1
 chmod 0444 "$verifying_key"
+
+# The third role uses the same read-only/cap-drop image, starts no Codex App
+# Server, owns only the workspace volume, and exposes only its internal health
+# port for this local smoke observation.
+cat >"$repository_environments" <<'JSON'
+{"schemaVersion":1,"environments":[{"key":"smoke","name":"Smoke","cwd":"/workspaces/smoke","enabled":true,"sandbox":"workspace-write","repository":{"managed":true,"owner":"example","repo":"smoke","baseBranch":"main"}}]}
+JSON
+chmod 0444 "$repository_environments"
+docker volume create "$repository_workspace_volume" >/dev/null
+docker volume create "$repository_state_volume" >/dev/null
+# Fresh local volumes inherit the image mount-root ownership. Prove the normal
+# non-root runtime user can initialize both without capabilities or a writable
+# container root.
+docker run --rm --read-only --cap-drop ALL \
+  -v "$repository_workspace_volume:/workspaces" \
+  -v "$repository_state_volume:/data/repositories" "$image" \
+  sh -c 'test "$(id -un)" = node && mkdir /workspaces/smoke && touch /workspaces/.writable /data/repositories/.writable && rm /workspaces/.writable /data/repositories/.writable'
+docker run -d --name "$container_name" --read-only --cap-drop ALL \
+  --tmpfs /tmp:size=16777216,mode=1777 --tmpfs /run:size=16777216,mode=0755 \
+  -p 127.0.0.1::8791 -e CODEX_RUNNER_ROLE=repository-manager -e PORT=8791 \
+  -e CODEX_RUNNER_EXECUTOR_VERIFYING_PUBLIC_KEY_FILE=/run/config/executor-verifying-public-key.pem \
+  -e CODEX_RUNNER_ENVIRONMENTS_FILE=/run/config/environments.json -e CODEX_RUNNER_WORKSPACE_ROOT=/workspaces \
+  -e CODEX_RUNNER_REPOSITORY_STATE_ROOT=/data/repositories \
+  -v "$verifying_key:/run/config/executor-verifying-public-key.pem:ro" -v "$repository_environments:/run/config/environments.json:ro" \
+  -v "$repository_workspace_volume:/workspaces" -v "$repository_state_volume:/data/repositories" "$image" >/dev/null
+repository_port=$(docker port "$container_name" 8791/tcp | sed -nE 's/^.*:([0-9]+)$/\1/p')
+if [[ -z "$repository_port" ]]; then
+  echo "Docker did not publish the Repository Manager smoke port." >&2
+  exit 1
+fi
+repository_healthy=false
+for _attempt in {1..20}; do
+  repository_health=$(curl --fail --silent --max-time 2 \
+    "http://127.0.0.1:$repository_port/health" 2>/dev/null || true)
+  if jq -e '.ok == true and .role == "repository-manager"' \
+    >/dev/null 2>&1 <<< "$repository_health"; then
+    repository_healthy=true
+    break
+  fi
+  sleep 1
+done
+if [[ "$repository_healthy" != true ]]; then
+  echo "Repository Manager did not become healthy." >&2
+  docker logs --tail 100 "$container_name" >&2 2>/dev/null || true
+  exit 1
+fi
+# The bracketed hyphen makes the inspection pattern unable to match its own
+# command line while still matching a real `codex app-server` process.
+docker exec "$container_name" sh -c 'git --version >/dev/null && ! cat /proc/[0-9]*/cmdline 2>/dev/null | tr "\000" " " | grep -E "codex app[-]server"'
+docker rm -f "$container_name" >/dev/null
 docker run -d --name "$container_name" --read-only \
   --cap-drop ALL --tmpfs /tmp:size=268435456,mode=1777 --tmpfs /run:size=16777216,mode=0755 \
   -p 127.0.0.1::8790 \
@@ -196,7 +251,14 @@ docker run -d --name "$container_name" --read-only \
   -e HTTP_PROXY=http://127.0.0.1:9 -e HTTPS_PROXY=http://127.0.0.1:9 -e ALL_PROXY=http://127.0.0.1:9 \
   -e NO_PROXY=localhost,127.0.0.1,codex-runner-controller,codex-runner-executor \
   -v "$verifying_key:/run/config/executor-verifying-public-key.pem:ro" \
-  -v "$executor_codex_home_volume:/data/codex" -v "$executor_sqlite_home_volume:/data/codex-sqlite" "$image" >/dev/null
+  -v "$executor_codex_home_volume:/data/codex" -v "$executor_sqlite_home_volume:/data/codex-sqlite" \
+  -v "$repository_workspace_volume:/workspaces" "$image" >/dev/null
+
+# Executor receives the shared mutable task checkout volume, but never the
+# Repository Manager's authority-bearing mirror/control volume.
+docker inspect "$container_name" | jq -e --arg private "$repository_state_volume" '
+  .[0].Mounts | any(.Name == $private) | not
+' >/dev/null
 
 executor_port=$(docker port "$container_name" 8790/tcp | sed -nE 's/^.*:([0-9]+)$/\1/p')
 if [[ -z "$executor_port" ]]; then

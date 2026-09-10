@@ -257,7 +257,7 @@
 - There is no workflow scheduling.
 - There is no autonomous routing between agents.
 - There is no automatic production promotion of Workflow definitions.
-- Ordinary Codex Runner Workflow jobs do not publish Git commits or pull requests.
+- Non-managed Codex Runner Workflow jobs do not publish Git commits or pull requests.
 
 ## Historical run boundary
 
@@ -265,3 +265,24 @@
 - Cloudflare Workflows remains the durable outer shell.
 - Historical retired run formats remain viewable but are read only. They cannot retry, resume, rerun, relaunch, approve, cancel providers, resolve retired credentials, or create provider work.
 - Historical-only parsers may decode immutable persisted snapshots but never admit current configuration or execution.
+
+## Managed Codex repository publication
+
+- A Codex Runner Agent may opt into a trusted managed Git environment.
+- Every new managed task starts in an isolated checkout pinned to the latest configured base commit observed at admission.
+- Repository mirrors, Git control data, and durable task authority live in repository-manager-private storage that the executor cannot mount; executor-visible task files are never consulted as repository or remote authority by a credentialed Git process.
+- At most one managed task checkout is executor-visible. Before another is admitted, prior edits are sealed into private repository-manager state and the visible checkout is removed; later publication uses the sealed state.
+- Admission rejects busy or idempotently repeated requests before repository preparation can alter an active task checkout.
+- A managed job is durably lookup-visible before repository preparation starts. Its non-secret task and continuation coordinates are idempotency-bound, and preparation failure is terminal for that job identity.
+- Emergency Stop may latch during repository preparation and prevents the provisional job from entering Codex execution.
+- Refreshing the base never mutates an active task checkout.
+- Repository identity, base branch, task branch, continuation branch, and checkout location are not model-selected.
+- A Publish GitHub PR block may follow its configured managed Codex Agent and creates or updates the persisted ADT-managed draft or ready pull request; later managed tasks may continue only that validated association.
+- An unchanged new task does not create a branch or pull request. An unchanged continuation may update only its existing validated pull-request metadata and draft state.
+- Only a ready managed Codex Runner Agent may be selected as a Publish GitHub PR source, and launch validation enforces the same rule.
+- Interrupted preparation and publication resume from deterministic trusted identities; a lost callback must reconcile a completed persisted association rather than create another branch or pull request.
+- Codex never receives a GitHub installation credential.
+- A completed managed task may be committed and pushed only through the trusted repository manager.
+- ADT creates or updates only the associated ADT-owned pull-request branch in the authorised repository.
+- Draft and normal pull-request creation are supported; merging and force-pushing are not.
+- Safe workflow state may retain repository task, branch, commit, and pull-request association metadata, but never installation tokens.

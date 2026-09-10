@@ -205,4 +205,43 @@ A normal Docker volume is node-local in Swarm. Pin the executor with a sufficien
 
 Use the split stack's long-form `tmpfs` mounts. They create `/tmp` with size `268435456`/mode `01777` and `/run` with size `16777216`/mode `0755`; `/run` is not intended to be writable at its root by UID 1000.
 
-After a Runner code/image change, publish one immutable image and redeploy both controller and executor at that same digest/tag. Squid needs no redeploy unless its configuration changed. The ADT Worker must receive the normal ADT deployment for UI/API changes.
+After a Runner code/image change, publish one immutable image and redeploy controller, executor, and repository manager at that same digest/tag. Squid needs no redeploy unless its configuration changed. The ADT Worker must receive the normal ADT deployment for UI/API changes.
+
+## Managed Git workspaces and pull requests
+
+The same immutable Runner image now supports `CODEX_RUNNER_ROLE=repository-manager` in addition to controller and executor. The repository manager is an internal-only signed-RPC service. It mounts the shared task checkout volume at `/workspaces`, its private repository/control volume at `/data/repositories`, and the environment configuration, but not `CODEX_HOME`, SQLite storage, controller state, the public Runner secret, the signing private key, or the redeploy webhook. The executor mounts `/workspaces` but **never** `/data/repositories`. The split stack gives the repository manager the internal control and egress overlays; GitHub traffic therefore uses the existing Squid boundary. It has no published port or Cloudflare route. The private volume is not a secret, and no additional long-lived GitHub or Portainer secret is introduced.
+
+The example uses local Docker volumes. Executor and repository-manager must therefore be constrained to the same unique Swarm node (`node.labels.codex-runner-sqlite == true` in the example); the same volume name on two nodes is two unrelated physical volumes. Keep both `codex-runner-workspace` and the repository-manager-only `codex-runner-repository-state` on that node rather than converting repository authority storage to NFS. The image creates `/workspaces` and `/data/repositories` as mode `0700`, owned by the non-root `node` runtime user, so fresh named volumes initialize safely without root execution or added capabilities.
+
+Managed mode is explicit trusted operator configuration:
+
+```json
+{
+  "schemaVersion": 1,
+  "environments": [{
+    "key": "artifact-dev-toolkit",
+    "name": "Artifact Dev Toolkit",
+    "cwd": "/workspaces/artifact-dev-toolkit",
+    "enabled": true,
+    "sandbox": "workspace-write",
+    "repository": {
+      "managed": true,
+      "owner": "zailghe3",
+      "repo": "artifact-dev-toolkit",
+      "baseBranch": "main"
+    }
+  }]
+}
+```
+
+The first managed task may adopt an empty root only. Unexpected contents fail safely. The repository manager stores trusted mirrors, task Git control directories, sealed commits, and durable task records only below `/data/repositories`; Codex sees at most one standalone managed checkout under `/workspaces/<environment>/tasks/`. Controller admission resolves storage, configuration, environment, idempotency, and the single active-job lease, then durably persists a provisional queued job before asking the Repository Manager to prepare a new task. Lookup can therefore reconcile the stable job identity while Git I/O is still pending. Managed task ID and optional continuation branch participate in the job fingerprint, while the short-lived credential does not. A busy or idempotently retried request cannot seal or remove the active checkout. Preparation failure becomes a safe durable terminal job and is not repeated by the same idempotency key.
+
+Emergency Stop can latch and cancel a provisional job without waiting for repository preparation. If it wins during preparation, Codex execution never starts. Only after the prior job is terminal may admission materialize another task: the previous checkout is committed into its private task Git directory, recorded as sealed, and removed from `/workspaces`. Publish uses that immutable sealed commit and removes any executor-created path that reused the old task name. Repository materialize, seal, publish, inspect, and cleanup transitions are serialized in the Repository Manager.
+
+Authenticated Git commands derive the remote from trusted environment configuration and never consult executor-visible `.git` data. External operations keep `protocol.file.allow=never` and `protocol.ext.allow=never`. Only the credential-free transfer from the internally constructed canonical private mirror path to a private task Git directory enables the local file transport for that single command. Mirror initialization is idempotent, validates its allowlisted bare-repository layout, and rejects unexpected private state. Task preparation builds in a private `.preparing-*` staging directory and atomically promotes the durable record; any recordless partial task is safely rebuilt on the same deterministic retry. Each new task fetches the configured base, resolves an immutable SHA, and creates a deterministic `adt/codex/*` branch checkout. A later managed Agent may continue a persisted ADT pull-request association: ADT resolves its exact trusted head branch, and a new isolated checkout starts at that branch's current remote head without force-pushing. `continueFrom` is an advanced preconfigured Agent option containing only `{runId, publishNodeId}`; editing the Agent preserves it, and no raw branch is accepted.
+
+ADT uses the already-authorised GitHub App installation and exact repository ID to mint separate short-lived credentials for `contents: read`, `contents: write`, and `pull_requests: write`. Git credentials exist only in the repository-manager request and process environment for the bounded operation. They are never placed in argv, remotes, Git config, Runner job/idempotency state, D1, logs, API results, or the Codex environment. Publishing stages changed files, skips empty commits, commits as `ADT Codex Runner <codex-runner@adt.invalid>`, and performs a non-force push. A new unchanged task returns `managed_task_has_no_changes` before ADT mints a pull-request credential, calls the PR API, or records an association. An unchanged continuation may still update the title, body, or draft state of its already-associated PR without a commit, push, or duplicate PR. The first-class **Publish GitHub PR** Workflow block creates or updates the associated draft or ready pull request. A restarted `starting` publication reconciles the exact persisted association or safely re-enters the same deterministic task and branch. Repository/base/head provenance is checked before PR mutation. REST manages title/body and creation; supported GraphQL mutations perform draft-to-ready and ready-to-draft transitions.
+
+The GitHub App must be granted **Contents: write** and **Pull requests: write**. GitHub may require an installation owner to approve the permission change before managed publication becomes available.
+
+This version does not merge pull requests, delete remote branches, accept arbitrary repositories/remotes/refs, force-push or rebase published branches, resolve conflicts automatically, ingest GitHub webhooks, or allow model-authenticated pushes.

@@ -67,3 +67,10 @@ test('repository capabilities are independently memoized and validated before wr
 });
 
 test('insufficient write permission fails before repository mutation',async()=>{let fetches=0;const repository=new GitHubArtifactRepository({owner:'owner',repo:'repo',branch:'main',rootPath:'artifacts',credentialProvider:async()=>({token:'secret',permissions:{contents:'read'}}),fetch:async()=>{fetches++;throw new Error('must not fetch')},logger:{info(){},error(){}}});await assert.rejects(repository.create({metadata:{id:'new',title:'New',type:'prompt',tags:[],aliases:[]},body:'Body',actorLogin:'octocat'}),ArtifactWritePermissionError);assert.equal(fetches,0)});
+
+test('pull request credentials request only pull_requests write', async () => {
+  let request;
+  const result=await mintInstallationToken(12,34,'jwt','pull_requests',async(url,init)=>{request={url,init};return json({token:'short-lived',permissions:{pull_requests:'write'}})});
+  assert.deepEqual(JSON.parse(request.init.body),{repository_ids:[34],permissions:{pull_requests:'write'}});
+  assert.deepEqual(result.permissions,{pullRequests:'write'});
+});
