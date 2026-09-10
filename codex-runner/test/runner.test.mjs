@@ -94,6 +94,8 @@ test("final image and smoke gate the packaged Debian trust store without logging
 
 test("image smoke script has valid Bash syntax",async()=>{const {execFileSync}=await import("node:child_process");assert.doesNotThrow(()=>execFileSync("bash",["-n",new URL("../scripts/smoke-image.sh",import.meta.url).pathname]))});
 
+test("repository-manager image smoke has explicit health failure and a self-excluding App Server check",async()=>{const fs=await import("node:fs/promises"),smoke=await fs.readFile(new URL("../scripts/smoke-image.sh",import.meta.url),"utf8"),section=smoke.slice(smoke.indexOf('repository_port=$(docker port'),smoke.indexOf('docker rm -f "$container_name"',smoke.indexOf('repository_port=$(docker port')));assert.match(section,/repository_healthy=false/);assert.match(section,/if \[\[ "\$repository_healthy" != true \]\]/);assert.match(section,/Repository Manager did not become healthy/);assert.match(section,/grep -E "codex app\[-\]server"/);assert.doesNotMatch(section,/grep -F "codex app-server"/)});
+
 test("inner smoke shell passes the literal dpkg status format",async()=>{const {execFileSync}=await import("node:child_process"),directory=await mkdtemp(join(tmpdir(),"adt-dpkg-format-")),fake=join(directory,"dpkg-query");try{await writeFile(fake,'#!/bin/sh\nprintf "%s" "$2"\n');await chmod(fake,0o755);const format=execFileSync("/bin/sh",["-c",'dpkg-query -W -f="\\${Status}\\n" ca-certificates'],{encoding:"utf8",env:{PATH:directory}});assert.equal(format,'-f=${Status}\\n')}finally{await rm(directory,{recursive:true,force:true})}});
 
 

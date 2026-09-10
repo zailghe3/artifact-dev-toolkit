@@ -218,8 +218,29 @@ docker run -d --name "$container_name" --read-only --cap-drop ALL \
   -v "$verifying_key:/run/config/executor-verifying-public-key.pem:ro" -v "$repository_environments:/run/config/environments.json:ro" \
   -v "$repository_workspace_volume:/workspaces" -v "$repository_state_volume:/data/repositories" "$image" >/dev/null
 repository_port=$(docker port "$container_name" 8791/tcp | sed -nE 's/^.*:([0-9]+)$/\1/p')
-for _attempt in {1..20}; do curl --fail --silent --max-time 2 "http://127.0.0.1:$repository_port/health" | jq -e '.ok == true and .role == "repository-manager"' >/dev/null 2>&1 && break; sleep 1; done
-docker exec "$container_name" sh -c 'git --version >/dev/null && ! cat /proc/[0-9]*/cmdline 2>/dev/null | tr "\000" " " | grep -F "codex app-server"'
+if [[ -z "$repository_port" ]]; then
+  echo "Docker did not publish the Repository Manager smoke port." >&2
+  exit 1
+fi
+repository_healthy=false
+for _attempt in {1..20}; do
+  repository_health=$(curl --fail --silent --max-time 2 \
+    "http://127.0.0.1:$repository_port/health" 2>/dev/null || true)
+  if jq -e '.ok == true and .role == "repository-manager"' \
+    >/dev/null 2>&1 <<< "$repository_health"; then
+    repository_healthy=true
+    break
+  fi
+  sleep 1
+done
+if [[ "$repository_healthy" != true ]]; then
+  echo "Repository Manager did not become healthy." >&2
+  docker logs --tail 100 "$container_name" >&2 2>/dev/null || true
+  exit 1
+fi
+# The bracketed hyphen makes the inspection pattern unable to match its own
+# command line while still matching a real `codex app-server` process.
+docker exec "$container_name" sh -c 'git --version >/dev/null && ! cat /proc/[0-9]*/cmdline 2>/dev/null | tr "\000" " " | grep -E "codex app[-]server"'
 docker rm -f "$container_name" >/dev/null
 docker run -d --name "$container_name" --read-only \
   --cap-drop ALL --tmpfs /tmp:size=268435456,mode=1777 --tmpfs /run:size=16777216,mode=0755 \
