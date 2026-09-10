@@ -11,6 +11,8 @@ const requireTsx=installTsxHook();
 const {AppRouterContext}=requireTsx('next/dist/shared/lib/app-router-context.shared-runtime');
 const {WorkflowAgentEditor,buildCodexRunnerAgentOptions}=requireTsx('../components/WorkflowAgentEditor.tsx');
 const {WorkflowDefinitionEditor}=requireTsx('../components/WorkflowDefinitionEditor.tsx');
+const {createPublishNode,publishAvailability,publishUnavailableMessage}=requireTsx('../lib/workflow-publish-authoring.ts');
+const {isAgentPublishEligible}=requireTsx('../lib/workflow-publish-eligibility.ts');
 const router={back(){},forward(){},refresh(){},push(){},replace(){},prefetch(){}};
 const render=(component)=>renderToStaticMarkup(React.createElement(AppRouterContext.Provider,{value:router},component));
 const connection={key:'deterministic-test',name:'Deterministic test',adapter:'deterministic-test',enabled:true};
@@ -59,6 +61,34 @@ test('Workflow create form exposes visual v2 authoring and persisted v2 IDs are 
  const initial={schemaVersion:2,id:'existing-workflow',name:'Existing Workflow',description:'',status:'draft',nodes:[{id:'node-1',blockType:'agent',blockVersion:1,config:{agentId:agent.id}}],edges:[],limits:{maxStepExecutions:32}};
  const edit=render(React.createElement(WorkflowDefinitionEditor,{agents:[agent],initial}));
  assert.match(edit,/<input(?=[^>]*name="id")(?=[^>]*required="")(?=[^>]*readOnly="")(?=[^>]*value="existing-workflow")/);
+});
+
+test('Publish authoring deterministically inserts one eligible managed source and keeps alternatives selectable',()=>{
+ const agents=[{id:'ordinary',name:'Ordinary'},{id:'managed',name:'Managed',publishEligible:true}],nodes=[{id:'z-source',type:'agent',position:{x:0,y:0},data:{agentId:'managed'}},{id:'a-source',type:'agent',position:{x:0,y:0},data:{agentId:'managed'}},{id:'ordinary',type:'agent',position:{x:0,y:0},data:{agentId:'ordinary'}}];
+ const created=createPublishNode(nodes,agents,'publish-1',{x:10,y:20});
+ assert.equal(created.node.type,'publish-github-pr');assert.equal(created.node.data.sourceNodeId,'a-source');assert.deepEqual(created.availability.eligibleSourceNodeIds,['a-source','z-source']);
+ assert.equal([...nodes,created.node].filter(node=>node.type==='publish-github-pr').length,1);
+});
+
+test('Publish authoring rejects ordinary and legacy unmanaged Agents with explicit distinct reasons',()=>{
+ const ordinary=[{id:'ordinary',name:'Ordinary'}],graph=[{id:'node',type:'agent',position:{x:0,y:0},data:{agentId:'ordinary'}}];
+ assert.equal(publishAvailability(graph,ordinary).reason,'graph-agent-ineligible');assert.match(publishUnavailableMessage('graph-agent-ineligible'),/re-saved with managed Git enabled/);
+ assert.equal(publishAvailability([],[...ordinary,{id:'managed',name:'Managed',publishEligible:true}]).reason,'eligible-agent-not-added');
+ assert.equal(publishAvailability([],ordinary).reason,'no-eligible-agent');assert.equal(createPublishNode(graph,ordinary,'publish',{x:0,y:0}).node,null);
+});
+
+test('managed publish eligibility requires persisted authority and ready current environment consistently',()=>{
+ const connections=[{key:'codex',adapter:'codex-runner'},{key:'ordinary',adapter:'deterministic-test'}],environments=[{key:'managed',enabled:true,ready:true,managedRepository:true}];
+ assert.equal(isAgentPublishEligible({connectionKey:'codex',adapterOptions:{environmentKey:'managed',managedGit:true}},connections,environments),true);
+ assert.equal(isAgentPublishEligible({connectionKey:'codex',adapterOptions:{environmentKey:'managed'}},connections,environments),false);
+ assert.equal(isAgentPublishEligible({connectionKey:'ordinary',adapterOptions:{environmentKey:'managed',managedGit:true}},connections,environments),false);
+ assert.equal(isAgentPublishEligible({connectionKey:'codex',adapterOptions:{environmentKey:'managed',managedGit:true}},connections,[{...environments[0],ready:false}]),false);
+});
+
+test('Publish button has visible accessible disabled guidance',()=>{
+ const html=render(React.createElement(WorkflowDefinitionEditor,{agents:[agent]}));
+ assert.match(html,/<button(?=[^>]*disabled="")(?=[^>]*aria-describedby="publish-github-pr-help")(?=[^>]*disabled:cursor-not-allowed)[^>]*>Add Publish GitHub PR block<\/button>/);
+ assert.match(html,/No publish-eligible managed Agent exists in ADT/);
 });
 
 test('Workflow v2 execution limit uses the schema lower bound rather than the graph node count',()=>{
