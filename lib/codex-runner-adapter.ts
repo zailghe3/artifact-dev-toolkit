@@ -8,6 +8,7 @@ type ClassifiedFailure=Error&{category:FailureCategory;safeMessage?:string;retry
 const failure=(category:FailureCategory,safeMessage?:string,transportDiagnostics?:import("./workflow-adapter.ts").ProviderTransportDiagnostics,retryable?:boolean):ClassifiedFailure=>Object.assign(new Error(category),{category,safeMessage,transportDiagnostics,retryable});
 const terminal:Record<RunnerJobFailureReason,{category:FailureCategory;message:string}>={
  authentication_failed:{category:"authentication_failed",message:"Codex authentication is unavailable."},
+ repository_preparation_failed:{category:"provider_rejected",message:"The managed repository workspace could not be prepared safely."},
  runner_restarted:{category:"provider_rejected",message:"The Runner restarted while the Codex job was active. Inspect the persistent workspace before retrying manually."},
  thread_start_failed:{category:"provider_rejected",message:"Codex could not start a thread in the configured environment."},
  turn_start_failed:{category:"provider_rejected",message:"Codex created the thread but could not start the turn."},

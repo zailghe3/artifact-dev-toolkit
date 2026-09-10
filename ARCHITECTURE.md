@@ -40,7 +40,7 @@ Next.js -> OpenNext -> Cloudflare Worker
             - internal repository manager for Git synchronization, isolated task checkouts, and authenticated branch publication
             - executor and repository manager co-located when their shared task workspace uses node-local storage; private repository authority remains repository-manager-only
             - at most one managed checkout exposed to the executor; completed task edits sealed privately before the next checkout is materialized
-            - controller job admission grants the single active-job lease before repository preparation may seal or materialize a checkout
+            - controller job admission durably reserves a lookup-visible single-job identity before repository preparation may seal or materialize a checkout
             - trusted egress proxy between executor and public Internet
 ```
 

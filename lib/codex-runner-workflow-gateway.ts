@@ -2,12 +2,12 @@ import type {ResolvedConnection} from "./workflow-connections.ts";
 import type {ProviderTransportDiagnostics} from "./workflow-adapter.ts";
 import {classifyTransportException,isLocalRuntimeTransportRejection} from "./safe-transport-exception.ts";
 export type RunnerJob={jobId:string;state:"queued"|"running"}|{jobId:string;state:"completed";outputText:string}|{jobId:string;state:"failed";reason:RunnerJobFailureReason}|{jobId:string;state:"cancelled"};
-export type RunnerJobFailureReason="authentication_failed"|"runner_restarted"|"thread_start_failed"|"turn_start_failed"|"turn_failed"|"interaction_required"|"output_too_large"|"timeout"|"internal_error";
+export type RunnerJobFailureReason="authentication_failed"|"repository_preparation_failed"|"runner_restarted"|"thread_start_failed"|"turn_start_failed"|"turn_failed"|"interaction_required"|"output_too_large"|"timeout"|"internal_error";
 export type RunnerCancellation=RunnerJob|{jobId:string;state:"cancellation_pending"};
 export type RunnerEnvironmentDescriptor={key:string;name:string;enabled:boolean;ready:boolean;sandbox:"read-only"|"workspace-write"};
 export type RunnerModelDescriptor={id:string;displayName:string;isDefault:boolean;defaultReasoningEffort:string;supportedReasoningEfforts:{reasoningEffort:string;description:string}[]};
 export type CodexRunnerCatalog={environments:RunnerEnvironmentDescriptor[];models:RunnerModelDescriptor[]};
-const JOB_ID=/^[a-f0-9]{48}$/,MAX_OUTPUT=262_144,FAILURES=new Set<RunnerJobFailureReason>(["authentication_failed","runner_restarted","thread_start_failed","turn_start_failed","turn_failed","interaction_required","output_too_large","timeout","internal_error"]);
+const JOB_ID=/^[a-f0-9]{48}$/,MAX_OUTPUT=262_144,FAILURES=new Set<RunnerJobFailureReason>(["authentication_failed","repository_preparation_failed","runner_restarted","thread_start_failed","turn_start_failed","turn_failed","interaction_required","output_too_large","timeout","internal_error"]);
 const digest=async(value:string)=>[...new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(value)))].map(v=>v.toString(16).padStart(2,"0")).join("");
 export class RunnerGatewayError extends Error{readonly code:string;readonly ambiguous:boolean;readonly transportDiagnostics?:ProviderTransportDiagnostics;constructor(code:string,ambiguous=false,transportDiagnostics?:ProviderTransportDiagnostics){super(code);this.code=code;this.ambiguous=ambiguous;this.transportDiagnostics=transportDiagnostics}}
 export class CodexRunnerWorkflowGateway{
