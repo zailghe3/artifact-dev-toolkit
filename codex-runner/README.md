@@ -181,6 +181,10 @@ Diagnostics must not expose addresses, credentials, response bodies, arbitrary h
 
 ADT and Runner Git commits are not expected to match. Compatibility is determined by protocol and required capabilities; revision differences provide rollout/freshness information.
 
+Runner revision 10 makes `turn/start` acknowledgement timeouts ambiguity-safe. The executor retains the unique new thread lifecycle for a bounded notification/late-response reconciliation window, never resends the side-effectful request, and reports unresolved outcomes as `turn_start_ambiguous`. Its structured execution lifecycle logs contain only generation/execution identifiers, bounded categories, counts, states, and elapsed time; they never contain prompts, workspaces, protocol payloads, credentials, or model output.
+
+Deploy revision 10 by restarting the Controller and Executor services together. The Repository Manager uses the shared image/revision contract and must be rolled to the same image in split-stack deployments, although its runtime behaviour is unchanged. The separate Cloudflare Workflow to ADT Runtime `0 ms` transport failure remains unresolved and is not changed by this Runner fix.
+
 - Equal supported revisions are current.
 - An older installed revision may show an update available.
 - A newer Runner may remain compatible with an older ADT deployment.

@@ -11,6 +11,7 @@ const terminal:Record<RunnerJobFailureReason,{category:FailureCategory;message:s
  repository_preparation_failed:{category:"provider_rejected",message:"The managed repository workspace could not be prepared safely."},
  runner_restarted:{category:"provider_rejected",message:"The Runner restarted while the Codex job was active. Inspect the persistent workspace before retrying manually."},
  thread_start_failed:{category:"provider_rejected",message:"Codex could not start a thread in the configured environment."},
+ turn_start_ambiguous:{category:"provider_start_ambiguous",message:"Codex may have started external work, but the Runner could not confirm its outcome. Inspect the workspace and GitHub before retrying manually."},
  turn_start_failed:{category:"provider_rejected",message:"Codex created the thread but could not start the turn."},
  turn_failed:{category:"provider_rejected",message:"The Codex turn failed before producing a usable final response."},
  interaction_required:{category:"provider_rejected",message:"Codex requested an interaction or approval that the unattended Runner does not permit."},

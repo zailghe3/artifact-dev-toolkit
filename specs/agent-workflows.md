@@ -220,6 +220,7 @@
 - A Runner restart does not silently resubmit previously active Codex work.
 - Cancellation targets the existing accepted job rather than creating replacement work.
 - Temporary polling failure does not cause an accepted Runner job to be recreated.
+- An uncertain acknowledgement from a side-effectful Codex turn start is reconciled against that same turn and is never retried as a second turn. An unresolved outcome is reported as ambiguous and requires inspection before manual retry.
 - Executor replacement makes work associated with the prior executor generation terminal and never causes side-effecting work to replay.
 
 ## 15. Runner readiness and operations
