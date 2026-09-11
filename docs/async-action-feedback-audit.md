@@ -4,6 +4,12 @@
 
 This inventory covers every client component containing a request or user-triggered asynchronous operation on 2026-09-11. Pending controls disable duplicate invocation. “Navigation” means an intentional successful destination; refresh is never used to erase a newly reported failure.
 
+Workflow Publish validation has three distinct boundaries:
+
+- **Authoring validity:** durable/static connection and Agent configuration only; Workflow pages and semantic POST/PUT do not contact Codex Runner.
+- **Operational readiness:** live Runner reachability, capabilities, authentication, executable connection state, and enabled/ready managed environment are checked at run admission.
+- **Publication authority:** Repository Manager validates the actual trusted managed repository context when publication occurs.
+
 | Surface and action | Control and pending feedback | Result feedback | Refresh/navigation risk | Audit result |
 | --- | --- | --- | --- | --- |
 | `WorkflowDefinitionEditor`: create/save semantics and layout; layout-only retry | Bottom save action region; pending label and `aria-busy` | Local alert/status beside both buttons, including partial success and retry guidance | Existing-definition saves no longer refresh; create navigates only after full success | Changed |
