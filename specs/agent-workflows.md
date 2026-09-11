@@ -269,6 +269,7 @@
 ## Managed Codex repository publication
 
 - A Codex Runner Agent may opt into a trusted managed Git environment.
+- Enabled managed environment roots are provisioned by the trusted repository manager below the shared workspace boundary; unexpected existing content or unsafe path boundaries keep the environment unavailable.
 - Every new managed task starts in an isolated checkout pinned to the latest configured base commit observed at admission.
 - Repository mirrors, Git control data, and durable task authority live in repository-manager-private storage that the executor cannot mount; executor-visible task files are never consulted as repository or remote authority by a credentialed Git process.
 - At most one managed task checkout is executor-visible. Before another is admitted, prior edits are sealed into private repository-manager state and the visible checkout is removed; later publication uses the sealed state.
