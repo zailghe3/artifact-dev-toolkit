@@ -49,6 +49,9 @@
 - The Workflow view presents distinct Agent, Condition, Approval, and Join blocks with ADT semantic ports and edges, including structured fan-out and controlled back-edges.
 - Users may move visual nodes, pan or zoom the view, and save that layout independently from the Workflow definition.
 - The editor tracks semantic and presentation changes independently. Layout-only persistence is unavailable while semantic changes are pending, and saving semantic graph changes also persists a layout reconciled to the newly saved definition before reporting complete success.
+- Definition authoring validates Publish GitHub PR structure and the source Agent's persisted Codex Runner, managed-Git, and environment identity. Transient Runner readiness does not invalidate an otherwise valid definition.
+- Workflow admission revalidates live Runner readiness and managed-repository configuration. Publication independently validates the trusted managed repository context and fails closed when that authority is absent.
+- Layout persistence is validated against the exact saved semantic Workflow revision. A temporarily stale semantic observation leaves the semantic change durable and makes layout retry explicit.
 - Missing or out-of-date layout information does not prevent a current Workflow step from being displayed or executed.
 - Visual position, viewport, and edge-waypoint changes remain separate presentation-only layout mutations and never change semantic topology, order, handoff, result selection, limits, or run snapshots.
 - The Workflow execution limit remains an integer of at least one; an empty authoring draft normalizes to one when saved.

@@ -166,6 +166,26 @@ export async function validateWorkflowReferences(workflow: WorkflowDefinition, a
   }
 }
 
-export function validatePublishGitHubPrSources(workflow:WorkflowDefinition,agents:readonly AgentDefinitionV1[],connections:readonly {key:string;adapter:string}[],managedEnvironmentKeys:ReadonlySet<string>){const agentsById=new Map(agents.map(agent=>[agent.id,agent])),connectionsByKey=new Map(connections.map(connection=>[connection.key,connection]));for(const node of workflow.nodes){if(node.blockType!=="publish-github-pr")continue;const publishConfig=node.config as {sourceNodeId:string},source=workflow.nodes.find(value=>value.id===publishConfig.sourceNodeId);if(!source||source.blockType!=="agent")throw new Error("publish_source_invalid");const sourceConfig=source.config as {agentId:string},agent=agentsById.get(sourceConfig.agentId),connection=agent&&connectionsByKey.get(agent.connectionKey),options=agent?.adapterOptions as {environmentKey?:unknown;managedGit?:unknown}|undefined;if(!agent||connection?.adapter!=="codex-runner"||options?.managedGit!==true||typeof options.environmentKey!=="string"||!managedEnvironmentKeys.has(options.environmentKey))throw new Error("publish_source_invalid")}}
+export function validatePublishGitHubPrAuthoringSources(workflow:WorkflowDefinition,agents:readonly AgentDefinitionV1[],connections:readonly {key:string;adapter:string}[]){
+ const agentsById=new Map(agents.map(agent=>[agent.id,agent])),connectionsByKey=new Map(connections.map(connection=>[connection.key,connection]));
+ for(const node of workflow.nodes){
+  if(node.blockType!=="publish-github-pr")continue;
+  const source=workflow.nodes.find(value=>value.id===(node.config as {sourceNodeId:string}).sourceNodeId);
+  if(!source||source.blockType!=="agent")throw new Error("publish_source_not_agent");
+  const agent=agentsById.get((source.config as {agentId:string}).agentId);
+  if(!agent)throw new Error("publish_source_agent_missing");
+  if(connectionsByKey.get(agent.connectionKey)?.adapter!=="codex-runner")throw new Error("publish_source_not_codex_runner");
+  const options=agent.adapterOptions as {environmentKey?:unknown;managedGit?:unknown}|undefined;
+  if(options?.managedGit!==true)throw new Error("publish_source_managed_git_required");
+  if(typeof options.environmentKey!=="string"||!options.environmentKey.trim())throw new Error("publish_source_environment_required");
+ }
+}
+
+/** Runtime admission adds live managed/readiness evidence to the durable authoring contract. */
+export function validatePublishGitHubPrSources(workflow:WorkflowDefinition,agents:readonly AgentDefinitionV1[],connections:readonly {key:string;adapter:string}[],managedEnvironmentKeys:ReadonlySet<string>){
+ validatePublishGitHubPrAuthoringSources(workflow,agents,connections);
+ const agentsById=new Map(agents.map(agent=>[agent.id,agent]));
+ for(const node of workflow.nodes){if(node.blockType!=="publish-github-pr")continue;const source=workflow.nodes.find(value=>value.id===(node.config as {sourceNodeId:string}).sourceNodeId)!;const agent=agentsById.get((source.config as {agentId:string}).agentId)!;const environmentKey=(agent.adapterOptions as {environmentKey:string}).environmentKey;if(!managedEnvironmentKeys.has(environmentKey))throw new Error("publish_source_operationally_unavailable")}
+}
 
 export function validateTerminalCodexSteps(workflow:WorkflowDefinitionV1,agents:readonly AgentDefinitionV1[],adapterForConnection:(key:string)=>string|undefined){const byId=new Map(agents.map(agent=>[agent.id,agent]));workflow.steps.forEach((step,index)=>{const agent=byId.get(step.agentId);if(agent&&adapterForConnection(agent.connectionKey)==="codex-cloud"&&index!==workflow.steps.length-1)throw new Error("codex_cloud_terminal_only");});}

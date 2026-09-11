@@ -8,7 +8,7 @@ export async function persistWorkflowSemantics(fetcher:Fetcher,definition:Workfl
  if(!response.ok||!body.fileSha)throw new Error(body.error??"Workflow could not be saved.");return body.fileSha;
 }
 
-export async function persistWorkflowLayout(fetcher:Fetcher,layout:WorkflowLayoutV1,fileSha?:string){
- const response=await fetcher(`/api/workflow-definitions/${layout.workflowId}/layout`,{method:"PUT",headers:{"content-type":"application/json"},body:JSON.stringify({layout,...(fileSha?{fileSha}:{})})}),body=await response.json() as {fileSha?:string;error?:string};
+export async function persistWorkflowLayout(fetcher:Fetcher,layout:WorkflowLayoutV1,fileSha?:string,workflowFileSha?:string){
+ const response=await fetcher(`/api/workflow-definitions/${layout.workflowId}/layout`,{method:"PUT",headers:{"content-type":"application/json"},body:JSON.stringify({layout,...(fileSha?{fileSha}:{}),...(workflowFileSha?{workflowFileSha}:{})})}),body=await response.json() as {fileSha?:string;error?:string};
  if(!response.ok||!body.fileSha)throw new Error(body.error??"Layout could not be saved.");return body.fileSha;
 }
