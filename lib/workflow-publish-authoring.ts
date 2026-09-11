@@ -23,6 +23,6 @@ export function createPublishNode(nodes:WorkflowEditorNode[],agents:WorkflowEdit
 
 export function publishUnavailableMessage(reason:Exclude<PublishAvailability,{available:true}>["reason"]){
  if(reason==="eligible-agent-not-added")return "A publish-eligible managed Agent exists in ADT. Add that Agent to this Workflow before adding a Publish block.";
- if(reason==="graph-agent-ineligible")return "The Agent blocks in this Workflow are not currently publish eligible. Older Codex Agents must be re-saved with managed Git enabled against a ready managed environment.";
- return "No publish-eligible managed Agent exists in ADT. Create or re-save a Codex Runner Agent with managed Git enabled against a ready managed environment.";
+ if(reason==="graph-agent-ineligible")return "The Agent blocks in this Workflow are not configured for managed publication. Re-save a Codex Runner Agent with managed Git enabled and an environment identity.";
+ return "No publish-authoring-eligible managed Agent exists in ADT. Create or re-save a Codex Runner Agent with managed Git enabled and an environment identity.";
 }

@@ -12,7 +12,7 @@ const {AppRouterContext}=requireTsx('next/dist/shared/lib/app-router-context.sha
 const {WorkflowAgentEditor,buildCodexRunnerAgentOptions}=requireTsx('../components/WorkflowAgentEditor.tsx');
 const {WorkflowDefinitionEditor}=requireTsx('../components/WorkflowDefinitionEditor.tsx');
 const {createPublishNode,publishAvailability,publishUnavailableMessage}=requireTsx('../lib/workflow-publish-authoring.ts');
-const {isAgentPublishEligible}=requireTsx('../lib/workflow-publish-eligibility.ts');
+const {isAgentPublishAuthoringEligible,isAgentPublishOperationallyReady}=requireTsx('../lib/workflow-publish-eligibility.ts');
 const router={back(){},forward(){},refresh(){},push(){},replace(){},prefetch(){}};
 const render=(component)=>renderToStaticMarkup(React.createElement(AppRouterContext.Provider,{value:router},component));
 const connection={key:'deterministic-test',name:'Deterministic test',adapter:'deterministic-test',enabled:true};
@@ -72,23 +72,24 @@ test('Publish authoring deterministically inserts one eligible managed source an
 
 test('Publish authoring rejects ordinary and legacy unmanaged Agents with explicit distinct reasons',()=>{
  const ordinary=[{id:'ordinary',name:'Ordinary'}],graph=[{id:'node',type:'agent',position:{x:0,y:0},data:{agentId:'ordinary'}}];
- assert.equal(publishAvailability(graph,ordinary).reason,'graph-agent-ineligible');assert.match(publishUnavailableMessage('graph-agent-ineligible'),/re-saved with managed Git enabled/);
+ assert.equal(publishAvailability(graph,ordinary).reason,'graph-agent-ineligible');assert.match(publishUnavailableMessage('graph-agent-ineligible'),/Re-save a Codex Runner Agent with managed Git enabled/);
  assert.equal(publishAvailability([],[...ordinary,{id:'managed',name:'Managed',publishEligible:true}]).reason,'eligible-agent-not-added');
  assert.equal(publishAvailability([],ordinary).reason,'no-eligible-agent');assert.equal(createPublishNode(graph,ordinary,'publish',{x:0,y:0}).node,null);
 });
 
-test('managed publish eligibility requires persisted authority and ready current environment consistently',()=>{
+test('managed Publish authoring eligibility is durable while operational readiness remains live',()=>{
  const connections=[{key:'codex',adapter:'codex-runner'},{key:'ordinary',adapter:'deterministic-test'}],environments=[{key:'managed',enabled:true,ready:true,managedRepository:true}];
- assert.equal(isAgentPublishEligible({connectionKey:'codex',adapterOptions:{environmentKey:'managed',managedGit:true}},connections,environments),true);
- assert.equal(isAgentPublishEligible({connectionKey:'codex',adapterOptions:{environmentKey:'managed'}},connections,environments),false);
- assert.equal(isAgentPublishEligible({connectionKey:'ordinary',adapterOptions:{environmentKey:'managed',managedGit:true}},connections,environments),false);
- assert.equal(isAgentPublishEligible({connectionKey:'codex',adapterOptions:{environmentKey:'managed',managedGit:true}},connections,[{...environments[0],ready:false}]),false);
+ assert.equal(isAgentPublishAuthoringEligible({connectionKey:'codex',adapterOptions:{environmentKey:'managed',managedGit:true}},connections),true);
+ assert.equal(isAgentPublishAuthoringEligible({connectionKey:'codex',adapterOptions:{environmentKey:'managed'}},connections),false);
+ assert.equal(isAgentPublishAuthoringEligible({connectionKey:'ordinary',adapterOptions:{environmentKey:'managed',managedGit:true}},connections),false);
+ assert.equal(isAgentPublishAuthoringEligible({connectionKey:'codex',adapterOptions:{environmentKey:'managed',managedGit:true}},connections),true);
+ assert.equal(isAgentPublishOperationallyReady({connectionKey:'codex',adapterOptions:{environmentKey:'managed',managedGit:true}},connections,[{...environments[0],ready:false}]),false);
 });
 
 test('Publish button has visible accessible disabled guidance',()=>{
  const html=render(React.createElement(WorkflowDefinitionEditor,{agents:[agent]}));
  assert.match(html,/<button(?=[^>]*disabled="")(?=[^>]*aria-describedby="publish-github-pr-help")(?=[^>]*disabled:cursor-not-allowed)[^>]*>Add Publish GitHub PR block<\/button>/);
- assert.match(html,/No publish-eligible managed Agent exists in ADT/);
+ assert.match(html,/No publish-authoring-eligible managed Agent exists in ADT/);
 });
 
 test('Workflow v2 execution limit uses the schema lower bound rather than the graph node count',()=>{
@@ -205,3 +206,5 @@ test('Agent authoring excludes retired connections but preserves a saved legacy 
  assert.match(edit,/<option value="codex-cloud-primary" disabled=""[^>]*>Codex Cloud \(Saved legacy connection — unavailable\)<\/option>/);
  assert.equal(saveDisabled(edit),true);
 });
+
+test('offline managed Agent authoring enables Publish without claiming operational readiness',()=>{const eligible=isAgentPublishAuthoringEligible(savedAgent({environmentKey:'offline',managedGit:true}),[codexConnection]),html=render(React.createElement(WorkflowDefinitionEditor,{agents:[{id:'saved',name:'Saved',publishEligible:eligible}],initial:{schemaVersion:2,id:'offline-workflow',name:'Offline workflow',description:'',status:'draft',nodes:[{id:'agent-node',blockType:'agent',blockVersion:1,config:{agentId:'saved'}}],edges:[],limits:{maxStepExecutions:2}},fileSha:'sha'}));assert.match(html,/Add Publish GitHub PR block/);assert.doesNotMatch(html,/Add Publish GitHub PR block[^>]*disabled/);assert.doesNotMatch(html,/currently executable|operationally ready/i)});

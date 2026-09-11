@@ -3,11 +3,11 @@ import {z} from "zod";
 import {requireApiRepositoryAccess} from "@/lib/auth";
 import {noStoreHeaders} from "@/lib/auth-core";
 import {workflowLayoutSchema} from "@/lib/workflow-layout";
-import {DefinitionNotFoundError} from "@/lib/workflow-definition-repository";
+import {persistLayoutAgainstWorkflowRevision} from "@/lib/workflow-layout-persistence";
 import {createWorkflowDefinitionRepository,createWorkflowLayoutRepository} from "@/lib/workflow-services";
 import {readBoundedJson,workflowError} from "@/lib/workflow-http";
 
-const saveSchema=z.object({layout:workflowLayoutSchema,fileSha:z.string().min(1).max(100).optional()}).strict();
+const saveSchema=z.object({layout:workflowLayoutSchema,fileSha:z.string().min(1).max(100).optional(),workflowFileSha:z.string().min(1).max(100)}).strict();
 
 export async function GET(request:Request,{params}:{params:Promise<{id:string}>}){
  const auth=await requireApiRepositoryAccess(request);if(auth instanceof Response)return auth;
@@ -16,5 +16,5 @@ export async function GET(request:Request,{params}:{params:Promise<{id:string}>}
 
 export async function PUT(request:Request,{params}:{params:Promise<{id:string}>}){
  const auth=await requireApiRepositoryAccess(request);if(auth instanceof Response)return auth;
- try{const {id}=await params,body=saveSchema.parse(await readBoundedJson(request));if(body.layout.workflowId!==id)throw new Error("invalid_json");const definitions=createWorkflowDefinitionRepository(auth.access),workflow=await definitions.getWorkflow(id);if(!workflow)throw new DefinitionNotFoundError();const currentSteps=new Set(workflow.definition.nodes.map(node=>node.id));if(Object.keys(body.layout.positions).some(stepId=>!currentSteps.has(stepId)))throw new Error("invalid_json");const layouts=createWorkflowLayoutRepository(auth.access),saved=body.fileSha?await layouts.updateLayout(body.layout,body.fileSha):await layouts.createLayout(body.layout);return NextResponse.json(saved,{headers:noStoreHeaders});}catch(error){return workflowError(error);}
+ try{const {id}=await params,body=saveSchema.parse(await readBoundedJson(request));if(body.layout.workflowId!==id)throw new Error("invalid_json");const definitions=createWorkflowDefinitionRepository(auth.access),layouts=createWorkflowLayoutRepository(auth.access),saved=await persistLayoutAgainstWorkflowRevision(definitions,layouts,body.layout,body.workflowFileSha,body.fileSha);return NextResponse.json(saved,{headers:noStoreHeaders});}catch(error){return workflowError(error);}
 }
