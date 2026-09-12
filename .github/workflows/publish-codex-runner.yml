@@ -39,6 +39,24 @@ jobs:
           trap 'status=$?; if [ "$status" -ne 0 ]; then report_resources; fi' EXIT
           report_resources
           docker build --progress=plain --build-arg CODEX_RUNNER_VERSION="$GITHUB_SHA" -t adt-codex-runner:validated codex-runner
+      - name: Prepare Linux user namespaces for Codex sandbox
+        run: |
+          set -euo pipefail
+          require_sysctl() {
+            local key=$1 expected=$2 path="/proc/sys/${1//./\/}" current
+            if [[ ! -e "$path" ]]; then return; fi
+            current=$(sysctl -n "$key")
+            if [[ "$current" != "$expected" ]]; then
+              sudo sysctl -w "$key=$expected" >/dev/null
+            fi
+            current=$(sysctl -n "$key")
+            if [[ "$current" != "$expected" ]]; then
+              echo "Codex sandbox prerequisite unavailable: $key must equal $expected." >&2
+              exit 1
+            fi
+          }
+          require_sysctl kernel.unprivileged_userns_clone 1
+          require_sysctl kernel.apparmor_restrict_unprivileged_userns 0
       - name: Smoke-test Codex Runner image
         run: codex-runner/scripts/smoke-image.sh adt-codex-runner:validated
       - name: Smoke-test Codex Runner proxy policy
