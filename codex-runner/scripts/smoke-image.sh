@@ -92,8 +92,11 @@ fi
 # reads and workspace writes, while known and guessed identity paths stay absent.
 docker run --rm --read-only --cap-drop ALL \
   --tmpfs /tmp:size=268435456,mode=1777 --tmpfs /run:size=16777216,mode=0755 \
-  --tmpfs /workspaces:mode=0700 --tmpfs /data/codex:mode=0700 --tmpfs /identity:mode=0700 \
+  --tmpfs /workspaces:uid=1000,gid=1000,mode=0700 \
+  --tmpfs /data/codex:uid=1000,gid=1000,mode=0700 \
+  --tmpfs /identity:uid=1000,gid=1000,mode=0700 \
   "$image" sh -eu -c '
+    umask 077
     mkdir -p /workspaces/task /data/codex /identity/home/.config/gh /identity/runner
     printf sentinel > /data/codex/auth.json
     printf sentinel > /identity/home/.git-credentials

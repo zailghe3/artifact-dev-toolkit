@@ -28,6 +28,10 @@ test('publication prepares both dependency graphs before testing merged Runner s
 test('pull-request verification and trusted publication share the Runner image smoke', () => {
   assert.equal(verify.match(invocation)?.length, 1);
   assert.match(verify, /docker build[^\n]*adt-codex-runner:pr-verified codex-runner/);
+  assert.match(
+    verify,
+    /codex-runner\/scripts\/smoke-image\.sh adt-codex-runner:pr-verified\s+codex-runner\/scripts\/smoke-proxy-policy\.sh/,
+  );
   assert.match(verify, /docker build[^\n]*adt-runtime/);
   assert.equal(publish.match(invocation)?.length, 1);
   assert.doesNotMatch(verify, /\/v1\/(?:capabilities|auth\/status)/);
