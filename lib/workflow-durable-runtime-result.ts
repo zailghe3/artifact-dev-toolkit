@@ -13,7 +13,7 @@ const MAX_SAFE_MESSAGE_BYTES = 512;
 const categories = new Set<string>(failureCategories);
 const runtimeCodes = new Set<string>(runtimeSafeErrorCodes);
 const outcomes = new Set(["response_received", "timeout", "network_error"]);
-const reasons = new Set(["cross_request_io", "invalid_request_context", "network_connection_lost", "aborted", "fetch_type_error", "unknown"]);
+const reasons = new Set(["cross_request_io", "platform_subrequest_limit", "invalid_request_context", "network_connection_lost", "aborted", "fetch_type_error", "unknown"]);
 const errorNames = new Set(["AbortError", "TypeError", "Error"]);
 
 export type DurableRuntimeFailure = {

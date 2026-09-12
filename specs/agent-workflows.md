@@ -193,9 +193,9 @@
 - Live Codex SQLite state remains on executor-local filesystem storage, separate from durable non-SQLite Codex home state.
 - The executor manages consistent durable SQLite backups and a confirmed restore operation that refuses active work, quiesces App Server, validates backup integrity, and leaves unrelated durable home and workspace state untouched.
 - Storage and recovery operations retain the existing controller authentication and signed internal executor boundary and expose only bounded safe metadata.
-- In split deployments the executor container is the primary execution boundary; admitted workspace-write jobs run Codex with full access inside that boundary rather than depending on Codex's native Linux sandbox.
+- In split deployments the executor container and Codex `workspace-write` sandbox jointly enforce the execution boundary; configured sandbox authority is never silently escalated.
 - The executor never receives the ADT Runner credential, a credential capable of authenticating controller requests, durable controller state, or infrastructure restart credential.
-- Split-mode public network access traverses the dedicated Squid egress boundary; broad public access and executor-readable Codex authentication material remain an explicit residual data-exfiltration risk rather than a data-loss-prevention guarantee.
+- Split-mode executor network access traverses its dedicated Squid egress boundary, which denies GitHub while retaining required model-provider connectivity. Repository Manager uses a separate egress path for managed publication.
 
 ## 13. Codex Runner workspace boundary
 
@@ -292,3 +292,11 @@
 - ADT creates or updates only the associated ADT-owned pull-request branch in the authorised repository.
 - Draft and normal pull-request creation are supported; merging and force-pushing are not.
 - Safe workflow state may retain repository task, branch, commit, and pull-request association metadata, but never installation tokens.
+
+## Managed execution authority and transport budget
+
+- Durable Runtime orchestration validates protocol and capabilities before relying on them, avoids repeating readiness checks for ordinary pending observations, and keeps realistic multi-minute provider work within a Free-plan-like external-request budget with recovery headroom.
+- Deterministic platform request-budget exhaustion is reported distinctly and is not retried as a transient network outage. Bounded diagnostics distinguish Runtime execution requests, readiness requests, and the resulting external-request estimate without retaining request content.
+- A managed Codex Agent can modify and test only its local ADT task workspace. It has no GitHub credential, connected publication authority, authenticated Git remote, or GitHub egress path.
+- Managed repository identity and metadata are checked before and after execution. Boundary mutation fails closed and is never adopted as managed publication.
+- Repository Manager is the only managed Git transport. Remote creation or reconciliation occurs only after the explicit Publish GitHub PR block requests the exact `adt/codex/<task-id>` task associated with its source Agent.

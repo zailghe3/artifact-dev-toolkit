@@ -5,7 +5,7 @@ import { z } from "zod";
 export const failureCategories = ["configuration_invalid", "connection_unavailable", "authentication_failed", "permission_denied", "provider_rejected", "provider_start_ambiguous", "provider_publish_ambiguous", "rate_limited", "provider_unavailable", "provider_timeout", "malformed_response", "output_too_large", "cancelled", "internal_error"] as const;
 export type FailureCategory = typeof failureCategories[number];
 export type AdapterInvocation = { runId: string; stepId: string; iteration: number; attempt: number; providerPollCount: number; idempotencyKey: string; agentName: string; masterPrompt: string; inputText: string; tools?: readonly "artifact_search"[]; repositoryContext?:RunRepositoryContext; connection: ResolvedConnection; providerOptions?: unknown };
-export type ProviderTransportReason="cross_request_io"|"invalid_request_context"|"network_connection_lost"|"aborted"|"fetch_type_error"|"unknown";
+export type ProviderTransportReason="cross_request_io"|"platform_subrequest_limit"|"invalid_request_context"|"network_connection_lost"|"aborted"|"fetch_type_error"|"unknown";
 export type ProviderRuntimeErrorName="TypeError"|"AbortError"|"Error";
 export type ProviderTransportDiagnostics={clientRequestId:string;requestId?:string;httpStatus?:number;elapsedMs:number;processingMs?:number;outcome:"response_received"|"timeout"|"network_error";reason?:ProviderTransportReason;runtimeErrorName?:ProviderRuntimeErrorName};
 export type AdapterResult = ({ state: "pending"; taskId: string; pollAfterMs?: number; providerState?:string; outputText?:string; taskUrl?:string } | { state: "completed"; outputText: string; externalUrl?: string; taskUrl?:string })&{transportDiagnostics?:ProviderTransportDiagnostics};

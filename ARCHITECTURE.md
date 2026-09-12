@@ -194,3 +194,9 @@ Update this document when a change materially alters a major component, source-o
 - Historical engine-v1, pre-generic graph-plan, D1-provider, and source-less credential runs remain readable as immutable history.
 - Retired formats cannot retry, resume, relaunch, cancel providers, approve, or create provider work.
 - Current generic plan-version-2 runs backed by supported current connection snapshots remain recoverable across deployments.
+
+## Managed execution and durable transport boundary
+
+- ADT Runtime transport is budget-aware: Workflow validation is not repeated on every pending observation, pending observations back off adaptively, and deterministic platform resource exhaustion fails without transient recovery.
+- A managed Codex executor has local task-workspace authority only. It runs with `workspace-write`, receives no discoverable user Git/GitHub credential environment, has no executor-visible Git control directory, and cannot reach GitHub through its egress boundary.
+- Repository Manager is the sole Git transport for managed tasks. The Publish GitHub PR block is the sole Workflow stage that may request its authenticated push and then create or reconcile the exact `adt/codex/<task-id>` pull request.

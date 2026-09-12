@@ -253,3 +253,11 @@ ADT uses the already-authorised GitHub App installation and exact repository ID 
 The GitHub App must be granted **Contents: write** and **Pull requests: write**. GitHub may require an installation owner to approve the permission change before managed publication becomes available.
 
 This version does not merge pull requests, delete remote branches, accept arbitrary repositories/remotes/refs, force-push or rebase published branches, resolve conflicts automatically, ingest GitHub webhooks, or allow model-authenticated pushes.
+
+## Managed publication isolation (revision 11)
+
+Managed executor turns now preserve the configured `workspace-write` Codex sandbox; the executor never maps it to `danger-full-access`. Shell commands receive an empty, non-persistent home/XDG configuration view, system Git configuration and terminal credential prompting are disabled, and token/secret environment variables remain excluded. The managed checkout contains no `.git` authority; introducing one is a pre/post-execution boundary violation and fails the turn safely.
+
+Split deployments use `squid-executor.conf` for executor egress. It denies GitHub and GitHub content domains while retaining provider connectivity. Repository Manager continues to use the separate control-plane proxy and remains the only role able to fetch or push GitHub. This separation, rather than the defense-in-depth prompt, is the remote-write control. The September certification evidence proves PR #279 bypassed Repository Manager because its head did not match the deterministic `adt/codex/<task-id>` contract. The prior executor combined full-access execution, persistent Codex identity, and GitHub-capable egress; available evidence does not safely identify which user credential or connected-account channel authenticated that PR.
+
+Deploy revision 11 by updating the executor proxy configuration first, then rolling Repository Manager, Executor, and Controller to the same immutable Runner image. Deploy the ADT Worker in the normal order; no secret rotation is required. ADT Runtime code is unchanged, but its service may be refreshed independently before the Worker if operators want a clean certification baseline.
