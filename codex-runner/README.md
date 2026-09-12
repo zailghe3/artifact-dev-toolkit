@@ -183,6 +183,8 @@ ADT and Runner Git commits are not expected to match. Compatibility is determine
 
 Runner revision 10 makes `turn/start` acknowledgement timeouts ambiguity-safe. The executor retains the unique new thread lifecycle for a bounded notification/late-response reconciliation window, never resends the side-effectful request, and reports unresolved outcomes as `turn_start_ambiguous`. Its structured execution lifecycle logs contain only generation/execution identifiers, bounded categories, counts, states, and elapsed time; they never contain prompts, workspaces, protocol payloads, credentials, or model output.
 
+Cancellation remains pending when an ambiguous turn has no addressable turn ID. The executor retains its execution slot until interruption and execution settlement or executor replacement establishes quiescence; it never converts an unaddressed cancellation into terminal success.
+
 Deploy revision 10 by restarting the Controller and Executor services together. The Repository Manager uses the shared image/revision contract and must be rolled to the same image in split-stack deployments, although its runtime behaviour is unchanged. The separate Cloudflare Workflow to ADT Runtime `0 ms` transport failure remains unresolved and is not changed by this Runner fix.
 
 - Equal supported revisions are current.
