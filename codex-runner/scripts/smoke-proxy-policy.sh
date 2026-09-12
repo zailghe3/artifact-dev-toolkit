@@ -12,10 +12,19 @@ executor="$prefix-executor-proxy"
 manager="$prefix-manager-proxy"
 cleanup(){ docker rm -f "$executor" "$manager" >/dev/null 2>&1 || true; docker network rm "$executor_network" "$manager_network" "$uplink_network" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
+image='ubuntu/squid:6.6-24.04_edge@sha256:8a3baed477e2c282ab8aa5edad442f69873246964f225c5c2ae8364b6610963c'
+parse_config(){
+  local role=$1 file=$2
+  phase "$role-config-parse"
+  docker run --rm --entrypoint squid \
+    -v "$file:/tmp/adt-squid.conf:ro" "$image" \
+    -k parse -f /tmp/adt-squid.conf || fail "$role-config-invalid"
+}
+parse_config executor "$root/squid-executor.conf"
+parse_config manager "$root/squid.conf"
 docker network create --internal "$executor_network" >/dev/null || fail executor-network-create
 docker network create --internal "$manager_network" >/dev/null || fail manager-network-create
 docker network create "$uplink_network" >/dev/null || fail uplink-network-create
-image='ubuntu/squid:6.6-24.04_edge@sha256:8a3baed477e2c282ab8aa5edad442f69873246964f225c5c2ae8364b6610963c'
 docker run -d --name "$executor" --network "$executor_network" -v "$root/squid-executor.conf:/etc/squid/squid.conf:ro" "$image" >/dev/null || fail executor-proxy-start
 docker network connect "$uplink_network" "$executor" || fail executor-uplink-connect
 docker run -d --name "$manager" --network "$manager_network" -v "$root/squid.conf:/etc/squid/squid.conf:ro" "$image" >/dev/null || fail manager-proxy-start
@@ -71,7 +80,7 @@ for target in https://github.com/ https://api.github.com/ https://raw.githubuser
   expect_connect executor-github-denied "$executor_network" "$executor" "$target" 403
 done
 expect_connect executor-arbitrary-denied "$executor_network" "$executor" https://example.com/ 403
-for target in https://140.82.121.4/ https://192.0.2.1/; do
+for target in https://140.82.121.4/ https://192.0.2.1/ 'https://[2001:db8::1]/'; do
   expect_connect executor-ip-literal-denied "$executor_network" "$executor" "$target" 403
 done
 # Service discovery cannot resolve or route across the isolated role networks.
