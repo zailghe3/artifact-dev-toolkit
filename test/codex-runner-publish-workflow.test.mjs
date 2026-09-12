@@ -11,7 +11,7 @@ const invocation = /codex-runner\/scripts\/smoke-image\.sh adt-codex-runner:(?:p
 test('publication prepares both dependency graphs before testing merged Runner source', () => {
   const rootInstall = publish.indexOf('Install root dependencies required by cross-boundary Runner integration tests');
   const runnerTest = publish.indexOf('Test exact merged source');
-  const buildAndSmoke = publish.indexOf('Build and smoke test');
+  const buildAndSmoke = publish.indexOf('Build Codex Runner image');
   const login = publish.indexOf('Authenticate to Docker Hub');
 
   assert.match(publish, /Install canonical npm[\s\S]*packageManager/);
@@ -25,15 +25,15 @@ test('publication prepares both dependency graphs before testing merged Runner s
   assert.ok(runnerTest < buildAndSmoke && buildAndSmoke < login);
 });
 
-test('pull-request verification and trusted publication share the Runner image smoke', () => {
+test('pull-request verification and trusted publication independently require both Runner security smokes', () => {
   assert.equal(verify.match(invocation)?.length, 1);
   assert.match(verify, /docker build[^\n]*adt-codex-runner:pr-verified codex-runner/);
-  assert.match(
-    verify,
-    /codex-runner\/scripts\/smoke-image\.sh adt-codex-runner:pr-verified\s+codex-runner\/scripts\/smoke-proxy-policy\.sh/,
-  );
+  assert.match(verify, /name: Smoke-test Codex Runner image\s+run: codex-runner\/scripts\/smoke-image\.sh adt-codex-runner:pr-verified/);
+  assert.match(verify, /name: Smoke-test Codex Runner proxy policy\s+run: codex-runner\/scripts\/smoke-proxy-policy\.sh/);
   assert.match(verify, /docker build[^\n]*adt-runtime/);
   assert.equal(publish.match(invocation)?.length, 1);
+  assert.match(publish, /name: Smoke-test Codex Runner image\s+run: codex-runner\/scripts\/smoke-image\.sh adt-codex-runner:validated/);
+  assert.match(publish, /name: Smoke-test Codex Runner proxy policy\s+run: codex-runner\/scripts\/smoke-proxy-policy\.sh/);
   assert.doesNotMatch(verify, /\/v1\/(?:capabilities|auth\/status)/);
   assert.doesNotMatch(publish, /\/v1\/(?:capabilities|auth\/status)/);
 });
