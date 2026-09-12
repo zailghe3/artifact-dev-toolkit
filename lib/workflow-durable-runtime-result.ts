@@ -13,7 +13,7 @@ const MAX_SAFE_MESSAGE_BYTES = 512;
 const categories = new Set<string>(failureCategories);
 const runtimeCodes = new Set<string>(runtimeSafeErrorCodes);
 const outcomes = new Set(["response_received", "timeout", "network_error"]);
-const reasons = new Set(["cross_request_io", "invalid_request_context", "network_connection_lost", "aborted", "fetch_type_error", "unknown"]);
+const reasons = new Set(["cross_request_io", "platform_subrequest_limit", "invalid_request_context", "network_connection_lost", "aborted", "fetch_type_error", "unknown"]);
 const errorNames = new Set(["AbortError", "TypeError", "Error"]);
 
 export type DurableRuntimeFailure = {
@@ -23,10 +23,12 @@ export type DurableRuntimeFailure = {
   transportDiagnostics?: ProviderTransportDiagnostics;
   orchestration?: RuntimeOrchestrationEvidence;
 };
+export type DurableRuntimeRequestCounts={readiness:number;langgraphExecution:number};
 
 export type DurableLangGraphStepResult =
-  | { kind: "result"; result: LangGraphAdvanceResult }
-  | { kind: "runtime_failure"; failure: DurableRuntimeFailure };
+  | { kind: "result"; result: LangGraphAdvanceResult; requestCounts:DurableRuntimeRequestCounts }
+  | { kind: "runtime_failure"; failure: DurableRuntimeFailure; requestCounts:DurableRuntimeRequestCounts };
+export type DurableRuntimeValidationResult={kind:"validated";requestCounts:DurableRuntimeRequestCounts}|{kind:"runtime_failure";failure:DurableRuntimeFailure;requestCounts:DurableRuntimeRequestCounts};
 
 const record = (value: unknown): Record<string, unknown> | undefined =>
   value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
@@ -67,8 +69,9 @@ function parseResult(value: unknown): LangGraphAdvanceResult | undefined {
   return result as LangGraphAdvanceResult;
 }
 
-export function durableRuntimeFailure(error: RemoteRuntimeFailure): DurableLangGraphStepResult {
-  const value = {kind: "runtime_failure", failure: {category: error.category, safeMessage: error.safeMessage, ...(error.runtimeCode ? {runtimeCode: error.runtimeCode} : {}), ...(error.transportDiagnostics ? {transportDiagnostics: error.transportDiagnostics} : {}), ...(error.orchestration ? {orchestration: error.orchestration} : {})}};
+const parseCounts=(value:unknown):DurableRuntimeRequestCounts|undefined=>{const counts=record(value);return counts&&exact(counts,["readiness","langgraphExecution"])&&integer(counts.readiness,0,1)&&integer(counts.langgraphExecution,0,2)?counts as DurableRuntimeRequestCounts:undefined};
+export function durableRuntimeFailure(error: RemoteRuntimeFailure,requestCounts:DurableRuntimeRequestCounts={readiness:0,langgraphExecution:0}): DurableLangGraphStepResult {
+  const value = {kind: "runtime_failure", failure: {category: error.category, safeMessage: error.safeMessage, ...(error.runtimeCode ? {runtimeCode: error.runtimeCode} : {}), ...(error.transportDiagnostics ? {transportDiagnostics: error.transportDiagnostics} : {}), ...(error.orchestration ? {orchestration: error.orchestration} : {})},requestCounts};
   const parsed = parseDurableLangGraphStepResult(value);
   if (!parsed || parsed.kind !== "runtime_failure") throw new Error("invalid_runtime_failure");
   return parsed;
@@ -76,7 +79,10 @@ export function durableRuntimeFailure(error: RemoteRuntimeFailure): DurableLangG
 
 export function parseDurableLangGraphStepResult(value: unknown): DurableLangGraphStepResult | undefined {
   const envelope = record(value);
-  if (!envelope || !exact(envelope, envelope.kind === "result" ? ["kind", "result"] : envelope.kind === "runtime_failure" ? ["kind", "failure"] : [])) return;
-  if (envelope.kind === "result") { const result = parseResult(envelope.result); return result ? {kind: "result", result} : undefined; }
-  if (envelope.kind === "runtime_failure") { const failure = parseFailure(envelope.failure); return failure ? {kind: "runtime_failure", failure} : undefined; }
+  if (!envelope || !exact(envelope, envelope.kind === "result" ? ["kind", "result","requestCounts"] : envelope.kind === "runtime_failure" ? ["kind", "failure","requestCounts"] : [])) return;
+  const requestCounts=parseCounts(envelope.requestCounts);if(!requestCounts)return;
+  if (envelope.kind === "result") { const result = parseResult(envelope.result); return result ? {kind: "result", result,requestCounts} : undefined; }
+  if (envelope.kind === "runtime_failure") { const failure = parseFailure(envelope.failure); return failure ? {kind: "runtime_failure", failure,requestCounts} : undefined; }
 }
+
+export function parseDurableRuntimeValidationResult(value:unknown):DurableRuntimeValidationResult|undefined{const envelope=record(value);if(!envelope||!exact(envelope,envelope.kind==="validated"?["kind","requestCounts"]:envelope.kind==="runtime_failure"?["kind","failure","requestCounts"]:[]))return;const requestCounts=parseCounts(envelope.requestCounts);if(!requestCounts)return;if(envelope.kind==="validated")return{kind:"validated",requestCounts};const failure=parseFailure(envelope.failure);return failure?{kind:"runtime_failure",failure,requestCounts}:undefined}
