@@ -12,7 +12,7 @@ test ! -e "$workspace/.git"
 awk '/^CapEff:/ { if ($2 != "0000000000000000") exit 1; found=1 } END { exit !found }' /proc/self/status
 
 cd "$workspace"
-codex --sandbox danger-full-access sandbox -- sh -eu -c '
+sh -eu -c '
   printf "%s" ok > local-edit
   test "$(cat local-edit)" = ok
   test ! -w /
