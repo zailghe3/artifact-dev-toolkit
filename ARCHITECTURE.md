@@ -127,7 +127,8 @@ Operational detail belongs in [`adt-runtime/README.md`](adt-runtime/README.md).
 
 - Codex Runner is independently deployed from the application.
 - In split Swarm mode the controller owns durable job/control state and the environment catalogue, while an independently isolated executor owns Codex authentication and private workspaces.
-- Docker mounts and networks form the split-mode execution boundary: executor and Repository Manager use disjoint internal egress overlays and only their respective proxies join the uplink; the controller never executes model-generated commands.
+- In Docker Swarm split mode, the executor container is the Codex execution security boundary. Split execution must not depend on Bubblewrap or another native Codex sandbox inside that container; native sandboxing remains available to supported integrated deployments.
+- Docker mounts and networks enforce that boundary: executor and Repository Manager use disjoint internal egress overlays and only their respective proxies join the uplink; the controller never executes model-generated commands.
 - ADT references only safe Runner environment identifiers and supported public options.
 - Ordinary Workflow jobs do not automatically perform Git publication actions.
 - Runner reachability, protocol compatibility, authentication, environment readiness, model readiness, and job readiness are separate conditions.
@@ -198,6 +199,6 @@ Update this document when a change materially alters a major component, source-o
 ## Managed execution and durable transport boundary
 
 - ADT Runtime transport is budget-aware: validation and per-turn request counts are durable-step results reconstructed on replay, validation is not repeated after hibernation, pending observations back off adaptively, and deterministic platform resource exhaustion fails without transient recovery.
-- A managed Codex executor has local task-workspace authority only. It runs with `workspace-write`, uses a restricted-readable-root permission profile that excludes persistent identity stores, has no executor-visible Git control directory, disables non-local App Server tools, and permits only exact Codex model/auth hosts through fail-closed egress.
+- A managed Codex executor has local task-workspace authority only. ADT admits `workspace-write`, which split mode maps to Codex `danger-full-access` inside the constrained executor container, not to host access. The executor has no executor-visible Git control directory, disables non-local App Server tools, and permits only exact Codex model/auth hosts through fail-closed egress.
 - Repository Manager is the sole Git transport for managed tasks. The Publish GitHub PR block is the sole Workflow stage that may request its authenticated push and then create or reconcile the exact `adt/codex/<task-id>` pull request.
 - Fresh tasks use `adt/codex/<task-id>`. A continuation may retain the exact prior `adt/codex/...` branch only when Repository Manager successfully prepares and returns that branch as executor authority.
