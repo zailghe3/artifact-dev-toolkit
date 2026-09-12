@@ -48,8 +48,24 @@ expect_connect(){
   done
   fail "$phase_name-expected-$expected-observed-${status:-empty}"
 }
+expect_policy_allowed(){
+  local phase_name=$1 network=$2 proxy=$3 target=$4 attempts=${5:-1} status=000
+  phase "$phase_name"
+  for ((_attempt=1; _attempt<=attempts; _attempt++)); do
+    status=$(connect_status "$network" "$proxy" "$target")
+    if [[ "${ADT_PROXY_SMOKE_REQUIRE_UPSTREAM:-0}" == 1 ]]; then
+      [[ "$status" == 200 ]] && return
+    else
+      # Pinned Squid returns 503 when an ACL-allowed CONNECT reaches upstream
+      # DNS/connection handling but that external operation is unavailable.
+      case "$status" in 200|503) return;; esac
+    fi
+    if ((_attempt<attempts)); then sleep 1; fi
+  done
+  fail "$phase_name-policy-not-allowed-observed-${status:-empty}"
+}
 for target in https://api.openai.com/ https://auth.openai.com/ https://chatgpt.com/; do
-  expect_connect executor-openai-allowed "$executor_network" "$executor" "$target" 200 10
+  expect_policy_allowed executor-openai-allowed "$executor_network" "$executor" "$target" 10
 done
 for target in https://github.com/ https://api.github.com/ https://raw.githubusercontent.com/ https://githubassets.com/; do
   expect_connect executor-github-denied "$executor_network" "$executor" "$target" 403
@@ -61,4 +77,4 @@ done
 # Service discovery cannot resolve or route across the isolated role networks.
 expect_connect cross-role-isolation "$executor_network" "$manager" https://api.github.com/ 000
 expect_connect cross-role-isolation "$manager_network" "$executor" https://api.openai.com/ 000
-expect_connect manager-github-allowed "$manager_network" "$manager" https://api.github.com/ 200 10
+expect_policy_allowed manager-github-allowed "$manager_network" "$manager" https://api.github.com/ 10
