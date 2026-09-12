@@ -20,24 +20,24 @@ docker run -d --name "$executor" --network "$executor_network" -v "$root/squid-e
 docker network connect "$uplink_network" "$executor" || fail executor-uplink-connect
 docker run -d --name "$manager" --network "$manager_network" -v "$root/squid.conf:/etc/squid/squid.conf:ro" "$image" >/dev/null || fail manager-proxy-start
 docker network connect "$uplink_network" "$manager" || fail manager-uplink-connect
-# squidclient exits successfully even when http_access returns 403. Require the
-# exact safe local denial response so a container that is merely started cannot
-# be mistaken for a proxy that is already listening and has loaded its policy.
-wait_proxy_ready(){
-  local phase_name=$1 role=$2 container=$3 response
-  phase "$phase_name"
-  for _ in {1..30}; do
-    response=$(docker exec "$container" squidclient -h 127.0.0.1 http://example.invalid:1/ 2>/dev/null | sed -n '1p' || true)
-    if [[ "$response" =~ ^HTTP/1\.[01][[:space:]]+403([[:space:]]|$) ]]; then return; fi
-    sleep 1
-  done
-  fail "$role-proxy-not-ready"
-}
-wait_proxy_ready executor-proxy-ready executor "$executor"
-wait_proxy_ready manager-proxy-ready manager "$manager"
 # The client joins only its role's internal network. http_connect records the
 # proxy CONNECT response without printing upstream response data.
 connect_status(){ docker run --rm --network "$1" curlimages/curl:8.15.0 -s -o /dev/null -w '%{http_connect}' --connect-timeout 5 --max-time 15 --proxy "http://$2:3128" "$3" 2>/dev/null || true; }
+# Exercise the same role-network -> Docker DNS -> proxy path as production.
+# Port 1 is rejected by both loaded policies before DNS or upstream I/O.
+wait_proxy_ready(){
+  local phase_name=$1 role=$2 network=$3 proxy=$4 status=000 running
+  phase "$phase_name"
+  for _ in {1..30}; do
+    status=$(connect_status "$network" "$proxy" https://example.invalid:1/)
+    if [[ "$status" == 403 ]]; then return; fi
+    sleep 1
+  done
+  running=$(docker inspect -f '{{.State.Running}}' "$proxy" 2>/dev/null || printf unknown)
+  fail "$role-proxy-not-ready-observed-${status:-empty}-running-$running"
+}
+wait_proxy_ready executor-proxy-ready executor "$executor_network" "$executor"
+wait_proxy_ready manager-proxy-ready manager "$manager_network" "$manager"
 expect_connect(){
   local phase_name=$1 network=$2 proxy=$3 target=$4 expected=$5 attempts=${6:-1} status=000
   phase "$phase_name"
