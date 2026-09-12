@@ -20,7 +20,7 @@ Generate the pair outside the stack with `openssl genpkey -algorithm ED25519 -ou
 
 Internal responses are byte-bounded and exact-shape validated. Executor transport loss, a missing ephemeral execution, or a changed generation reconciles the existing controller job durably as `runner_restarted`; it does not mark controller storage unhealthy. Capacity is released only after that terminal record is written, so a healthy replacement executor can accept later work without restarting the controller while idempotent lookup continues to return the original record.
 
-Codex 0.153.4's generated `ThreadStartParams` schema explicitly defines `danger-full-access` in `SandboxMode`. Only the executor maps an admitted `workspace-write` environment to that value, always with approval policy `never`. This is intentional: the executor container is the split-mode sandbox boundary, with workspace access constrained by mounts and canonical path/readiness validation. Successful Bubblewrap initialization is not required in split mode; Codex's native sandbox remains the boundary in integrated mode. Do not enable legacy Landlock as part of this release, set `CODEX_UNSAFE_ALLOW_NO_SANDBOX`, use privileged mode, add `SYS_ADMIN`, select an unconfined node policy, or mount the Docker socket.
+Managed execution preserves the admitted `workspace-write` sandbox and selects Codex 0.153.4's experimental `adt-managed` permission profile. That profile grants only minimal system reads and managed-workspace writes, disables command network access, and excludes persistent identity paths. The Runner never maps managed work to `danger-full-access`. Do not set `CODEX_UNSAFE_ALLOW_NO_SANDBOX`, use privileged mode, add `SYS_ADMIN`, select an unconfined node policy, or mount the Docker socket.
 
 Executor App Server launches apply Runner-owned highest-precedence overrides: login shells and web search are disabled, inherited command environment is empty, and an explicit allowlist restores only core command variables plus validated HTTP(S)/all/no-proxy settings from the executor deployment. Secret-, token-, key-, password-, credential-, and auth-like names remain excluded, and repository configuration cannot loosen these launch overrides.
 
@@ -28,7 +28,7 @@ Executor App Server launches apply Runner-owned highest-precedence overrides: lo
 
 In controller mode environment parsing is configuration-only. Every environment listing and admission performs a bounded executor probe against the canonical cwd; the executor proves read/execute/write access and containment below `/workspaces`. Missing, unwritable, outside-root, read-only, or unreachable workspaces report `ready: false` and are not admitted.
 
-The accepted residual risk is that commands with executor full access can read Codex authentication material under `CODEX_HOME`. No undocumented credential workaround is used. The executor therefore must not contain any control-plane or infrastructure credential.
+The authenticated App Server may use persistent `CODEX_HOME`, but managed model/tool commands cannot read it. Required image smoke tests place credential sentinels at explicit identity paths and fail unless the managed permission engine both edits the workspace and denies those reads.
 
 ## Split deployment and egress
 

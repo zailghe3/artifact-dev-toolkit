@@ -295,7 +295,7 @@
 
 ## Managed execution authority and transport budget
 
-- Durable Runtime orchestration validates protocol and capabilities before relying on them, avoids repeating readiness checks for ordinary pending observations, and keeps realistic multi-minute provider work within a Free-plan-like external-request budget with recovery headroom.
+- Durable Runtime orchestration persists validation and bounded per-turn request accounting as replayable step results. Hibernation does not repeat completed Runtime requests or lose cumulative diagnostics, and realistic multi-minute provider work retains recovery headroom within a Free-plan-like external-request budget.
 - Deterministic platform request-budget exhaustion is reported distinctly and is not retried as a transient network outage. Bounded diagnostics distinguish Runtime execution requests, readiness requests, and the resulting external-request estimate without retaining request content.
 - A managed Codex Agent can modify and test only its local ADT task workspace. Its tool context cannot read persistent identity stores, use non-local App Server tools, authenticate a Git remote, or reach destinations other than the minimum model/auth services.
 - Managed repository identity and metadata are checked before and after execution. Boundary mutation fails closed and is never adopted as managed publication.

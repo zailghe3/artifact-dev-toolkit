@@ -197,6 +197,6 @@ Update this document when a change materially alters a major component, source-o
 
 ## Managed execution and durable transport boundary
 
-- ADT Runtime transport is budget-aware: Workflow validation is not repeated on every pending observation, pending observations back off adaptively, and deterministic platform resource exhaustion fails without transient recovery.
+- ADT Runtime transport is budget-aware: validation and per-turn request counts are durable-step results reconstructed on replay, validation is not repeated after hibernation, pending observations back off adaptively, and deterministic platform resource exhaustion fails without transient recovery.
 - A managed Codex executor has local task-workspace authority only. It runs with `workspace-write`, uses a restricted-readable-root permission profile that excludes persistent identity stores, has no executor-visible Git control directory, disables non-local App Server tools, and permits only exact Codex model/auth hosts through fail-closed egress.
 - Repository Manager is the sole Git transport for managed tasks. The Publish GitHub PR block is the sole Workflow stage that may request its authenticated push and then create or reconcile the exact `adt/codex/<task-id>` pull request.
