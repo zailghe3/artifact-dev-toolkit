@@ -300,3 +300,4 @@
 - A managed Codex Agent can modify and test only its local ADT task workspace. Its tool context cannot read persistent identity stores, use non-local App Server tools, authenticate a Git remote, or reach destinations other than the minimum model/auth services.
 - Managed repository identity and metadata are checked before and after execution. Boundary mutation fails closed and is never adopted as managed publication.
 - Repository Manager is the only managed Git transport. Remote creation or reconciliation occurs only after the explicit Publish GitHub PR block requests the exact `adt/codex/<task-id>` task associated with its source Agent.
+- A fresh managed task uses its deterministic task branch. Continued work may retain an existing managed branch only through the exact branch returned by Repository Manager preparation; caller-selected or non-managed branch substitutions fail closed.

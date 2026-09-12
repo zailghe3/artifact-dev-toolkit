@@ -36,14 +36,15 @@ The authenticated App Server may use persistent `CODEX_HOME`, but managed model/
 
 - ingress plus controller;
 - internal control overlay plus controller and executor;
-- internal egress overlay plus executor and Squid;
-- non-internal uplink overlay plus Squid only.
+- a dedicated internal executor-egress overlay shared only by executor and its restricted Squid;
+- a distinct internal repository-egress overlay shared only by Repository Manager and its GitHub-capable Squid;
+- non-internal uplink overlay plus the two Squid services only.
 
 `internal: true` disables external routing for an overlay. It is unrelated to Compose `external: true`, which says that the network lifecycle is operator-owned. The controller alias `codex-runner` lets an existing tunnel origin such as `codex-runner:8789` continue to resolve after migration. Executor and proxy ports are not published.
 
-The repository-owned Squid service remains the external egress enforcement layer. Its `squid.conf` allows public HTTP(S) only after destination-address ACLs reject loopback, carrier-grade NAT, RFC1918, link-local, documentation, multicast, reserved, unique-local IPv6, and IPv6 link-local targets. This supports OpenAI, GitHub, package registries, and ordinary public development sites without giving the executor a direct uplink. Access logging is disabled so URLs, queries, and credentials are not intentionally recorded. Use the trusted publication image `poulti/adt-codex-runner:<merged Git SHA>` for both controller and executor. The example keeps finite executor CPU, memory, and PID limits, a read-only root filesystem, and bounded writable temporary filesystems; operators may tune the finite limits but must not remove them. The proxy is itself trusted: application policy does not protect against compromise of the proxy process.
+The repository-owned Squid services remain the external egress enforcement layer. The executor proxy is fail-closed to the exact required Codex/OpenAI hosts. Repository Manager's separate proxy permits public GitHub transport only after destination-address ACLs reject non-public targets. The role-specific internal overlays prevent either client from resolving or routing to the other role's proxy; neither client joins the uplink. Access logging is disabled so URLs, queries, and credentials are not intentionally recorded. Use the trusted publication image `poulti/adt-codex-runner:<merged Git SHA>` for controller, executor, and Repository Manager.
 
-Broad public proxy access permits data exfiltration and is not a data-loss-prevention boundary. Because full-access commands can read `CODEX_HOME`, that exposure is an accepted residual risk for this iteration. Additional egress restriction requires an explicit operator policy change.
+Managed commands additionally run with network disabled and cannot read persistent `CODEX_HOME`. Repository Manager remains the only role with both Git authority and a route to GitHub.
 
 The proxy uses Canonical verified-publisher `ubuntu/squid:6.6-24.04_edge`, based on Ubuntu 24.04 LTS and supported through May 2029, pinned to the verified multi-platform index digest `sha256:8a3baed477e2c282ab8aa5edad442f69873246964f225c5c2ae8364b6610963c`. The proxy remains part of the trusted boundary and operators must validate the pinned image with their Swarm platform before rollout.
 
