@@ -42,6 +42,7 @@ export function getRepositoryAuthorizationConfig(): GitHubAppConfig {
   const values = requireAuthenticationValues(required);
   return { appId: values.GITHUB_APP_ID, clientId: values.GITHUB_APP_CLIENT_ID, clientSecret: values.GITHUB_APP_CLIENT_SECRET, privateKey: values.GITHUB_APP_PRIVATE_KEY, owner: values.GITHUB_ARTIFACT_REPOSITORY_OWNER, repo: values.GITHUB_ARTIFACT_REPOSITORY_NAME, branch: process.env.GITHUB_ARTIFACT_REPOSITORY_BRANCH?.trim() || "main", rootPath: DEFAULT_ARTIFACT_ROOT, allowedLogins: parseAllowedGitHubLogins() };
 }
+export function getGitHubAppIdentityConfig():Pick<GitHubAppConfig,"appId"|"privateKey">{const config=getRepositoryAuthorizationConfig();return{appId:config.appId,privateKey:config.privateKey}}
 
 function classify(error: unknown): RepositoryAuthorizationFailureReason {
   const status = (error as { status?: number }).status;

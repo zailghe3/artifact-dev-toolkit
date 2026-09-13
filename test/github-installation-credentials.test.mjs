@@ -74,3 +74,9 @@ test('pull request credentials request only pull_requests write', async () => {
   assert.deepEqual(JSON.parse(request.init.body),{repository_ids:[34],permissions:{pull_requests:'write'}});
   assert.deepEqual(result.permissions,{pullRequests:'write'});
 });
+
+test('repository-name restriction resolves canonical managed code identity with the same GitHub App',async()=>{
+ const {generateKeyPairSync}=await import('node:crypto'),{resolveManagedCodeRepositoryContext}=await import('../lib/managed-code-repository.ts'),{privateKey}=generateKeyPairSync('rsa',{modulusLength:2048}),pem=privateKey.export({type:'pkcs8',format:'pem'}),requests=[];
+ const context=await resolveManagedCodeRepositoryContext({environmentKey:'artifact-dev-toolkit',managed:true,owner:'zailghe3',repository:'artifact-dev-toolkit',baseBranch:'main'},{appId:'123',privateKey:pem},async(url,init)=>{requests.push({url:String(url),body:init?.body&&JSON.parse(init.body)});if(String(url).endsWith('/installation'))return json({id:77});if(String(url).endsWith('/access_tokens'))return json({token:'managed-short-lived',permissions:{contents:'read'}});return json({id:999,name:'artifact-dev-toolkit',owner:{login:'zailghe3'}})});
+ assert.equal(context.repositoryId,999);assert.equal(context.installationId,77);assert.deepEqual(requests[1].body.repositories,['artifact-dev-toolkit']);assert.equal('repository_ids' in requests[1].body,false);assert.doesNotMatch(JSON.stringify(context),/managed-short-lived/);
+});
