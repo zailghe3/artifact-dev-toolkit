@@ -3,37 +3,201 @@ import { readFileSync, appendFileSync } from 'node:fs';
 
 const canonicalFeatureRe = /^requests\/features\/[^/]+\.json$/;
 const exactSensitive = new Set(['package.json', 'package-lock.json', 'wrangler.jsonc']);
-const exactProduction = new Set(['package.json', 'package-lock.json', 'wrangler.jsonc', 'tsconfig.json', 'postcss.config.mjs', 'postcss.config.js', 'tailwind.config.js', 'tailwind.config.ts', 'tailwind.config.mjs']);
 const exactLockfileRepairRelevant = new Set(['package.json', 'package-lock.json', '.nvmrc', '.node-version', '.npmrc', 'npm-shrinkwrap.json']);
+
+const rootAppBuildFiles = new Set([
+  'package.json',
+  'package-lock.json',
+  'wrangler.jsonc',
+  'tsconfig.json',
+  'cloudflare-worker.ts',
+  '.nvmrc',
+  '.npmrc',
+  'postcss.config.mjs',
+  'postcss.config.js',
+  'tailwind.config.js',
+  'tailwind.config.ts',
+  'tailwind.config.mjs',
+]);
+
+const rootVerificationFiles = new Set([
+  ...rootAppBuildFiles,
+  '.node-version',
+  'cloudflare-env.d.ts',
+  'next-env.d.ts',
+  'eslint.config.mjs',
+]);
+
+const runtimeImageFiles = new Set([
+  'adt-runtime/Dockerfile',
+  'adt-runtime/package.json',
+  'adt-runtime/package-lock.json',
+  'adt-runtime/tsconfig.json',
+]);
+
+const runnerImageFiles = new Set([
+  'codex-runner/Dockerfile',
+  'codex-runner/package.json',
+  'codex-runner/package-lock.json',
+  'codex-runner/tsconfig.json',
+  'codex-runner/release.json',
+  'codex-runner/gai.conf',
+  'codex-runner/git-askpass.sh',
+]);
 
 function normalize(path) { return String(path ?? '').replace(/^\.\//, ''); }
 export function isCanonicalFeaturePath(path) { return canonicalFeatureRe.test(normalize(path)); }
+
 export function isSensitivePath(path) {
   const p = normalize(path);
-  return /(^|\/)AGENTS\.md$/.test(p) || p.startsWith('.agents/') || p.startsWith('.github/workflows/') || p.startsWith('.github/actions/') || p.startsWith('scripts/') || p.startsWith('lib/') || p === 'test/integration/workflow-runtime-integration.test.mjs' || exactSensitive.has(p) || /^open-next\.config\..+$/.test(p);
+  return /(^|\/)AGENTS\.md$/.test(p)
+    || p.startsWith('.agents/')
+    || p.startsWith('.github/workflows/')
+    || p.startsWith('.github/actions/')
+    || p.startsWith('scripts/')
+    || p.startsWith('lib/')
+    || p === 'test/integration/workflow-runtime-integration.test.mjs'
+    || exactSensitive.has(p)
+    || /^open-next\.config\..+$/.test(p);
 }
+
 export function isLockfileRepairRelevantPath(path) {
   const p = normalize(path);
-  return exactLockfileRepairRelevant.has(p) || p === '.github/dependabot.yml' || p.startsWith('.github/dependabot/') || p.startsWith('.github/workflows/') || p.startsWith('.github/actions/');
+  return exactLockfileRepairRelevant.has(p)
+    || p === '.github/dependabot.yml'
+    || p.startsWith('.github/dependabot/')
+    || p.startsWith('.github/workflows/')
+    || p.startsWith('.github/actions/');
 }
-export function isProductionPath(path) {
-  const p = normalize(path);
-  return p.startsWith('app/') || p.startsWith('components/') || p.startsWith('lib/') || p.startsWith('public/') || p.startsWith('migrations/') || exactProduction.has(p) || /^next\.config\..+$/.test(p) || /^open-next\.config\..+$/.test(p) || /^postcss\.config\..+$/.test(p) || /^tailwind\.config\..+$/.test(p);
-}
+
 export function isDocumentationOrRequestPath(path) {
   const p = normalize(path);
-  return /(^|\/)AGENTS\.md$/.test(p) || p.startsWith('docs/') || p.startsWith('specs/') || p.startsWith('.agents/') || p.startsWith('requests/features/') || p === 'README.md' || /^[^/]+\.md$/.test(p);
+  return /(^|\/)AGENTS\.md$/.test(p)
+    || p.startsWith('.agents/')
+    || p.startsWith('docs/')
+    || p.startsWith('specs/')
+    || p.startsWith('prompts/')
+    || p.startsWith('requests/')
+    || p === 'README.md'
+    || /^[^/]+\.md$/.test(p)
+    || p === 'adt-runtime/README.md'
+    || p.startsWith('adt-runtime/docs/')
+    || p === 'codex-runner/README.md'
+    || p.startsWith('codex-runner/docs/');
+}
+
+function isAppBuildPath(path) {
+  const p = normalize(path);
+  return p.startsWith('app/')
+    || p.startsWith('components/')
+    || p.startsWith('lib/')
+    || p.startsWith('public/')
+    || rootAppBuildFiles.has(p)
+    || /^next\.config\..+$/.test(p)
+    || /^open-next\.config\..+$/.test(p)
+    || /^postcss\.config\..+$/.test(p)
+    || /^tailwind\.config\..+$/.test(p);
+}
+
+function isCloudflareDeployPath(path) {
+  const p = normalize(path);
+  return isAppBuildPath(p) || p.startsWith('migrations/');
+}
+
+function isRuntimePath(path) {
+  const p = normalize(path);
+  return p.startsWith('adt-runtime/') && !isDocumentationOrRequestPath(p);
+}
+
+function isRuntimeImagePath(path) {
+  const p = normalize(path);
+  return p.startsWith('adt-runtime/src/') || runtimeImageFiles.has(p);
+}
+
+function isRuntimeImageSmokePath(path) {
+  const p = normalize(path);
+  return isRuntimeImagePath(p) || p === 'adt-runtime/scripts/smoke-image.sh';
+}
+
+function isRunnerPath(path) {
+  const p = normalize(path);
+  return p.startsWith('codex-runner/') && !isDocumentationOrRequestPath(p);
+}
+
+function isRunnerImagePath(path) {
+  const p = normalize(path);
+  return p.startsWith('codex-runner/src/') || runnerImageFiles.has(p);
+}
+
+function isRunnerImageSmokePath(path) {
+  const p = normalize(path);
+  return isRunnerImagePath(p)
+    || p.startsWith('codex-runner/scripts/')
+    || /^codex-runner\/squid(?:-executor)?\.conf$/.test(p)
+    || p === 'codex-runner/docker-stack.split.example.yml';
+}
+
+function isRootVerificationPath(path) {
+  const p = normalize(path);
+  return rootVerificationFiles.has(p)
+    || isAppBuildPath(p)
+    || p.startsWith('migrations/')
+    || p.startsWith('.github/')
+    || p.startsWith('scripts/')
+    || p.startsWith('test/')
+    || p.startsWith('test-fixtures/');
+}
+
+function isIntegrationPath(path) {
+  const p = normalize(path);
+  return p.startsWith('lib/')
+    || isRuntimePath(p)
+    || p === 'test/integration/workflow-runtime-integration.test.mjs'
+    || p === 'package.json'
+    || p === 'package-lock.json'
+    || p === '.nvmrc';
+}
+
+function isKnownPath(path) {
+  const p = normalize(path);
+  return isDocumentationOrRequestPath(p)
+    || p === '.gitignore'
+    || p === '.gitkeep'
+    || isRootVerificationPath(p)
+    || isRuntimePath(p)
+    || isRunnerPath(p)
+    || p.startsWith('prompts/');
 }
 
 function unique(values) { return [...new Set(values.filter(Boolean).map(normalize))].sort(); }
+
 export function classifyChanges(files) {
-  const normalized = files.map((file) => ({ filename: normalize(file.filename ?? file.path), previous_filename: file.previous_filename ? normalize(file.previous_filename) : undefined, status: file.status ?? 'modified' })).filter((f) => f.filename);
-  const allPaths = unique(normalized.flatMap((f) => [f.filename, f.previous_filename]));
-  const canonicalFeatureFiles = unique(normalized.flatMap((f) => [f.filename, f.previous_filename]).filter(isCanonicalFeaturePath));
-  const sensitiveFiles = unique(normalized.flatMap((f) => [f.filename, f.previous_filename]).filter(isSensitivePath));
-  const lockfileRepairFiles = unique(normalized.flatMap((f) => [f.filename, f.previous_filename]).filter(isLockfileRepairRelevantPath));
-  const hasProductionChanges = allPaths.some(isProductionPath);
+  const normalized = files
+    .map((file) => ({
+      filename: normalize(file.filename ?? file.path),
+      previous_filename: file.previous_filename ? normalize(file.previous_filename) : undefined,
+      status: file.status ?? 'modified',
+    }))
+    .filter((file) => file.filename);
+
+  const allPaths = unique(normalized.flatMap((file) => [file.filename, file.previous_filename]));
+  const canonicalFeatureFiles = unique(allPaths.filter(isCanonicalFeaturePath));
+  const sensitiveFiles = unique(allPaths.filter(isSensitivePath));
+  const lockfileRepairFiles = unique(allPaths.filter(isLockfileRepairRelevantPath));
+  const unclassifiedFiles = unique(allPaths.filter((path) => !isKnownPath(path)));
+
   const documentationRequestOnly = allPaths.length > 0 && allPaths.every(isDocumentationOrRequestPath);
+  const verifyRoot = allPaths.some(isRootVerificationPath);
+  const verifyApp = allPaths.some(isAppBuildPath);
+  const verifyRuntime = allPaths.some(isRuntimePath);
+  const verifyRunner = allPaths.some(isRunnerPath);
+  const verifyIntegration = allPaths.some(isIntegrationPath);
+  const smokeRuntimeImage = allPaths.some(isRuntimeImageSmokePath);
+  const smokeRunnerImage = allPaths.some(isRunnerImageSmokePath);
+  const deployCloudflare = allPaths.some(isCloudflareDeployPath);
+  const publishRuntime = allPaths.some(isRuntimeImagePath);
+  const publishRunner = allPaths.some(isRunnerImagePath);
+
   return {
     changed_files: allPaths.join('\n'),
     canonical_feature_files: canonicalFeatureFiles.join('\n'),
@@ -44,7 +208,21 @@ export function classifyChanges(files) {
     lockfile_repair_files: lockfileRepairFiles.join('\n'),
     has_lockfile_repair_changes: lockfileRepairFiles.length > 0,
     documentation_request_only: documentationRequestOnly,
-    deployable_changes: hasProductionChanges || (allPaths.length > 0 && !documentationRequestOnly),
+    verify_root: verifyRoot,
+    verify_app: verifyApp,
+    verify_runtime: verifyRuntime,
+    verify_runner: verifyRunner,
+    verify_integration: verifyIntegration,
+    smoke_runtime_image: smokeRuntimeImage,
+    smoke_runner_image: smokeRunnerImage,
+    deploy_cloudflare: deployCloudflare,
+    publish_runtime: publishRuntime,
+    publish_runner: publishRunner,
+    unclassified_files: unclassifiedFiles.join('\n'),
+    has_unclassified_changes: unclassifiedFiles.length > 0,
+    // Compatibility alias for older consumers while all automatic CD paths migrate
+    // to the component-specific deploy_cloudflare output.
+    deployable_changes: deployCloudflare,
   };
 }
 

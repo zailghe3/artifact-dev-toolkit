@@ -61,10 +61,21 @@ jobs:
 
   verify-main:
     name: verify-main
-    needs: resolve-context
+    needs: [resolve-context, classify]
+    if: needs.classify.result == 'success'
     uses: ./.github/workflows/reusable-verify.yml
     with:
       ref: ${{ needs.resolve-context.outputs.target_sha }}
+      # PR CI already verifies every changed component. Main re-runs only gates
+      # needed before an automatic production mutation; component publishers
+      # own their exact-commit tests/builds/smokes.
+      verify_root: ${{ needs.classify.outputs.deploy_cloudflare == 'true' }}
+      verify_app: false
+      verify_runtime: false
+      verify_runner: false
+      verify_integration: ${{ needs.classify.outputs.deploy_cloudflare == 'true' && needs.classify.outputs.verify_integration == 'true' && needs.classify.outputs.publish_runtime != 'true' }}
+      smoke_runtime_image: false
+      smoke_runner_image: false
 
   create-feature-issues:
     name: create-feature-issues
@@ -82,7 +93,7 @@ jobs:
   resolve-deployment-metadata:
     name: resolve-deployment-metadata
     needs: [resolve-context, classify, verify-main]
-    if: needs.verify-main.result == 'success' && needs.classify.outputs.deployable_changes == 'true'
+    if: needs.verify-main.result == 'success' && needs.classify.outputs.deploy_cloudflare == 'true'
     runs-on: ubuntu-latest
     outputs:
       pull_request_number: ${{ steps.pull-request.outputs.pull_request_number }}
@@ -97,7 +108,7 @@ jobs:
           set -u
           pull_request_number=""
           if response="$(gh api -H 'Accept: application/vnd.github+json' "repos/${REPOSITORY}/commits/${COMMIT_SHA}/pulls" 2>/dev/null)"; then
-            mapfile -t matches < <(jq -r --arg sha "${COMMIT_SHA}" '[.[] | select(.base.ref == "main" and .merge_commit_sha == $sha) | .number] | unique | .[]' <<< "${response}")
+            mapfile -t matches < <(jq -r --arg sha "${COMMIT_SHA}" '[.[] | select(.base.ref == "main" and .merge_commit_sha == $sha) | .number] | unique | .[]' <<<"${response}")
             if [[ "${#matches[@]}" -eq 1 ]]; then pull_request_number="${matches[0]}"; fi
           fi
           echo "pull_request_number=${pull_request_number}" >> "$GITHUB_OUTPUT"
@@ -110,7 +121,7 @@ jobs:
   deploy:
     name: deploy-main
     needs: [resolve-context, classify, verify-main, resolve-deployment-metadata]
-    if: needs.verify-main.result == 'success' && needs.classify.outputs.deployable_changes == 'true'
+    if: needs.verify-main.result == 'success' && needs.classify.outputs.deploy_cloudflare == 'true'
     uses: ./.github/workflows/reusable-deploy-cloudflare.yml
     with:
       commit_sha: ${{ needs.resolve-context.outputs.target_sha }}
@@ -119,10 +130,30 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+  publish-runtime:
+    name: publish-runtime
+    needs: [resolve-context, classify, verify-main]
+    if: needs.verify-main.result == 'success' && needs.classify.outputs.publish_runtime == 'true'
+    uses: ./.github/workflows/publish-adt-runtime.yml
+    with:
+      commit_sha: ${{ needs.resolve-context.outputs.target_sha }}
+    secrets:
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
+  publish-runner:
+    name: publish-runner
+    needs: [resolve-context, classify, verify-main]
+    if: needs.verify-main.result == 'success' && needs.classify.outputs.publish_runner == 'true'
+    uses: ./.github/workflows/publish-codex-runner.yml
+    with:
+      commit_sha: ${{ needs.resolve-context.outputs.target_sha }}
+    secrets:
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
   summary:
     name: lifecycle-summary
     runs-on: ubuntu-latest
-    needs: [resolve-context, classify, verify-main, create-feature-issues, deploy]
+    needs: [resolve-context, classify, verify-main, create-feature-issues, deploy, publish-runtime, publish-runner]
     if: always()
     permissions:
       contents: read
@@ -133,12 +164,24 @@ jobs:
             echo '## Main lifecycle summary'
             echo '- Commit: `${{ needs.resolve-context.outputs.target_sha }}`'
             echo '- Feature request changes: `${{ needs.classify.outputs.has_feature_request_changes }}`'
-            echo '- Deployable changes: `${{ needs.classify.outputs.deployable_changes }}`'
-            echo '- Verification: `${{ needs.verify-main.result }}`'
+            echo '- Deploy Cloudflare: `${{ needs.classify.outputs.deploy_cloudflare }}`'
+            echo '- Publish Runtime: `${{ needs.classify.outputs.publish_runtime }}`'
+            echo '- Publish Runner: `${{ needs.classify.outputs.publish_runner }}`'
+            echo '- Main pre-mutation verification: `${{ needs.verify-main.result }}`'
             echo '- Feature issue creation: `${{ needs.create-feature-issues.result }}`'
-            if [[ '${{ needs.classify.outputs.deployable_changes }}' != true ]]; then
-              echo '- Deployment: skipped — no production-affecting changes'
+            if [[ '${{ needs.classify.outputs.deploy_cloudflare }}' != true ]]; then
+              echo '- Cloudflare deployment: skipped — Worker inputs unchanged'
             else
-              echo '- Deployment: `${{ needs.deploy.result }}`'
+              echo '- Cloudflare deployment: `${{ needs.deploy.result }}`'
+            fi
+            if [[ '${{ needs.classify.outputs.publish_runtime }}' != true ]]; then
+              echo '- ADT Runtime publication: skipped — image inputs unchanged'
+            else
+              echo '- ADT Runtime publication: `${{ needs.publish-runtime.result }}`'
+            fi
+            if [[ '${{ needs.classify.outputs.publish_runner }}' != true ]]; then
+              echo '- Codex Runner publication: skipped — image inputs unchanged'
+            else
+              echo '- Codex Runner publication: `${{ needs.publish-runner.result }}`'
             fi
           } >> "$GITHUB_STEP_SUMMARY"

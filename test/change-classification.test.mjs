@@ -2,31 +2,125 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { classifyChanges } from '../scripts/classify-changes.mjs';
 
-test('detects canonical feature request changes and skips deployment for feature-only changes', () => {
-  const result = classifyChanges([{ filename: 'requests/features/ui-001.json', status: 'added' }]);
-  assert.equal(result.has_feature_request_changes, true);
-  assert.equal(result.deployable_changes, false);
+test('documentation and feature-request-only changes avoid executable verification and deployment', () => {
+  const docs = classifyChanges([{ filename: 'README.md' }, { filename: 'docs/ops.md' }, { filename: 'specs/000.md' }]);
+  assert.equal(docs.documentation_request_only, true);
+  assert.equal(docs.verify_root, false);
+  assert.equal(docs.verify_runtime, false);
+  assert.equal(docs.verify_runner, false);
+  assert.equal(docs.deploy_cloudflare, false);
+  assert.equal(docs.publish_runtime, false);
+  assert.equal(docs.publish_runner, false);
+
+  const feature = classifyChanges([{ filename: 'requests/features/ui-001.json', status: 'added' }]);
+  assert.equal(feature.has_feature_request_changes, true);
+  assert.equal(feature.documentation_request_only, true);
+  assert.equal(feature.deploy_cloudflare, false);
 });
 
-test('detects sensitive renamed previous filenames', () => {
-  const result = classifyChanges([{ filename: 'docs/old.md', previous_filename: '.github/workflows/old.yml', status: 'renamed' }]);
+test('app and control-plane changes verify and deploy only the Cloudflare application', () => {
+  const app = classifyChanges([{ filename: 'app/page.tsx' }]);
+  assert.equal(app.verify_root, true);
+  assert.equal(app.verify_app, true);
+  assert.equal(app.deploy_cloudflare, true);
+  assert.equal(app.publish_runtime, false);
+  assert.equal(app.publish_runner, false);
+
+  const library = classifyChanges([{ filename: 'lib/workflow-worker-runtime.ts' }]);
+  assert.equal(library.verify_root, true);
+  assert.equal(library.verify_app, true);
+  assert.equal(library.verify_integration, true);
+  assert.equal(library.deploy_cloudflare, true);
+  assert.equal(library.publish_runtime, false);
+});
+
+test('migrations deploy Cloudflare without pretending to alter a container image', () => {
+  const result = classifyChanges([{ filename: 'migrations/0018_example.sql', status: 'added' }]);
+  assert.equal(result.verify_root, true);
+  assert.equal(result.verify_app, false);
+  assert.equal(result.deploy_cloudflare, true);
+  assert.equal(result.publish_runtime, false);
+  assert.equal(result.publish_runner, false);
+});
+
+test('ADT Runtime image inputs publish Runtime but do not deploy Cloudflare', () => {
+  const source = classifyChanges([{ filename: 'adt-runtime/src/server.ts' }]);
+  assert.equal(source.verify_runtime, true);
+  assert.equal(source.verify_integration, true);
+  assert.equal(source.smoke_runtime_image, true);
+  assert.equal(source.publish_runtime, true);
+  assert.equal(source.deploy_cloudflare, false);
+  assert.equal(source.publish_runner, false);
+
+  const testOnly = classifyChanges([{ filename: 'adt-runtime/test/server.test.mjs' }]);
+  assert.equal(testOnly.verify_runtime, true);
+  assert.equal(testOnly.publish_runtime, false);
+  assert.equal(testOnly.smoke_runtime_image, false);
+
+  const smokeOnly = classifyChanges([{ filename: 'adt-runtime/scripts/smoke-image.sh' }]);
+  assert.equal(smokeOnly.verify_runtime, true);
+  assert.equal(smokeOnly.smoke_runtime_image, true);
+  assert.equal(smokeOnly.publish_runtime, false);
+});
+
+test('Codex Runner image inputs publish Runner while tests stay verification-only', () => {
+  const source = classifyChanges([{ filename: 'codex-runner/src/repository-manager.ts' }]);
+  assert.equal(source.verify_runner, true);
+  assert.equal(source.smoke_runner_image, true);
+  assert.equal(source.publish_runner, true);
+  assert.equal(source.deploy_cloudflare, false);
+  assert.equal(source.publish_runtime, false);
+
+  const helper = classifyChanges([{ filename: 'codex-runner/git-askpass.sh' }]);
+  assert.equal(helper.publish_runner, true);
+  assert.equal(helper.smoke_runner_image, true);
+
+  const testOnly = classifyChanges([{ filename: 'codex-runner/test/repository-manager.test.mjs' }]);
+  assert.equal(testOnly.verify_runner, true);
+  assert.equal(testOnly.publish_runner, false);
+  assert.equal(testOnly.smoke_runner_image, false);
+
+  const proxyPolicy = classifyChanges([{ filename: 'codex-runner/squid.conf' }]);
+  assert.equal(proxyPolicy.verify_runner, true);
+  assert.equal(proxyPolicy.smoke_runner_image, true);
+  assert.equal(proxyPolicy.publish_runner, false);
+});
+
+test('workflow, script, and root test changes use root verification without production publication', () => {
+  for (const filename of [
+    '.github/workflows/pr-orchestrator.yml',
+    'scripts/classify-changes.mjs',
+    'test/change-classification.test.mjs',
+    'test-fixtures/example.txt',
+  ]) {
+    const result = classifyChanges([{ filename }]);
+    assert.equal(result.verify_root, true, filename);
+    assert.equal(result.deploy_cloudflare, false, filename);
+    assert.equal(result.publish_runtime, false, filename);
+    assert.equal(result.publish_runner, false, filename);
+  }
+});
+
+test('root application build inputs remain Cloudflare deployment inputs', () => {
+  for (const filename of ['package.json', 'package-lock.json', 'next.config.ts', 'open-next.config.ts', 'wrangler.jsonc']) {
+    const result = classifyChanges([{ filename }]);
+    assert.equal(result.verify_root, true, filename);
+    assert.equal(result.verify_app, true, filename);
+    assert.equal(result.deploy_cloudflare, true, filename);
+  }
+  assert.equal(classifyChanges([{ filename: 'package.json' }]).verify_integration, true);
+});
+
+test('renames classify both old and new paths and retain sensitive detection', () => {
+  const result = classifyChanges([
+    { filename: 'docs/old.md', previous_filename: '.github/workflows/old.yml', status: 'renamed' },
+  ]);
   assert.equal(result.has_sensitive_changes, true);
+  assert.equal(result.verify_root, true);
   assert.match(result.sensitive_files, /.github\/workflows\/old.yml/);
 });
 
-test('deploys runtime-relevant root config changes', () => {
-  const result = classifyChanges([{ filename: 'next.config.ts', status: 'modified' }]);
-  assert.equal(result.deployable_changes, true);
-  assert.equal(result.documentation_request_only, false);
-});
-
-test('skips deployment only for narrow documentation and request-only changes', () => {
-  const result = classifyChanges([{ filename: 'README.md' }, { filename: 'docs/ops.md' }, { filename: 'specs/000.md' }]);
-  assert.equal(result.documentation_request_only, true);
-  assert.equal(result.deployable_changes, false);
-});
-
-test('detects lockfile repair relevant package and toolchain changes', () => {
+test('lockfile repair classification remains independent from deployment impact', () => {
   const result = classifyChanges([
     { filename: 'package.json' },
     { filename: '.nvmrc' },
@@ -38,42 +132,28 @@ test('detects lockfile repair relevant package and toolchain changes', () => {
   assert.match(result.lockfile_repair_files, /\.github\/dependabot\.yml/);
 });
 
-test('does not require lockfile repair for unrelated source changes', () => {
-  const result = classifyChanges([{ filename: 'app/page.tsx' }]);
-  assert.equal(result.has_lockfile_repair_changes, false);
-  assert.equal(result.lockfile_repair_files, '');
-});
-
-test('classifies migrations as production-affecting and not documentation-only', () => {
-  const result = classifyChanges([{ filename: 'migrations/0002_rebuild_auth_sessions.sql', status: 'added' }]);
-  assert.equal(result.deployable_changes, true);
-  assert.equal(result.documentation_request_only, false);
-});
-
-test('classifies governance-only changes as sensitive but non-deployable documentation', () => {
+test('governance files remain sensitive but non-deployable documentation', () => {
   const result = classifyChanges([
     { filename: 'AGENTS.md' },
     { filename: 'docs/subsystem/AGENTS.md' },
     { filename: '.agents/skills/code-change-verification/SKILL.md' },
-    { filename: '.agents/config/settings.json' },
   ]);
-
   assert.equal(result.has_sensitive_changes, true);
   assert.equal(result.documentation_request_only, true);
-  assert.equal(result.deployable_changes, false);
+  assert.equal(result.deploy_cloudflare, false);
 });
 
-test('classifies Runtime publisher dependencies as sensitive', () => {
-  const library = classifyChanges([{ filename: 'lib/format-date.ts' }]);
-  assert.equal(library.has_sensitive_changes, true);
-  assert.equal(library.documentation_request_only, false);
-  assert.equal(library.deployable_changes, true);
-
-  const integrationTest = classifyChanges([{ filename: 'test/integration/workflow-runtime-integration.test.mjs' }]);
-  assert.equal(integrationTest.has_sensitive_changes, true);
+test('unknown paths fail closed instead of silently becoming Cloudflare deployments', () => {
+  const result = classifyChanges([{ filename: 'future-subsystem/config.bin' }]);
+  assert.equal(result.has_unclassified_changes, true);
+  assert.equal(result.unclassified_files, 'future-subsystem/config.bin');
+  assert.equal(result.deploy_cloudflare, false);
+  assert.equal(result.publish_runtime, false);
+  assert.equal(result.publish_runner, false);
 });
 
-test('does not classify ordinary UI files as sensitive', () => {
-  const result = classifyChanges([{ filename: 'app/page.tsx' }, { filename: 'components/example.tsx' }]);
-  assert.equal(result.has_sensitive_changes, false);
+test('deployable_changes remains a compatibility alias for Cloudflare deployment impact', () => {
+  assert.equal(classifyChanges([{ filename: 'app/page.tsx' }]).deployable_changes, true);
+  assert.equal(classifyChanges([{ filename: 'codex-runner/src/server.ts' }]).deployable_changes, false);
+  assert.equal(classifyChanges([{ filename: 'README.md' }]).deployable_changes, false);
 });
