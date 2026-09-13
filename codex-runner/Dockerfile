@@ -37,6 +37,7 @@ ENV NODE_ENV=production CODEX_HOME=/data/codex PORT=8789 CODEX_RUNNER_VERSION=$C
 COPY --from=codex-gnu-build /out/codex-package /opt/codex
 COPY --from=build /build/release.json /tmp/release.json
 COPY gai.conf /tmp/gai.conf
+COPY git-askpass.sh /tmp/adt-git-askpass
 COPY --from=build /build/dist/validate-device-auth-schema.js /tmp/validate-device-auth-schema.js
 # Validate and install the unchanged image-local address policy.
 RUN test "$(grep -Ec '^precedence[[:space:]]+' /tmp/gai.conf)" = 5 && \
@@ -51,6 +52,10 @@ RUN test "$(grep -Ec '^precedence[[:space:]]+' /tmp/gai.conf)" = 5 && \
 RUN mkdir -p /data/codex /data/codex-sqlite /data/runner /data/repositories /workspaces && \
     chown node:node /data/codex /data/codex-sqlite /data/runner /data/repositories /workspaces && \
     chmod 0700 /data/codex /data/codex-sqlite /data/runner /data/repositories /workspaces
+# Keep Git credentials in the bounded subprocess environment while installing
+# its askpass program in the immutable image rather than the noexec /tmp mount.
+RUN install -D -o root -g root -m 0555 /tmp/adt-git-askpass /usr/local/libexec/adt-git-askpass && \
+    rm /tmp/adt-git-askpass && test -x /usr/local/libexec/adt-git-askpass
 # Install exactly one authoritative Codex entrypoint without executing it.
 RUN ln -s /opt/codex/bin/codex /usr/local/bin/codex && \
     test "$(command -v codex)" = /usr/local/bin/codex && \

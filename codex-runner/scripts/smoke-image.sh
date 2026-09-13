@@ -228,7 +228,7 @@ docker run --rm --read-only --cap-drop ALL \
   -v "$repository_state_volume:/data/repositories" "$image" \
   sh -c 'test "$(id -un)" = node && mkdir /workspaces/smoke && touch /workspaces/.writable /data/repositories/.writable && rm /workspaces/.writable /data/repositories/.writable'
 docker run -d --name "$container_name" --read-only --cap-drop ALL \
-  --tmpfs /tmp:size=16777216,mode=1777 --tmpfs /run:size=16777216,mode=0755 \
+  --tmpfs /tmp:rw,nosuid,nodev,noexec,size=16777216,mode=1777 --tmpfs /run:size=16777216,mode=0755 \
   -p 127.0.0.1::8791 -e CODEX_RUNNER_ROLE=repository-manager -e PORT=8791 \
   -e CODEX_RUNNER_EXECUTOR_VERIFYING_PUBLIC_KEY_FILE=/run/config/executor-verifying-public-key.pem \
   -e CODEX_RUNNER_ENVIRONMENTS_FILE=/run/config/environments.json -e CODEX_RUNNER_WORKSPACE_ROOT=/workspaces \
@@ -259,6 +259,17 @@ fi
 # The bracketed hyphen makes the inspection pattern unable to match its own
 # command line while still matching a real `codex app-server` process.
 docker exec "$container_name" sh -c 'git --version >/dev/null && ! cat /proc/[0-9]*/cmdline 2>/dev/null | tr "\000" " " | grep -E "codex app[-]server"'
+# Match the production noexec tmpfs while proving the root-owned image helper is
+# directly executable, exact-output-only, and immutable to the node runtime user.
+docker exec "$container_name" sh -c '
+  helper=/usr/local/libexec/adt-git-askpass
+  test "$(id -un)" = node && test -x "$helper" && test ! -w "$helper" &&
+  test "$(stat -c %U:%G:%a "$helper")" = root:root:555 &&
+  test "$(ADT_GIT_TOKEN=TEST_ONLY "$helper" "Username for managed remote")" = x-access-token &&
+  test "$(ADT_GIT_TOKEN=TEST_ONLY "$helper" "Password for managed remote")" = TEST_ONLY &&
+  printf "#!/bin/sh\nexit 0\n" >/tmp/noexec-probe && chmod 700 /tmp/noexec-probe &&
+  ! /tmp/noexec-probe 2>/dev/null
+' || { echo "repository_manager_askpass_noexec_gate_failed" >&2; exit 1; }
 docker rm -f "$container_name" >/dev/null
 smoke_phase executor
 docker run -d --name "$container_name" --read-only \
