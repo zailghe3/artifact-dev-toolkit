@@ -27,7 +27,8 @@ test('Main publishes Runner only from canonical component impact and passes the 
   assert.match(job, /uses: \.\/\.github\/workflows\/publish-codex-runner\.yml/);
   assert.match(job, /commit_sha: \$\{\{ needs\.resolve-context\.outputs\.target_sha \}\}/);
   assert.match(job, /DOCKERHUB_TOKEN: \$\{\{ secrets\.DOCKERHUB_TOKEN \}\}/);
-  assert.match(job, /deploy_worker != 'true' \|\| needs\.deploy\.result == 'success'/);
+  assert.match(job, /needs\.classify\.outputs\.runner_release_barrier != 'true'/);
+  assert.match(job, /needs\.deploy\.result == 'success' && needs\.deploy\.outputs\.worker_deployed == 'true'/);
 });
 
 test('pull-request verification gates Runner image and proxy smokes independently', () => {
