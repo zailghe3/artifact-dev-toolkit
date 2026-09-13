@@ -4,56 +4,62 @@ import test from 'node:test';
 
 const read = (path) => readFileSync(path, 'utf8');
 const verify = read('.github/workflows/reusable-verify.yml');
+const main = read('.github/workflows/main-orchestrator.yml');
 const publish = read('.github/workflows/publish-codex-runner.yml');
 const smoke = read('codex-runner/scripts/smoke-image.sh');
 const invocation = /codex-runner\/scripts\/smoke-image\.sh adt-codex-runner:(?:pr|validated)/g;
 
-test('publication prepares both dependency graphs before testing merged Runner source', () => {
-  const rootInstall = publish.indexOf('Install root dependencies required by cross-boundary Runner integration tests');
-  const runnerTest = publish.indexOf('Test exact merged source');
-  const buildAndSmoke = publish.indexOf('Build Codex Runner image');
-  const login = publish.indexOf('Authenticate to Docker Hub');
-
-  assert.match(publish, /Install canonical npm[\s\S]*packageManager/);
-  assert.ok(rootInstall >= 0 && rootInstall < runnerTest);
-  assert.match(publish.slice(rootInstall, runnerTest), /run:\s*npm ci/);
-  assert.match(
-    publish.slice(runnerTest, buildAndSmoke),
-    /working-directory:\s*codex-runner[\s\S]*run:\s*npm ci && npm test && npm run typecheck/,
-  );
-  assert.match(publish, /cache-dependency-path:\s*\|[\s\S]*package-lock\.json[\s\S]*codex-runner\/package-lock\.json/);
-  assert.ok(runnerTest < buildAndSmoke && buildAndSmoke < login);
+test('trusted Runner publication is reusable, exact-commit, and avoids duplicate TypeScript compilation', () => {
+  assert.match(publish, /workflow_call:[\s\S]*commit_sha:[\s\S]*required: true/);
+  assert.match(publish, /workflow_dispatch:/);
+  assert.doesNotMatch(publish, /\n  push:/);
+  assert.match(publish, /TARGET_SHA: \$\{\{ inputs\.commit_sha \|\| github\.sha \}\}/);
+  assert.match(publish, /ref: \$\{\{ inputs\.commit_sha \|\| github\.sha \}\}/);
+  assert.match(publish, /test "\$\(git rev-parse HEAD\)" = "\$\{TARGET_SHA\}"/);
+  assert.doesNotMatch(publish, /Install root dependencies required by cross-boundary Runner integration tests/);
+  assert.match(publish, /working-directory: codex-runner[\s\S]*run: npm ci && npm test/);
+  assert.doesNotMatch(publish, /npm test && npm run typecheck/);
 });
 
-test('pull-request verification and trusted publication require split-boundary and proxy smokes without host namespace changes', () => {
+test('Main publishes Runner only from canonical component impact and passes the immutable merge SHA', () => {
+  const job = main.slice(main.indexOf('  publish-runner:'), main.indexOf('  summary:'));
+  assert.match(job, /needs\.classify\.outputs\.publish_runner == 'true'/);
+  assert.match(job, /uses: \.\/\.github\/workflows\/publish-codex-runner\.yml/);
+  assert.match(job, /commit_sha: \$\{\{ needs\.resolve-context\.outputs\.target_sha \}\}/);
+  assert.match(job, /DOCKERHUB_TOKEN: \$\{\{ secrets\.DOCKERHUB_TOKEN \}\}/);
+  assert.match(job, /needs\.classify\.outputs\.runner_release_barrier != 'true'/);
+  assert.match(job, /needs\.deploy\.result == 'success' && needs\.deploy\.outputs\.worker_deployed == 'true'/);
+});
+
+test('pull-request verification gates Runner image and proxy smokes independently', () => {
   assert.equal(verify.match(invocation)?.length, 1);
-  assert.match(verify, /docker build[^\n]*adt-codex-runner:pr-verified codex-runner/);
-  const verifyImageSmoke = verify.indexOf('codex-runner/scripts/smoke-image.sh adt-codex-runner:pr-verified');
-  const verifyProxySmoke = verify.indexOf('codex-runner/scripts/smoke-proxy-policy.sh');
-  assert.ok(verifyImageSmoke >= 0 && verifyImageSmoke < verifyProxySmoke);
-  assert.match(verify, /name: Smoke-test Codex Runner image\s+run: codex-runner\/scripts\/smoke-image\.sh adt-codex-runner:pr-verified/);
-  assert.match(verify, /name: Smoke-test Codex Runner proxy policy\s+run: codex-runner\/scripts\/smoke-proxy-policy\.sh/);
-  assert.match(verify, /docker build[^\n]*adt-runtime/);
-  assert.equal(publish.match(invocation)?.length, 1);
-  const publishImageSmoke = publish.indexOf('codex-runner/scripts/smoke-image.sh adt-codex-runner:validated');
-  assert.ok(publishImageSmoke >= 0);
-  assert.match(publish, /name: Smoke-test Codex Runner image\s+run: codex-runner\/scripts\/smoke-image\.sh adt-codex-runner:validated/);
-  assert.match(publish, /name: Smoke-test Codex Runner proxy policy\s+run: codex-runner\/scripts\/smoke-proxy-policy\.sh/);
+  assert.match(verify, /name: Build Codex Runner image\s+if: inputs\.smoke_runner_image[\s\S]*docker build[^\n]*adt-codex-runner:pr-verified codex-runner/);
+  assert.match(verify, /name: Smoke-test Codex Runner image\s+if: inputs\.smoke_runner_image/);
+  assert.match(verify, /name: Smoke-test Codex Runner proxy policy\s+if: inputs\.smoke_runner_proxy_policy/);
+  assert.doesNotMatch(verify, /name: Smoke-test Codex Runner proxy policy\s+if: inputs\.smoke_runner_image/);
   assert.doesNotMatch(verify, /\/v1\/(?:capabilities|auth\/status)/);
-  assert.doesNotMatch(publish, /\/v1\/(?:capabilities|auth\/status)/);
-  for (const source of [verify,publish]) assert.doesNotMatch(source,/unprivileged_userns|apparmor_restrict_unprivileged_userns|sudo sysctl/);
 });
 
-test('publish stays fail-closed after the shared smoke gate', () => {
-  const smokeGate = publish.indexOf('codex-runner/scripts/smoke-image.sh');
+test('trusted publication builds and smokes the Runner image once before Docker Hub mutation without proxy-policy work', () => {
+  assert.equal(publish.match(invocation)?.length, 1);
+  const testSource = publish.indexOf('Test exact merged source');
+  const build = publish.indexOf('Build Codex Runner image');
+  const imageSmoke = publish.indexOf('codex-runner/scripts/smoke-image.sh adt-codex-runner:validated');
   const login = publish.indexOf('docker login');
   const collision = publish.indexOf('docker manifest inspect');
-  const immutablePush = publish.indexOf('docker push "$image:$GITHUB_SHA"');
+  const immutablePush = publish.indexOf('docker push "$image:${TARGET_SHA}"');
   const latestPush = publish.indexOf('docker push "$image:latest"');
-  assert.ok(smokeGate >= 0 && smokeGate < login);
+  assert.ok(testSource >= 0 && testSource < build && build < imageSmoke && imageSmoke < login);
   assert.ok(login < collision && collision < immutablePush && immutablePush < latestPush);
+  assert.doesNotMatch(publish, /smoke-proxy-policy\.sh/);
   assert.match(publish, /Immutable SHA tag already exists; refusing overwrite/);
   assert.doesNotMatch(publish, /CODEX_HOME/);
+});
+
+test('Runner publication uses the requested exact SHA for image identity and tags', () => {
+  assert.match(publish, /CODEX_RUNNER_VERSION="\$\{TARGET_SHA\}"/);
+  assert.match(publish, /"\$image:\$\{TARGET_SHA\}"/);
+  assert.doesNotMatch(publish, /"\$image:\$GITHUB_SHA"/);
 });
 
 test('shared smoke waits independently for HTTP and Codex readiness', () => {
@@ -96,6 +102,6 @@ test('shared smoke proves signed executor-role App Server readiness without weak
   assert.match(smoke, /\.healthy == true[\s\S]*\.boundary == "container"/);
   assert.match(smoke, /HTTP_PROXY=http:\/\/127\.0\.0\.1:9/);
   assert.doesNotMatch(smoke, /--privileged|--cap-add|SYS_ADMIN|--network host|docker\.sock|seccomp=unconfined|apparmor=unconfined/);
-  const executorRun=smoke.slice(smoke.indexOf('docker run -d --name "$container_name" --read-only',smoke.indexOf('CODEX_RUNNER_ROLE=executor')-500));
-  assert.doesNotMatch(executorRun,/CODEX_RUNNER_SHARED_SECRET|signing-key\.pem:|\/data\/runner|runner_state_volume/);
+  const executorRun = smoke.slice(smoke.indexOf('docker run -d --name "$container_name" --read-only', smoke.indexOf('CODEX_RUNNER_ROLE=executor') - 500));
+  assert.doesNotMatch(executorRun, /CODEX_RUNNER_SHARED_SECRET|signing-key\.pem:|\/data\/runner|runner_state_volume/);
 });

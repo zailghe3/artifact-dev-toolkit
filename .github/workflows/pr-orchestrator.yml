@@ -27,6 +27,14 @@ jobs:
     uses: ./.github/workflows/reusable-verify.yml
     with:
       ref: ${{ github.event.pull_request.head.sha }}
+      verify_root: ${{ needs.classify.outputs.verify_root == 'true' }}
+      verify_app: ${{ needs.classify.outputs.verify_app == 'true' }}
+      verify_runtime: ${{ needs.classify.outputs.verify_runtime == 'true' }}
+      verify_runner: ${{ needs.classify.outputs.verify_runner == 'true' }}
+      verify_integration: ${{ needs.classify.outputs.verify_integration == 'true' }}
+      smoke_runtime_image: ${{ needs.classify.outputs.smoke_runtime_image == 'true' }}
+      smoke_runner_image: ${{ needs.classify.outputs.smoke_runner_image == 'true' }}
+      smoke_runner_proxy_policy: ${{ needs.classify.outputs.smoke_runner_proxy_policy == 'true' }}
 
   validate-feature-requests:
     name: validate-feature-requests

@@ -6,6 +6,38 @@ on:
       ref:
         required: true
         type: string
+      verify_root:
+        required: false
+        type: boolean
+        default: false
+      verify_app:
+        required: false
+        type: boolean
+        default: false
+      verify_runtime:
+        required: false
+        type: boolean
+        default: false
+      verify_runner:
+        required: false
+        type: boolean
+        default: false
+      verify_integration:
+        required: false
+        type: boolean
+        default: false
+      smoke_runtime_image:
+        required: false
+        type: boolean
+        default: false
+      smoke_runner_image:
+        required: false
+        type: boolean
+        default: false
+      smoke_runner_proxy_policy:
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -21,58 +53,112 @@ jobs:
           ref: ${{ inputs.ref }}
           fetch-depth: 0
           persist-credentials: false
+
       - name: Setup Node.js
+        if: inputs.verify_root || inputs.verify_app || inputs.verify_runtime || inputs.verify_runner || inputs.verify_integration || inputs.smoke_runtime_image || inputs.smoke_runner_image || inputs.smoke_runner_proxy_policy
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # actions/setup-node@v6.4.0
         with:
           node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: package-lock.json
+
       - name: Install canonical npm
+        if: inputs.verify_root || inputs.verify_app || inputs.verify_runtime || inputs.verify_runner || inputs.verify_integration || inputs.smoke_runtime_image || inputs.smoke_runner_image || inputs.smoke_runner_proxy_policy
         run: npm install -g "$(node -p 'require("./package.json").packageManager')"
+
       - name: Report runtime versions
+        if: inputs.verify_root || inputs.verify_app || inputs.verify_runtime || inputs.verify_runner || inputs.verify_integration || inputs.smoke_runtime_image || inputs.smoke_runner_image || inputs.smoke_runner_proxy_policy
         run: |
           echo "Node.js $(node --version)" | tee -a "$GITHUB_STEP_SUMMARY"
           echo "npm $(npm --version)" | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Install ADT Runtime dependencies in isolation
+        if: inputs.verify_runtime || inputs.verify_integration
         working-directory: adt-runtime
         run: npm ci
+
       - name: Validate ADT Runtime in isolation
+        if: inputs.verify_runtime
         working-directory: adt-runtime
-        run: npm test && npm run typecheck
-      - name: Install dependencies
-        run: npm ci
-      - name: Validate toolchain contract
-        run: npm run toolchain:validate
-      - name: Test
         run: npm test
+
+      - name: Install root dependencies
+        if: inputs.verify_root || inputs.verify_app || inputs.verify_integration
+        run: npm ci
+
+      - name: Validate toolchain contract
+        if: inputs.verify_root
+        run: npm run toolchain:validate
+
+      - name: Test root suite
+        if: inputs.verify_root
+        run: npm test
+
       - name: Validate Runner revision policy
-        if: github.base_ref != ''
+        if: inputs.verify_runner && github.base_ref != ''
         run: |
           git fetch --no-tags origin "+refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
           npm run runner-revision:validate -- "origin/${{ github.base_ref }}"
+
       - name: Lint
+        if: inputs.verify_root
         run: npm run lint
+
       - name: Typecheck
+        if: inputs.verify_root
         run: npm run typecheck
-      - name: Build Next.js app
-        run: npm run build
+
       - name: Build OpenNext Cloudflare worker
+        if: inputs.verify_app
         run: npm run build:worker
+
       - name: Install Codex Runner dependencies
+        if: inputs.verify_runner
         working-directory: codex-runner
         run: npm ci
+
       - name: Validate Codex Runner
+        if: inputs.verify_runner
         working-directory: codex-runner
-        run: npm test && npm run typecheck
+        run: npm test
+
       - name: Build Codex Runner image
+        if: inputs.smoke_runner_image
         run: docker build --progress=plain --build-arg CODEX_RUNNER_VERSION="${{ inputs.ref }}" -t adt-codex-runner:pr-verified codex-runner
+
       - name: Smoke-test Codex Runner image
+        if: inputs.smoke_runner_image
         run: codex-runner/scripts/smoke-image.sh adt-codex-runner:pr-verified
+
       - name: Smoke-test Codex Runner proxy policy
+        if: inputs.smoke_runner_proxy_policy
         run: codex-runner/scripts/smoke-proxy-policy.sh
-      - name: Test control-plane and ADT Runtime integration
+
+      - name: Test control-plane and ADT Runtime integration using existing Runtime build
+        if: inputs.verify_integration && inputs.verify_runtime
+        run: node --test test/integration/workflow-runtime-integration.test.mjs
+
+      - name: Build Runtime and test control-plane integration
+        if: inputs.verify_integration && !inputs.verify_runtime
         run: npm run test:workflow-runtime-integration
+
       - name: Build and smoke-test ADT Runtime image without publishing
+        if: inputs.smoke_runtime_image
         run: |
           docker build --build-arg ADT_RUNTIME_REVISION="${{ inputs.ref }}" -t adt-runtime:pr-verified adt-runtime
           adt-runtime/scripts/smoke-image.sh adt-runtime:pr-verified "${{ inputs.ref }}"
+
+      - name: Summarize selected verification
+        if: always()
+        run: |
+          {
+            echo '## Verification selection'
+            echo '- Root: `${{ inputs.verify_root }}`'
+            echo '- App build: `${{ inputs.verify_app }}`'
+            echo '- ADT Runtime: `${{ inputs.verify_runtime }}`'
+            echo '- Codex Runner: `${{ inputs.verify_runner }}`'
+            echo '- Cross-boundary integration: `${{ inputs.verify_integration }}`'
+            echo '- Runtime image smoke: `${{ inputs.smoke_runtime_image }}`'
+            echo '- Runner image smoke: `${{ inputs.smoke_runner_image }}`'
+            echo '- Runner proxy-policy smoke: `${{ inputs.smoke_runner_proxy_policy }}`'
+          } >> "$GITHUB_STEP_SUMMARY"

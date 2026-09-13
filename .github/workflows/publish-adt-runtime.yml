@@ -1,29 +1,81 @@
 name: Publish ADT Runtime
+
 on:
-  push:
-    branches: [main]
-    paths:
-      - "adt-runtime/**"
-      - "lib/**"
-      - "migrations/**"
-      - "test/integration/workflow-runtime-integration.test.mjs"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/publish-adt-runtime.yml"
+  workflow_call:
+    inputs:
+      commit_sha:
+        required: true
+        type: string
+      integration_already_verified:
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      DOCKERHUB_TOKEN:
+        required: true
   workflow_dispatch:
+
 permissions:
   contents: read
+
 concurrency:
   group: publish-adt-runtime-${{ github.ref }}
   cancel-in-progress: false
+
 jobs:
-  publish:
-    if: github.ref == 'refs/heads/main'
+  freshness:
+    name: verify-current-runtime-source
     runs-on: ubuntu-latest
+    outputs:
+      current: ${{ steps.main.outputs.current }}
     steps:
-      - name: Checkout trusted main
+      - name: Check out trusted current main with complete history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout@v7.0.1
-        with: {persist-credentials: false}
+        with:
+          ref: refs/heads/main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Require no newer Runtime image input
+        id: main
+        env:
+          TARGET_SHA: ${{ inputs.commit_sha || github.sha }}
+        run: |
+          set -euo pipefail
+          current_main="$(git rev-parse HEAD)"
+          [[ "${TARGET_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          if [[ "${TARGET_SHA}" == "${current_main}" ]]; then
+            echo 'current=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! git cat-file -e "${TARGET_SHA}^{commit}" || ! git merge-base --is-ancestor "${TARGET_SHA}" "${current_main}"; then
+            echo 'current=false' >> "$GITHUB_OUTPUT"
+            echo "Skipping Runtime publication; ${TARGET_SHA} is not an ancestor of current main ${current_main}." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          FRESHNESS_TARGET_LABEL="Runtime target ${TARGET_SHA}" \
+            node scripts/evaluate-deployment-freshness.mjs runtime "${TARGET_SHA}" "${current_main}"
+
+  publish:
+    needs: freshness
+    if: github.ref == 'refs/heads/main' && needs.freshness.outputs.current == 'true'
+    runs-on: ubuntu-latest
+    env:
+      TARGET_SHA: ${{ inputs.commit_sha || github.sha }}
+    steps:
+      - name: Checkout exact trusted source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout@v7.0.1
+        with:
+          ref: ${{ inputs.commit_sha || github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify exact publication commit
+        run: |
+          set -euo pipefail
+          [[ "${TARGET_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "${TARGET_SHA}"
+
       - name: Setup Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # actions/setup-node@v6.4.0
         with:
@@ -32,35 +84,51 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             adt-runtime/package-lock.json
+
       - name: Install canonical npm
         run: npm install -g "$(node -p 'require("./adt-runtime/package.json").packageManager')"
+
       - name: Install ADT Runtime dependencies in isolation
         working-directory: adt-runtime
         run: npm ci
+
       - name: Test exact merged Runtime source in isolation
         working-directory: adt-runtime
-        run: npm test && npm run typecheck
+        run: npm test
+
       - name: Install root integration dependencies
+        if: inputs.integration_already_verified != true
         run: npm ci
-      - name: Test control-plane and ADT Runtime integration
-        run: npm run test:workflow-runtime-integration
+
+      - name: Test control-plane and ADT Runtime integration using tested Runtime build
+        if: inputs.integration_already_verified != true
+        run: node --test test/integration/workflow-runtime-integration.test.mjs
+
+      - name: Record reused shared integration gate
+        if: inputs.integration_already_verified
+        run: echo 'Control-plane/Runtime integration already passed for this exact commit in the trusted main pre-mutation gate.' >> "$GITHUB_STEP_SUMMARY"
+
       - name: Build and smoke-test exact image
         run: |
           set -euo pipefail
-          docker build --build-arg ADT_RUNTIME_REVISION="$GITHUB_SHA" -t adt-runtime:verified adt-runtime
-          adt-runtime/scripts/smoke-image.sh adt-runtime:verified "$GITHUB_SHA"
+          docker build --build-arg ADT_RUNTIME_REVISION="${TARGET_SHA}" -t adt-runtime:verified adt-runtime
+          adt-runtime/scripts/smoke-image.sh adt-runtime:verified "${TARGET_SHA}"
+
       - name: Authenticate to Docker Hub
-        env: {DOCKERHUB_USERNAME: "${{ vars.DOCKERHUB_USERNAME }}", DOCKERHUB_TOKEN: "${{ secrets.DOCKERHUB_TOKEN }}"}
+        env:
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: printf '%s' "$DOCKERHUB_TOKEN" | docker login --username "$DOCKERHUB_USERNAME" --password-stdin
+
       - name: Publish the same verified image under immutable and moving tags
         run: |
           set -euo pipefail
           image=poulti/adt-runtime
-          if docker manifest inspect "$image:$GITHUB_SHA" >/dev/null 2>&1; then echo 'Immutable SHA tag already exists; refusing overwrite.'; exit 1; fi
-          docker tag adt-runtime:verified "$image:$GITHUB_SHA"
+          if docker manifest inspect "$image:${TARGET_SHA}" >/dev/null 2>&1; then echo 'Immutable SHA tag already exists; refusing overwrite.'; exit 1; fi
+          docker tag adt-runtime:verified "$image:${TARGET_SHA}"
           docker tag adt-runtime:verified "$image:latest"
-          docker push "$image:$GITHUB_SHA"
+          docker push "$image:${TARGET_SHA}"
           docker push "$image:latest"
-          sha_digest=$(docker manifest inspect "$image:$GITHUB_SHA" | sha256sum | cut -d' ' -f1)
+          sha_digest=$(docker manifest inspect "$image:${TARGET_SHA}" | sha256sum | cut -d' ' -f1)
           latest_digest=$(docker manifest inspect "$image:latest" | sha256sum | cut -d' ' -f1)
           test "$sha_digest" = "$latest_digest"

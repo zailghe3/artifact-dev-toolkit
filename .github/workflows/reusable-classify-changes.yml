@@ -32,6 +32,38 @@ on:
         value: ${{ jobs.classify.outputs.has_lockfile_repair_changes }}
       documentation_request_only:
         value: ${{ jobs.classify.outputs.documentation_request_only }}
+      verify_root:
+        value: ${{ jobs.classify.outputs.verify_root }}
+      verify_app:
+        value: ${{ jobs.classify.outputs.verify_app }}
+      verify_runtime:
+        value: ${{ jobs.classify.outputs.verify_runtime }}
+      verify_runner:
+        value: ${{ jobs.classify.outputs.verify_runner }}
+      verify_integration:
+        value: ${{ jobs.classify.outputs.verify_integration }}
+      smoke_runtime_image:
+        value: ${{ jobs.classify.outputs.smoke_runtime_image }}
+      smoke_runner_image:
+        value: ${{ jobs.classify.outputs.smoke_runner_image }}
+      smoke_runner_proxy_policy:
+        value: ${{ jobs.classify.outputs.smoke_runner_proxy_policy }}
+      deploy_worker:
+        value: ${{ jobs.classify.outputs.deploy_worker }}
+      apply_migrations:
+        value: ${{ jobs.classify.outputs.apply_migrations }}
+      deploy_cloudflare:
+        value: ${{ jobs.classify.outputs.deploy_cloudflare }}
+      publish_runtime:
+        value: ${{ jobs.classify.outputs.publish_runtime }}
+      publish_runner:
+        value: ${{ jobs.classify.outputs.publish_runner }}
+      runner_release_barrier:
+        value: ${{ jobs.classify.outputs.runner_release_barrier }}
+      unclassified_files:
+        value: ${{ jobs.classify.outputs.unclassified_files }}
+      has_unclassified_changes:
+        value: ${{ jobs.classify.outputs.has_unclassified_changes }}
       deployable_changes:
         value: ${{ jobs.classify.outputs.deployable_changes }}
 
@@ -52,6 +84,22 @@ jobs:
       lockfile_repair_files: ${{ steps.classify.outputs.lockfile_repair_files }}
       has_lockfile_repair_changes: ${{ steps.classify.outputs.has_lockfile_repair_changes }}
       documentation_request_only: ${{ steps.classify.outputs.documentation_request_only }}
+      verify_root: ${{ steps.classify.outputs.verify_root }}
+      verify_app: ${{ steps.classify.outputs.verify_app }}
+      verify_runtime: ${{ steps.classify.outputs.verify_runtime }}
+      verify_runner: ${{ steps.classify.outputs.verify_runner }}
+      verify_integration: ${{ steps.classify.outputs.verify_integration }}
+      smoke_runtime_image: ${{ steps.classify.outputs.smoke_runtime_image }}
+      smoke_runner_image: ${{ steps.classify.outputs.smoke_runner_image }}
+      smoke_runner_proxy_policy: ${{ steps.classify.outputs.smoke_runner_proxy_policy }}
+      deploy_worker: ${{ steps.classify.outputs.deploy_worker }}
+      apply_migrations: ${{ steps.classify.outputs.apply_migrations }}
+      deploy_cloudflare: ${{ steps.classify.outputs.deploy_cloudflare }}
+      publish_runtime: ${{ steps.classify.outputs.publish_runtime }}
+      publish_runner: ${{ steps.classify.outputs.publish_runner }}
+      runner_release_barrier: ${{ steps.classify.outputs.runner_release_barrier }}
+      unclassified_files: ${{ steps.classify.outputs.unclassified_files }}
+      has_unclassified_changes: ${{ steps.classify.outputs.has_unclassified_changes }}
       deployable_changes: ${{ steps.classify.outputs.deployable_changes }}
     steps:
       - name: Check out classifier
@@ -85,12 +133,9 @@ jobs:
           fi
           node --input-type=module <<'NODE' > files.jsonl
           import { readFileSync } from 'node:fs';
-          for (const line of readFileSync('names.txt', 'utf8').split('\n')) {
-            if (!line.trim()) continue;
-            const parts = line.split('\t');
-            const code = parts[0];
-            if (code.startsWith('R')) console.log(JSON.stringify({ status: 'renamed', previous_filename: parts[1], filename: parts[2] }));
-            else console.log(JSON.stringify({ status: code === 'A' ? 'added' : code === 'D' ? 'removed' : 'modified', filename: parts[1] }));
+          import { parseGitNameStatus } from './scripts/evaluate-deployment-freshness.mjs';
+          for (const file of parseGitNameStatus(readFileSync('names.txt', 'utf8'))) {
+            console.log(JSON.stringify(file));
           }
           NODE
 
@@ -107,8 +152,27 @@ jobs:
             echo '- Sensitive changes: `${{ steps.classify.outputs.has_sensitive_changes }}`'
             echo '- Lockfile repair relevant changes: `${{ steps.classify.outputs.has_lockfile_repair_changes }}`'
             echo '- Documentation/request only: `${{ steps.classify.outputs.documentation_request_only }}`'
-            echo '- Deployable changes: `${{ steps.classify.outputs.deployable_changes }}`'
+            echo '- Verify root/app/runtime/runner/integration: `${{ steps.classify.outputs.verify_root }}` / `${{ steps.classify.outputs.verify_app }}` / `${{ steps.classify.outputs.verify_runtime }}` / `${{ steps.classify.outputs.verify_runner }}` / `${{ steps.classify.outputs.verify_integration }}`'
+            echo '- Smoke Runtime/Runner image/Runner proxy: `${{ steps.classify.outputs.smoke_runtime_image }}` / `${{ steps.classify.outputs.smoke_runner_image }}` / `${{ steps.classify.outputs.smoke_runner_proxy_policy }}`'
+            echo '- Cloudflare Worker/migrations/aggregate: `${{ steps.classify.outputs.deploy_worker }}` / `${{ steps.classify.outputs.apply_migrations }}` / `${{ steps.classify.outputs.deploy_cloudflare }}`'
+            echo '- Publish Runtime/Runner: `${{ steps.classify.outputs.publish_runtime }}` / `${{ steps.classify.outputs.publish_runner }}`'
+            echo '- Shared Runner release barrier: `${{ steps.classify.outputs.runner_release_barrier }}`'
+            echo '- Unclassified changes: `${{ steps.classify.outputs.has_unclassified_changes }}`'
             echo ''
             echo '### Files'
             printf '%s\n' '${{ steps.classify.outputs.changed_files }}'
+            if [[ '${{ steps.classify.outputs.has_unclassified_changes }}' == true ]]; then
+              echo ''
+              echo '### Unclassified files'
+              printf '%s\n' '${{ steps.classify.outputs.unclassified_files }}'
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail closed on unclassified paths
+        if: steps.classify.outputs.has_unclassified_changes == 'true'
+        env:
+          UNCLASSIFIED_FILES: ${{ steps.classify.outputs.unclassified_files }}
+        run: |
+          echo 'Change-impact policy does not classify every changed path.' >&2
+          printf '%s\n' "$UNCLASSIFIED_FILES" >&2
+          exit 1
