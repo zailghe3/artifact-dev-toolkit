@@ -289,6 +289,7 @@
 - Interrupted preparation and publication resume from deterministic trusted identities; a lost callback must reconcile a completed persisted association rather than create another branch or pull request.
 - Codex never receives a GitHub installation credential.
 - A completed managed task may be committed and pushed only through the trusted repository manager.
+- Managed publication proceeds to Repository Manager only when GitHub reports that its fresh installation credential has Contents write permission.
 - ADT creates or updates only the associated ADT-owned pull-request branch in the authorised repository.
 - Draft and normal pull-request creation are supported; merging and force-pushing are not.
 - Safe workflow state may retain repository task, branch, commit, and pull-request association metadata, but never installation tokens.
