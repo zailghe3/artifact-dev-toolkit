@@ -83,6 +83,7 @@ test('Codex Runner image inputs publish Runner without unrelated proxy smoke', (
   assert.equal(source.publish_runner, true);
   assert.equal(source.deploy_cloudflare, false);
   assert.equal(source.publish_runtime, false);
+  assert.equal(source.runner_release_barrier, false);
 
   const helper = classifyChanges([{ filename: 'codex-runner/git-askpass.sh' }]);
   assert.equal(helper.publish_runner, true);
@@ -96,7 +97,7 @@ test('Codex Runner image inputs publish Runner without unrelated proxy smoke', (
   assert.equal(testOnly.smoke_runner_proxy_policy, false);
 });
 
-test('Runner release metadata is a shared Runner and ADT Worker production input', () => {
+test('Runner release metadata is a shared Runner and ADT Worker production input with an ordering barrier', () => {
   const result = classifyChanges([{ filename: 'codex-runner/release.json' }]);
   assert.equal(result.verify_root, true);
   assert.equal(result.verify_app, true);
@@ -106,9 +107,10 @@ test('Runner release metadata is a shared Runner and ADT Worker production input
   assert.equal(result.deploy_worker, true);
   assert.equal(result.apply_migrations, true);
   assert.equal(result.deploy_cloudflare, true);
+  assert.equal(result.runner_release_barrier, true);
 });
 
-test('normal Runner source plus release bump selects both production consumers', () => {
+test('normal Runner source plus release bump selects both production consumers and the release barrier', () => {
   const result = classifyChanges([
     { filename: 'codex-runner/src/server.ts' },
     { filename: 'codex-runner/release.json' },
@@ -117,6 +119,7 @@ test('normal Runner source plus release bump selects both production consumers',
   assert.equal(result.deploy_worker, true);
   assert.equal(result.verify_app, true);
   assert.equal(result.verify_runner, true);
+  assert.equal(result.runner_release_barrier, true);
 });
 
 test('Runner proxy policy and stack configuration do not build an unchanged Runner image', () => {

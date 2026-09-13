@@ -58,6 +58,8 @@ on:
         value: ${{ jobs.classify.outputs.publish_runtime }}
       publish_runner:
         value: ${{ jobs.classify.outputs.publish_runner }}
+      runner_release_barrier:
+        value: ${{ jobs.classify.outputs.runner_release_barrier }}
       unclassified_files:
         value: ${{ jobs.classify.outputs.unclassified_files }}
       has_unclassified_changes:
@@ -95,6 +97,7 @@ jobs:
       deploy_cloudflare: ${{ steps.classify.outputs.deploy_cloudflare }}
       publish_runtime: ${{ steps.classify.outputs.publish_runtime }}
       publish_runner: ${{ steps.classify.outputs.publish_runner }}
+      runner_release_barrier: ${{ steps.classify.outputs.runner_release_barrier }}
       unclassified_files: ${{ steps.classify.outputs.unclassified_files }}
       has_unclassified_changes: ${{ steps.classify.outputs.has_unclassified_changes }}
       deployable_changes: ${{ steps.classify.outputs.deployable_changes }}
@@ -130,12 +133,9 @@ jobs:
           fi
           node --input-type=module <<'NODE' > files.jsonl
           import { readFileSync } from 'node:fs';
-          for (const line of readFileSync('names.txt', 'utf8').split('\n')) {
-            if (!line.trim()) continue;
-            const parts = line.split('\t');
-            const code = parts[0];
-            if (code.startsWith('R')) console.log(JSON.stringify({ status: 'renamed', previous_filename: parts[1], filename: parts[2] }));
-            else console.log(JSON.stringify({ status: code === 'A' ? 'added' : code === 'D' ? 'removed' : 'modified', filename: parts[1] }));
+          import { parseGitNameStatus } from './scripts/evaluate-deployment-freshness.mjs';
+          for (const file of parseGitNameStatus(readFileSync('names.txt', 'utf8'))) {
+            console.log(JSON.stringify(file));
           }
           NODE
 
@@ -156,6 +156,7 @@ jobs:
             echo '- Smoke Runtime/Runner image/Runner proxy: `${{ steps.classify.outputs.smoke_runtime_image }}` / `${{ steps.classify.outputs.smoke_runner_image }}` / `${{ steps.classify.outputs.smoke_runner_proxy_policy }}`'
             echo '- Cloudflare Worker/migrations/aggregate: `${{ steps.classify.outputs.deploy_worker }}` / `${{ steps.classify.outputs.apply_migrations }}` / `${{ steps.classify.outputs.deploy_cloudflare }}`'
             echo '- Publish Runtime/Runner: `${{ steps.classify.outputs.publish_runtime }}` / `${{ steps.classify.outputs.publish_runner }}`'
+            echo '- Shared Runner release barrier: `${{ steps.classify.outputs.runner_release_barrier }}`'
             echo '- Unclassified changes: `${{ steps.classify.outputs.has_unclassified_changes }}`'
             echo ''
             echo '### Files'

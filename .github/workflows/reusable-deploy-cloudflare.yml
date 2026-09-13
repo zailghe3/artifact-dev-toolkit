@@ -22,6 +22,14 @@ on:
         required: false
         type: boolean
         default: true
+      runner_release_barrier:
+        required: false
+        type: boolean
+        default: false
+    outputs:
+      worker_deployed:
+        description: Whether this invocation actually deployed the requested Worker commit.
+        value: ${{ jobs.deploy.outputs.worker_deployed }}
     secrets:
       CLOUDFLARE_API_TOKEN:
         required: true
@@ -57,15 +65,19 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Require the deployment commit to remain current main
+      - name: Require the deployment operation to remain current
         if: inputs.require_current_main == true
         id: main
         env:
           COMMIT_SHA: ${{ inputs.commit_sha }}
+          TARGET_DEPLOY_WORKER: ${{ inputs.deploy_worker }}
+          TARGET_APPLY_MIGRATIONS: ${{ inputs.apply_migrations }}
+          TARGET_RUNNER_RELEASE_BARRIER: ${{ inputs.runner_release_barrier }}
         run: |
           set -euo pipefail
           current_main="$(git rev-parse HEAD)"
           [[ "${current_main}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${COMMIT_SHA}" =~ ^[0-9a-f]{40}$ ]]
           if [[ "${COMMIT_SHA}" == "${current_main}" ]]; then
             echo 'current=true' >> "$GITHUB_OUTPUT"
             echo "Deployment target ${COMMIT_SHA} is current main." >> "$GITHUB_STEP_SUMMARY"
@@ -76,26 +88,8 @@ jobs:
             echo "Skipping deployment target ${COMMIT_SHA}; it is not an ancestor of current main ${current_main}." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          git diff --name-status -M "${COMMIT_SHA}" "${current_main}" > names.txt
-          node --input-type=module <<'NODE' > classification.txt
-          import { readFileSync } from 'node:fs';
-          import { classifyChanges } from './scripts/classify-changes.mjs';
-          const files = readFileSync('names.txt', 'utf8').split('\n').filter(Boolean).map((line) => {
-            const [code, first, second] = line.split('\t');
-            if (code.startsWith('R')) return { status: 'renamed', previous_filename: first, filename: second };
-            return { status: code === 'A' ? 'added' : code === 'D' ? 'removed' : 'modified', filename: first };
-          });
-          const result = classifyChanges(files);
-          console.log(`deploy_cloudflare=${result.deploy_cloudflare}`);
-          console.log(`has_unclassified_changes=${result.has_unclassified_changes}`);
-          NODE
-          if grep -Fx 'deploy_cloudflare=false' classification.txt && grep -Fx 'has_unclassified_changes=false' classification.txt; then
-            echo 'current=true' >> "$GITHUB_OUTPUT"
-            echo "Deployment target ${COMMIT_SHA} remains eligible; intervening changes through ${current_main} do not affect Cloudflare operations." >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo 'current=false' >> "$GITHUB_OUTPUT"
-            echo "Skipping deployment target ${COMMIT_SHA}; a newer Worker/migration-affecting or unclassified change exists through ${current_main}." >> "$GITHUB_STEP_SUMMARY"
-          fi
+          FRESHNESS_TARGET_LABEL="Cloudflare target ${COMMIT_SHA}" \
+            node scripts/evaluate-deployment-freshness.mjs cloudflare "${COMMIT_SHA}" "${current_main}"
 
   deploy:
     name: deploy-cloudflare
@@ -103,10 +97,15 @@ jobs:
     if: needs.freshness.outputs.current == 'true'
     runs-on: ubuntu-latest
     environment: production
+    outputs:
+      worker_deployed: ${{ steps.outcome.outputs.worker_deployed }}
     steps:
       - name: Require at least one Cloudflare operation
         run: |
           test '${{ inputs.deploy_worker }}' = true || test '${{ inputs.apply_migrations }}' = true
+          if [[ '${{ inputs.runner_release_barrier }}' == true ]]; then
+            test '${{ inputs.deploy_worker }}' = true
+          fi
 
       - name: Checkout exact commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout@v7.0.1
@@ -181,6 +180,10 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: npx wrangler deploy
 
+      - name: Record deployment outcome
+        id: outcome
+        run: echo 'worker_deployed=${{ inputs.deploy_worker }}' >> "$GITHUB_OUTPUT"
+
       - name: Smoke test production OAuth initiation
         run: node scripts/smoke-test-oauth-start.mjs
 
@@ -190,6 +193,7 @@ jobs:
             echo "Processed Cloudflare commit ${{ inputs.commit_sha }}."
             echo "- Migrations: ${{ inputs.apply_migrations }}"
             echo "- Worker deployment: ${{ inputs.deploy_worker }}"
+            echo "- Shared Runner release barrier: ${{ inputs.runner_release_barrier }}"
             if [[ '${{ inputs.deploy_worker }}' == true ]]; then
               echo "- Pull request: ${{ inputs.pull_request_number }}"
             fi

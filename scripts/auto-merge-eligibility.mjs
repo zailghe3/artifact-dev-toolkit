@@ -1,40 +1,10 @@
-const exactSensitivePaths = new Set([
-  'package.json',
-  'package-lock.json',
-  'wrangler.jsonc',
-  'cloudflare-worker.ts',
-]);
+import { normalizePath, requiresManualReviewPath } from './change-policy.mjs';
 
-function normalizePath(path) {
-  return String(path ?? '').replace(/^\.\//, '');
-}
-
-export function isSensitivePath(path) {
-  const normalized = normalizePath(path);
-
-  return (
-    /(^|\/)AGENTS\.md$/.test(normalized) ||
-    normalized.startsWith('.agents/') ||
-    normalized.startsWith('.github/workflows/') ||
-    normalized.startsWith('.github/actions/') ||
-    normalized.startsWith('scripts/') ||
-    exactSensitivePaths.has(normalized) ||
-    /^open-next\.config\..+$/.test(normalized) ||
-    /^next\.config\..+$/.test(normalized) ||
-    normalized.startsWith('migrations/') ||
-    normalized.startsWith('app/api/') ||
-    normalized.startsWith('adt-runtime/') ||
-    normalized.startsWith('codex-runner/') ||
-    normalized.startsWith('lib/') ||
-    normalized === 'test/integration/workflow-runtime-integration.test.mjs'
-  );
-}
-
-export function getSensitiveChangedFiles(files) {
+export function getManualReviewChangedFiles(files) {
   return files.flatMap((file) => {
     const paths = [file.filename, file.previous_filename].filter(Boolean);
     return paths
-      .filter(isSensitivePath)
+      .filter(requiresManualReviewPath)
       .map((path) => ({ path: normalizePath(path), status: file.status }));
   });
 }
@@ -54,18 +24,26 @@ export function evaluateAutoMergeEligibility({ author, repositoryOwner, reposito
     };
   }
 
-  const sensitiveFiles = getSensitiveChangedFiles(files);
-  if (sensitiveFiles.length > 0) {
-    const changedPaths = [...new Set(sensitiveFiles.map((file) => file.path))].join(', ');
+  const changedPaths = files.flatMap((file) => [file.filename, file.previous_filename]).filter(Boolean);
+  if (changedPaths.length === 0) {
     return {
       eligible: false,
-      reason: `pull request changes sensitive file(s) requiring manual review: ${changedPaths}`,
+      reason: 'pull request has no changed paths to evaluate',
+    };
+  }
+
+  const manualReviewFiles = getManualReviewChangedFiles(files);
+  if (manualReviewFiles.length > 0) {
+    const paths = [...new Set(manualReviewFiles.map((file) => file.path))].join(', ');
+    return {
+      eligible: false,
+      reason: `pull request changes file(s) outside the low-sensitivity auto-merge allowlist: ${paths}`,
     };
   }
 
   return {
     eligible: true,
-    reason: 'trusted same-repository pull request contains no sensitive file changes',
+    reason: 'trusted same-repository pull request contains only low-sensitivity allowlisted changes',
   };
 }
 

@@ -1,7 +1,13 @@
 #!/usr/bin/env node
 import { readFileSync, appendFileSync } from 'node:fs';
+import {
+  isCanonicalFeaturePath,
+  isDocumentationOrRequestPath,
+  isGovernancePath,
+  isWorkflowAutomationPath,
+  normalizePath,
+} from './change-policy.mjs';
 
-const canonicalFeatureRe = /^requests\/features\/[^/]+\.json$/;
 const exactSensitive = new Set(['package.json', 'package-lock.json', 'wrangler.jsonc']);
 const exactLockfileRepairRelevant = new Set(['package.json', 'package-lock.json', '.nvmrc', '.node-version', '.npmrc', 'npm-shrinkwrap.json']);
 const sharedAppRunnerFiles = new Set(['codex-runner/release.json']);
@@ -46,15 +52,14 @@ const runnerImageFiles = new Set([
   'codex-runner/git-askpass.sh',
 ]);
 
-function normalize(path) { return String(path ?? '').replace(/^\.\//, ''); }
-export function isCanonicalFeaturePath(path) { return canonicalFeatureRe.test(normalize(path)); }
+export { isCanonicalFeaturePath, isDocumentationOrRequestPath };
+
+function normalize(path) { return normalizePath(path); }
 
 export function isSensitivePath(path) {
   const p = normalize(path);
-  return /(^|\/)AGENTS\.md$/.test(p)
-    || p.startsWith('.agents/')
-    || p.startsWith('.github/workflows/')
-    || p.startsWith('.github/actions/')
+  return isGovernancePath(p)
+    || isWorkflowAutomationPath(p)
     || p.startsWith('scripts/')
     || p.startsWith('lib/')
     || p === 'test/integration/workflow-runtime-integration.test.mjs'
@@ -67,24 +72,7 @@ export function isLockfileRepairRelevantPath(path) {
   return exactLockfileRepairRelevant.has(p)
     || p === '.github/dependabot.yml'
     || p.startsWith('.github/dependabot/')
-    || p.startsWith('.github/workflows/')
-    || p.startsWith('.github/actions/');
-}
-
-export function isDocumentationOrRequestPath(path) {
-  const p = normalize(path);
-  return /(^|\/)AGENTS\.md$/.test(p)
-    || p.startsWith('.agents/')
-    || p.startsWith('docs/')
-    || p.startsWith('specs/')
-    || p.startsWith('prompts/')
-    || p.startsWith('requests/')
-    || p === 'README.md'
-    || /^[^/]+\.md$/.test(p)
-    || p === 'adt-runtime/README.md'
-    || p.startsWith('adt-runtime/docs/')
-    || p === 'codex-runner/README.md'
-    || p.startsWith('codex-runner/docs/');
+    || isWorkflowAutomationPath(p);
 }
 
 function isAppBuildPath(path) {
@@ -173,8 +161,7 @@ function isKnownPath(path) {
     || p === '.gitkeep'
     || isRootVerificationPath(p)
     || isRuntimePath(p)
-    || isRunnerPath(p)
-    || p.startsWith('prompts/');
+    || isRunnerPath(p);
 }
 
 function unique(values) { return [...new Set(values.filter(Boolean).map(normalize))].sort(); }
@@ -208,6 +195,7 @@ export function classifyChanges(files) {
   const deployCloudflare = deployWorker || applyMigrations;
   const publishRuntime = allPaths.some(isRuntimeImagePath);
   const publishRunner = allPaths.some(isRunnerImagePath);
+  const runnerReleaseBarrier = allPaths.includes('codex-runner/release.json');
 
   return {
     changed_files: allPaths.join('\n'),
@@ -232,6 +220,7 @@ export function classifyChanges(files) {
     deploy_cloudflare: deployCloudflare,
     publish_runtime: publishRuntime,
     publish_runner: publishRunner,
+    runner_release_barrier: runnerReleaseBarrier,
     unclassified_files: unclassifiedFiles.join('\n'),
     has_unclassified_changes: unclassifiedFiles.length > 0,
     deployable_changes: deployCloudflare,

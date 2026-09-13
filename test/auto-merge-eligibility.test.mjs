@@ -1,9 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { evaluateAutoMergeEligibility, isSensitivePath } from '../scripts/auto-merge-eligibility.mjs';
+import { evaluateAutoMergeEligibility } from '../scripts/auto-merge-eligibility.mjs';
+import {
+  isCiCdGuardrailTestPath,
+  isLowSensitivityAutoMergePath,
+  requiresManualReviewPath,
+} from '../scripts/change-policy.mjs';
 
-const ordinaryFile = { filename: 'app/page.tsx', status: 'modified' };
+const ordinaryFile = { filename: 'docs/operations.md', status: 'modified' };
 
 function evaluate(overrides = {}) {
   return evaluateAutoMergeEligibility({
@@ -16,8 +21,11 @@ function evaluate(overrides = {}) {
   });
 }
 
-test('trusted same-repository pull request changing ordinary files is eligible', () => {
+test('trusted same-repository pull request changing only allowlisted low-sensitivity files is eligible', () => {
   assert.equal(evaluate().eligible, true);
+  assert.equal(evaluate({ files: [{ filename: 'requests/features/ui-001.json', status: 'added' }] }).eligible, true);
+  assert.equal(evaluate({ files: [{ filename: 'public/logo.png', status: 'modified' }] }).eligible, true);
+  assert.equal(evaluate({ files: [{ filename: 'app/globals.css', status: 'modified' }] }).eligible, true);
 });
 
 test('pull request authored by another user is skipped', () => {
@@ -34,30 +42,80 @@ test('pull request from a fork is skipped', () => {
   assert.match(result.reason, /fork or different repository/);
 });
 
-test('workflow file changes are sensitive', () => {
-  const result = evaluate({ files: [{ filename: '.github/workflows/example.yml', status: 'modified' }] });
-
-  assert.equal(result.eligible, false);
-  assert.match(result.reason, /.github\/workflows\/example.yml/);
+test('server-side app and component code require manual review', () => {
+  for (const filename of [
+    'app/page.tsx',
+    'app/artifacts/[id]/page.tsx',
+    'app/api/artifacts/route.ts',
+    'components/AppHeader.tsx',
+    'components/client-widget.tsx',
+  ]) {
+    const result = evaluate({ files: [{ filename, status: 'modified' }] });
+    assert.equal(result.eligible, false, filename);
+    assert.match(result.reason, /outside the low-sensitivity auto-merge allowlist/);
+  }
 });
 
-test('package.json changes are sensitive', () => {
-  const result = evaluate({ files: [{ filename: 'package.json', status: 'modified' }] });
-
-  assert.equal(result.eligible, false);
-  assert.match(result.reason, /package.json/);
+test('governance, automation, deployment, Runtime, Runner, migration, and library code require manual review', () => {
+  for (const filename of [
+    'AGENTS.md',
+    'specs/AGENTS.md',
+    'docs/subsystem/AGENTS.md',
+    '.agents/skills/code-change-verification/SKILL.md',
+    '.github/workflows/example.yml',
+    '.github/actions/deploy/action.yml',
+    'package.json',
+    'package-lock.json',
+    'wrangler.jsonc',
+    'open-next.config.ts',
+    'next.config.ts',
+    'cloudflare-worker.ts',
+    'scripts/deploy.mjs',
+    'migrations/0001.sql',
+    'lib/auth.ts',
+    'adt-runtime/src/server.ts',
+    'codex-runner/src/server.ts',
+  ]) {
+    assert.equal(requiresManualReviewPath(filename), true, filename);
+    assert.equal(evaluate({ files: [{ filename, status: 'modified' }] }).eligible, false, filename);
+  }
 });
 
-test('deleted or renamed sensitive files are sensitive', () => {
-  assert.equal(evaluate({ files: [{ filename: 'scripts/old.mjs', status: 'removed' }] }).eligible, false);
-  assert.equal(
-    evaluate({ files: [{ filename: 'docs/renamed.mjs', previous_filename: 'scripts/old.mjs', status: 'renamed' }] }).eligible,
-    false,
-  );
+test('CI/CD and trust-boundary guardrail tests are explicitly recognized and require manual review', () => {
+  for (const filename of [
+    'test/auto-merge-eligibility.test.mjs',
+    'test/auto-merge-orchestration.test.mjs',
+    'test/change-classification.test.mjs',
+    'test/deployment-freshness.test.mjs',
+    'test/deployment-workflow.test.mjs',
+    'test/adt-runtime-publication.test.mjs',
+    'test/codex-runner-publish-workflow.test.mjs',
+    'test/integration/workflow-runtime-integration.test.mjs',
+  ]) {
+    assert.equal(isCiCdGuardrailTestPath(filename), true, filename);
+    assert.equal(isLowSensitivityAutoMergePath(filename), false, filename);
+    assert.equal(evaluate({ files: [{ filename, status: 'modified' }] }).eligible, false, filename);
+  }
 });
 
-test('sensitive file on a later paginated API page is skipped', () => {
-  const files = Array.from({ length: 101 }, (_, index) => ({ filename: `app/file-${index}.tsx`, status: 'modified' }));
+test('ordinary executable tests are conservative manual-review changes under the positive allowlist', () => {
+  assert.equal(evaluate({ files: [{ filename: 'test/artifacts.test.mjs', status: 'modified' }] }).eligible, false);
+});
+
+test('renaming from or to a manual-review path cannot bypass the allowlist', () => {
+  const fromExecutable = evaluate({
+    files: [{ filename: 'docs/renamed.md', previous_filename: 'app/page.tsx', status: 'renamed' }],
+  });
+  assert.equal(fromExecutable.eligible, false);
+
+  const toExecutable = evaluate({
+    files: [{ filename: 'app/page.tsx', previous_filename: 'docs/old.md', status: 'renamed' }],
+  });
+  assert.equal(toExecutable.eligible, false);
+});
+
+test('a sensitive file on a later paginated API page still blocks auto-merge', () => {
+  const files = Array.from({ length: 101 }, (_, index) => ({ filename: `docs/file-${index}.md`, status: 'modified' }));
   files.push({ filename: '.github/actions/deploy/action.yml', status: 'added' });
 
   const result = evaluate({ files });
@@ -66,51 +124,7 @@ test('sensitive file on a later paginated API page is skipped', () => {
   assert.match(result.reason, /.github\/actions\/deploy\/action.yml/);
 });
 
-test('all configured sensitive path patterns are detected', () => {
-  for (const path of [
-    'AGENTS.md',
-    'specs/AGENTS.md',
-    'docs/subsystem/AGENTS.md',
-    '.agents/skills/code-change-verification/SKILL.md',
-    '.agents/config/settings.json',
-    '.github/workflows/ci.yml',
-    '.github/actions/setup/action.yml',
-    'package.json',
-    'package-lock.json',
-    'wrangler.jsonc',
-    'open-next.config.ts',
-    'open-next.config.mjs',
-    'scripts/deploy.mjs',
-    'next.config.ts',
-    'cloudflare-worker.ts',
-    'migrations/0001.sql',
-    'lib/auth.ts',
-    'lib/auth-session-store.ts',
-    'lib/auth-configuration.ts',
-    'lib/repository-authorization.ts',
-    'lib/github-app.ts',
-    'lib/provider-secret-crypto.ts',
-    'lib/workflow-provider.ts',
-    'lib/workflow-d1-storage.ts',
-    'lib/workflow-durable-driver.ts',
-    'app/api/artifacts/route.ts',
-    'adt-runtime/Dockerfile',
-    'codex-runner/Dockerfile',
-    'lib/codex-runner-client.ts',
-    'lib/format-date.ts',
-    'test/integration/workflow-runtime-integration.test.mjs',
-  ]) {
-    assert.equal(isSensitivePath(path), true, path);
-  }
-
-  assert.equal(isSensitivePath('docs/scripts/example.md'), false);
-  assert.equal(isSensitivePath('app/page.tsx'), false);
-  assert.equal(isSensitivePath('components/example.tsx'), false);
-});
-
-test('renaming governance or Runtime publication paths cannot bypass sensitivity', () => {
-  for (const previous_filename of ['AGENTS.md', 'docs/subsystem/AGENTS.md', '.agents/config/settings.json', 'lib/format-date.ts']) {
-    const result = evaluate({ files: [{ filename: 'docs/renamed.md', previous_filename, status: 'renamed' }] });
-    assert.equal(result.eligible, false, previous_filename);
-  }
+test('unknown paths and empty changes fail closed', () => {
+  assert.equal(evaluate({ files: [{ filename: 'future-subsystem/config.bin', status: 'added' }] }).eligible, false);
+  assert.equal(evaluate({ files: [] }).eligible, false);
 });

@@ -14,6 +14,7 @@ const verify = read('.github/workflows/reusable-verify.yml');
 const pr = read('.github/workflows/pr-orchestrator.yml');
 const runtimePublish = read('.github/workflows/publish-adt-runtime.yml');
 const runnerPublish = read('.github/workflows/publish-codex-runner.yml');
+const freshnessPolicy = read('scripts/evaluate-deployment-freshness.mjs');
 
 test('modified lifecycle workflows remain valid YAML', () => {
   for (const path of [
@@ -50,6 +51,7 @@ test('classifier exposes one operation-level impact contract and fails closed on
     'deploy_cloudflare',
     'publish_runtime',
     'publish_runner',
+    'runner_release_barrier',
     'unclassified_files',
     'has_unclassified_changes',
   ]) assert.match(classify, new RegExp(`${output}:`), output);
@@ -94,12 +96,13 @@ test('README-only changes select no expensive verification or production mutatio
   ]) assert.equal(result[key], false, key);
 });
 
-test('release metadata selects both the Runner image and ADT Worker consumer', () => {
+test('release metadata selects both the Runner image and ADT Worker consumer with a release barrier', () => {
   const result = classifyChanges([{ filename: 'codex-runner/release.json' }]);
   assert.equal(result.publish_runner, true);
   assert.equal(result.deploy_worker, true);
   assert.equal(result.verify_app, true);
   assert.equal(result.verify_runner, true);
+  assert.equal(result.runner_release_barrier, true);
 });
 
 test('Runner policy-only and stack-only changes do not build an unchanged Runner image', () => {
@@ -157,21 +160,37 @@ test('Worker deployment keeps migration-before-publish catch-up ordering', () =>
   assert.match(main, /apply_migrations: \$\{\{ needs\.classify\.outputs\.apply_migrations == 'true' \}\}/);
 });
 
-test('release-driven Runner publication waits for the Worker consumer when both are selected', () => {
-  assert.match(main, /publish-runner:[\s\S]*needs: \[resolve-context, classify, verify-main, deploy\]/);
-  assert.match(main, /deploy_worker != 'true' \|\| needs\.deploy\.result == 'success'/);
+test('shared Runner release requires an explicitly successful Worker deployment outcome before Runner publication', () => {
+  assert.match(reusableDeploy, /runner_release_barrier:[\s\S]*default: false/);
+  assert.match(reusableDeploy, /worker_deployed:[\s\S]*value: \$\{\{ jobs\.deploy\.outputs\.worker_deployed \}\}/);
+  assert.match(reusableDeploy, /id: outcome[\s\S]*worker_deployed=\$\{\{ inputs\.deploy_worker \}\}/);
+  assert.match(main, /runner_release_barrier: \$\{\{ needs\.classify\.outputs\.runner_release_barrier == 'true' \}\}/);
+  assert.match(main, /runner_release_barrier != 'true'[\s\S]*needs\.deploy\.result == 'success' && needs\.deploy\.outputs\.worker_deployed == 'true'/);
 });
 
-test('component publishers are reusable exact-commit workflows with component-scoped freshness', () => {
-  for (const [name, source, impact] of [['Runtime', runtimePublish, 'publish_runtime'], ['Runner', runnerPublish, 'publish_runner']]) {
+test('all automatic freshness paths call the one shared range/freshness implementation', () => {
+  for (const [name, source, operation] of [
+    ['Cloudflare', reusableDeploy, 'cloudflare'],
+    ['Runtime', runtimePublish, 'runtime'],
+    ['Runner', runnerPublish, 'runner'],
+  ]) {
+    assert.match(source, new RegExp(`node scripts/evaluate-deployment-freshness\\.mjs ${operation}`), name);
+    assert.doesNotMatch(source, /node --input-type=module <<'NODE' > classification\.txt/, name);
+  }
+  assert.match(freshnessPolicy, /execFileSync/);
+  assert.match(freshnessPolicy, /\['diff', '--name-status', '-M', baseRef, headRef\]/);
+  assert.match(freshnessPolicy, /classifyChanges\(parseGitNameStatus\(diff\)\)/);
+});
+
+test('component publishers remain reusable exact-commit workflows with component-scoped shared freshness', () => {
+  for (const [name, source, operation] of [['Runtime', runtimePublish, 'runtime'], ['Runner', runnerPublish, 'runner']]) {
     assert.match(source, /workflow_call:[\s\S]*commit_sha:[\s\S]*required: true/, name);
     assert.match(source, /workflow_dispatch:/, name);
     assert.doesNotMatch(source, /\n  push:/, name);
     assert.match(source, /if: github\.ref == 'refs\/heads\/main'/, name);
     assert.match(source, /TARGET_SHA: \$\{\{ inputs\.commit_sha \|\| github\.sha \}\}/, name);
     assert.match(source, /test "\$\(git rev-parse HEAD\)" = "\$\{TARGET_SHA\}"/, name);
-    assert.match(source, new RegExp(`${impact}=\\$\\{result\\.${impact}\\}`), name);
-    assert.match(source, new RegExp(`${impact}=false[\\s\\S]*has_unclassified_changes=false`), name);
+    assert.match(source, new RegExp(`evaluate-deployment-freshness\\.mjs ${operation}`), name);
   }
 });
 
@@ -189,12 +208,15 @@ test('Runner publisher validates the image but no longer runs unrelated proxy po
   assert.match(runnerPublish, /Smoke-test Codex Runner image/);
 });
 
-test('Cloudflare freshness remains aggregate and fails closed on unknown successor paths', () => {
-  assert.match(reusableDeploy, /const result = classifyChanges\(files\)/);
-  assert.match(reusableDeploy, /deploy_cloudflare=\$\{result\.deploy_cloudflare\}/);
-  assert.match(reusableDeploy, /has_unclassified_changes=\$\{result\.has_unclassified_changes\}/);
-  assert.match(reusableDeploy, /deploy_cloudflare=false/);
-  assert.match(reusableDeploy, /has_unclassified_changes=false/);
+test('Cloudflare freshness delegates operation-aware supersession to the shared policy and fails closed through it', () => {
+  assert.match(reusableDeploy, /Evaluate operation-aware Cloudflare freshness/);
+  assert.match(reusableDeploy, /TARGET_DEPLOY_WORKER: \$\{\{ inputs\.deploy_worker \}\}/);
+  assert.match(reusableDeploy, /TARGET_APPLY_MIGRATIONS: \$\{\{ inputs\.apply_migrations \}\}/);
+  assert.match(reusableDeploy, /TARGET_RUNNER_RELEASE_BARRIER: \$\{\{ inputs\.runner_release_barrier \}\}/);
+  assert.match(freshnessPolicy, /interveningImpact\.has_unclassified_changes/);
+  assert.match(freshnessPolicy, /interveningImpact\.deploy_worker/);
+  assert.match(freshnessPolicy, /interveningImpact\.apply_migrations/);
+  assert.match(freshnessPolicy, /interveningImpact\.runner_release_barrier/);
 });
 
 test('manual Cloudflare deployment remains explicit full historical recovery', () => {
@@ -211,5 +233,7 @@ test('main summary reports each production operation independently', () => {
   assert.match(main, /Apply migrations:/);
   assert.match(main, /Publish Runtime:/);
   assert.match(main, /Publish Runner:/);
+  assert.match(main, /Shared Runner release barrier:/);
+  assert.match(main, /Worker actually deployed by this lifecycle:/);
   assert.match(main, /Cloudflare operation: skipped — Worker and migration inputs unchanged/);
 });
