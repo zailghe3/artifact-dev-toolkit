@@ -34,6 +34,7 @@ jobs:
       verify_integration: ${{ needs.classify.outputs.verify_integration == 'true' }}
       smoke_runtime_image: ${{ needs.classify.outputs.smoke_runtime_image == 'true' }}
       smoke_runner_image: ${{ needs.classify.outputs.smoke_runner_image == 'true' }}
+      smoke_runner_proxy_policy: ${{ needs.classify.outputs.smoke_runner_proxy_policy == 'true' }}
 
   validate-feature-requests:
     name: validate-feature-requests

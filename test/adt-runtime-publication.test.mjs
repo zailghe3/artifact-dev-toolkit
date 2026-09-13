@@ -24,6 +24,7 @@ test('Main publishes Runtime only from canonical component impact and immutable 
   assert.match(job, /needs\.classify\.outputs\.publish_runtime == 'true'/);
   assert.match(job, /uses: \.\/\.github\/workflows\/publish-adt-runtime\.yml/);
   assert.match(job, /commit_sha: \$\{\{ needs\.resolve-context\.outputs\.target_sha \}\}/);
+  assert.match(job, /integration_already_verified: \$\{\{/);
   assert.match(job, /DOCKERHUB_TOKEN: \$\{\{ secrets\.DOCKERHUB_TOKEN \}\}/);
 });
 
@@ -35,11 +36,11 @@ test('Runtime publisher verifies exact source before testing or publishing', () 
   assert.doesNotMatch(workflow, /ADT_RUNTIME_REVISION="\$GITHUB_SHA"/);
 });
 
-test('publication isolates Runtime validation, integration, image smoke, then Docker Hub mutation', () => {
+test('publication reuses same-job Runtime build and only skips integration after the trusted main gate', () => {
   const runtimeInstall = workflow.indexOf('Install ADT Runtime dependencies in isolation');
   const runtimeTest = workflow.indexOf('Test exact merged Runtime source in isolation');
   const rootInstall = workflow.indexOf('Install root integration dependencies');
-  const integrationTest = workflow.indexOf('Test control-plane and ADT Runtime integration');
+  const integrationTest = workflow.indexOf('Test control-plane and ADT Runtime integration using tested Runtime build');
   const imageBuild = workflow.indexOf('Build and smoke-test exact image');
   const login = workflow.indexOf('Authenticate to Docker Hub');
   const push = workflow.indexOf('Publish the same verified image under immutable and moving tags');
@@ -47,8 +48,11 @@ test('publication isolates Runtime validation, integration, image smoke, then Do
   assert.ok(runtimeTest < rootInstall && rootInstall < integrationTest);
   assert.ok(integrationTest < imageBuild && imageBuild < login && login < push);
   assert.match(workflow.slice(runtimeInstall, runtimeTest), /working-directory: adt-runtime[\s\S]*run: npm ci/);
-  assert.match(workflow.slice(runtimeTest, rootInstall), /npm test && npm run typecheck/);
-  assert.match(workflow.slice(integrationTest, imageBuild), /npm run test:workflow-runtime-integration/);
+  assert.match(workflow.slice(runtimeTest, rootInstall), /run: npm test/);
+  assert.doesNotMatch(workflow.slice(runtimeTest, rootInstall), /npm run typecheck/);
+  assert.match(workflow.slice(rootInstall, integrationTest), /if: inputs\.integration_already_verified != true/);
+  assert.match(workflow.slice(integrationTest, imageBuild), /if: inputs\.integration_already_verified != true[\s\S]*node --test test\/integration\/workflow-runtime-integration\.test\.mjs/);
+  assert.match(workflow, /integration_already_verified:[\s\S]*default: false/);
 });
 
 test('operator service remains stateless, bounded, external-secret based, and non-root', () => {

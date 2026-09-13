@@ -9,7 +9,7 @@ const publish = read('.github/workflows/publish-codex-runner.yml');
 const smoke = read('codex-runner/scripts/smoke-image.sh');
 const invocation = /codex-runner\/scripts\/smoke-image\.sh adt-codex-runner:(?:pr|validated)/g;
 
-test('trusted Runner publication is reusable, exact-commit, and has no duplicate root dependency install', () => {
+test('trusted Runner publication is reusable, exact-commit, and avoids duplicate TypeScript compilation', () => {
   assert.match(publish, /workflow_call:[\s\S]*commit_sha:[\s\S]*required: true/);
   assert.match(publish, /workflow_dispatch:/);
   assert.doesNotMatch(publish, /\n  push:/);
@@ -17,7 +17,8 @@ test('trusted Runner publication is reusable, exact-commit, and has no duplicate
   assert.match(publish, /ref: \$\{\{ inputs\.commit_sha \|\| github\.sha \}\}/);
   assert.match(publish, /test "\$\(git rev-parse HEAD\)" = "\$\{TARGET_SHA\}"/);
   assert.doesNotMatch(publish, /Install root dependencies required by cross-boundary Runner integration tests/);
-  assert.match(publish, /working-directory: codex-runner[\s\S]*run: npm ci && npm test && npm run typecheck/);
+  assert.match(publish, /working-directory: codex-runner[\s\S]*run: npm ci && npm test/);
+  assert.doesNotMatch(publish, /npm test && npm run typecheck/);
 });
 
 test('Main publishes Runner only from canonical component impact and passes the immutable merge SHA', () => {
@@ -26,31 +27,30 @@ test('Main publishes Runner only from canonical component impact and passes the 
   assert.match(job, /uses: \.\/\.github\/workflows\/publish-codex-runner\.yml/);
   assert.match(job, /commit_sha: \$\{\{ needs\.resolve-context\.outputs\.target_sha \}\}/);
   assert.match(job, /DOCKERHUB_TOKEN: \$\{\{ secrets\.DOCKERHUB_TOKEN \}\}/);
+  assert.match(job, /deploy_worker != 'true' \|\| needs\.deploy\.result == 'success'/);
 });
 
-test('pull-request verification conditionally keeps Runner split-boundary and proxy smokes', () => {
+test('pull-request verification gates Runner image and proxy smokes independently', () => {
   assert.equal(verify.match(invocation)?.length, 1);
   assert.match(verify, /name: Build Codex Runner image\s+if: inputs\.smoke_runner_image[\s\S]*docker build[^\n]*adt-codex-runner:pr-verified codex-runner/);
-  const verifyImageSmoke = verify.indexOf('codex-runner/scripts/smoke-image.sh adt-codex-runner:pr-verified');
-  const verifyProxySmoke = verify.indexOf('codex-runner/scripts/smoke-proxy-policy.sh');
-  assert.ok(verifyImageSmoke >= 0 && verifyImageSmoke < verifyProxySmoke);
   assert.match(verify, /name: Smoke-test Codex Runner image\s+if: inputs\.smoke_runner_image/);
-  assert.match(verify, /name: Smoke-test Codex Runner proxy policy\s+if: inputs\.smoke_runner_image/);
+  assert.match(verify, /name: Smoke-test Codex Runner proxy policy\s+if: inputs\.smoke_runner_proxy_policy/);
+  assert.doesNotMatch(verify, /name: Smoke-test Codex Runner proxy policy\s+if: inputs\.smoke_runner_image/);
   assert.doesNotMatch(verify, /\/v1\/(?:capabilities|auth\/status)/);
 });
 
-test('trusted publication builds and smokes once before Docker Hub mutation', () => {
+test('trusted publication builds and smokes the Runner image once before Docker Hub mutation without proxy-policy work', () => {
   assert.equal(publish.match(invocation)?.length, 1);
   const testSource = publish.indexOf('Test exact merged source');
   const build = publish.indexOf('Build Codex Runner image');
   const imageSmoke = publish.indexOf('codex-runner/scripts/smoke-image.sh adt-codex-runner:validated');
-  const proxySmoke = publish.indexOf('codex-runner/scripts/smoke-proxy-policy.sh');
   const login = publish.indexOf('docker login');
   const collision = publish.indexOf('docker manifest inspect');
   const immutablePush = publish.indexOf('docker push "$image:${TARGET_SHA}"');
   const latestPush = publish.indexOf('docker push "$image:latest"');
-  assert.ok(testSource >= 0 && testSource < build && build < imageSmoke && imageSmoke < proxySmoke && proxySmoke < login);
+  assert.ok(testSource >= 0 && testSource < build && build < imageSmoke && imageSmoke < login);
   assert.ok(login < collision && collision < immutablePush && immutablePush < latestPush);
+  assert.doesNotMatch(publish, /smoke-proxy-policy\.sh/);
   assert.match(publish, /Immutable SHA tag already exists; refusing overwrite/);
   assert.doesNotMatch(publish, /CODEX_HOME/);
 });

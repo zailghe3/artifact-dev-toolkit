@@ -6,6 +6,10 @@ on:
       commit_sha:
         required: true
         type: string
+      integration_already_verified:
+        required: false
+        type: boolean
+        default: false
     secrets:
       DOCKERHUB_TOKEN:
         required: true
@@ -108,13 +112,19 @@ jobs:
 
       - name: Test exact merged Runtime source in isolation
         working-directory: adt-runtime
-        run: npm test && npm run typecheck
+        run: npm test
 
       - name: Install root integration dependencies
+        if: inputs.integration_already_verified != true
         run: npm ci
 
-      - name: Test control-plane and ADT Runtime integration
-        run: npm run test:workflow-runtime-integration
+      - name: Test control-plane and ADT Runtime integration using tested Runtime build
+        if: inputs.integration_already_verified != true
+        run: node --test test/integration/workflow-runtime-integration.test.mjs
+
+      - name: Record reused shared integration gate
+        if: inputs.integration_already_verified
+        run: echo 'Control-plane/Runtime integration already passed for this exact commit in the trusted main pre-mutation gate.' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Build and smoke-test exact image
         run: |

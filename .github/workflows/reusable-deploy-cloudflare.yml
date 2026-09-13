@@ -14,6 +14,14 @@ on:
         required: false
         type: boolean
         default: true
+      deploy_worker:
+        required: false
+        type: boolean
+        default: true
+      apply_migrations:
+        required: false
+        type: boolean
+        default: true
     secrets:
       CLOUDFLARE_API_TOKEN:
         required: true
@@ -83,10 +91,10 @@ jobs:
           NODE
           if grep -Fx 'deploy_cloudflare=false' classification.txt && grep -Fx 'has_unclassified_changes=false' classification.txt; then
             echo 'current=true' >> "$GITHUB_OUTPUT"
-            echo "Deployment target ${COMMIT_SHA} remains eligible; intervening changes through ${current_main} do not affect the Worker deployment." >> "$GITHUB_STEP_SUMMARY"
+            echo "Deployment target ${COMMIT_SHA} remains eligible; intervening changes through ${current_main} do not affect Cloudflare operations." >> "$GITHUB_STEP_SUMMARY"
           else
             echo 'current=false' >> "$GITHUB_OUTPUT"
-            echo "Skipping deployment target ${COMMIT_SHA}; a newer Cloudflare-affecting or unclassified change exists through ${current_main}." >> "$GITHUB_STEP_SUMMARY"
+            echo "Skipping deployment target ${COMMIT_SHA}; a newer Worker/migration-affecting or unclassified change exists through ${current_main}." >> "$GITHUB_STEP_SUMMARY"
           fi
 
   deploy:
@@ -96,6 +104,10 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     steps:
+      - name: Require at least one Cloudflare operation
+        run: |
+          test '${{ inputs.deploy_worker }}' = true || test '${{ inputs.apply_migrations }}' = true
+
       - name: Checkout exact commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout@v7.0.1
         with:
@@ -109,6 +121,15 @@ jobs:
           checked_out_sha="$(git rev-parse HEAD)"
           test "${checked_out_sha}" = "${{ inputs.commit_sha }}"
           echo "Verified checkout ${checked_out_sha}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Validate Cloudflare deployment secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID}"
 
       - name: Setup Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # actions/setup-node@v6.4.0
@@ -129,6 +150,7 @@ jobs:
         run: npm ci
 
       - name: Generate deployment metadata environment
+        if: inputs.deploy_worker
         run: |
           set -euo pipefail
           DEPLOYED_AT="$(date -u +'%Y-%m-%dT%H:%M:%S.000Z')"
@@ -142,24 +164,18 @@ jobs:
         run: node scripts/validate-production-bindings.mjs
 
       - name: Build OpenNext Cloudflare worker
+        if: inputs.deploy_worker
         run: npm run build:worker
 
-      - name: Validate Cloudflare deployment secrets
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          set -euo pipefail
-          test -n "${CLOUDFLARE_API_TOKEN}"
-          test -n "${CLOUDFLARE_ACCOUNT_ID}"
-
       - name: Apply remote D1 migrations
+        if: inputs.apply_migrations
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: npx wrangler d1 migrations apply AUTH_SESSIONS_DB --remote
 
       - name: Publish to Cloudflare
+        if: inputs.deploy_worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -170,5 +186,11 @@ jobs:
 
       - name: Summarize deployment
         run: |
-          echo "Deployed commit ${{ inputs.commit_sha }} to Cloudflare production." >> "$GITHUB_STEP_SUMMARY"
-          echo "Pull request: ${{ inputs.pull_request_number }}" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "Processed Cloudflare commit ${{ inputs.commit_sha }}."
+            echo "- Migrations: ${{ inputs.apply_migrations }}"
+            echo "- Worker deployment: ${{ inputs.deploy_worker }}"
+            if [[ '${{ inputs.deploy_worker }}' == true ]]; then
+              echo "- Pull request: ${{ inputs.pull_request_number }}"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

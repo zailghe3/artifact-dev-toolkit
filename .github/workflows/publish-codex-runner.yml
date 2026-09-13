@@ -102,7 +102,7 @@ jobs:
 
       - name: Test exact merged source
         working-directory: codex-runner
-        run: npm ci && npm test && npm run typecheck
+        run: npm ci && npm test
 
       - name: Build Codex Runner image
         run: |
@@ -114,9 +114,6 @@ jobs:
 
       - name: Smoke-test Codex Runner image
         run: codex-runner/scripts/smoke-image.sh adt-codex-runner:validated
-
-      - name: Smoke-test Codex Runner proxy policy
-        run: codex-runner/scripts/smoke-proxy-policy.sh
 
       - name: Authenticate to Docker Hub
         env:

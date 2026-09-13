@@ -4,6 +4,7 @@ import { readFileSync, appendFileSync } from 'node:fs';
 const canonicalFeatureRe = /^requests\/features\/[^/]+\.json$/;
 const exactSensitive = new Set(['package.json', 'package-lock.json', 'wrangler.jsonc']);
 const exactLockfileRepairRelevant = new Set(['package.json', 'package-lock.json', '.nvmrc', '.node-version', '.npmrc', 'npm-shrinkwrap.json']);
+const sharedAppRunnerFiles = new Set(['codex-runner/release.json']);
 
 const rootAppBuildFiles = new Set([
   'package.json',
@@ -93,15 +94,19 @@ function isAppBuildPath(path) {
     || p.startsWith('lib/')
     || p.startsWith('public/')
     || rootAppBuildFiles.has(p)
+    || sharedAppRunnerFiles.has(p)
     || /^next\.config\..+$/.test(p)
     || /^open-next\.config\..+$/.test(p)
     || /^postcss\.config\..+$/.test(p)
     || /^tailwind\.config\..+$/.test(p);
 }
 
-function isCloudflareDeployPath(path) {
-  const p = normalize(path);
-  return isAppBuildPath(p) || p.startsWith('migrations/');
+function isWorkerDeployPath(path) {
+  return isAppBuildPath(path);
+}
+
+function isMigrationPath(path) {
+  return normalize(path).startsWith('migrations/');
 }
 
 function isRuntimePath(path) {
@@ -131,17 +136,20 @@ function isRunnerImagePath(path) {
 
 function isRunnerImageSmokePath(path) {
   const p = normalize(path);
-  return isRunnerImagePath(p)
-    || p.startsWith('codex-runner/scripts/')
-    || /^codex-runner\/squid(?:-executor)?\.conf$/.test(p)
-    || p === 'codex-runner/docker-stack.split.example.yml';
+  return isRunnerImagePath(p) || p === 'codex-runner/scripts/smoke-image.sh';
+}
+
+function isRunnerProxyPolicySmokePath(path) {
+  const p = normalize(path);
+  return /^codex-runner\/squid(?:-executor)?\.conf$/.test(p)
+    || p === 'codex-runner/scripts/smoke-proxy-policy.sh';
 }
 
 function isRootVerificationPath(path) {
   const p = normalize(path);
   return rootVerificationFiles.has(p)
     || isAppBuildPath(p)
-    || p.startsWith('migrations/')
+    || isMigrationPath(p)
     || p.startsWith('.github/')
     || p.startsWith('scripts/')
     || p.startsWith('test/')
@@ -194,7 +202,10 @@ export function classifyChanges(files) {
   const verifyIntegration = allPaths.some(isIntegrationPath);
   const smokeRuntimeImage = allPaths.some(isRuntimeImageSmokePath);
   const smokeRunnerImage = allPaths.some(isRunnerImageSmokePath);
-  const deployCloudflare = allPaths.some(isCloudflareDeployPath);
+  const smokeRunnerProxyPolicy = allPaths.some(isRunnerProxyPolicySmokePath);
+  const deployWorker = allPaths.some(isWorkerDeployPath);
+  const applyMigrations = deployWorker || allPaths.some(isMigrationPath);
+  const deployCloudflare = deployWorker || applyMigrations;
   const publishRuntime = allPaths.some(isRuntimeImagePath);
   const publishRunner = allPaths.some(isRunnerImagePath);
 
@@ -215,13 +226,14 @@ export function classifyChanges(files) {
     verify_integration: verifyIntegration,
     smoke_runtime_image: smokeRuntimeImage,
     smoke_runner_image: smokeRunnerImage,
+    smoke_runner_proxy_policy: smokeRunnerProxyPolicy,
+    deploy_worker: deployWorker,
+    apply_migrations: applyMigrations,
     deploy_cloudflare: deployCloudflare,
     publish_runtime: publishRuntime,
     publish_runner: publishRunner,
     unclassified_files: unclassifiedFiles.join('\n'),
     has_unclassified_changes: unclassifiedFiles.length > 0,
-    // Compatibility alias for older consumers while all automatic CD paths migrate
-    // to the component-specific deploy_cloudflare output.
     deployable_changes: deployCloudflare,
   };
 }

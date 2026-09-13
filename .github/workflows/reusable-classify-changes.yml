@@ -46,6 +46,12 @@ on:
         value: ${{ jobs.classify.outputs.smoke_runtime_image }}
       smoke_runner_image:
         value: ${{ jobs.classify.outputs.smoke_runner_image }}
+      smoke_runner_proxy_policy:
+        value: ${{ jobs.classify.outputs.smoke_runner_proxy_policy }}
+      deploy_worker:
+        value: ${{ jobs.classify.outputs.deploy_worker }}
+      apply_migrations:
+        value: ${{ jobs.classify.outputs.apply_migrations }}
       deploy_cloudflare:
         value: ${{ jobs.classify.outputs.deploy_cloudflare }}
       publish_runtime:
@@ -83,6 +89,9 @@ jobs:
       verify_integration: ${{ steps.classify.outputs.verify_integration }}
       smoke_runtime_image: ${{ steps.classify.outputs.smoke_runtime_image }}
       smoke_runner_image: ${{ steps.classify.outputs.smoke_runner_image }}
+      smoke_runner_proxy_policy: ${{ steps.classify.outputs.smoke_runner_proxy_policy }}
+      deploy_worker: ${{ steps.classify.outputs.deploy_worker }}
+      apply_migrations: ${{ steps.classify.outputs.apply_migrations }}
       deploy_cloudflare: ${{ steps.classify.outputs.deploy_cloudflare }}
       publish_runtime: ${{ steps.classify.outputs.publish_runtime }}
       publish_runner: ${{ steps.classify.outputs.publish_runner }}
@@ -144,8 +153,8 @@ jobs:
             echo '- Lockfile repair relevant changes: `${{ steps.classify.outputs.has_lockfile_repair_changes }}`'
             echo '- Documentation/request only: `${{ steps.classify.outputs.documentation_request_only }}`'
             echo '- Verify root/app/runtime/runner/integration: `${{ steps.classify.outputs.verify_root }}` / `${{ steps.classify.outputs.verify_app }}` / `${{ steps.classify.outputs.verify_runtime }}` / `${{ steps.classify.outputs.verify_runner }}` / `${{ steps.classify.outputs.verify_integration }}`'
-            echo '- Smoke Runtime/Runner image: `${{ steps.classify.outputs.smoke_runtime_image }}` / `${{ steps.classify.outputs.smoke_runner_image }}`'
-            echo '- Deploy Cloudflare: `${{ steps.classify.outputs.deploy_cloudflare }}`'
+            echo '- Smoke Runtime/Runner image/Runner proxy: `${{ steps.classify.outputs.smoke_runtime_image }}` / `${{ steps.classify.outputs.smoke_runner_image }}` / `${{ steps.classify.outputs.smoke_runner_proxy_policy }}`'
+            echo '- Cloudflare Worker/migrations/aggregate: `${{ steps.classify.outputs.deploy_worker }}` / `${{ steps.classify.outputs.apply_migrations }}` / `${{ steps.classify.outputs.deploy_cloudflare }}`'
             echo '- Publish Runtime/Runner: `${{ steps.classify.outputs.publish_runtime }}` / `${{ steps.classify.outputs.publish_runner }}`'
             echo '- Unclassified changes: `${{ steps.classify.outputs.has_unclassified_changes }}`'
             echo ''
