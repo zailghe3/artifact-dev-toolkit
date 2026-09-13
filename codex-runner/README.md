@@ -266,3 +266,9 @@ Split deployments use `squid-executor.conf` for fail-closed executor egress. It 
 Revision 13 adds secret-safe managed push failure diagnostics while preserving the split container-boundary execution semantics restored in revision 12. Roll Repository Manager, Executor, and Controller to the same immutable Runner image. `protocolVersion` remains unchanged because the external Runner protocol did not change.
 
 Revision 14 makes authorization failures diagnostically bounded, compares ADT's expected owner/repository with Repository Manager's configured target for the failure log, and carries that expected identity only through the authenticated publication request. It does not alter push, reconciliation, retry, or pull-request behavior. Roll Repository Manager, Executor, and Controller to the same immutable Runner image. `protocolVersion` remains unchanged.
+
+## Managed repository authority (revision 15)
+
+Revision 15 adds an authenticated, bounded managed-repository descriptor for one environment and additive expected-repository binding on managed preparation. Repository Manager rejects descriptor, durable-task, or current-environment identity drift before fetch, sealing, reconciliation, or push. Protocol version remains 1 because older valid requests remain accepted; new ADT deployments require revision 15 and fail closed when descriptor discovery is unavailable.
+
+Deploy the revision 15 Controller, Executor, and Repository Manager from the same immutable image before deploying the ADT control plane. Validate with a fresh Codex-to-Publish workflow; do not retry an old `push-uncertain` task because uncertain retries remain reconciliation-only.

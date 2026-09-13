@@ -1,0 +1,1 @@
+ALTER TABLE workflow_runs ADD COLUMN managed_code_repository_contexts_json TEXT;

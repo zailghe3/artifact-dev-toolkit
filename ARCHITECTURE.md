@@ -126,6 +126,8 @@ Operational detail belongs in [`adt-runtime/README.md`](adt-runtime/README.md).
 ### Codex Runner
 
 - Codex Runner is independently deployed from the application.
+- The artifact repository stores ADT backend definitions; a managed code repository is selected only by a trusted Runner environment for checkout, branch publication, and pull-request creation. They may differ while using the same GitHub App, with operation-specific repository-scoped installation tokens.
+- Managed code repository identity is resolved and durably bound per Agent at run admission; Repository Manager rejects preparation or publication when expected, durable-task, and current environment identities differ.
 - In split Swarm mode the controller owns durable job/control state and the environment catalogue, while an independently isolated executor owns Codex authentication and private workspaces.
 - In Docker Swarm split mode, the executor container is the Codex execution security boundary. Split execution must not depend on Bubblewrap or another native Codex sandbox inside that container; native sandboxing remains available to supported integrated deployments.
 - Docker mounts and networks enforce that boundary: executor and Repository Manager use disjoint internal egress overlays and only their respective proxies join the uplink; the controller never executes model-generated commands.

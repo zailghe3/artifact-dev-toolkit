@@ -303,3 +303,11 @@
 - Managed repository identity and metadata are checked before and after execution. Boundary mutation fails closed and is never adopted as managed publication.
 - Repository Manager is the only managed Git transport. Remote creation or reconciliation occurs only after the explicit Publish GitHub PR block requests the exact `adt/codex/<task-id>` task associated with its source Agent.
 - A fresh managed task uses its deterministic task branch. Continued work may retain an existing managed branch only through the exact branch returned by Repository Manager preparation; caller-selected or non-managed branch substitutions fail closed.
+
+## Managed code repository authority
+
+- The configured artifact repository remains ADT's source of truth for artifacts, Agents, Workflows, layouts, and user repository authorisation.
+- Each managed Codex Agent is separately bound at run admission to the repository declared by its trusted Runner environment. Artifact and managed code repositories may be the same, but are not required to be; production intentionally supports distinct repositories through the same GitHub App and login.
+- The bound managed code context records the environment key, canonical owner and repository, base branch, numeric repository ID, and installation ID per Agent. Preparation, continuation, branch publication, result validation, pull-request API calls, and managed-PR association all use that immutable context.
+- The existing GitHub App must have access to each selected managed code repository. ADT mints short-lived single-repository credentials with only the operation's read, contents-write, or pull-request capability and never falls back to artifact repository authority.
+- Repository Manager validates ADT's expected repository before fetch and validates the durable task repository, current environment repository, and ADT expectation before publication or reconciliation. Identity drift fails without a repository mutation.

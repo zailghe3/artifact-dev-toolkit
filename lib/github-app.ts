@@ -2,6 +2,7 @@ const githubApiBaseUrl = "https://api.github.com";
 import { AuthenticationConfigurationError } from "./auth-configuration.ts";
 
 export type GitHubAppConfig = { appId: string; clientId: string; clientSecret: string; privateKey: string; owner: string; repo: string; branch: string; rootPath: string; allowedLogins: string[] };
+export type GitHubAppIdentityConfig = Pick<GitHubAppConfig, "appId" | "privateKey">;
 export type GitHubRepository = { id: number; name: string; owner: { login: string } };
 export type GitHubInstallation = { id: number; repository_selection?: string };
 export type RepositoryCredentialCapability = "read" | "write" | "pull_requests";
@@ -105,13 +106,21 @@ export async function getRepositoryInstallation(config: Pick<GitHubAppConfig, "o
 }
 
 export async function mintInstallationToken(installationId: number, repositoryId: number, appJwt: string, capability: RepositoryCredentialCapability, fetchImpl: typeof fetch = fetch): Promise<RepositoryCredential> {
+  return mintRestrictedInstallationToken(installationId, { repository_ids: [repositoryId] }, appJwt, capability, fetchImpl);
+}
+
+export async function mintInstallationTokenForRepositoryName(installationId: number, repository: string, appJwt: string, capability: RepositoryCredentialCapability, fetchImpl: typeof fetch = fetch): Promise<RepositoryCredential> {
+  return mintRestrictedInstallationToken(installationId, { repositories: [repository] }, appJwt, capability, fetchImpl);
+}
+
+async function mintRestrictedInstallationToken(installationId: number, restriction: { repository_ids: number[] } | { repositories: string[] }, appJwt: string, capability: RepositoryCredentialCapability, fetchImpl: typeof fetch): Promise<RepositoryCredential> {
   const permissions = capability === "read" ? { contents: "read" } : capability === "write" ? { contents: "write" } : { pull_requests: "write" };
   let response: Response;
   try {
     response = await fetchImpl(`${githubApiBaseUrl}/app/installations/${installationId}/access_tokens`, {
       method: "POST",
       headers: { ...githubHeaders(appJwt), "content-type": "application/json" },
-      body: JSON.stringify({ repository_ids: [repositoryId], permissions }),
+      body: JSON.stringify({ ...restriction, permissions }),
     });
   } catch {
     throw new InstallationCredentialError("temporarily_unavailable", capability);
