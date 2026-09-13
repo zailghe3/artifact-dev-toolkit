@@ -209,7 +209,7 @@ test('Runner publisher validates the image but no longer runs unrelated proxy po
 });
 
 test('Cloudflare freshness delegates operation-aware supersession to the shared policy and fails closed through it', () => {
-  assert.match(reusableDeploy, /Evaluate operation-aware Cloudflare freshness/);
+  assert.match(reusableDeploy, /node scripts\/evaluate-deployment-freshness\.mjs cloudflare/);
   assert.match(reusableDeploy, /TARGET_DEPLOY_WORKER: \$\{\{ inputs\.deploy_worker \}\}/);
   assert.match(reusableDeploy, /TARGET_APPLY_MIGRATIONS: \$\{\{ inputs\.apply_migrations \}\}/);
   assert.match(reusableDeploy, /TARGET_RUNNER_RELEASE_BARRIER: \$\{\{ inputs\.runner_release_barrier \}\}/);
