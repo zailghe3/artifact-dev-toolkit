@@ -269,6 +269,6 @@ Revision 14 makes authorization failures diagnostically bounded, compares ADT's 
 
 ## Managed repository authority (revision 15)
 
-Revision 15 adds an authenticated, bounded managed-repository descriptor for one environment and additive expected-repository binding on managed preparation. Repository Manager rejects descriptor, durable-task, or current-environment identity drift before fetch, sealing, reconciliation, or push. Protocol version remains 1 because older valid requests remain accepted; new ADT deployments require revision 15 and fail closed when descriptor discovery is unavailable.
+Revision 15 adds an authenticated, bounded managed-repository descriptor for one environment and additive expected-target binding on managed preparation. New ADT requests bind owner, repository, and base branch from the durable run context. Repository Manager compares owner and repository case-insensitively and branches exactly, rejecting descriptor, durable-task, or current-environment drift before fetch, task reuse, sealing, reconciliation, or push. Protocol version remains 1 because older valid requests remain accepted; new ADT deployments require revision 15 and fail closed when descriptor discovery is unavailable.
 
 Deploy the revision 15 Controller, Executor, and Repository Manager from the same immutable image before deploying the ADT control plane. Validate with a fresh Codex-to-Publish workflow; do not retry an old `push-uncertain` task because uncertain retries remain reconciliation-only.
