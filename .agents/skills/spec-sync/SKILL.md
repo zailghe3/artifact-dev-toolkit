@@ -1,30 +1,19 @@
 ---
 name: spec-sync
-description: Synchronize ADT current-state specifications after implemented product behavior or stable product invariants change. Use when functional implementation changes what users can observe or what must remain true; do not use for implementation-only refactors with unchanged product behavior.
+description: Synchronize ADT current-state specifications and affected durable documentation after implementation changes product behaviour, stable invariants, architecture or trust boundaries, component/operator contracts, or delivery responsibilities. Do not use for internal changes whose documented contracts remain unchanged.
 ---
 
 # Specification synchronization
 
-Use this Skill after implementation when product behaviour or a stable product invariant has changed.
+Use after implementation when a durable documented contract may have changed.
 
 ## Procedure
 
-1. Read the issue or task, the final implementation diff, and `specs/AGENTS.md`.
-2. Identify which current-state specification owns the changed behaviour. Do not update unrelated specifications.
-3. Determine whether the implementation actually changes observable product behaviour, a durable domain concept, a safety/security invariant, an important product limitation, or a durable architectural boundary represented in the specification.
-4. If none of those changed, leave the specification unchanged.
-5. If an update is required, describe what must remain true if the implementation is replaced.
-6. Remove or revise superseded statements so the specification describes one coherent current state.
-7. Link to external contracts or operational/component documentation rather than copying their mechanics into the specification.
-8. Keep implementation algorithms, storage mechanisms, internal state machines, exact retries/timeouts, dependency versions, protocol payloads, and build details out unless they form an external product contract.
-9. Keep roadmap ideas and historical implementation decisions outside current-state specifications.
-10. For cross-domain changes, migrations, or retirements, check other current-state specifications, the root README, and shipped examples for newly contradictory statements; update only affected material.
-11. Where a shipped example embodies an enforceable contract, validate it through the same semantic validator when practical.
-12. Inspect the resulting diff for concise wording, correct scope, and consistency with the implemented behavior and acceptance criteria.
+1. Read the final implementation diff and applicable documentation instructions.
+2. Decide whether the change affects a durable contract: observable behaviour, stable product invariant, important limitation, source-of-truth/state/trust boundary, component/operator responsibility, or delivery boundary. If not, make no documentation change.
+3. Update only the owning documentation: product behaviour in `specs/`, major system boundaries in `ARCHITECTURE.md`, and operational/component contracts in their owning README or `docs/` guide.
+4. Describe what must remain true if the implementation is replaced. Keep exact algorithms, storage mechanics, protocol fields, retries/timeouts, versions, path matrices, build mechanics, and other source-owned detail out unless externally contractual.
+5. Reconcile affected documents into one current state. Prefer deleting or replacing stale/duplicated detail over appending explanation; remove obsolete implementation or incident history.
+6. Inspect the final documentation diff for correctness, concision, ownership, and contradictions with the implemented behaviour.
 
-## Domain guidance
-
-- Artifact Library, access, lifecycle, catalogue, interface, and broad application invariants normally belong in `specs/000-current-application-spec.md`.
-- Agents, Workflows, Runs, providers, durable execution, retries, cancellation, and Codex Runner product behaviour normally belong in `specs/agent-workflows.md`.
-- Repository layout and metadata belong in the external artifact repository contract rather than being duplicated in a product specification.
-- Operator configuration and implementation mechanics belong in operational/component documentation, source, tests, schemas, or configuration.
+Link to authoritative source, configuration, contracts, or operational documentation instead of duplicating their mechanics.
