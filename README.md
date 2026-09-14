@@ -1,7 +1,3 @@
-ADT managed workflow test – 12 Sep 2026.
-It works!
-
-it works
 # Artifact Dev Toolkit
 
 Artifact Dev Toolkit helps authorised users manage reusable work assets in GitHub and run bounded Agent Workflows through supported execution providers.
