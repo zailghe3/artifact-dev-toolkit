@@ -130,21 +130,23 @@ Before an executable implementation or correction PR is reported complete, `$cod
 ## Validation and CI/CD
 
 - Use the repository-declared toolchain and canonical scripts rather than duplicating version details here.
-- Pull-request workflows validate changes with read-only permissions.
-- Sensitive CI/CD, dependency, authentication, credential, migration, persistence, and mutation-related changes require the repository's trusted review path.
-- Safe eligible pull requests may use the repository's trusted auto-merge path.
-- Changes reaching `main` are verified before production-affecting deployment.
+- One fail-closed change-impact policy selects the verification and production operations relevant to the changed paths; unclassified paths must be classified before the lifecycle can proceed.
+- Pull-request workflows validate affected components with read-only repository permissions and never receive production credentials.
+- PR-built Worker or container artifacts are verification artifacts only. Production artifacts are rebuilt and smoke-tested from the exact immutable merged source by trusted `main` workflows rather than promoted from PR CI.
+- Sensitive CI/CD, dependency, authentication, credential, migration, persistence, and mutation-related changes require the repository's trusted review path. Safe eligible pull requests may use the separate trusted auto-merge path, which rechecks the validated head and eligibility at the mutation boundary.
+- Worker deployment, D1 migration application, ADT Runtime publication, and Codex Runner publication are independently selected production effects. Cross-component ordering is added only where a shared production contract requires it, such as the Runner release metadata consumed by both the Worker and Runner image.
+- Post-merge verification is component-aware: shared control-plane gates run only when required, while Runtime and Runner publishers retest, rebuild, and smoke their exact merged component source before publication.
+- Production operations are freshness-aware. An immutable target may continue when later commits do not supersede that same component, but a newer relevant input or an unclassified intervening path prevents stale publication or deployment.
 - Documentation-only, specification-only, repo-local Skill-only, and feature-request-only changes may be classified as non-deployable.
-- Production credentials are available only to the trusted deployment path, never to pull-request code.
 
-The workflow files and tests are authoritative for trigger mechanics, permissions, classification rules, check names, deployment hand-offs, and recovery implementation.
+The workflow files, classifier, scripts, and tests are authoritative for exact path rules, check names, permissions, production hand-offs, freshness evaluation, and recovery mechanics.
 
 ## Recovery
 
 - Failed PR validation: fix the branch and rerun through a new push.
 - Package-lock drift: use the repository's trusted package-lock repair process rather than hand-editing the lockfile.
 - Failed feature issue creation: use the feature-request recovery workflow; immutable request IDs prevent duplicate issues and planned requests remain skipped until promotion.
-- Failed production deployment: use the repository's manual deployment recovery workflow against the intended verified commit.
+- Failed automatic production work: use the relevant trusted recovery workflow. Manual Cloudflare recovery may intentionally resolve an operator-selected historical ref to an immutable commit rather than applying the normal current-main freshness restriction.
 
 ## Related documentation
 
