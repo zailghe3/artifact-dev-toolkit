@@ -18,6 +18,8 @@ GITHUB_ARTIFACT_REPOSITORY_NAME=fpo-artifacts
 SESSION_SECRET
 ```
 
+`GITHUB_ARTIFACT_ALLOWED_LOGINS` is optional. When configured, only listed GitHub logins may use the application even if they otherwise have repository access.
+
 The branch is optional and defaults to `main`. Artifact Library discovery is fixed to the canonical root-level `prompts/`, `snippets/`, `templates/`, and `app-ideas/` namespaces; no artifact-root variable is required or used.
 
 Never commit `.env`, `.dev.vars`, PEM keys, secret values, OAuth tokens, or session data.
@@ -25,8 +27,9 @@ Never commit `.env`, `.dev.vars`, PEM keys, secret values, OAuth tokens, or sess
 ## GitHub App
 
 - Production callback URL: `https://adt.pouchet.net/auth/github/callback`.
-- Required permissions: **Contents: read and write** and **Metadata: read-only**.
-- Install the App with selected-repository access to `zailghe3/fpo-artifacts`.
+- Artifact Library operations require **Contents: read and write** and **Metadata: read-only** on the configured artifact repository.
+- Managed code-repository publication also requires the GitHub App installation on that repository with the permissions used by the managed publication path, including Pull requests write access.
+- Install the App with selected-repository access only to repositories ADT is intended to manage.
 - Permission upgrades may require administrator approval before the installation becomes usable.
 - The application never changes GitHub App permissions automatically.
 
@@ -36,7 +39,7 @@ GitHub-downloaded PKCS#1 and PKCS#8 private keys are supported. Encrypted keys, 
 
 Configure required Worker secrets through the Cloudflare dashboard or Wrangler.
 
-Generate independent secrets for token encryption and session signing, for example:
+Generate independent secrets for user-token encryption and server-side session protection, for example:
 
 ```bash
 openssl rand -base64 32 # GITHUB_TOKEN_ENCRYPTION_KEY
@@ -62,9 +65,10 @@ Implementation details for chunking, publication, concurrency, invalidation, and
 
 ## Repository access
 
-- Reads use repository-restricted installation credentials with Contents read access.
-- Direct artifact writes require Contents write access.
-- Artifact Library mutations use Contents write access; Pull requests permission is not required.
+- Reads use short-lived repository-restricted installation credentials with Contents read access.
+- Direct Artifact Library writes require Contents write access.
+- Pull requests permission is not required for Artifact Library mutations themselves.
+- Managed code-repository publication uses its own operation-scoped repository permissions and authority.
 - No static repository token is supported.
 - Installation credentials remain server-side and are not persisted as long-lived repository tokens.
 

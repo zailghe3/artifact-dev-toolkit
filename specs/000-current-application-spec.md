@@ -1,8 +1,7 @@
 # Artifact Toolkit — Current Application Specification
 
 **Document status:** Baseline specification of implemented application behaviour  
-**Scope:** Current behaviour only; not a roadmap or implementation design  
-**Last updated:** 2026-08-30
+**Scope:** Current behaviour only; not a roadmap or implementation design
 
 ## 1. Purpose and scope
 
@@ -15,14 +14,17 @@
 
 ## 2. Access and security
 
-- Users authenticate with GitHub.
-- Access is limited to users authorised for the configured artifact repository.
+- GitHub authentication establishes the user's identity.
+- Application access additionally requires current authority to the configured artifact repository and may be further restricted by operator policy.
 - Application pages and APIs containing private repository information require authenticated and authorised access.
+- Browser sessions are server-controlled, revocable, and do not contain GitHub or application credentials.
+- Repository authority is revalidated during a session so removed GitHub access does not remain indefinitely authoritative.
 - Signing out invalidates the application session.
-- Credentials, access tokens, provider secrets, and other sensitive configuration remain server-side.
+- GitHub App credentials, provider secrets, access tokens, and other sensitive configuration remain server-side.
+- Privileged GitHub operations use short-lived repository-scoped authority limited to the capability required by the operation.
+- User identity/authorisation and application repository credentials remain separate security boundaries.
 - Protected responses are not publicly cacheable.
 - User-facing errors and diagnostics must not expose secrets, raw credentials, private artifact bodies, or unsafe upstream responses.
-- Repository and provider permissions follow least-privilege boundaries appropriate to the requested operation.
 
 ## 3. Artifact Library
 
@@ -102,16 +104,15 @@
 - Authorised users can inspect a protected diagnostics view.
 - Diagnostics groups overall health, authentication and access, Artifact Library, application control-plane, ADT Runtime, and Codex Runner observations into distinct operational domains.
 - Runtime and Runner readiness diagnostics remain bounded, exclude secrets and private Runner information, and do not invoke a provider or start model-directed execution.
-- An authorised user may explicitly run a non-mutating Runtime execution-path diagnostic that reports checkpoint, graph-node, and optional Artifact Search callback reachability, narrow-authority acceptance, and required control-plane backend availability. Passive page loading never starts this diagnostic, and its ephemeral result does not change overall health.
+- An authorised user may explicitly run a non-mutating Runtime execution-path diagnostic that reports checkpoint, graph-node, and optional Artifact Search callback reachability, narrow-authority acceptance, and required control-plane backend availability.
+- Passive page loading never starts the Runtime execution-path diagnostic, and its ephemeral result does not change overall health.
 - Overall health includes required ADT Runtime configuration and current Workflow graph capability, while an intentionally unconfigured optional Codex Runner does not make the application unhealthy.
-- Codex Runner overview health uses short, passive readiness observations and stops after a failed basic connection probe. A valid capability response preserves Runner reachability even when Codex is unavailable. Deeper authentication-environment connectivity diagnostics run only when an authorised user explicitly requests them.
-- Detailed Codex Runner operational controls and explicit functional testing remain separate from the unified diagnostics overview.
-- Codex Runner keeps live SQLite state on executor-local storage separately from durable Codex home state, and manages consistent durable backups plus confirmed, quiesced SQLite-only restore.
+- Codex Runner overview health uses short, passive readiness observations and stops after a failed basic connection probe. A valid capability response preserves Runner reachability even when Codex is unavailable.
+- Deeper Codex Runner authentication, environment, filesystem, startup, storage, and execution-boundary diagnostics are explicit on-demand operations rather than passive page work.
+- Detailed Codex Runner mutation controls and explicit functional testing remain separate from the unified diagnostics overview.
+- Codex Runner keeps live SQLite state on executor-local storage separately from durable Codex home state and supports consistent durable backups plus confirmed, quiesced SQLite-only restore.
 - Authorised Runner operations expose only safe storage and backup metadata; restore never replaces workspaces, credentials, sessions, or other durable non-SQLite state.
 - A restore never mutates live SQLite before App Server termination is confirmed, and an incomplete rollback preserves recoverable safety state while execution remains fail-closed.
-- Passive Runner status remains observable during SQLite maintenance without starting App Server or weakening the maintenance boundary.
-- Advanced Runner authentication, environment, filesystem, and startup observations remain explicit on-demand diagnostics and are not gathered during passive page load.
-
 - Diagnostics is observational unless the user explicitly invokes a supported active action such as catalogue refresh or the non-mutating Runtime execution-path test.
 - Operational states distinguish healthy, degraded, unavailable, unauthorised, misconfigured, and invalid-content conditions where relevant.
 - Degraded states should preserve safe usable functionality where possible.
@@ -144,4 +145,4 @@
 
 - Artifact repository configuration and external service provisioning remain operator responsibilities.
 - Operational documentation may prescribe deployment technologies, versions, limits, or recovery procedures without making those mechanics part of this product specification.
-- Detailed Agent Workflow, provider, Runtime, and Runner behaviour remains in the dedicated Workflow specification and component documentation.
+- Detailed Agent Workflow, provider, Runtime, Runner, and delivery behaviour remains in the dedicated Workflow specification and component/operational documentation.

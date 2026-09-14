@@ -1,8 +1,7 @@
 # Artifact Toolkit — Agent Workflows Specification
 
 **Document status:** Baseline specification of implemented Agent Workflow behaviour  
-**Scope:** Current behaviour only; not a roadmap or implementation design  
-**Last updated:** 2026-09-02
+**Scope:** Current behaviour only; not a roadmap or implementation design
 
 ## 1. Purpose
 
@@ -14,300 +13,208 @@
 
 ## 2. Core concepts
 
-- A **Connection** identifies an available execution provider without exposing its private credentials.
+- A **Connection** identifies an execution provider without exposing its private credentials.
 - An **Agent** selects a connection, prompt, and supported provider options.
 - An Agent prompt is either custom text or a reference to an Artifact Library prompt.
 - A **Workflow** is a v2 semantic graph of versioned blocks and edges.
-- A **Block Registry** defines the supported versioned block contracts; backend-executable blocks are Agent references, deterministic text Conditions, deterministic Join barriers, resumable human Approval gates, and reusable Workflow composites.
+- Supported backend-executable blocks are Agent references, deterministic text Conditions, Join barriers, resumable human Approval gates, reusable Workflow composites, and the explicit managed GitHub publication block.
 - A **Workflow layout** is an optional visual arrangement of stable node identities and presentation-only edge waypoints; it is not executable configuration.
-- A **Run** freezes the workflow and agent configuration used for one execution.
-- An **Attempt** records one execution attempt for a workflow step.
-- Provider task identifiers may be retained when needed to safely observe or reconcile external work.
+- A **Run** freezes the Workflow, referenced definitions, Agents, and connection context used for one execution.
+- An **Attempt** records one execution attempt for an Agent activation.
+- Provider or Runner task identities may be retained when needed to observe or reconcile accepted external work safely.
 
 ## 3. Workflow definitions
 
 - Current Workflow definitions use the ADT-owned v2 semantic graph format.
-- Current executable v2 workflows contain one connected bounded graph with Agent blocks, bounded `contains` Conditions, structured parallel fan-out and Join, and Condition-controlled cycles. Condition routes have labelled `true` and `false` semantic ports; omitted ports retain the registered defaults for compatible definitions. Unsupported block contracts or graph topology fail closed before persistence or execution.
-- A Workflow may define optional starter input for manual launch. It remains editable before submission, and does not supply implicit input to reusable Workflow blocks.
-- A Workflow may be exposed as a reusable block. `subworkflow@1` references one exposed Workflow in the same definition repository and has one text input and one text output.
-- A reusable Workflow block may be the compact graph's successful terminal. Its child's terminal text is the block output, and launch-time composition must still produce a primitive graph whose successful terminal is an Agent.
-- Reusable Workflows may compose other exposed Workflow v2 definitions within a bounded depth. Missing, unexposed, cyclic, oversized, or unsupported composed graphs fail closed before launch.
-- A run freezes the complete transitive Workflow definitions, exact repository revisions, authored composite paths, and Agents before execution. Later edits to a referenced Workflow affect new runs only.
-- Semantic edges determine v2 execution order independently of node array order and visual position.
-- Each workflow has bounded step count and execution limits.
-- Workflow definitions are separate from run history.
-- A run uses an immutable snapshot of the definitions selected at launch.
-- Referenced prompt artifacts are resolved at launch and their text is frozen into the run; later prompt edits affect new runs only.
+- Executable graphs may contain Agents, bounded text Conditions, structured parallel fan-out and Join, Approval gates, reusable Workflows, and Condition-controlled cycles within the supported topology and execution bounds.
+- Unsupported block contracts, invalid ports, disconnected graphs, unsupported nested topology, or exceeded bounds fail closed before persistence or execution.
+- A Workflow may define optional starter input for manual launch.
+- A Workflow may expose itself as a reusable block. Reusable Workflows expand into the parent run rather than creating child runs.
+- Reusable Workflow composition is bounded. Missing, unexposed, cyclic, oversized, or otherwise unsupported composition fails closed before launch.
+- Semantic edges determine execution independently of node array order and visual position.
+- Visual node positions, viewport state, and edge waypoints are presentation-only and never change semantic topology, execution order, handoff, result selection, execution limits, or run snapshots.
+- Semantic and presentation changes are persisted separately. Missing or stale layout data does not make an otherwise current Workflow unexecutable.
+- A Workflow execution limit is an integer of at least one; an empty authoring draft normalises to one when saved.
+- Definitions and layouts use revision-aware Git mutations so stale or ambiguous writes fail safely.
+- Current executable definitions are discovered and mutated only in the canonical root-level definition namespaces.
+
+## 4. Run snapshots and handoff
+
+- Launch freezes the complete current Workflow definition, transitive reusable Workflow composition, relevant repository revisions, Agents, connection snapshots, and resolved prompt artifacts.
+- Later edits to definitions, Agents, prompts, or connections affect new runs only.
+- Snapshots retain only safe connection identity and secret references required for later server-side resolution; resolved credentials are never stored in a run definition.
 - Tool-enabled runs also freeze the authorised repository identity and catalogue scope without persisting repository credentials.
-- The safe connection snapshot includes Git provenance and any secret reference needed for later server-side resolution, but never the resolved credential.
-- Later Git connection changes do not alter an existing run's snapshotted runtime, model, or secret reference.
-- Changes to an Agent or Workflow do not rewrite the configuration of an already-created run.
-- Definition reads use canonical root-level `agents/` and `workflows/` locations only.
-- Definitions are discovered and mutated only in the root-level executable definition namespaces.
-- Definition location does not affect Workflow references, execution, or immutable run snapshots.
-- Definition Draft state is retained only for format compatibility and is not presented as an Agent or Workflow lifecycle concept.
-- The Workflow view presents distinct Agent, Condition, Approval, and Join blocks with ADT semantic ports and edges, including structured fan-out and controlled back-edges.
-- Users may move visual nodes, pan or zoom the view, and save that layout independently from the Workflow definition.
-- The editor tracks semantic and presentation changes independently. Layout-only persistence is unavailable while semantic changes are pending, and saving semantic graph changes also persists a layout reconciled to the newly saved definition before reporting complete success.
-- Definition authoring validates Publish GitHub PR structure and the source Agent's durable Codex Runner connection identity, managed-Git setting, and environment identity without contacting the live Runner. Transient Runner readiness does not invalidate an otherwise valid definition.
-- Workflow admission separately revalidates live Runner reachability, capabilities, authentication, executable connection state, and enabled, ready managed-repository environment configuration. Publication independently validates the trusted managed repository context and fails closed when that authority is absent.
-- Layout persistence is validated against the exact saved semantic Workflow revision. A temporarily stale semantic observation leaves the semantic change durable and makes layout retry explicit.
-- Missing or out-of-date layout information does not prevent a current Workflow step from being displayed or executed.
-- Visual position, viewport, and edge-waypoint changes remain separate presentation-only layout mutations and never change semantic topology, order, handoff, result selection, limits, or run snapshots.
-- The Workflow execution limit remains an integer of at least one; an empty authoring draft normalizes to one when saved.
-- For v2 workflows, adding, removing, configuring, connecting, or disconnecting a block is an intentional semantic Workflow mutation and must produce a valid bounded graph; the editor exposes Agent, Condition, structured fan-out, Join, controlled back-edge, and explicit execution-bound authoring.
-- At launch, a supported v2 graph is frozen with its semantic Workflow, Workflow revision, Agent revisions, Connection snapshots, and an explicit execution-engine version.
-- Reusable Workflow blocks expand into the existing primitive graph within the parent run. They do not create a separate run, checkpoint, cancellation lifecycle, provider authority, or execution count.
-- The root Workflow execution limit applies to every expanded Agent, Condition, Join, and Approval activation. Embedded Workflow limits do not establish another budget.
-- Current runs use frozen semantic edges to reconstruct graph execution from the immutable versioned plan. Historical v1 snapshots retain their original identity and interpretation only for read-only presentation.
-
-## 4. Linear v2 graph handoff
-
-- The first Agent in a linear v2 graph receives the user's initial Workflow input.
-- Each later Agent in that linear graph receives the previous Agent's persisted textual output.
-- The framework does not implicitly summarise, rewrite, trim, parse, or reinterpret a successful handoff.
-- Provider-specific framing may combine the resolved Agent prompt with the workflow input while preserving the input content required by the provider contract.
-- Step output is bounded textual content suitable for persistence and handoff.
+- The first Agent on a linear path receives the user's Workflow input.
+- A later Agent receives the persisted textual output selected by the graph path.
+- The framework does not implicitly summarise, rewrite, trim, parse, or reinterpret a successful text handoff.
+- Reusable Workflow blocks expose their successful terminal text as their block output while remaining part of the parent run and execution budget.
 
 ## 5. Durable execution
 
-- Runs persist their current state and execution history.
-- `approval@1` pauses a run in an explicit waiting-for-approval state with its immutable message and exact reviewed text visible to an authorised user. Approval passes the incoming text onward unchanged and counts as one semantic block execution across pause and resume.
-- Approval resumes the exact frozen execution checkpoint and launch snapshot. Later definition edits cannot change a paused run.
-- Human waiting does not consume the bounded active execution duration. Cancellation remains available while waiting and prevents downstream admission when it wins durably.
-- Approval decisions identify one exact block activation and are idempotent. A stale decision cannot approve a later visit to the same block.
-- One active Approval interrupt is supported per run; Approval within a parallel fan-out is rejected. Generic graph runs present their immutable semantic snapshot, simultaneous active Agents, and visit-aware Agent attempt history without implying a linear step order.
-- Composition preserves the current direct structured-parallel limitation and rejects composed topology that would introduce unsupported nested parallelism or simultaneous Approval interrupts.
-- Run activity and Approval requests within reusable Workflows remain attributable to meaningful frozen composite paths, including repeated invocation identity, and never appear as independent child runs.
-- For new v2 runs, durable graph state determines which node executes next. Run cursors are projections and cannot independently select a node.
-- Each graph node still executes through the existing provider-neutral Agent lifecycle. A repeated request for a durably successful node reuses its output, and an accepted asynchronous provider task is observed rather than recreated.
-- Successful step output is persisted before later steps can depend on it.
-- Application or process interruption must not require a completed step to be repeated merely because the original request ended.
-- External provider work with a known task identity is observed rather than recreated.
-- A generic graph branch failure stops new work admission and remains the run outcome only after already-admitted sibling provider work reaches a bounded truthful reconciliation outcome.
-- Launch and execution state are reconciled conservatively after interruption.
+- Runs persist current state and execution history.
+- Cloudflare Workflows provides the durable outer lifecycle; current graph sequencing is reconstructed from the frozen v2 plan through ADT Runtime.
+- Durable graph state, Agent admission, provider-safety state, and recorded outcomes remain controlled by the application rather than by an execution service.
+- A repeated request for work that is already durably successful reuses the recorded result rather than repeating it.
+- Successful output is persisted before downstream work can depend on it.
+- Application or process interruption must not require completed work to repeat merely because the original request ended.
+- External work with a known durable task identity is observed or reconciled rather than recreated.
+- Branch failure stops new work admission and reconciles already-admitted sibling work before a truthful terminal outcome is reported.
 - Terminal runs remain terminal when observed again.
+
+### Approval
+
+- `approval@1` pauses a run in an explicit waiting-for-approval state with immutable review text visible to an authorised user.
+- Approval passes the reviewed input onward unchanged and counts as one semantic block execution across pause and resume.
+- Approval resumes the exact frozen execution state; later definition changes cannot alter a paused run.
+- Human waiting does not consume active execution duration.
+- Approval decisions identify one exact block activation and are idempotent; stale decisions cannot approve a later visit to the same block.
+- One active Approval interrupt is supported per run; unsupported simultaneous approval topology fails before execution.
+- Cancellation remains available while waiting and prevents downstream admission when it wins durably.
 
 ## 6. Duplicate-work protection
 
 - Workflow execution uses stable identities to prevent accidental duplicate external work.
-- Replaying the same accepted operation should resolve to the existing work where safe.
-- A conflicting replay must fail rather than execute as if it were the same operation.
-- Side-effecting provider creation is never blindly retried when the outcome is ambiguous.
-- Publication or repository-writing operations are never blindly duplicated after an ambiguous result.
-- Recovery should prefer observation and reconciliation over repeating an uncertain mutation.
+- Matching replays resolve to existing accepted work where safe.
+- Conflicting replays fail rather than execute as though they were the same operation.
+- Side-effecting provider or repository mutations are never blindly retried when their outcome is ambiguous.
+- Recovery prefers observation and reconciliation over repeating uncertain external work.
 
 ## 7. Retry behaviour
 
 - Clearly transient failures may retry automatically within bounded limits.
-- Automatic retry retains the run and step history.
+- Automatic retry retains run and attempt history.
 - Ambiguous side-effecting failures do not retry automatically.
-- Manual retry may resume eligible failed work without deleting previous attempts.
-- Manual retry does not silently rewrite past run history.
-- Retry behaviour is bounded by attempt, duration, transition, polling, and text-size limits.
+- Manual retry may resume eligible failed work without deleting previous history.
+- Retry remains bounded by the current execution and provider contracts.
 
 ## 8. Cancellation
 
 - Users can request cancellation of an active run.
-- Cancellation prevents further local workflow progression.
-- A cancellation accepted before provider work starts prevents that work from being launched.
+- Cancellation prevents further local Workflow progression when it wins durably.
+- Cancellation accepted before provider work starts prevents that work from being launched.
 - When an external provider supports cancellation, the framework may request it and continue observing the accepted task until its state is known.
-- Unsupported or incomplete provider cancellation must not be presented as proof that external work stopped.
-- Cancellation state remains explicit until the framework can safely determine the relevant local outcome.
+- Unsupported or incomplete external cancellation must not be presented as proof that external work stopped.
+- Cancellation remains explicit until the framework can safely determine the relevant local outcome.
 
 ## 9. Connections and credentials
 
 - Agents reference connections by stable application-visible identity.
-- Git is authoritative for the non-secret identity, name, runtime, provider, model, credential source, and credential reference of a Git-defined connection.
-- Authorised users may edit supported non-secret Git fields through revision-aware mutations; stale or ambiguous repository writes fail without retry or silent overwrite.
-- Target Git credentials use logical `adt-vault` references. Their values are permanent encrypted ADT state and are managed through a write-only interface.
-- Current Git OpenAI connections require an `adt-vault` credential reference.
-- Legacy D1 provider rows may remain physically present as inert historical or rollback data, but current discovery, mutation, and execution never use them.
-- Credential resolution is source-exact. A Git definition never falls back to same-ID D1 state, and an unavailable vault reference never falls back to a Cloudflare binding or D1 row.
-- New Workflow snapshots retain the safe vault credential source and reference. Historical source-less Git and D1 snapshots remain displayable identifiers only and cannot resolve credentials or execute.
-- Vault configure, replace, remove, and recover operations verify the observed Git revision and derive the authoritative reference server-side. Stored plaintext is never returned.
-- Replacing or removing a vault credential does not mutate Git. Recovery restores the existing reference and cannot overwrite an existing value.
-- No current migration UI or API exists for retired D1 or source-less configuration; inert rows and bindings are never resolved for execution.
-- Credential plaintext, encrypted envelopes, and key material never pass through the browser, API representation, Git definition, or Workflow snapshot. Provider testing remains a separate explicit operation.
-- Definite repository conflicts remove only the newly unreferenced vault value. Ambiguous repository outcomes retain it, are not retried automatically, and require refreshed inspection.
-- Connection configuration, credential availability, live provider/model readiness, and ADT Runtime diagnostics are distinct states.
-- Saving or executing an Agent fails closed when required live provider configuration is invalid or unavailable.
-- Credentials are never stored in Agent, Workflow, or run definitions and never appear in diagnostics or logs.
-- The Connections catalogue presents safe readiness summaries and navigation; credential management and explicit provider testing are connection-editor operations.
-- Duplicating a Git connection creates an unsaved draft from non-secret configuration. It never copies a credential, revision, or source identity, and persists only through normal validated creation.
-- Legacy Codex Cloud environment records remain historical compatibility data and have no user-facing management surface. Codex Runner environments remain operator-managed and discovered from the Runner.
+- Git is authoritative for current non-secret connection configuration.
+- Current provider credentials use logical ADT-vault references; credential values are permanent encrypted application state and are managed through a write-only interface.
+- Credential resolution is source-exact and never falls back to retired or same-ID historical state.
+- Workflow snapshots may retain the safe credential source/reference needed for later resolution but never the resolved credential.
+- Credential plaintext, encrypted envelopes, and key material never pass through user-authored Agent/Workflow definitions or client-facing connection representations.
+- Saving or executing an Agent fails closed when required current configuration or live provider readiness is unavailable.
+- Connection configuration, credential availability, provider/model readiness, ADT Runtime readiness, and Codex Runner readiness are distinct states.
+- The Connections catalogue shows safe summaries; credential management and explicit provider testing are connection-editor operations.
+- Duplicating a Git connection creates an unsaved non-secret draft and never copies credentials, revision identity, or source identity.
+- Retired provider rows and legacy Codex Cloud configuration may remain readable as historical data but are not current execution inputs.
 
-## 10. OpenAI execution connections
+## 10. OpenAI execution connections and ADT Runtime
 
-- Artifact Toolkit supports the existing `openai-responses` execution path and an additive `openai-agents` OpenAI Agents SDK execution path.
-- Current OpenAI execution uses explicit Git connections backed by the encrypted ADT vault.
-- The resolved Agent prompt is supplied as provider instructions.
-- Workflow input is supplied as the agent input without framework summarisation.
-- Provider conversation state and tools are not implicitly enabled by the workflow framework.
-- Only bounded textual agent output becomes workflow output.
-- Provider reasoning and raw provider responses are not exposed as workflow output.
-- The `openai-responses` runtime retains a provider task identity when required for durable polling and cancellation.
-- The `openai-agents` runtime completes within one bounded invocation and has no SDK handoffs, persistent SDK Session or conversation, SDK tracing, provider cancellation, or asynchronous provider task.
-- An OpenAI Agents Agent may configure one integer execution timeout from 5 through 120 seconds. Existing Agents default to 30 seconds. Runs and recovery use the snapshotted Agent setting.
-- Runtime transport and HTTP-server allowances are derived or internal safety bounds, not additional Agent settings.
-- Agents are tool-free by default. An Agent may explicitly enable `artifact_search` only with `openai-agents`, and runs snapshot that availability.
-- `artifact_search` returns bounded content and safe metadata from the authorised validated Artifact Library. It cannot select a repository, ref, path, URL, or credential.
-- Tool authority is scoped to the exact active run attempt and repository snapshot, and uses control-plane-only authority material that is not available to the Runtime.
-- A tool-enabled Agent requires the matching Runtime capability before provider execution; tool-free Agents remain compatible with older Runtime deployments.
-- Each `openai-agents` invocation uses its resolved credential in an isolated server-side provider configuration and disables provider response storage.
-- `openai-agents` provider execution occurs in an independently deployed, stateless ADT Runtime across an authenticated execution boundary.
-- The Runtime owns bounded conditional, structured-parallel, and controlled-cycle graph compute but not durable storage, admission, credentials, or provider authority.
-- Conditions evaluate only immutable snapshotted configuration and exact incoming text, perform no provider invocation, preserve the text unchanged, and execute only the selected route.
-- Durable graph state remains in the application control plane behind exact run-scoped checkpoint authority. Provider execution callbacks additionally require authority for the exact admitted node, graph activation, iteration, and attempt. Runtime replacement requires no local persistent volume.
-- Structured Runtime failures cross durable Workflow steps only as strictly validated, bounded plain data. Recovery does not depend on JavaScript error identity, Runtime and callback-gateway evidence remains distinct across persistence, and unknown implementation exceptions are never trusted as Runtime failures.
-- Runtime HTTP clients used by durable Workflow steps are created within the active step operation and resolve ambient Worker I/O there; explicitly injected test and controlled transports remain supported.
-- Runtime readiness, protocol compatibility, capability availability, and provider execution failure are distinct conditions.
-- Authorised users can diagnose Runtime configuration, reachability, request authentication, protocol compatibility, capability availability, and wrapping-key compatibility without invoking a provider.
-- Authorised users can explicitly diagnose the bidirectional Runtime callback path through the configured checkpoint, graph-node, and optional Artifact Search gateways. Diagnostic authorities are short-lived, purpose- and target-scoped, cannot authorize execution operations, and permit only bounded read-only prerequisite checks.
-- Runtime execution-path diagnostics never create or alter Workflow/checkpoint state, resolve provider credentials, invoke an Agent or provider, search Artifact contents, or access GitHub.
-- Runtime commissioning is separate from the provider credential and model Connection Test.
-- Application and Runtime rollout may occur independently; compatibility is determined by the explicit protocol and capability contract rather than matching revisions.
-- An `openai-agents` failure after provider execution begins is not replayed automatically because no durable provider task identity is available for reconciliation.
-- Ambiguous provider execution fails safely rather than creating a second potentially billable invocation.
+- Artifact Toolkit supports the direct `openai-responses` execution path and the independently deployed `openai-agents` path.
+- Current OpenAI execution uses Git-defined connections backed by the encrypted ADT vault.
+- The resolved Agent prompt is supplied as provider instructions and Workflow input is supplied as Agent input without framework summarisation.
+- Only bounded textual Agent output becomes Workflow output; provider reasoning and raw provider responses are not exposed as Workflow output.
+- `openai-responses` may retain a durable provider task identity for polling and cancellation.
+- `openai-agents` is one bounded synchronous invocation with no framework-enabled SDK handoffs, persistent SDK conversation/session, tracing, asynchronous provider task, or provider cancellation identity.
+- An OpenAI Agents Agent may configure one bounded execution timeout; runs use the snapshotted Agent setting. Transport and infrastructure allowances are derived/internal rather than additional user settings.
+- Agents are tool-free by default. An Agent may explicitly enable `artifact_search`, which returns bounded content and safe metadata only from the authorised snapshotted Artifact Library context.
+- Tool authority is limited to the exact active run attempt and repository snapshot and is not available as broad repository authority inside Runtime.
+- ADT Runtime performs bounded graph computation and execution-heavy provider work but owns no durable Workflow state, admission policy, broad repository authority, or persisted provider credentials.
+- Durable checkpoints and executable Agent-node admission stay behind narrow control-plane gateways. Runtime replacement requires no local persistent application state.
+- Structured Runtime failures cross durable boundaries only as bounded, validated, non-sensitive data. Runtime transport and callback-gateway evidence remain distinguishable.
+- Graph progression is recoverable through durable checkpoints and admission state. A synchronous provider invocation whose outcome becomes ambiguous after provider entry is not automatically repeated because there is no durable provider task identity to reconcile.
+- Runtime readiness, protocol compatibility, capability availability, execution-path readiness, provider connection readiness, and provider execution failure are distinct conditions.
+- Authorised users may explicitly test the Runtime callback path without creating Workflow state, resolving provider credentials, invoking an Agent/provider, searching Artifact content, or accessing GitHub.
+- Application and Runtime may roll independently; compatibility is determined by their explicit protocol/capability contract rather than matching revisions.
 - Model availability is validated against the authenticated provider rather than assumed from a hard-coded application list.
 
 ## 11. Codex execution boundary
 
-- Codex execution is distinct from a normal OpenAI Responses model call.
-- The supported self-hosted Codex path is exposed as a `codex-runner` connection.
-- The legacy Codex Cloud connection remains readable for compatibility but is unavailable for real execution until a supported server-to-server transport exists.
-- Retired Codex Cloud connections remain readable on historical Agents but are not offered for new configuration.
+- Codex execution is distinct from a normal OpenAI model call.
+- The supported self-hosted path is exposed through a `codex-runner` connection.
+- Codex Runner authenticates to Codex independently; Artifact Toolkit does not store the Runner's ChatGPT/Codex credential.
 - Current supported connections remain visible with explicit readiness problems when temporarily unavailable; visibility does not imply executability.
+- Legacy Codex Cloud connections remain historical/read-only configuration and are not offered for new executable setup.
 
-## 12. Codex Runner responsibilities
+## 12. Codex Runner responsibilities and split security model
 
-- Codex Runner is an independently deployed execution service.
-- The Runner authenticates to Codex independently; Artifact Toolkit does not store its ChatGPT/Codex credential.
-- Runner environments are pre-provisioned by the operator.
-- Artifact Toolkit references a Runner environment by its safe public key rather than supplying arbitrary filesystem paths.
-- The Runner decides the private working directory and whether an environment is read-only or workspace-write.
-- An Agent may select only provider options that the live Runner reports as supported.
-- Interactive approval requests are not part of normal Workflow execution.
-- The Runner returns only bounded final agent text to the Workflow.
-- Split deployments isolate the ADT-facing control plane from the process allowed to execute model-generated commands.
-- Live Codex SQLite state remains on executor-local filesystem storage, separate from durable non-SQLite Codex home state.
-- The executor manages consistent durable SQLite backups and a confirmed restore operation that refuses active work, quiesces App Server, validates backup integrity, and leaves unrelated durable home and workspace state untouched.
-- Storage and recovery operations retain the existing controller authentication and signed internal executor boundary and expose only bounded safe metadata.
-- In split deployments the executor container and Codex `workspace-write` sandbox jointly enforce the execution boundary; configured sandbox authority is never silently escalated.
-- The executor never receives the ADT Runner credential, a credential capable of authenticating controller requests, durable controller state, or infrastructure restart credential.
-- Split-mode executor network access traverses its dedicated Squid egress boundary, which denies GitHub while retaining required model-provider connectivity. Repository Manager uses a separate egress path for managed publication.
+- Codex Runner is independently deployed. Split mode is the reference security architecture; integrated mode remains a compatibility deployment.
+- The **Controller** owns ADT-facing admission, durable job/idempotency state, emergency control, and internal signing authority. It does not execute model-generated commands.
+- The **Executor** owns Codex identity and model-directed command execution inside its constrained container.
+- The **Repository Manager** owns trusted managed Git state and authenticated Git transport. It never executes model-generated commands.
+- Controller-signed internal requests are verified by Executor and Repository Manager; neither role receives material that can mint controller requests.
+- In split mode the Executor container is the execution security boundary. Admitted `workspace-write` work may run with Codex full access inside that constrained container; split execution does not depend on a native Codex sandbox.
+- The Executor never receives the ADT Runner credential, GitHub installation credentials, Controller signing authority, durable Controller state, Repository Manager private Git state, or infrastructure restart credentials.
+- Executor network access is restricted to required Codex/model-auth services. Repository Manager uses a separate network and credential path for managed Git operations.
+- Codex identity material belongs to the Executor trust boundary: model-directed execution may be able to read Executor-visible Codex state, but that does not grant ADT, GitHub, or infrastructure authority.
+- Runner returns only bounded final Agent text and bounded safe operational metadata to ADT.
 
-## 13. Codex Runner workspace boundary
+## 13. Runner workspaces and managed repositories
 
-- A Runner workspace may be a normal directory or a Git checkout.
-- Git availability is an execution aid and diagnostic capability, not a requirement for every workspace.
-- Artifact Toolkit and the Runner do not automatically clone, reset, pull, branch, commit, push, or create pull requests for ordinary Workflow jobs.
-- Persistent workspaces may contain changes from previous jobs.
-- Workspace provisioning and reset policy remain operator responsibilities.
-- The application may expose bounded workspace diagnostics such as readiness, Git availability, repository presence, current revision, and clean/modified state.
-- Workspace diagnostics must not expose private paths, repository remotes, filenames, credentials, or arbitrary command output.
-- Execution-boundary health is an advisory signal independent of workspace readiness and Codex authentication.
-- The application may show bounded sandbox availability, backend, and safe failure classification without changing Agent save, Workflow admission, or environment readiness.
-- Sandbox preflight must be non-destructive, must not contact provider or repository services, and must not change Runner security settings.
+- An ordinary Runner environment is an operator-provisioned private workspace referenced by a safe public key; ADT never supplies an arbitrary filesystem path.
+- Ordinary workspaces may be normal directories or Git checkouts, may retain changes between jobs, and are reset/provisioned according to operator policy.
+- Git availability is an execution aid for ordinary workspaces, not automatic publication authority.
+- ADT and Runner do not automatically clone, reset, pull, branch, commit, push, or create pull requests for ordinary Workflow jobs.
+- A managed repository environment is separately trusted operator configuration that binds an environment to one repository and base branch.
+- Managed execution exposes only the task workspace to the Executor. Repository mirrors, Git control data, durable task authority, and publication state remain private to Repository Manager.
+- Managed repository identity and allowed continuation association are determined by trusted configuration and durable application state rather than by model-selected remotes, branches, or credentials.
+- Workspace and execution-boundary diagnostics are bounded and must not expose private paths, remotes, filenames, credentials, arbitrary command output, or unsafe upstream data.
 
 ## 14. Codex Runner job behaviour
 
 - Runner jobs are durably identifiable and protected against duplicate execution.
-- Matching replays resolve to the same accepted job.
-- Conflicting replays do not execute.
-- The Runner currently admits at most one Workflow Codex job at a time.
-- The current capability is not a general waiting-job queue.
-- A Runner restart does not silently resubmit previously active Codex work.
-- Cancellation targets the existing accepted job rather than creating replacement work and does not report success until that work is known to be quiescent.
-- Temporary polling failure does not cause an accepted Runner job to be recreated.
-- An uncertain acknowledgement from a side-effectful Codex turn start is reconciled against that same turn and is never retried as a second turn. An unresolved outcome is reported as ambiguous and requires inspection before manual retry.
-- Executor replacement makes work associated with the prior executor generation terminal and never causes side-effecting work to replay.
+- Matching replays resolve to the same accepted job; conflicting replays do not execute.
+- The current Runner admits at most one Workflow Codex job at a time and is not a general waiting-job queue.
+- A Runner restart or Executor replacement does not silently resubmit prior side-effecting work.
+- Temporary observation failure does not recreate an accepted job.
+- Cancellation targets the existing accepted job and does not report success until the relevant work is known to be quiescent.
+- An uncertain acknowledgement from a side-effecting Codex turn start is reconciled against that same turn rather than retried as a second turn. Unresolved ambiguity remains explicit.
 
 ## 15. Runner readiness and operations
 
-- Runner reachability, protocol compatibility, environment readiness, Codex authentication, model discovery, and job execution readiness are distinct conditions.
-- Failure in one readiness dimension should produce a specific safe status where possible.
-- The application can expose bounded Runner operational history and status to authorised users.
-- After an operational refresh failure, retained history must be clearly identified as stale rather than presented as current state.
-- Empty or idle state is shown only when a current successful observation establishes it.
+- Runner reachability, protocol compatibility, environment readiness, Codex authentication, model discovery, execution-boundary readiness, and job readiness are distinct conditions.
+- Failure in one dimension should produce a specific bounded safe status where possible.
+- The application may expose bounded Runner operational history, storage status, backups, and diagnostics to authorised users.
+- Retained observations after refresh failure are identified as stale rather than presented as current state.
+- Live Codex SQLite state remains on Executor-local filesystem storage, separate from durable non-SQLite Codex home state.
+- Runner supports consistent durable SQLite backups and a confirmed restore operation that refuses active work, quiesces App Server before mutation, validates backup integrity, and leaves unrelated durable home/workspace state untouched.
+- An authenticated persistent emergency stop rejects new admission until deliberate safe resume. Failure to complete required hard-restart recovery never silently clears the stop.
 - Deployment, restart, image rollout, mounts, persistent storage, and Runner lifecycle remain operator-owned.
-- An authenticated, persistent emergency stop rejects admission until a deliberate safe resume; resume cannot clear the latch before the hard-restart phase has durably completed, and restart-trigger failure never clears it.
-- Operators diagnose sandbox prerequisites before changing container privileges or capabilities.
-- Artifact Toolkit CI may build or publish Runner artifacts, but normal application behaviour does not deploy or restart the external Runner.
-- Detailed Runner deployment and protocol guidance belongs in [`codex-runner/README.md`](../codex-runner/README.md).
+- Detailed deployment, storage, protocol, and recovery guidance belongs in [`codex-runner/README.md`](../codex-runner/README.md).
 
-## 16. Safety and observability
+## 16. Managed GitHub publication
+
+- A Codex Runner Agent may opt into a trusted managed repository environment.
+- The managed repository identity and base branch are bound from trusted Runner configuration and current run context before execution.
+- Artifact and managed code repositories may be the same or different; authority for one is never silently reused as authority for the other.
+- Executor has no GitHub installation credential or trusted remote authority. Repository Manager is the only managed Git transport.
+- Short-lived repository credentials may transit the trusted Controller/Repository Manager path for the exact operation, but are not persisted in Runner job/task state and never enter the Executor.
+- Managed repository metadata is checked before execution and publication. Identity drift or boundary mutation fails closed without adopting model-created Git authority.
+- The explicit **Publish GitHub PR** block is the only Workflow operation that may request managed publication.
+- Publication may create or update the one validated ADT-managed draft or ready pull request associated with its source managed task. It does not merge, force-push, or adopt arbitrary branches/remotes.
+- A new managed task with no changes does not create a branch or pull request.
+- Continuation may use only the previously validated managed association; caller-selected or model-selected branch substitution fails closed.
+- Ambiguous push/publication outcomes are reconciled against the same deterministic managed task and association rather than blindly repeated.
+- Safe Workflow state may retain task, branch, commit, and pull-request association metadata but never installation credentials.
+
+## 17. Safety, observability, and current limitations
 
 - Workflow state is visible without exposing provider secrets or private execution content beyond authorised run output.
-- Real Workflow runs retain bounded, versioned orchestration evidence separately from provider diagnostics on Agent attempts; control-plane-to-Runtime and Runtime-to-gateway transport observations remain distinct.
-- Orchestration evidence may exist before any Agent attempt is admitted. Transient evidence is cleared after successful recovery, cancellation, or an unrelated terminal outcome, while evidence that belongs to a terminal orchestration failure remains visible on the failed run.
-- Diagnostic reconciliation follows the current durable run generation and lifecycle; stale orchestration work cannot overwrite a replacement generation or turn cancellation and provider-terminal transitions into orchestration failures.
-- Run-level orchestration evidence excludes secrets, raw errors, callback bodies, provider data, prompts, and Artifact contents.
-- Logs and diagnostics use bounded safe categories and identifiers.
-- The protected application diagnostics overview may summarize distinct ADT Runtime and Codex Runner readiness conditions without invoking provider or Codex execution; detailed Runner mutation controls remain on its operational status interface.
-- Current Workflow execution readiness requires an authenticated, protocol-compatible ADT Runtime that advertises both provider execution and generic graph capabilities.
-- Runner status may derive bounded activity category, count, timestamp, and duration signals from provider lifecycle events, but never exposes their payloads.
-- Raw provider error bodies, credentials, tokens, reasoning, private paths, and arbitrary upstream headers are excluded.
-- Provider-side failure must not be misrepresented as an application authorisation problem when the distinction is known.
-- Ambiguous external outcomes remain explicit rather than being reported as successful, failed, or safely retryable without evidence.
-
-
-## 17. Current limitations
-
-- Parallel Agent frontiers are conservatively bounded and require exact activation-scoped provider authority.
-- There is no mapped execution.
-- There is no scripting language inside the workflow definition.
-- There is no schema-aware automatic transformation between steps.
-- There is no streaming workflow output.
-- There is no workflow scheduling.
-- There is no autonomous routing between agents.
+- Real runs may retain bounded run-level orchestration evidence separately from provider diagnostics on Agent attempts.
+- Orchestration evidence excludes secrets, raw errors, callback bodies, provider data, prompts, Artifact contents, private paths, and credentials.
+- Runner status may expose bounded activity category/count/timestamps but never provider lifecycle payloads, commands, arguments, reasoning, prompts, or file content.
+- Provider-side failure must not be misrepresented as application authorisation failure when the distinction is known.
+- Ambiguous external outcomes remain explicit rather than being reported as safely retryable without evidence.
+- Parallel Agent frontiers are bounded; unsupported nested parallel/Approval topology fails closed.
+- There is no mapped execution, Workflow scripting language, schema-aware automatic transformation, streaming Workflow output, Workflow scheduling, or autonomous Agent routing.
 - There is no automatic production promotion of Workflow definitions.
 - Non-managed Codex Runner Workflow jobs do not publish Git commits or pull requests.
 
 ## Historical run boundary
 
-- Current Workflow definitions are semantic v2 graphs and current execution uses the generic plan-version-2 LangGraph plan.
-- Cloudflare Workflows remains the durable outer shell.
-- Historical retired run formats remain viewable but are read only. They cannot retry, resume, rerun, relaunch, approve, cancel providers, resolve retired credentials, or create provider work.
+- Current Workflow definitions are semantic v2 graphs and current execution uses the current generic graph plan.
+- Historical retired run formats remain viewable but are read only.
+- Historical runs cannot retry, resume, rerun, relaunch, approve, cancel providers, resolve retired credentials, or create new provider/repository work.
 - Historical-only parsers may decode immutable persisted snapshots but never admit current configuration or execution.
-
-## Managed Codex repository publication
-
-- A Codex Runner Agent may opt into a trusted managed Git environment.
-- Enabled managed environment roots are provisioned by the trusted repository manager below the shared workspace boundary; unexpected existing content or unsafe path boundaries keep the environment unavailable.
-- Every new managed task starts in an isolated checkout pinned to the latest configured base commit observed at admission.
-- Repository mirrors, Git control data, and durable task authority live in repository-manager-private storage that the executor cannot mount; executor-visible task files are never consulted as repository or remote authority by a credentialed Git process.
-- At most one managed task checkout is executor-visible. Before another is admitted, prior edits are sealed into private repository-manager state and the visible checkout is removed; later publication uses the sealed state.
-- Admission rejects busy or idempotently repeated requests before repository preparation can alter an active task checkout.
-- A managed job is durably lookup-visible before repository preparation starts. Its non-secret task and continuation coordinates are idempotency-bound, and preparation failure is terminal for that job identity.
-- Emergency Stop may latch during repository preparation and prevents the provisional job from entering Codex execution.
-- Refreshing the base never mutates an active task checkout.
-- Repository identity, base branch, task branch, continuation branch, and checkout location are not model-selected.
-- A Publish GitHub PR block may follow its configured managed Codex Agent and creates or updates the persisted ADT-managed draft or ready pull request; later managed tasks may continue only that validated association.
-- An unchanged new task does not create a branch or pull request. An unchanged continuation may update only its existing validated pull-request metadata and draft state.
-- Only a ready managed Codex Runner Agent may be selected as a Publish GitHub PR source, and launch validation enforces the same rule.
-- Interrupted preparation and publication resume from deterministic trusted identities; a lost callback must reconcile a completed persisted association rather than create another branch or pull request.
-- Codex never receives a GitHub installation credential.
-- A completed managed task may be committed and pushed only through the trusted repository manager.
-- Managed publication proceeds to Repository Manager only when GitHub reports that its fresh installation credential has Contents write permission.
-- ADT creates or updates only the associated ADT-owned pull-request branch in the authorised repository.
-- Draft and normal pull-request creation are supported; merging and force-pushing are not.
-- Safe workflow state may retain repository task, branch, commit, and pull-request association metadata, but never installation tokens.
-
-## Managed execution authority and transport budget
-
-- Durable Runtime orchestration persists validation and bounded per-turn request accounting as replayable step results. Hibernation does not repeat completed Runtime requests or lose cumulative diagnostics, and realistic multi-minute provider work retains recovery headroom within a Free-plan-like external-request budget.
-- Deterministic platform request-budget exhaustion is reported distinctly and is not retried as a transient network outage. Bounded diagnostics distinguish Runtime execution requests, readiness requests, and the resulting external-request estimate without retaining request content.
-- A managed Codex Agent can modify and test its local ADT task workspace. In split deployments the isolated executor container is the execution security boundary, and admitted workspace-write work runs with full access only inside that constrained container; split execution does not depend on a native Codex sandbox.
-- The executor cannot use non-local App Server tools, authenticate a Git remote, or reach destinations other than the minimum model/auth services. Repository Manager has separate network and credential authority and remains the sole Git/GitHub publisher.
-- Managed repository identity and metadata are checked before and after execution. Boundary mutation fails closed and is never adopted as managed publication.
-- Repository Manager is the only managed Git transport. Remote creation or reconciliation occurs only after the explicit Publish GitHub PR block requests the exact `adt/codex/<task-id>` task associated with its source Agent.
-- A fresh managed task uses its deterministic task branch. Continued work may retain an existing managed branch only through the exact branch returned by Repository Manager preparation; caller-selected or non-managed branch substitutions fail closed.
-
-## Managed code repository authority
-
-- The configured artifact repository remains ADT's source of truth for artifacts, Agents, Workflows, layouts, and user repository authorisation.
-- Each managed Codex Agent is separately bound at run admission to the repository declared by its trusted Runner environment. Artifact and managed code repositories may be the same, but are not required to be; production intentionally supports distinct repositories through the same GitHub App and login.
-- The bound managed code context records the environment key, canonical owner and repository, base branch, numeric repository ID, and installation ID per Agent. Preparation, continuation, branch publication, result validation, pull-request API calls, and managed-PR association all use that immutable context.
-- The existing GitHub App must have access to each selected managed code repository. ADT mints short-lived single-repository credentials with only the operation's read, contents-write, or pull-request capability and never falls back to artifact repository authority.
-- Repository Manager validates the bound owner, repository, and base branch before fetch or task reuse, and validates that full target against the durable task and current environment before publication or reconciliation. Owner and repository identity comparisons are case-insensitive; branch comparisons are exact. Continuation validates the prior pull request's base branch before Codex runs. Identity drift fails without a repository mutation, and push uncertainty remains reconciliation-only.

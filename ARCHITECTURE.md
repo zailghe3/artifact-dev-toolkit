@@ -13,47 +13,44 @@ Next.js -> OpenNext -> Cloudflare Worker
     |
     +--> GitHub App / configured artifact repository
     |       - reusable artifacts
-    |       - Agent, Workflow, and non-secret provider connection definitions
+    |       - Agent, Workflow, layout, and non-secret connection definitions
     |
     +--> Cloudflare D1
     |       - application sessions
-    |       - permanent encrypted provider credential vault
+    |       - encrypted provider credential vault
     |       - durable Workflow run and attempt state
     |
     +--> Cloudflare KV
-    |       - validated artifact catalogue cache
+    |       - disposable validated catalogue cache
     |
     +--> Cloudflare Workflows
-    |       - durable outer launch and recovery driver
+    |       - durable outer launch, recovery, and human-event lifecycle
     |
     +--> OpenAI
-    |       - existing Responses execution path
+    |       - direct Responses execution path
     |
     +--> authenticated ADT Runtime
-    |       - independently deployed stateless provider execution
-    |       - LangGraph bounded Workflow v2 graph compute
-    |       - OpenAI Agents SDK / provider API
+    |       - LangGraph Workflow sequencing
+    |       - execution-heavy provider SDKs
+    |       - no durable ADT state or broad control-plane authority
     |
     +--> independently deployed Codex Runner
-            - ADT-facing controller and durable job/control state
-            - isolated Codex executor and operator-provisioned or managed workspaces
-            - internal repository manager for Git synchronization, isolated task checkouts, and authenticated branch publication
-            - executor and repository manager co-located when their shared task workspace uses node-local storage; private repository authority remains repository-manager-only
-            - at most one managed checkout exposed to the executor; completed task edits sealed privately before the next checkout is materialized
-            - controller job admission durably reserves a lookup-visible single-job identity before repository preparation may seal or materialize a checkout
-            - trusted egress proxy between executor and public Internet
+            - Controller: ADT-facing admission and durable job/control state
+            - Executor: isolated Codex execution and Codex identity
+            - Repository Manager: trusted Git authority for managed repositories
+            - separate executor and repository egress boundaries
 ```
 
-Exact bindings, schemas, versions, limits, identifiers, protocols, retries, and deployment mechanics remain authoritative in configuration, source, tests, migrations, and component documentation.
+Exact bindings, schemas, versions, limits, identifiers, protocols, retries, and deployment mechanics remain authoritative in configuration, source, tests, migrations, workflows, and component documentation.
 
 ## Architectural principles
 
-- ADT owns the durable domain model, policy, authorisation, and recorded outcomes; framework-specific objects are not the product model.
-- React Flow presents Workflow graphs visually; canonical Workflow v2 JSON defines semantics; LangGraph decides graph execution order; provider runtimes execute individual AI nodes.
+- ADT owns the durable domain model, policy, authorisation, and recorded outcomes; framework-specific objects are replaceable implementation roles rather than the product model.
+- React Flow presents Workflow graphs; canonical Workflow v2 JSON defines semantics; LangGraph performs sequencing; provider runtimes execute AI work.
 - Git stores recoverable non-secret configuration. The encrypted ADT vault stores provider credential values. D1 stores durable application and execution state. KV is disposable acceleration.
-- Cloudflare remains the authorised control and durable-state plane, including Git authority, credential resolution, Workflow admission, and narrow privileged gateways.
-- Keep the Cloudflare Worker lean. Provider SDKs, orchestration libraries, and other execution-heavy dependencies belong in the stateless ADT Runtime unless they genuinely require control-plane authority.
-- Privileged control-plane operations stay narrow rather than moving broad GitHub, Cloudflare, or vault credentials into execution services.
+- The Cloudflare Worker is ADT's trust and durable-control plane, including user authorisation, Git authority, credential resolution, Workflow admission, and narrow privileged gateways.
+- Browsers and execution services receive only the authority needed for their role; broad GitHub, Cloudflare, vault, or infrastructure credentials remain in the control plane or the exact trusted component that needs them.
+- Keep the Cloudflare Worker lean. Execution-heavy provider SDKs and orchestration libraries belong in ADT Runtime unless they genuinely require control-plane authority.
 - ADT Runtime is the extensible AI execution plane; Codex Runner remains a separate trust boundary for model-directed command execution.
 
 ## Major product domains
@@ -63,25 +60,26 @@ Exact bindings, schemas, versions, limits, identifiers, protocols, retries, and 
 - Loads validated reusable artifacts from the configured GitHub repository.
 - Supports catalogue search, detail, copy, creation, editing, variations, deletion, refresh, and diagnostics.
 - Artifact Library Markdown has no lifecycle state; top-level `status` metadata is invalid.
-- Validated edits and deletions are direct repository mutations.
-- Repository revision checks protect against stale or ambiguous writes.
+- Validated edits and deletions are direct repository mutations protected by repository revision checks.
 
 Current behaviour is defined by [`specs/000-current-application-spec.md`](specs/000-current-application-spec.md). The external repository format is defined by [`docs/external-artifact-repository-contract.md`](docs/external-artifact-repository-contract.md).
 
 ### Authentication and repository authorisation
 
-- Users authenticate with GitHub.
-- Application access is constrained to authorised users of the configured repository.
-- GitHub App credentials and other secrets remain server-side.
-- Protected routes authenticate and authorise before private repository or provider work.
+- GitHub OAuth establishes user identity.
+- Application access additionally requires current authority to the configured artifact repository and may be further restricted by operator policy.
+- Browser sessions are server-controlled and do not expose GitHub or application credentials.
+- Repository authority is revalidated during a session rather than trusted indefinitely from login time.
+- Privileged repository operations use the server-side GitHub App with short-lived, repository-scoped authority appropriate to the operation.
+- User identity/authorisation and application repository credentials are deliberately separate boundaries.
 
 Authentication, repository access, session persistence, and privileged mutation form security boundaries. Changes that cross them require explicit failure-path and denied-path analysis.
 
 ### Agent and Workflow definitions
 
 - Connections identify supported execution providers without exposing credentials.
-- Agents bind a connection, master prompt reference, and supported provider options.
-- Workflows use canonical v2 semantic block graphs; the ADT Block Registry validates registered Agent, Condition, Approval, Join, and reusable Workflow ports plus bounded structured fan-out and controlled-cycle topology.
+- Agents bind a connection, prompt, and supported provider options.
+- Workflows use canonical v2 semantic block graphs validated by the ADT Block Registry.
 - Definitions are persisted through the configured GitHub-backed definition repository and use repository revisions for optimistic concurrency.
 - Executable definitions are discovered and mutated only at root-level `agents/` and `workflows/` paths.
 
@@ -89,51 +87,46 @@ Current product behaviour is defined by [`specs/agent-workflows.md`](specs/agent
 
 ### Durable Workflow execution
 
-- Runs snapshot the definitions used for one execution, including transitive reusable Workflow composition resolved from the configured definition repository.
-- Cloudflare Workflows is the durable outer launch, recovery, and human-event wait shell; LangGraph in ADT Runtime is the only current sequencing engine.
-- New v2 runs freeze an ADT-owned versioned graph execution plan. LangGraph checkpoints determine v2 execution position; D1 run and attempt rows remain audit, provider-safety, and status projections.
-- A provider-neutral AgentRuntime boundary delegates one Agent step's execution to the selected provider implementation.
-- D1 persists run, step, attempt, provider-task, human approval, retry, cancellation, and reconciliation state.
-- Successful textual output is persisted before it can become the next step's input.
+- Runs snapshot the definitions used for one execution, including resolved reusable Workflow composition.
+- Cloudflare Workflows owns the durable outer lifecycle; LangGraph sequencing runs in ADT Runtime; checkpoints are persisted behind the control plane in D1.
+- New runs freeze an ADT-owned versioned graph execution plan.
+- A provider-neutral AgentRuntime boundary delegates individual Agent work to the selected provider implementation.
+- D1 persists durable run, attempt, approval, retry, cancellation, provider-safety, and reconciliation state.
+- Successful output is persisted before later work depends on it.
 - Ambiguous external work is reconciled rather than blindly recreated.
 
 The product invariants are in [`specs/agent-workflows.md`](specs/agent-workflows.md); migrations, source, and tests are authoritative for storage and transition mechanics.
 
 ### Provider connections
 
-- OpenAI Responses and OpenAI Agents SDK runtimes are server-side execution providers.
-- Git definitions under `connections/` are the only current provider connection configuration; credentials resolve through the permanent ADT vault.
-- Target Git definitions use logical `adt-vault` references while encrypted provider credential values live permanently in the D1-backed ADT vault. Current Git definitions require `adt-vault`; source-less Cloudflare bindings and legacy D1 provider configuration are inert historical data only.
-- Legacy D1 provider rows and source-less Cloudflare bindings may remain physically present as inert history, but current configuration and execution never read, migrate, or resolve them.
-- Git is authoritative for non-secret connection configuration, and the ADT vault is authoritative for current credential values. Historical snapshots never resolve retired credential sources.
+- OpenAI Responses and OpenAI Agents SDK are supported server-side execution providers.
+- Git definitions under `connections/` are authoritative for current non-secret connection configuration.
+- Provider credential values live in the permanent encrypted ADT vault and are never stored in Agent or Workflow definitions.
+- Historical provider rows or retired credential sources may remain physically present but are not current execution inputs.
 - Live provider readiness is distinct from saved configuration.
-- External task creation, polling, retry, cancellation, and ambiguous outcomes are trust and billing boundaries.
+- Provider creation, polling, retry, cancellation, and ambiguous outcomes are trust and billing boundaries.
 
 ### ADT Runtime
 
-- ADT Runtime is an independently deployed, stateless provider-execution service.
-- Explicit `openai-agents` Artifact search calls return through a bounded control-plane gateway; repository authority and credentials remain in the application.
-- The Cloudflare control plane retains Workflow admission, D1 durability, provider authority, and outer recovery. The Runtime reconstructs bounded conditional, parallel, and controlled-cycle LangGraph compute and retains no application state or provider credential.
-- A run-scoped authenticated gateway gives the Runtime only the checkpoint operations for that run; the Runtime has no D1 binding or Cloudflare credential.
-- A separate exact node-attempt gateway admits only the node identified by the current LangGraph checkpoint; authority is bound to the run, node, graph activation, Workflow generation, iteration, and attempt while reusing the existing AgentRuntime lifecycle and provider-safety state.
-- The application authenticates protocol requests and encrypts each resolved provider credential to the Runtime's operator-provisioned wrapping key.
-- Protocol and capability discovery permits independent application and Runtime rollout without matching revisions or ambiguous interpretation.
-- Trusted CI publishes `poulti/adt-runtime` to Docker Hub. Operator-owned deployment normally tracks `latest`; immutable Git SHA tags support provenance and rollback.
-- Codex Runner remains a separate execution boundary with distinct credentials, state, and responsibilities.
+- ADT Runtime is an independently deployed, replaceable compute and provider-execution service with no durable ADT state or persisted provider credentials.
+- LangGraph computes bounded Workflow progression, but durable checkpoints and executable-node admission remain behind narrowly scoped Worker gateways.
+- The Worker retains Workflow admission, durable state, credential authority, outer recovery, and repository/tool authority.
+- Provider credentials are resolved in the control plane and supplied only for the exact invocation that needs them.
+- Runtime and application revisions may roll independently through explicit protocol and capability compatibility.
+- Execution-heavy AI/provider libraries that do not need broad control-plane authority belong here.
 
 Operational detail belongs in [`adt-runtime/README.md`](adt-runtime/README.md).
 
 ### Codex Runner
 
-- Codex Runner is independently deployed from the application.
-- The artifact repository stores ADT backend definitions; a managed code repository is selected only by a trusted Runner environment for checkout, branch publication, and pull-request creation. They may differ while using the same GitHub App, with operation-specific repository-scoped installation tokens.
-- Managed code repository identity is resolved and durably bound per Agent at run admission; Repository Manager rejects preparation or publication when expected, durable-task, and current environment identities differ.
-- In split Swarm mode the controller owns durable job/control state and the environment catalogue, while an independently isolated executor owns Codex authentication and private workspaces.
-- In Docker Swarm split mode, the executor container is the Codex execution security boundary. Split execution must not depend on Bubblewrap or another native Codex sandbox inside that container; native sandboxing remains available to supported integrated deployments.
-- Docker mounts and networks enforce that boundary: executor and Repository Manager use disjoint internal egress overlays and only their respective proxies join the uplink; the controller never executes model-generated commands.
-- ADT references only safe Runner environment identifiers and supported public options.
+- Codex Runner is independently deployed from the application; split mode is the reference security architecture and integrated mode remains a compatibility deployment.
+- The **Controller** owns the ADT-facing API, admission, durable job/idempotency state, emergency control, and internal request-signing authority. It does not execute model-generated commands.
+- The **Executor** owns Codex authentication and model-directed execution inside a constrained container. It receives no GitHub credential, controller signing authority, durable controller state, or infrastructure restart credential.
+- The **Repository Manager** owns managed Git state and authenticated Git transport. It never executes model-generated commands and is the only Runner role trusted to publish managed repository changes.
+- Controller-signed internal requests are verified by Executor and Repository Manager; verifier material cannot mint controller requests.
+- In split mode the executor container is the Codex execution security boundary. Admitted `workspace-write` execution may use Codex full access inside that constrained container and does not depend on native Codex sandboxing.
+- Executor and Repository Manager use separate network/egress paths. Executor egress is restricted to required model/auth services; Repository Manager's network path blocks non-public destinations while trusted code constrains managed Git targets to configured GitHub repositories.
 - Ordinary Workflow jobs do not automatically perform Git publication actions.
-- Runner reachability, protocol compatibility, authentication, environment readiness, model readiness, and job readiness are separate conditions.
 
 Operational detail belongs in [`codex-runner/README.md`](codex-runner/README.md).
 
@@ -144,16 +137,17 @@ Operational detail belongs in [`codex-runner/README.md`](codex-runner/README.md)
 | Product behaviour and stable invariants | `specs/` |
 | Repository-wide agent/contributor rules | `AGENTS.md` and scoped `AGENTS.md` files |
 | Repeatable Codex procedures | `.agents/skills/` |
-| Artifact content and Git-backed Agent, Workflow, and provider connection definitions | configured GitHub repository |
+| Artifact content and Git-backed Agent, Workflow, layout, and provider connection definitions | configured GitHub repository |
 | Artifact repository layout and metadata | `docs/external-artifact-repository-contract.md` plus validation code |
-| Application sessions, permanent encrypted provider credential vault, inert historical provider rows, and durable Workflow state | D1 schema, migrations, and source |
+| Application sessions, encrypted provider credential vault, and durable Workflow state | D1 schema, migrations, and source |
 | Catalogue acceleration | KV cache; GitHub remains authoritative |
-| Durable Workflow orchestration | Cloudflare Workflows outer launch/recovery shell; LangGraph sequencing and checkpoints in control-plane D1 |
-| OpenAI Agents SDK provider execution | independently deployed stateless ADT Runtime |
-| Codex authentication and workspaces | isolated Codex Runner executor |
-| Runner jobs, idempotency, and emergency latch | Codex Runner controller |
+| Durable Workflow orchestration | Cloudflare Workflows outer lifecycle; LangGraph sequencing in ADT Runtime; checkpoints persisted behind the control plane in D1 |
+| OpenAI Agents SDK provider execution | independently deployed ADT Runtime |
+| Codex authentication and model-directed command execution | Codex Runner Executor |
+| Managed Git authority | Codex Runner Repository Manager |
+| Runner jobs, idempotency, and emergency latch | Codex Runner Controller |
 | Toolchain and commands | `.nvmrc`, `package.json`, repository scripts, workflows |
-| Deployment configuration | committed configuration and deployment workflows |
+| Deployment and publication mechanics | committed configuration, classifier policy, and GitHub Actions workflows |
 
 ## Recovery characteristics
 
@@ -161,19 +155,32 @@ Operational detail belongs in [`codex-runner/README.md`](codex-runner/README.md)
 - D1 contains durable history and encrypted vault state; losing it may lose history and require credentials to be restored or re-entered.
 - The vault encryption key remains outside D1; loss of that key makes vault ciphertext unusable without exposing plaintext.
 - KV catalogue state may be discarded and rebuilt from Git.
-- ADT Runtime is stateless and replaceable; Codex Runner owns its separate operator-managed durable state.
+- ADT Runtime is replaceable without local durable state.
+- Codex Runner owns separate operator-managed durable state for Controller jobs, Codex identity/home state, local SQLite state, and managed repository authority where configured.
 
 ## Important trust and state boundaries
 
-- **Browser -> application:** treat browser input as untrusted; authorisation remains server-side.
-- **Application -> GitHub:** validate exact repository targets, revisions, permissions, and mutation intent.
-- **Application -> D1/KV/Workflows:** durable state transitions must remain deterministic and safe under retries, interruption, and stale observations.
-- **Application -> OpenAI/provider APIs:** the existing Responses path remains direct; provider creation may be billable or side-effecting and ambiguous outcomes must not cause blind duplicate work.
-- **Application -> ADT Runtime:** authenticate and integrity-bind every protocol operation, encrypt invocation credentials independently of transport TLS, and fail closed on replay, incompatibility, missing capability, or ambiguous execution outcomes.
-- **Application -> Codex Runner:** expose only bounded safe configuration and diagnostics; never transfer the Runner's ChatGPT/Codex credential to ADT.
-- **Runner controller -> executor/repository manager:** authenticate each private control API with controller-held signing material and an executor-held verifier; never place a request-signing, ADT, or redeploy credential in the full-access executor.
-- **Executor -> workspace/Internet:** filesystem and network access are controlled by container mounts, isolated overlays, and the trusted egress proxy.
-- **ADT repository -> artifact repository:** application code and reusable artifact content are separate repositories and must not be mutated interchangeably without explicit task scope.
+- **Browser -> application:** treat browser input as untrusted; authentication and authorisation remain server-side.
+- **Application -> GitHub:** validate exact repository targets, revisions, permissions, and mutation intent; use short-lived operation-scoped authority.
+- **Application -> D1/KV/Workflows:** durable transitions must remain deterministic and safe under retries, interruption, and stale observations.
+- **Application -> provider APIs:** provider work may be billable or side-effecting; ambiguous outcomes must not cause blind duplicate work.
+- **Application -> ADT Runtime:** authenticate protocol operations, keep durable state and broad credentials out of Runtime, and fail closed on replay, incompatibility, missing capability, or ambiguous provider outcomes.
+- **Application -> Codex Runner:** expose bounded configuration and diagnostics; never transfer the Runner's Codex credential to ADT.
+- **Runner Controller -> Executor/Repository Manager:** Controller alone holds internal signing authority; execution and Git roles receive verifier material only.
+- **Executor -> workspace/Internet:** model-directed access is constrained by the container, mounts, isolated overlays, and restricted executor egress.
+- **Repository Manager -> GitHub:** trusted code owns repository identity and Git authority; credentials are bounded to the operation and never enter the Executor.
+- **ADT repository -> artifact/code repositories:** application source, reusable artifact content, and managed code repositories are distinct authorities unless explicitly configured otherwise.
+
+## Delivery and publication boundary
+
+- One fail-closed change-impact policy determines which verification and production operations a change requires.
+- Pull-request workflows verify with read-only repository authority; production mutation occurs only from trusted `main` workflows or an explicit operator recovery path.
+- Production Worker and container artifacts are built from immutable merged source; PR-built artifacts are verification evidence and are not promoted.
+- Cloudflare Worker deployment, D1 migrations, ADT Runtime publication, and Codex Runner publication are independently gated operations.
+- Unknown or newly introduced paths fail closed until the impact policy classifies them.
+- Publication freshness is component-aware: an older immutable target may proceed only when later commits do not supersede the same production component.
+
+Exact path classification, job selection, permissions, freshness rules, release barriers, and recovery mechanics remain authoritative in `scripts/` and `.github/workflows/`.
 
 ## Where to look
 
@@ -185,22 +192,10 @@ Operational detail belongs in [`codex-runner/README.md`](codex-runner/README.md)
 - Artifact storage contract: `docs/external-artifact-repository-contract.md`.
 - Production configuration and recovery: `docs/github-artifact-deployment.md`.
 - Dependency/toolchain policy: `docs/dependency-toolchain-maintenance.md`.
+- ADT Runtime operations: `adt-runtime/README.md`.
 - Codex Runner operations: `codex-runner/README.md`.
-- Exact internal behaviour: source, tests, schemas, migrations, configuration, and workflows.
+- Exact internal behaviour: source, tests, schemas, migrations, configuration, scripts, and workflows.
 
 ## Keeping this map current
 
-Update this document when a change materially alters a major component, source-of-truth boundary, persistence responsibility, trust boundary, or external-system relationship. Do not update it for ordinary internal refactors that preserve those relationships.
-
-## Retired-format boundary
-
-- Historical engine-v1, pre-generic graph-plan, D1-provider, and source-less credential runs remain readable as immutable history.
-- Retired formats cannot retry, resume, relaunch, cancel providers, approve, or create provider work.
-- Current generic plan-version-2 runs backed by supported current connection snapshots remain recoverable across deployments.
-
-## Managed execution and durable transport boundary
-
-- ADT Runtime transport is budget-aware: validation and per-turn request counts are durable-step results reconstructed on replay, validation is not repeated after hibernation, pending observations back off adaptively, and deterministic platform resource exhaustion fails without transient recovery.
-- A managed Codex executor has local task-workspace authority only. ADT admits `workspace-write`, which split mode maps to Codex `danger-full-access` inside the constrained executor container, not to host access. The executor has no executor-visible Git control directory, disables non-local App Server tools, and permits only exact Codex model/auth hosts through fail-closed egress.
-- Repository Manager is the sole Git transport for managed tasks. The Publish GitHub PR block is the sole Workflow stage that may request its authenticated push and then create or reconcile the exact `adt/codex/<task-id>` pull request.
-- Fresh tasks use `adt/codex/<task-id>`. A continuation may retain the exact prior `adt/codex/...` branch only when Repository Manager successfully prepares and returns that branch as executor authority.
+Update this document when a change materially alters a major component, source-of-truth boundary, persistence responsibility, trust boundary, delivery boundary, or external-system relationship. Do not update it for ordinary internal refactors that preserve those relationships.

@@ -66,17 +66,12 @@ Treat major upgrades as focused migration work. Update affected configuration, l
 
 ## Validation
 
-Before merging dependency or toolchain maintenance, run the repository's relevant canonical checks, normally including:
+Before merging dependency or toolchain maintenance:
 
-```bash
-npm ci
-npm run toolchain:validate
-npm run maintenance:report
-npm test
-npm run lint
-npm run typecheck
-npm run build
-npm run build:worker
-```
+- use the repository-declared toolchain and canonical scripts;
+- run `npm run toolchain:validate` and `npm run maintenance:report` when applicable to the maintenance change;
+- run the canonical verification selected for every affected component rather than an unconditional repository-wide build sequence;
+- let the CI impact policy remain authoritative for current root, application, ADT Runtime, Codex Runner, integration, and image-smoke requirements;
+- run package audits when required by repository guidance and registry access permits.
 
-If a maintenance report or audit cannot be completed because of registry, network, authentication, or environment restrictions, report that outcome accurately rather than treating it as passed.
+If a maintenance report, audit, or relevant canonical check cannot be completed because of registry, network, authentication, or environment restrictions, report that outcome accurately rather than treating it as passed.
