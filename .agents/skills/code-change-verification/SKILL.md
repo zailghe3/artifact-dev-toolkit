@@ -16,7 +16,7 @@ Use this Skill after implementation and before the final pull-request report for
 5. When dependencies change and registry access permits, follow the dependency audit requirements in `AGENTS.md`.
 6. Verify that tests exercise the material acceptance criteria and failure paths rather than merely passing unrelated coverage.
 7. Re-check security-sensitive boundaries touched by the change: denied paths, input validation, secret handling, least privilege, stale state, ambiguous mutations, replay, and safe errors where relevant.
-8. If a specification update is required by changed product behaviour, ensure `$spec-sync` has been applied before declaring the work complete.
+8. If the change affects a durable documented contract, ensure `$spec-sync` has been applied before declaring the work complete.
 9. If a check fails, fix only confirmed in-scope causes. Do not weaken validation or tests to obtain green CI.
 10. Re-run checks affected by the final fix so the reported results correspond to the final pull-request head.
 
