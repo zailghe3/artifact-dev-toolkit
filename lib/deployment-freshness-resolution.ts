@@ -1,4 +1,7 @@
-import { deploymentComponentImpact } from "./deployment-component-impact.js";
+import {
+  deploymentComponentImpact,
+  hasUnclassifiedDeploymentChanges,
+} from "./deployment-component-impact.js";
 import type { InfrastructureComponent, InfrastructureComponentFreshness } from "./infrastructure-freshness.ts";
 
 const FULL_SHA = /^[0-9a-f]{40}$/i;
@@ -32,6 +35,7 @@ export function resolveComponentFreshnessFromCompare(
     paths.push(raw.filename);
     if (typeof raw.previous_filename === "string" && raw.previous_filename) paths.push(raw.previous_filename);
   }
+  if (hasUnclassifiedDeploymentChanges(paths)) return { state: "unknown" };
   const changed = deploymentComponentImpact(paths)[component];
   return {
     state: changed ? "superseded" : "current",
