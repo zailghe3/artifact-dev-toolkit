@@ -31,13 +31,14 @@ test('footer freshness renders first, reuses a live cache, and refreshes it afte
       if (deferredLoad?.id === id) deferredLoad = undefined;
     },
   };
+  const sourceHeadRevision = '4'.repeat(40);
   const snapshot = {
     state: 'current',
     checkedAt: '2026-09-15T20:00:00.000Z',
     components: {
-      worker: { state: 'current', deployedRevision: '1'.repeat(40), latestRelevantRevision: '1'.repeat(40) },
-      runtime: { state: 'current', deployedRevision: '2'.repeat(40), latestRelevantRevision: '2'.repeat(40) },
-      runner: { state: 'current', deployedRevision: '3'.repeat(40), latestRelevantRevision: '3'.repeat(40) },
+      worker: { state: 'current', deployedRevision: '1'.repeat(40), sourceHeadRevision },
+      runtime: { state: 'current', deployedRevision: '2'.repeat(40), sourceHeadRevision },
+      runner: { state: 'current', deployedRevision: '3'.repeat(40), sourceHeadRevision },
     },
   };
   let calls = 0;
