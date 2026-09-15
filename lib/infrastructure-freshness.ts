@@ -63,3 +63,11 @@ export function infrastructureFreshnessLabel(snapshot: InfrastructureFreshnessSn
   const stale = componentKeys.filter((key) => snapshot.components[key].state === "superseded").map((key) => labels[key]);
   return `Update pending${stale.length ? ` · ${stale.join(" + ")}` : ""}`;
 }
+
+function shortRevision(value: string | undefined): string {
+  return value?.slice(0, 7) ?? "?";
+}
+
+export function infrastructureRevisionLabel(snapshot: InfrastructureFreshnessSnapshot): string {
+  return `Runtime ${shortRevision(snapshot.components.runtime.deployedRevision)} · Runner ${shortRevision(snapshot.components.runner.deployedRevision)}`;
+}
