@@ -10,15 +10,19 @@ const { InfrastructureFreshnessIndicator } = requireTsx('../components/Infrastru
 
 const text = node => node.findAll(item => Array.isArray(item.children)).flatMap(item => item.children).filter(item => typeof item === 'string').join(' ');
 
-test('footer freshness renders first, reuses a live cache, and refreshes it after expiry', async () => {
+test('footer freshness renders first, refreshes after expiry, and never polls while hidden', async () => {
   const previousWindow = globalThis.window;
+  const previousDocument = globalThis.document;
   const previousFetch = globalThis.fetch;
   const previousNow = Date.now;
   let now = Date.parse('2026-09-15T20:00:00.000Z');
   Date.now = () => now;
   let deferredLoad;
   const timers = new Map();
+  const windowListeners = new Map();
+  const documentListeners = new Map();
   let timerId = 0;
+  let visibilityState = 'visible';
   globalThis.window = {
     setTimeout(callback, milliseconds) {
       const id = ++timerId;
@@ -30,6 +34,13 @@ test('footer freshness renders first, reuses a live cache, and refreshes it afte
       timers.delete(id);
       if (deferredLoad?.id === id) deferredLoad = undefined;
     },
+    addEventListener(type, callback) { windowListeners.set(type, callback); },
+    removeEventListener(type, callback) { if (windowListeners.get(type) === callback) windowListeners.delete(type); },
+  };
+  globalThis.document = {
+    get visibilityState() { return visibilityState; },
+    addEventListener(type, callback) { documentListeners.set(type, callback); },
+    removeEventListener(type, callback) { if (documentListeners.get(type) === callback) documentListeners.delete(type); },
   };
   const sourceHeadRevision = '4'.repeat(40);
   const snapshot = {
@@ -58,18 +69,37 @@ test('footer freshness renders first, reuses a live cache, and refreshes it afte
     assert.match(text(view.root), /Runtime 2222222/);
     assert.match(text(view.root), /Runner 3333333/);
 
-    const expiry = [...timers.entries()].find(([, timer]) => timer.milliseconds >= 120_000);
-    assert.ok(expiry, 'loaded freshness should schedule an expiry refresh');
+    const firstExpiry = [...timers.entries()].find(([, timer]) => timer.milliseconds >= 120_000);
+    assert.ok(firstExpiry, 'loaded freshness should schedule an expiry refresh');
     now += 120_001;
-    timers.delete(expiry[0]);
-    await act(async () => { expiry[1].callback(); await Promise.resolve(); });
+    timers.delete(firstExpiry[0]);
+    await act(async () => { firstExpiry[1].callback(); await Promise.resolve(); });
     assert.equal(calls, 2, 'an expired visible cache must refresh without requiring a remount');
+    assert.match(text(view.root), /Infra current/);
+
+    const hiddenExpiry = [...timers.entries()].find(([, timer]) => timer.milliseconds >= 120_000);
+    assert.ok(hiddenExpiry);
+    visibilityState = 'hidden';
+    now += 120_001;
+    timers.delete(hiddenExpiry[0]);
+    await act(async () => { hiddenExpiry[1].callback(); await Promise.resolve(); });
+    assert.equal(calls, 2, 'an expired hidden tab must not poll');
+    assert.equal([...timers.values()].some(timer => timer.milliseconds >= 120_000), false, 'hidden expiry should wait for an explicit return signal');
+
+    visibilityState = 'visible';
+    documentListeners.get('visibilitychange')();
+    assert.equal(typeof deferredLoad?.callback, 'function', 'returning to an expired tab should schedule a background refresh');
+    const resumedLoad = deferredLoad;
+    timers.delete(resumedLoad.id);
+    deferredLoad = undefined;
+    await act(async () => { resumedLoad.callback(); await Promise.resolve(); });
+    assert.equal(calls, 3);
     assert.match(text(view.root), /Infra current/);
     await act(async () => view.unmount());
 
     deferredLoad = undefined;
     await act(async () => { view = create(React.createElement(InfrastructureFreshnessIndicator)); });
-    assert.equal(calls, 2, 'a still-live cache must not start another request on remount/navigation-like reuse');
+    assert.equal(calls, 3, 'a still-live cache must not start another request on remount/navigation-like reuse');
     assert.match(text(view.root), /Infra current/);
     assert.equal(deferredLoad, undefined);
     await act(async () => view.unmount());
@@ -77,5 +107,6 @@ test('footer freshness renders first, reuses a live cache, and refreshes it afte
     Date.now = previousNow;
     globalThis.fetch = previousFetch;
     if (previousWindow === undefined) delete globalThis.window; else globalThis.window = previousWindow;
+    if (previousDocument === undefined) delete globalThis.document; else globalThis.document = previousDocument;
   }
 });
