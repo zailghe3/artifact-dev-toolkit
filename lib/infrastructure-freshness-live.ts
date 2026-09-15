@@ -153,10 +153,10 @@ async function collectLiveInfrastructureFreshness(): Promise<InfrastructureFresh
   const resolver: InfrastructureRevisionFreshnessResolver = async (component, deployedRevision, signal) => {
     const headRevision = await resolveMainRevision(signal);
     if (signal.aborted || !headRevision) return { state: "unknown" };
-    if (deployedRevision === headRevision) return { state: "current", latestRelevantRevision: headRevision };
+    if (deployedRevision === headRevision) return { state: "current", sourceHeadRevision: headRevision };
     const value = await comparisonAtHead(repository, deployedRevision, headRevision, signal);
     if (signal.aborted || value === undefined) return { state: "unknown" };
-    return resolveComponentFreshnessFromCompare(component, value);
+    return resolveComponentFreshnessFromCompare(component, value, headRevision);
   };
   return collectInfrastructureFreshness({
     workerRevision: deploymentMetadata?.commitSha,
