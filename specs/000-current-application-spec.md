@@ -132,6 +132,7 @@
 - Status information combines text with visual treatment.
 - Operational warnings remain concise and do not dominate healthy workflows.
 - Deployment identity may expose safe source and deployment metadata without exposing private configuration.
+- The shared deployment footer may report safe ADT Runtime and Codex Runner build identities plus component-aware infrastructure freshness; this observation loads independently of normal page rendering and navigation, and an unavailable freshness result never blocks application use.
 
 ## 10. Agent Workflows
 
