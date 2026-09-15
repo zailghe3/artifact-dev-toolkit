@@ -17,6 +17,8 @@ const SERVER_UNKNOWN_CACHE_MS = 15_000;
 
 let cached: { expiresAt: number; snapshot: InfrastructureFreshnessSnapshot } | undefined;
 let inFlight: Promise<InfrastructureFreshnessSnapshot> | undefined;
+let compareHeadRevision: string | undefined;
+const compareCache = new Map<string, Promise<unknown | undefined>>();
 
 function aborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T | undefined> {
   if (signal.aborted) return Promise.resolve(undefined);
@@ -104,20 +106,55 @@ async function githubJson(url: string, signal: AbortSignal): Promise<unknown> {
   return response.json();
 }
 
+function gitRefRevision(value: unknown): string | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const object = (value as Record<string, unknown>).object;
+  if (!object || typeof object !== "object" || Array.isArray(object)) return undefined;
+  const sha = (object as Record<string, unknown>).sha;
+  return typeof sha === "string" && FULL_SHA.test(sha) ? sha.toLowerCase() : undefined;
+}
+
+function comparisonAtHead(
+  repository: string,
+  deployedRevision: string,
+  headRevision: string,
+  signal: AbortSignal,
+): Promise<unknown | undefined> {
+  if (compareHeadRevision !== headRevision) {
+    compareHeadRevision = headRevision;
+    compareCache.clear();
+  }
+  let compare = compareCache.get(deployedRevision);
+  if (compare) return compare;
+  compare = githubJson(
+    `https://api.github.com/repos/${repository}/compare/${deployedRevision}...${headRevision}`,
+    signal,
+  ).catch(() => {
+    compareCache.delete(deployedRevision);
+    return undefined;
+  });
+  compareCache.set(deployedRevision, compare);
+  return compare;
+}
+
 async function collectLiveInfrastructureFreshness(): Promise<InfrastructureFreshnessSnapshot> {
   const repository = SOURCE_REPOSITORY;
-  const compares = new Map<string, Promise<unknown | undefined>>();
-  const resolver: InfrastructureRevisionFreshnessResolver = async (component, deployedRevision, signal) => {
-    if (!REPOSITORY.test(repository)) return { state: "unknown" };
-    let compare = compares.get(deployedRevision);
-    if (!compare) {
-      compare = githubJson(
-        `https://api.github.com/repos/${repository}/compare/${deployedRevision}...main`,
+  let mainRevisionPromise: Promise<string | undefined> | undefined;
+  const resolveMainRevision = (signal: AbortSignal) => {
+    if (!REPOSITORY.test(repository)) return Promise.resolve(undefined);
+    if (!mainRevisionPromise) {
+      mainRevisionPromise = githubJson(
+        `https://api.github.com/repos/${repository}/git/ref/heads/main`,
         signal,
-      ).catch(() => undefined);
-      compares.set(deployedRevision, compare);
+      ).then(gitRefRevision, () => undefined);
     }
-    const value = await compare;
+    return mainRevisionPromise;
+  };
+  const resolver: InfrastructureRevisionFreshnessResolver = async (component, deployedRevision, signal) => {
+    const headRevision = await resolveMainRevision(signal);
+    if (signal.aborted || !headRevision) return { state: "unknown" };
+    if (deployedRevision === headRevision) return { state: "current", latestRelevantRevision: headRevision };
+    const value = await comparisonAtHead(repository, deployedRevision, headRevision, signal);
     if (signal.aborted || value === undefined) return { state: "unknown" };
     return resolveComponentFreshnessFromCompare(component, value);
   };
@@ -146,4 +183,6 @@ export async function getInfrastructureFreshnessSnapshot(now = Date.now()): Prom
 export function clearInfrastructureFreshnessCacheForTests() {
   cached = undefined;
   inFlight = undefined;
+  compareHeadRevision = undefined;
+  compareCache.clear();
 }
