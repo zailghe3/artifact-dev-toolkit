@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   aggregateInfrastructureFreshness,
   infrastructureFreshnessLabel,
+  infrastructureRevisionLabel,
   parseInfrastructureFreshnessSnapshot,
 } from '../lib/infrastructure-freshness.ts';
 import { collectInfrastructureFreshness } from '../lib/infrastructure-freshness-service.ts';
@@ -32,6 +33,13 @@ test('infrastructure freshness labels identify stale components without relying 
   assert.equal(infrastructureFreshnessLabel(snapshot(component('current'), component('current'), component('current'))), 'Infra current');
   assert.equal(infrastructureFreshnessLabel(snapshot(component('current'), component('superseded'), component('superseded'))), 'Update pending · Runtime + Runner');
   assert.equal(infrastructureFreshnessLabel(snapshot(component('unknown'), component('current'), component('current'))), 'Infra freshness unavailable');
+});
+
+test('infrastructure revision label exposes short Runtime and Runner build identities', () => {
+  const value = snapshot(component('current', '1'.repeat(40)), component('current', 'abcdef0' + '1'.repeat(33)), component('current', '7654321' + '2'.repeat(33)));
+  assert.equal(infrastructureRevisionLabel(value), 'Runtime abcdef0 · Runner 7654321');
+  value.components.runner = { state: 'unknown' };
+  assert.equal(infrastructureRevisionLabel(value), 'Runtime abcdef0 · Runner ?');
 });
 
 test('freshness collection keeps confirmed component results when another probe fails', async () => {
