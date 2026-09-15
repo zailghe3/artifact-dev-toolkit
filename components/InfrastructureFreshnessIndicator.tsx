@@ -101,12 +101,12 @@ export function InfrastructureFreshnessIndicator() {
 
     scheduleFromCache();
     window.addEventListener?.("focus", refreshExpiredOnReturn);
-    document?.addEventListener?.("visibilitychange", refreshExpiredOnReturn);
+    globalThis.document?.addEventListener?.("visibilitychange", refreshExpiredOnReturn);
     return () => {
       active = false;
       clearRefreshTimer();
       window.removeEventListener?.("focus", refreshExpiredOnReturn);
-      document?.removeEventListener?.("visibilitychange", refreshExpiredOnReturn);
+      globalThis.document?.removeEventListener?.("visibilitychange", refreshExpiredOnReturn);
     };
   }, []);
 
