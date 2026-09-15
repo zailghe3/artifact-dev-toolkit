@@ -10,7 +10,6 @@ import {
 
 const CLIENT_TTL_MS = 2 * 60_000;
 const REQUEST_TIMEOUT_MS = 2_000;
-const STORAGE_KEY = "adt-infrastructure-freshness-v1";
 
 type IndicatorState =
   | { status: "checking" }
@@ -22,30 +21,18 @@ type CachedValue = { expiresAt: number; snapshot: InfrastructureFreshnessSnapsho
 let memoryCache: CachedValue | undefined;
 let inFlight: Promise<IndicatorState> | undefined;
 
-function readSessionCache(now = Date.now()): CachedValue | undefined {
+function readMemoryCache(now = Date.now()): CachedValue | undefined {
   if (memoryCache && memoryCache.expiresAt > now) return memoryCache;
-  try {
-    const raw = window.sessionStorage.getItem(STORAGE_KEY);
-    if (!raw) return undefined;
-    const value = JSON.parse(raw) as { expiresAt?: unknown; snapshot?: unknown };
-    if (!Number.isFinite(value.expiresAt) || Number(value.expiresAt) <= now) return undefined;
-    const snapshot = parseInfrastructureFreshnessSnapshot(value.snapshot);
-    if (!snapshot) return undefined;
-    memoryCache = { expiresAt: Number(value.expiresAt), snapshot };
-    return memoryCache;
-  } catch {
-    return undefined;
-  }
+  memoryCache = undefined;
+  return undefined;
 }
 
-function writeSessionCache(snapshot: InfrastructureFreshnessSnapshot, now = Date.now()) {
-  const value = { expiresAt: now + CLIENT_TTL_MS, snapshot };
-  memoryCache = value;
-  try { window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(value)); } catch { /* Cache failure must not affect the footer or app. */ }
+function writeMemoryCache(snapshot: InfrastructureFreshnessSnapshot, now = Date.now()) {
+  memoryCache = { expiresAt: now + CLIENT_TTL_MS, snapshot };
 }
 
 async function fetchFreshness(): Promise<IndicatorState> {
-  const cached = readSessionCache();
+  const cached = readMemoryCache();
   if (cached) return { status: "loaded", snapshot: cached.snapshot };
   if (inFlight) return inFlight;
   inFlight = (async () => {
@@ -57,7 +44,7 @@ async function fetchFreshness(): Promise<IndicatorState> {
       if (!response.ok) return { status: "unavailable" };
       const snapshot = parseInfrastructureFreshnessSnapshot(await response.json());
       if (!snapshot) return { status: "unavailable" };
-      writeSessionCache(snapshot);
+      writeMemoryCache(snapshot);
       return { status: "loaded", snapshot };
     } catch {
       return { status: "unavailable" };
@@ -74,7 +61,7 @@ export function InfrastructureFreshnessIndicator() {
 
   useEffect(() => {
     let active = true;
-    const cached = readSessionCache();
+    const cached = readMemoryCache();
     if (cached) {
       setState({ status: "loaded", snapshot: cached.snapshot });
       return () => { active = false; };
