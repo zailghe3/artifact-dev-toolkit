@@ -56,21 +56,22 @@ async function fetchFreshness(): Promise<IndicatorState> {
   return inFlight;
 }
 
+function initialIndicatorState(): IndicatorState {
+  const cached = readMemoryCache();
+  return cached ? { status: "loaded", snapshot: cached.snapshot } : { status: "checking" };
+}
+
 export function InfrastructureFreshnessIndicator() {
-  const [state, setState] = useState<IndicatorState>({ status: "checking" });
+  const [state, setState] = useState<IndicatorState>(initialIndicatorState);
 
   useEffect(() => {
+    if (state.status !== "checking") return;
     let active = true;
-    const cached = readMemoryCache();
-    if (cached) {
-      setState({ status: "loaded", snapshot: cached.snapshot });
-      return () => { active = false; };
-    }
     const timer = window.setTimeout(() => {
       void fetchFreshness().then((next) => { if (active) setState(next); });
     }, 0);
     return () => { active = false; window.clearTimeout(timer); };
-  }, []);
+  }, [state.status]);
 
   if (state.status === "hidden") return null;
   const label = state.status === "checking" ? "Checking infra…" : state.status === "loaded" ? infrastructureFreshnessLabel(state.snapshot) : "Infra freshness unavailable";
