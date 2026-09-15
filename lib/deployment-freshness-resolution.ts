@@ -19,12 +19,15 @@ function headRevision(value: CompareView): string | undefined {
 export function resolveComponentFreshnessFromCompare(
   component: InfrastructureComponent,
   value: unknown,
+  expectedHeadRevision: string,
 ): InfrastructureComponentFreshness {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return { state: "unknown" };
+  const expectedHead = expectedHeadRevision.trim().toLowerCase();
+  if (!FULL_SHA.test(expectedHead) || !value || typeof value !== "object" || Array.isArray(value)) return { state: "unknown" };
   const compare = value as CompareView;
-  const latestRelevantRevision = headRevision(compare);
+  const sourceHeadRevision = headRevision(compare);
+  if (sourceHeadRevision !== expectedHead) return { state: "unknown" };
   if (compare.status === "identical") {
-    return { state: "current", ...(latestRelevantRevision ? { latestRelevantRevision } : {}) };
+    return { state: "current", sourceHeadRevision };
   }
   if (compare.status !== "ahead" || !Array.isArray(compare.files) || compare.files.length > GITHUB_MAX_SAFE_FILES) {
     return { state: "unknown" };
@@ -39,6 +42,6 @@ export function resolveComponentFreshnessFromCompare(
   const changed = deploymentComponentImpact(paths)[component];
   return {
     state: changed ? "superseded" : "current",
-    ...(latestRelevantRevision ? { latestRelevantRevision } : {}),
+    sourceHeadRevision,
   };
 }
