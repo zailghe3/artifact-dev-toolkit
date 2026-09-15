@@ -1,6 +1,7 @@
 "use client";
 
 import { getDeploymentDisplayModel, type DeploymentMetadata } from "@/lib/deployment-metadata";
+import { InfrastructureFreshnessIndicator } from "@/components/InfrastructureFreshnessIndicator";
 import { LocalizedTime } from "@/components/LocalizedTime";
 
 export function DeploymentFooter({ metadata }: { metadata: DeploymentMetadata | null }) {
@@ -30,6 +31,7 @@ function DeploymentIdentity({ metadata }: { metadata: DeploymentMetadata }) {
         <span className="sr-only">Commit </span>
         {display.shortCommitSha}
       </a>
+      <InfrastructureFreshnessIndicator />
     </p>
   );
 }
