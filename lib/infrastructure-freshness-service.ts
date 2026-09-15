@@ -39,11 +39,11 @@ async function componentFreshness(
     if (!deployedRevision || signal.aborted) return { state: "unknown" };
     const resolved = await resolveRevisionFreshness(component, deployedRevision, signal);
     if (signal.aborted) return { state: "unknown", deployedRevision };
-    const latestRelevantRevision = normalizedRevision(resolved.latestRelevantRevision);
+    const sourceHeadRevision = normalizedRevision(resolved.sourceHeadRevision);
     return {
       ...resolved,
       deployedRevision,
-      ...(latestRelevantRevision ? { latestRelevantRevision } : {}),
+      ...(sourceHeadRevision ? { sourceHeadRevision } : {}),
     };
   } catch {
     return { state: "unknown" };
