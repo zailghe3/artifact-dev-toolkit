@@ -5,7 +5,7 @@ export type InfrastructureFreshnessState = InfrastructureComponentFreshnessState
 export type InfrastructureComponentFreshness = {
   state: InfrastructureComponentFreshnessState;
   deployedRevision?: string;
-  latestRelevantRevision?: string;
+  sourceHeadRevision?: string;
 };
 
 export type InfrastructureFreshnessSnapshot = {
@@ -32,12 +32,12 @@ function parseComponent(value: unknown): InfrastructureComponentFreshness | unde
   const item = value as Record<string, unknown>;
   if (!componentStates.has(item.state as InfrastructureComponentFreshnessState)) return undefined;
   if (item.deployedRevision !== undefined && (typeof item.deployedRevision !== "string" || !fullSha.test(item.deployedRevision))) return undefined;
-  if (item.latestRelevantRevision !== undefined && (typeof item.latestRelevantRevision !== "string" || !fullSha.test(item.latestRelevantRevision))) return undefined;
-  if (Object.keys(item).some((key) => !["state", "deployedRevision", "latestRelevantRevision"].includes(key))) return undefined;
+  if (item.sourceHeadRevision !== undefined && (typeof item.sourceHeadRevision !== "string" || !fullSha.test(item.sourceHeadRevision))) return undefined;
+  if (Object.keys(item).some((key) => !["state", "deployedRevision", "sourceHeadRevision"].includes(key))) return undefined;
   return {
     state: item.state as InfrastructureComponentFreshnessState,
     ...(typeof item.deployedRevision === "string" ? { deployedRevision: item.deployedRevision.toLowerCase() } : {}),
-    ...(typeof item.latestRelevantRevision === "string" ? { latestRelevantRevision: item.latestRelevantRevision.toLowerCase() } : {}),
+    ...(typeof item.sourceHeadRevision === "string" ? { sourceHeadRevision: item.sourceHeadRevision.toLowerCase() } : {}),
   };
 }
 
@@ -61,7 +61,8 @@ export function infrastructureFreshnessLabel(snapshot: InfrastructureFreshnessSn
   if (snapshot.state === "unknown") return "Infra freshness unavailable";
   const labels: Record<InfrastructureComponent, string> = { worker: "Worker", runtime: "Runtime", runner: "Runner" };
   const stale = componentKeys.filter((key) => snapshot.components[key].state === "superseded").map((key) => labels[key]);
-  return `Update pending${stale.length ? ` · ${stale.join(" + ")}` : ""}`;
+  const unknown = componentKeys.filter((key) => snapshot.components[key].state === "unknown").map((key) => labels[key]);
+  return `Update pending${stale.length ? ` · ${stale.join(" + ")}` : ""}${unknown.length ? ` · Unknown: ${unknown.join(" + ")}` : ""}`;
 }
 
 function shortRevision(value: string | undefined): string {
