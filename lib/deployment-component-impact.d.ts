@@ -7,4 +7,6 @@ export type DeploymentComponentImpact = {
 export function isAppBuildPath(path: string): boolean;
 export function isRuntimeImagePath(path: string): boolean;
 export function isRunnerImagePath(path: string): boolean;
+export function isKnownDeploymentClassificationPath(path: string): boolean;
+export function hasUnclassifiedDeploymentChanges(paths: string[]): boolean;
 export function deploymentComponentImpact(paths: string[]): DeploymentComponentImpact;
