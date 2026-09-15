@@ -7,50 +7,15 @@ import {
   isWorkflowAutomationPath,
   normalizePath,
 } from './change-policy.mjs';
+import {
+  isAppBuildPath,
+  isRuntimeImagePath,
+  isRunnerImagePath,
+} from '../lib/deployment-component-impact.js';
 
 const exactSensitive = new Set(['package.json', 'package-lock.json', 'wrangler.jsonc']);
 const exactLockfileRepairRelevant = new Set(['package.json', 'package-lock.json', '.nvmrc', '.node-version', '.npmrc', 'npm-shrinkwrap.json']);
-const sharedAppRunnerFiles = new Set(['codex-runner/release.json']);
-
-const rootAppBuildFiles = new Set([
-  'package.json',
-  'package-lock.json',
-  'wrangler.jsonc',
-  'tsconfig.json',
-  'cloudflare-worker.ts',
-  '.nvmrc',
-  '.npmrc',
-  'postcss.config.mjs',
-  'postcss.config.js',
-  'tailwind.config.js',
-  'tailwind.config.ts',
-  'tailwind.config.mjs',
-]);
-
-const rootVerificationFiles = new Set([
-  ...rootAppBuildFiles,
-  '.node-version',
-  'cloudflare-env.d.ts',
-  'next-env.d.ts',
-  'eslint.config.mjs',
-]);
-
-const runtimeImageFiles = new Set([
-  'adt-runtime/Dockerfile',
-  'adt-runtime/package.json',
-  'adt-runtime/package-lock.json',
-  'adt-runtime/tsconfig.json',
-]);
-
-const runnerImageFiles = new Set([
-  'codex-runner/Dockerfile',
-  'codex-runner/package.json',
-  'codex-runner/package-lock.json',
-  'codex-runner/tsconfig.json',
-  'codex-runner/release.json',
-  'codex-runner/gai.conf',
-  'codex-runner/git-askpass.sh',
-]);
+const rootVerificationExtras = new Set(['.node-version', 'cloudflare-env.d.ts', 'next-env.d.ts', 'eslint.config.mjs']);
 
 export { isCanonicalFeaturePath, isDocumentationOrRequestPath };
 
@@ -75,22 +40,8 @@ export function isLockfileRepairRelevantPath(path) {
     || isWorkflowAutomationPath(p);
 }
 
-function isAppBuildPath(path) {
-  const p = normalize(path);
-  return p.startsWith('app/')
-    || p.startsWith('components/')
-    || p.startsWith('lib/')
-    || p.startsWith('public/')
-    || rootAppBuildFiles.has(p)
-    || sharedAppRunnerFiles.has(p)
-    || /^next\.config\..+$/.test(p)
-    || /^open-next\.config\..+$/.test(p)
-    || /^postcss\.config\..+$/.test(p)
-    || /^tailwind\.config\..+$/.test(p);
-}
-
 function isWorkerDeployPath(path) {
-  return isAppBuildPath(path);
+  return isAppBuildPath(normalize(path));
 }
 
 function isMigrationPath(path) {
@@ -102,11 +53,6 @@ function isRuntimePath(path) {
   return p.startsWith('adt-runtime/') && !isDocumentationOrRequestPath(p);
 }
 
-function isRuntimeImagePath(path) {
-  const p = normalize(path);
-  return p.startsWith('adt-runtime/src/') || runtimeImageFiles.has(p);
-}
-
 function isRuntimeImageSmokePath(path) {
   const p = normalize(path);
   return isRuntimeImagePath(p) || p === 'adt-runtime/scripts/smoke-image.sh';
@@ -115,11 +61,6 @@ function isRuntimeImageSmokePath(path) {
 function isRunnerPath(path) {
   const p = normalize(path);
   return p.startsWith('codex-runner/') && !isDocumentationOrRequestPath(p);
-}
-
-function isRunnerImagePath(path) {
-  const p = normalize(path);
-  return p.startsWith('codex-runner/src/') || runnerImageFiles.has(p);
 }
 
 function isRunnerImageSmokePath(path) {
@@ -135,7 +76,7 @@ function isRunnerProxyPolicySmokePath(path) {
 
 function isRootVerificationPath(path) {
   const p = normalize(path);
-  return rootVerificationFiles.has(p)
+  return rootVerificationExtras.has(p)
     || isAppBuildPath(p)
     || isMigrationPath(p)
     || p.startsWith('.github/')
