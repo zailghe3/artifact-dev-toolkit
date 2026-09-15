@@ -40,22 +40,22 @@ test('renamed paths can be evaluated with both old and new names', () => {
 test('compare resolution is component-aware rather than exact-SHA-only', () => {
   const head = 'a'.repeat(40);
   const docsOnly = { status: 'ahead', head_commit: { sha: head }, files: [{ filename: 'docs/operations.md' }] };
-  assert.deepEqual(resolveComponentFreshnessFromCompare('worker', docsOnly), { state: 'current', latestRelevantRevision: head });
-  assert.deepEqual(resolveComponentFreshnessFromCompare('runtime', docsOnly), { state: 'current', latestRelevantRevision: head });
+  assert.deepEqual(resolveComponentFreshnessFromCompare('worker', docsOnly, head), { state: 'current', sourceHeadRevision: head });
+  assert.deepEqual(resolveComponentFreshnessFromCompare('runtime', docsOnly, head), { state: 'current', sourceHeadRevision: head });
 
   const workerChange = { status: 'ahead', head_commit: { sha: head }, files: [{ filename: 'components/DeploymentFooter.tsx' }] };
-  assert.equal(resolveComponentFreshnessFromCompare('worker', workerChange).state, 'superseded');
-  assert.equal(resolveComponentFreshnessFromCompare('runtime', workerChange).state, 'current');
-  assert.equal(resolveComponentFreshnessFromCompare('runner', workerChange).state, 'current');
+  assert.equal(resolveComponentFreshnessFromCompare('worker', workerChange, head).state, 'superseded');
+  assert.equal(resolveComponentFreshnessFromCompare('runtime', workerChange, head).state, 'current');
+  assert.equal(resolveComponentFreshnessFromCompare('runner', workerChange, head).state, 'current');
 });
 
 test('compare resolution fails closed when the deployment classifier cannot classify a path', () => {
   const head = 'd'.repeat(40);
   const unknownChange = { status: 'ahead', head_commit: { sha: head }, files: [{ filename: 'future-system/config.xyz' }] };
   assert.equal(classifyChanges(unknownChange.files).has_unclassified_changes, true);
-  assert.deepEqual(resolveComponentFreshnessFromCompare('worker', unknownChange), { state: 'unknown' });
-  assert.deepEqual(resolveComponentFreshnessFromCompare('runtime', unknownChange), { state: 'unknown' });
-  assert.deepEqual(resolveComponentFreshnessFromCompare('runner', unknownChange), { state: 'unknown' });
+  assert.deepEqual(resolveComponentFreshnessFromCompare('worker', unknownChange, head), { state: 'unknown' });
+  assert.deepEqual(resolveComponentFreshnessFromCompare('runtime', unknownChange, head), { state: 'unknown' });
+  assert.deepEqual(resolveComponentFreshnessFromCompare('runner', unknownChange, head), { state: 'unknown' });
 });
 
 test('compare resolution accounts for renamed component inputs', () => {
@@ -65,12 +65,20 @@ test('compare resolution accounts for renamed component inputs', () => {
     head_commit: { sha: head },
     files: [{ filename: 'docs/retired-runtime-note.md', previous_filename: 'adt-runtime/src/legacy.ts' }],
   };
-  assert.equal(resolveComponentFreshnessFromCompare('runtime', renamed).state, 'superseded');
+  assert.equal(resolveComponentFreshnessFromCompare('runtime', renamed, head).state, 'superseded');
+});
+
+test('compare resolution requires the exact expected source head', () => {
+  const head = 'e'.repeat(40);
+  const other = 'f'.repeat(40);
+  const value = { status: 'ahead', head_commit: { sha: other }, files: [{ filename: 'docs/operations.md' }] };
+  assert.deepEqual(resolveComponentFreshnessFromCompare('worker', value, head), { state: 'unknown' });
+  assert.deepEqual(resolveComponentFreshnessFromCompare('worker', { ...value, head_commit: {} }, head), { state: 'unknown' });
 });
 
 test('compare resolution fails unknown on divergence or a possibly truncated file list', () => {
   const head = 'c'.repeat(40);
-  assert.deepEqual(resolveComponentFreshnessFromCompare('worker', { status: 'diverged', head_commit: { sha: head }, files: [] }), { state: 'unknown' });
+  assert.deepEqual(resolveComponentFreshnessFromCompare('worker', { status: 'diverged', head_commit: { sha: head }, files: [] }, head), { state: 'unknown' });
   const files = Array.from({ length: 300 }, (_, index) => ({ filename: `components/generated-${index}.tsx` }));
-  assert.deepEqual(resolveComponentFreshnessFromCompare('worker', { status: 'ahead', head_commit: { sha: head }, files }), { state: 'unknown' });
+  assert.deepEqual(resolveComponentFreshnessFromCompare('worker', { status: 'ahead', head_commit: { sha: head }, files }, head), { state: 'unknown' });
 });
