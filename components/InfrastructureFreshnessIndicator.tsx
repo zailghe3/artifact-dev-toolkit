@@ -61,17 +61,54 @@ function initialIndicatorState(): IndicatorState {
   return cached ? { status: "loaded", snapshot: cached.snapshot } : { status: "checking" };
 }
 
+function pageVisible() {
+  return typeof document === "undefined" || document.visibilityState !== "hidden";
+}
+
 export function InfrastructureFreshnessIndicator() {
   const [state, setState] = useState<IndicatorState>(initialIndicatorState);
 
   useEffect(() => {
-    if (state.status !== "checking") return;
     let active = true;
-    const timer = window.setTimeout(() => {
-      void fetchFreshness().then((next) => { if (active) setState(next); });
-    }, 0);
-    return () => { active = false; window.clearTimeout(timer); };
-  }, [state.status]);
+    let refreshTimer: number | undefined;
+
+    const clearRefreshTimer = () => {
+      if (refreshTimer !== undefined) window.clearTimeout(refreshTimer);
+      refreshTimer = undefined;
+    };
+    const schedule = (delayMs: number) => {
+      clearRefreshTimer();
+      refreshTimer = window.setTimeout(run, Math.max(0, delayMs));
+    };
+    const scheduleFromCache = () => {
+      const cached = readMemoryCache();
+      schedule(cached ? cached.expiresAt - Date.now() : 0);
+    };
+    const run = () => {
+      refreshTimer = undefined;
+      if (!active || !pageVisible()) return;
+      void fetchFreshness().then((next) => {
+        if (!active) return;
+        setState(next);
+        if (next.status === "hidden") return;
+        const cached = readMemoryCache();
+        schedule(cached ? cached.expiresAt - Date.now() : CLIENT_TTL_MS);
+      });
+    };
+    const refreshExpiredOnReturn = () => {
+      if (pageVisible() && !readMemoryCache()) schedule(0);
+    };
+
+    scheduleFromCache();
+    window.addEventListener?.("focus", refreshExpiredOnReturn);
+    document?.addEventListener?.("visibilitychange", refreshExpiredOnReturn);
+    return () => {
+      active = false;
+      clearRefreshTimer();
+      window.removeEventListener?.("focus", refreshExpiredOnReturn);
+      document?.removeEventListener?.("visibilitychange", refreshExpiredOnReturn);
+    };
+  }, []);
 
   if (state.status === "hidden") return null;
   const label = state.status === "checking" ? "Checking infra…" : state.status === "loaded" ? infrastructureFreshnessLabel(state.snapshot) : "Infra freshness unavailable";
