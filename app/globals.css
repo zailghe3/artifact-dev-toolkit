@@ -17,6 +17,34 @@
     @apply block w-full rounded border p-2;
   }
 
+  .adt-listbox {
+    background: var(--adt-select-bg);
+    border-color: var(--adt-select-border);
+    color: var(--adt-select-text);
+  }
+
+  .adt-listbox [role="option"] {
+    color: var(--adt-select-text);
+  }
+
+  .adt-listbox [role="option"] > button {
+    background: transparent;
+    color: inherit;
+  }
+
+  .adt-listbox [role="option"]:hover,
+  .adt-listbox [role="option"]:focus-within,
+  .adt-listbox [role="option"][aria-selected="true"] {
+    background: var(--adt-select-active-bg);
+    color: var(--adt-select-active-text);
+  }
+
+  .adt-listbox [role="option"][aria-disabled="true"] {
+    background: var(--adt-select-disabled-bg);
+    color: var(--adt-select-option-disabled-text);
+    cursor: not-allowed;
+  }
+
   .adt-panel {
     @apply rounded-lg border p-4;
   }
@@ -29,11 +57,33 @@
 :root {
   color-scheme: light;
   --accent-selection: #bae6fd;
+  --adt-select-bg: #fff;
+  --adt-select-text: #0f172a;
+  --adt-select-border: #cbd5e1;
+  --adt-select-placeholder: #64748b;
+  --adt-select-disabled-bg: #f1f5f9;
+  --adt-select-disabled-text: #64748b;
+  --adt-select-disabled-border: #cbd5e1;
+  --adt-select-option-disabled-text: #94a3b8;
+  --adt-select-active-bg: #e0f2fe;
+  --adt-select-active-text: #0f172a;
+  --adt-select-focus: #0369a1;
 }
 
 :root.dark {
   color-scheme: dark;
   --accent-selection: rgba(251, 146, 60, 0.45);
+  --adt-select-bg: #020617;
+  --adt-select-text: #f1f5f9;
+  --adt-select-border: #475569;
+  --adt-select-placeholder: #94a3b8;
+  --adt-select-disabled-bg: #0f172a;
+  --adt-select-disabled-text: #64748b;
+  --adt-select-disabled-border: #334155;
+  --adt-select-option-disabled-text: #64748b;
+  --adt-select-active-bg: rgba(249, 115, 22, 0.2);
+  --adt-select-active-text: #f8fafc;
+  --adt-select-focus: #fb923c;
 }
 
 body {
@@ -49,6 +99,39 @@ body {
 
 ::selection {
   background: var(--accent-selection);
+}
+
+select {
+  background-color: var(--adt-select-bg);
+  border-color: var(--adt-select-border);
+  color: var(--adt-select-text);
+  opacity: 1;
+}
+
+select option {
+  background-color: var(--adt-select-bg);
+  color: var(--adt-select-text);
+}
+
+select option:disabled {
+  color: var(--adt-select-option-disabled-text);
+}
+
+select:disabled {
+  background-color: var(--adt-select-disabled-bg);
+  border-color: var(--adt-select-disabled-border);
+  color: var(--adt-select-disabled-text);
+  cursor: not-allowed;
+  opacity: 1;
+}
+
+select:required:invalid {
+  color: var(--adt-select-placeholder);
+}
+
+select:focus-visible {
+  outline: 2px solid var(--adt-select-focus);
+  outline-offset: 2px;
 }
 
 .workflow-graph .react-flow__controls-button { background: #fff; border-color: #94a3b8; color: #0f172a; }
