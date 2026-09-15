@@ -9,6 +9,7 @@ import {
 } from './change-policy.mjs';
 import {
   isAppBuildPath,
+  isKnownDeploymentClassificationPath,
   isRuntimeImagePath,
   isRunnerImagePath,
 } from '../lib/deployment-component-impact.js';
@@ -96,13 +97,7 @@ function isIntegrationPath(path) {
 }
 
 function isKnownPath(path) {
-  const p = normalize(path);
-  return isDocumentationOrRequestPath(p)
-    || p === '.gitignore'
-    || p === '.gitkeep'
-    || isRootVerificationPath(p)
-    || isRuntimePath(p)
-    || isRunnerPath(p);
+  return isKnownDeploymentClassificationPath(normalize(path));
 }
 
 function unique(values) { return [...new Set(values.filter(Boolean).map(normalize))].sort(); }
