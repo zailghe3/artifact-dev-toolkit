@@ -1,32 +1,22 @@
 import "server-only";
 import { deploymentMetadata } from "./deployment-metadata.ts";
-import { deploymentComponentImpact } from "./deployment-component-impact.js";
+import { resolveComponentFreshnessFromCompare } from "./deployment-freshness-resolution.ts";
 import { readCodexRunnerConfiguration } from "./codex-runner-client.ts";
 import { diagnoseADTRuntime } from "./workflow-services.ts";
 import {
   collectInfrastructureFreshness,
   type InfrastructureRevisionFreshnessResolver,
 } from "./infrastructure-freshness-service.ts";
-import type {
-  InfrastructureComponent,
-  InfrastructureComponentFreshness,
-  InfrastructureFreshnessSnapshot,
-} from "./infrastructure-freshness.ts";
+import type { InfrastructureFreshnessSnapshot } from "./infrastructure-freshness.ts";
 
 const SOURCE_REPOSITORY = deploymentMetadata?.repository ?? "zailghe3/artifact-dev-toolkit";
 const FULL_SHA = /^[0-9a-f]{40}$/i;
 const REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
-const GITHUB_MAX_SAFE_FILES = 299;
 const SERVER_CACHE_MS = 60_000;
 const SERVER_UNKNOWN_CACHE_MS = 15_000;
 
 let cached: { expiresAt: number; snapshot: InfrastructureFreshnessSnapshot } | undefined;
 let inFlight: Promise<InfrastructureFreshnessSnapshot> | undefined;
-
-type GitHubCompare = {
-  status?: unknown;
-  files?: Array<{ filename?: unknown; previous_filename?: unknown }>;
-};
 
 function aborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T | undefined> {
   if (signal.aborted) return Promise.resolve(undefined);
@@ -114,56 +104,22 @@ async function githubJson(url: string, signal: AbortSignal): Promise<unknown> {
   return response.json();
 }
 
-async function currentMainRevision(repository: string, signal: AbortSignal): Promise<string | undefined> {
-  if (!REPOSITORY.test(repository)) return undefined;
-  try {
-    const value = await githubJson(`https://api.github.com/repos/${repository}/commits/main`, signal) as Record<string, unknown>;
-    return typeof value.sha === "string" && FULL_SHA.test(value.sha) ? value.sha.toLowerCase() : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function componentChanged(component: InfrastructureComponent, paths: string[]): boolean {
-  const impact = deploymentComponentImpact(paths);
-  return impact[component];
-}
-
-async function compareRevision(
-  repository: string,
-  component: InfrastructureComponent,
-  deployedRevision: string,
-  mainRevision: string,
-  signal: AbortSignal,
-): Promise<InfrastructureComponentFreshness> {
-  if (deployedRevision === mainRevision) return { state: "current", latestRelevantRevision: mainRevision };
-  try {
-    const value = await githubJson(
-      `https://api.github.com/repos/${repository}/compare/${deployedRevision}...${mainRevision}`,
-      signal,
-    ) as GitHubCompare;
-    if (value.status === "identical") return { state: "current", latestRelevantRevision: mainRevision };
-    if (value.status !== "ahead" || !Array.isArray(value.files) || value.files.length > GITHUB_MAX_SAFE_FILES) return { state: "unknown" };
-    const paths = value.files.flatMap((file) => [
-      typeof file.filename === "string" ? file.filename : "",
-      typeof file.previous_filename === "string" ? file.previous_filename : "",
-    ]).filter(Boolean);
-    return componentChanged(component, paths)
-      ? { state: "superseded", latestRelevantRevision: mainRevision }
-      : { state: "current", latestRelevantRevision: mainRevision };
-  } catch {
-    return { state: "unknown" };
-  }
-}
-
 async function collectLiveInfrastructureFreshness(): Promise<InfrastructureFreshnessSnapshot> {
   const repository = SOURCE_REPOSITORY;
-  let mainPromise: Promise<string | undefined> | undefined;
+  const compares = new Map<string, Promise<unknown | undefined>>();
   const resolver: InfrastructureRevisionFreshnessResolver = async (component, deployedRevision, signal) => {
-    mainPromise ??= currentMainRevision(repository, signal);
-    const mainRevision = await mainPromise;
-    if (!mainRevision || signal.aborted) return { state: "unknown" };
-    return compareRevision(repository, component, deployedRevision, mainRevision, signal);
+    if (!REPOSITORY.test(repository)) return { state: "unknown" };
+    let compare = compares.get(deployedRevision);
+    if (!compare) {
+      compare = githubJson(
+        `https://api.github.com/repos/${repository}/compare/${deployedRevision}...main`,
+        signal,
+      ).catch(() => undefined);
+      compares.set(deployedRevision, compare);
+    }
+    const value = await compare;
+    if (signal.aborted || value === undefined) return { state: "unknown" };
+    return resolveComponentFreshnessFromCompare(component, value);
   };
   return collectInfrastructureFreshness({
     workerRevision: deploymentMetadata?.commitSha,
