@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { deploymentComponentImpact } from '../lib/deployment-component-impact.js';
+import {
+  deploymentComponentImpact,
+  hasUnclassifiedDeploymentChanges,
+} from '../lib/deployment-component-impact.js';
 import { resolveComponentFreshnessFromCompare } from '../lib/deployment-freshness-resolution.ts';
 import { classifyChanges } from '../scripts/classify-changes.mjs';
 
@@ -13,6 +16,8 @@ const samples = [
   ['package.json'],
   ['adt-runtime/README.md'],
   ['codex-runner/README.md'],
+  ['migrations/0010_example.sql'],
+  ['future-system/config.xyz'],
   ['components/AppHeader.tsx', 'adt-runtime/src/server.ts', 'codex-runner/src/server.ts'],
 ];
 
@@ -23,6 +28,7 @@ test('shared deployment component impact stays aligned with CI classification', 
     assert.equal(impact.worker, classified.deploy_worker, paths.join(', '));
     assert.equal(impact.runtime, classified.publish_runtime, paths.join(', '));
     assert.equal(impact.runner, classified.publish_runner, paths.join(', '));
+    assert.equal(hasUnclassifiedDeploymentChanges(paths), classified.has_unclassified_changes, paths.join(', '));
   }
 });
 
@@ -41,6 +47,15 @@ test('compare resolution is component-aware rather than exact-SHA-only', () => {
   assert.equal(resolveComponentFreshnessFromCompare('worker', workerChange).state, 'superseded');
   assert.equal(resolveComponentFreshnessFromCompare('runtime', workerChange).state, 'current');
   assert.equal(resolveComponentFreshnessFromCompare('runner', workerChange).state, 'current');
+});
+
+test('compare resolution fails closed when the deployment classifier cannot classify a path', () => {
+  const head = 'd'.repeat(40);
+  const unknownChange = { status: 'ahead', head_commit: { sha: head }, files: [{ filename: 'future-system/config.xyz' }] };
+  assert.equal(classifyChanges(unknownChange.files).has_unclassified_changes, true);
+  assert.deepEqual(resolveComponentFreshnessFromCompare('worker', unknownChange), { state: 'unknown' });
+  assert.deepEqual(resolveComponentFreshnessFromCompare('runtime', unknownChange), { state: 'unknown' });
+  assert.deepEqual(resolveComponentFreshnessFromCompare('runner', unknownChange), { state: 'unknown' });
 });
 
 test('compare resolution accounts for renamed component inputs', () => {
