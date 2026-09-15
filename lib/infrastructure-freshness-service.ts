@@ -39,14 +39,26 @@ async function componentFreshness(
     if (!deployedRevision || signal.aborted) return { state: "unknown" };
     const resolved = await resolveRevisionFreshness(component, deployedRevision, signal);
     if (signal.aborted) return { state: "unknown", deployedRevision };
+    const latestRelevantRevision = normalizedRevision(resolved.latestRelevantRevision);
     return {
       ...resolved,
       deployedRevision,
-      ...(resolved.latestRelevantRevision ? { latestRelevantRevision: normalizedRevision(resolved.latestRelevantRevision) } : {}),
+      ...(latestRelevantRevision ? { latestRelevantRevision } : {}),
     };
   } catch {
     return { state: "unknown" };
   }
+}
+
+function withDeadline(
+  value: Promise<InfrastructureComponentFreshness>,
+  signal: AbortSignal,
+): Promise<InfrastructureComponentFreshness> {
+  if (signal.aborted) return Promise.resolve({ state: "unknown" });
+  return Promise.race([
+    value,
+    new Promise<InfrastructureComponentFreshness>((resolve) => signal.addEventListener("abort", () => resolve({ state: "unknown" }), { once: true })),
+  ]);
 }
 
 export async function collectInfrastructureFreshness(
@@ -60,19 +72,11 @@ export async function collectInfrastructureFreshness(
     const workerRevision = Promise.resolve(normalizedRevision(dependencies.workerRevision));
     const runtimeRevision = dependencies.runtimeRevision(signal);
     const runnerRevision = dependencies.runnerRevision(signal);
-    const componentPromises = {
-      worker: componentFreshness("worker", workerRevision, dependencies.resolveRevisionFreshness, signal),
-      runtime: componentFreshness("runtime", runtimeRevision, dependencies.resolveRevisionFreshness, signal),
-      runner: componentFreshness("runner", runnerRevision, dependencies.resolveRevisionFreshness, signal),
-    };
-    const deadline = new Promise<"deadline">((resolve) => signal.addEventListener("abort", () => resolve("deadline"), { once: true }));
-    const values = await Promise.race([
-      Promise.all([componentPromises.worker, componentPromises.runtime, componentPromises.runner]),
-      deadline,
+    const [worker, runtime, runner] = await Promise.all([
+      withDeadline(componentFreshness("worker", workerRevision, dependencies.resolveRevisionFreshness, signal), signal),
+      withDeadline(componentFreshness("runtime", runtimeRevision, dependencies.resolveRevisionFreshness, signal), signal),
+      withDeadline(componentFreshness("runner", runnerRevision, dependencies.resolveRevisionFreshness, signal), signal),
     ]);
-    const [worker, runtime, runner] = values === "deadline"
-      ? [{ state: "unknown" } as InfrastructureComponentFreshness, { state: "unknown" } as InfrastructureComponentFreshness, { state: "unknown" } as InfrastructureComponentFreshness]
-      : values;
     const components = { worker, runtime, runner };
     return {
       state: aggregateInfrastructureFreshness(components),
