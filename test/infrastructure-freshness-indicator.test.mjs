@@ -10,25 +10,13 @@ const { InfrastructureFreshnessIndicator } = requireTsx('../components/Infrastru
 
 const text = node => node.findAll(item => Array.isArray(item.children)).flatMap(item => item.children).filter(item => typeof item === 'string').join(' ');
 
-function storage() {
-  const values = new Map();
-  return {
-    getItem(key) { return values.has(key) ? values.get(key) : null; },
-    setItem(key, value) { values.set(key, String(value)); },
-    removeItem(key) { values.delete(key); },
-    clear() { values.clear(); },
-  };
-}
-
-test('footer freshness renders first, fetches asynchronously, and reuses the session result', async () => {
+test('footer freshness renders first, fetches asynchronously, and reuses the in-memory result on remount', async () => {
   const previousWindow = globalThis.window;
   const previousFetch = globalThis.fetch;
-  const sessionStorage = storage();
   let deferredLoad;
   const timers = new Map();
   let timerId = 0;
   globalThis.window = {
-    sessionStorage,
     setTimeout(callback, milliseconds) {
       const id = ++timerId;
       if (milliseconds === 0) deferredLoad = callback;
