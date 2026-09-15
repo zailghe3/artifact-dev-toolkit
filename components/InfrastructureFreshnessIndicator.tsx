@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { infrastructureFreshnessLabel, parseInfrastructureFreshnessSnapshot, type InfrastructureFreshnessSnapshot } from "@/lib/infrastructure-freshness";
+import {
+  infrastructureFreshnessLabel,
+  infrastructureRevisionLabel,
+  parseInfrastructureFreshnessSnapshot,
+  type InfrastructureFreshnessSnapshot,
+} from "@/lib/infrastructure-freshness";
 
 const CLIENT_TTL_MS = 2 * 60_000;
 const REQUEST_TIMEOUT_MS = 2_000;
@@ -82,6 +87,7 @@ export function InfrastructureFreshnessIndicator() {
 
   if (state.status === "hidden") return null;
   const label = state.status === "checking" ? "Checking infra…" : state.status === "loaded" ? infrastructureFreshnessLabel(state.snapshot) : "Infra freshness unavailable";
+  const revisions = state.status === "loaded" ? infrastructureRevisionLabel(state.snapshot) : undefined;
   const tone = state.status === "loaded" && state.snapshot.state === "current"
     ? "text-emerald-700 dark:text-emerald-300"
     : state.status === "loaded" && state.snapshot.state === "superseded"
@@ -89,5 +95,10 @@ export function InfrastructureFreshnessIndicator() {
       : "text-slate-500 dark:text-slate-400";
   const dot = state.status === "loaded" && state.snapshot.state === "current" ? "●" : state.status === "loaded" && state.snapshot.state === "superseded" ? "●" : "○";
 
-  return <span className={`inline-block min-w-[9rem] ${tone}`} role="status" aria-live="polite"><span aria-hidden="true"> · {dot} </span>{label}</span>;
+  return (
+    <span className={`inline-block min-w-[9rem] ${tone}`} role="status" aria-live="polite">
+      <span aria-hidden="true"> · {dot} </span>{label}
+      {revisions ? <span className="text-slate-500 dark:text-slate-400"> · {revisions}</span> : null}
+    </span>
+  );
 }
