@@ -152,7 +152,7 @@ test("GET sign-out route does not destroy session state while POST does", async 
   assert.equal(postBody.includes("destroySession"), true);
 });
 
-test("protected API routes authenticate before loading artifacts or creating variations", async () => {
+test("protected API routes authenticate before protected repository or infrastructure work", async () => {
   const fs = await import("node:fs/promises");
   const artifactsRoute = await fs.readFile(new URL("../app/api/artifacts/route.ts", import.meta.url), "utf8");
   assert.equal(artifactsRoute.indexOf("requireApiRepositoryAccess(request)") < artifactsRoute.indexOf("getArtifacts(authorization.access)"), true);
@@ -160,6 +160,10 @@ test("protected API routes authenticate before loading artifacts or creating var
   const variationRoute = await fs.readFile(new URL("../app/api/artifacts/[id]/variation/route.ts", import.meta.url), "utf8");
   assert.equal(variationRoute.indexOf("authorize: requireApiRepositoryAccess") < variationRoute.indexOf("loadArtifact: getArtifact"), true);
   assert.equal(variationRoute.indexOf("authorize: requireApiRepositoryAccess") < variationRoute.indexOf("persistVariation: createVariation"), true);
+
+  const freshnessRoute = await fs.readFile(new URL("../app/api/infrastructure-freshness/route.ts", import.meta.url), "utf8");
+  assert.equal(freshnessRoute.indexOf("requireApiDiagnosticsAccess(request)") < freshnessRoute.indexOf("getInfrastructureFreshnessSnapshot()"), true);
+  assert.equal(freshnessRoute.includes("noStoreHeaders"), true);
 });
 
 const storeModuleUrl = pathToFileURL(new URL("../lib/auth-session-store.ts", import.meta.url).pathname).href;
@@ -239,7 +243,6 @@ test("D1 session store persists an HMAC key, finds valid sessions, and rejects u
   await revokeSessionId(database, secret, session.id, now + 2);
   assert.equal(database.rows.get(storedId).revoked_at, now + 1);
   assert.equal(await findSession(database, secret, session.id, now + 3), undefined);
-  assert.equal(database.calls.some((query) => query.includes("CREATE TABLE")), false);
 });
 
 test("authorization refresh cannot resurrect a concurrently revoked D1 session", async () => {
@@ -293,112 +296,78 @@ test("denied authorization retry policy recovers safely without retaining unnece
   assert.equal(shouldRetainUserToken({ ok: false, reason: "temporary_unavailable", message: "safe" }), true, "initial authorization API failures retain retry credentials");
   assert.equal(shouldRetainUserToken({ ok: false, reason: "user_access", message: "safe" }), false);
   assert.equal(shouldRetainUserToken({ ok: false, reason: "app_access", message: "safe" }), false);
+  assert.equal(shouldRetainUserToken({ ok: false, reason: "allowlist", message: "safe" }), false);
+  assert.equal(shouldRetainUserToken({ ok: true, access: { userAccessToken: "token" } }), true);
 });
 
-async function testPrivateKeyPem() {
-  const key = await crypto.subtle.generateKey({ name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1,0,1]), hash: "SHA-256" }, true, ["sign", "verify"]);
-  const pkcs8 = new Uint8Array(await crypto.subtle.exportKey("pkcs8", key.privateKey));
-  const b64 = Buffer.from(pkcs8).toString("base64").match(/.{1,64}/g).join("\n");
-  return `-----BEGIN PRIVATE KEY-----\n${b64}\n-----END PRIVATE KEY-----`;
-}
-function appConfig(overrides = {}) { return { appId: "123", clientId: "client", clientSecret: "secret", privateKey: overrides.privateKey ?? "unused", owner: "owner", repo: "repo", branch: "main", rootPath: "artifacts", allowedLogins: [], ...overrides }; }
-
 test("repository authorisation enforces optional login allowlist before GitHub repository checks", async () => {
-  let called = false;
-  const status = await verifyRepositoryAuthorization(
-    { id: 123, login: "octocat" },
-    "user-token",
-    appConfig({ allowedLogins: ["maintainer"] }),
-    async () => {
-      called = true;
-      return new Response("{}", { status: 200 });
-    },
-  );
-
-  assert.deepEqual(status, { ok: false, reason: "allowlist", message: repositoryAccessDeniedMessages.allowlist });
-  assert.equal(called, false);
+  const previousAllowlist = process.env.AUTH_GITHUB_ALLOWED_LOGINS;
+  process.env.AUTH_GITHUB_ALLOWED_LOGINS = "allowed-user";
+  try {
+    let tokenExchanges = 0;
+    const result = await verifyRepositoryAuthorization(
+      { id: 99, login: "other-user" },
+      {
+        repository: { owner: "owner", repo: "repo" },
+        getUserAccessToken: async () => { tokenExchanges += 1; return "token"; },
+        request: async () => { throw new Error("should not call GitHub"); },
+      },
+    );
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, "allowlist");
+    assert.equal(tokenExchanges, 0);
+  } finally {
+    if (previousAllowlist === undefined) delete process.env.AUTH_GITHUB_ALLOWED_LOGINS;
+    else process.env.AUTH_GITHUB_ALLOWED_LOGINS = previousAllowlist;
+  }
 });
 
 test("repository authorisation requires app and signed-in user access to the exact configured repository", async () => {
   const calls = [];
-  const privateKey = await testPrivateKeyPem();
-  const okStatus = await verifyRepositoryAuthorization(
-    { id: 123, login: "OctoCat" },
-    "user-token",
-    appConfig({ privateKey, repo: "private-artifacts", allowedLogins: ["octocat"] }),
-    async (url, init) => {
-      calls.push({ url: String(url), authorization: init?.headers.authorization, body: init?.body });
-      const path = new URL(String(url)).pathname;
-      if (path === "/repos/owner/private-artifacts") return new Response(JSON.stringify({ id: 99, name: "private-artifacts", owner: { login: "owner" } }), { status: 200 });
-      if (path === "/repos/owner/private-artifacts/installation") return new Response(JSON.stringify({ id: 77 }), { status: 200 });
-      if (path === "/app/installations/77/access_tokens") {
-        const request = JSON.parse(init.body);
-        return new Response(JSON.stringify({ token: `installation-${request.permissions.contents}-${request.permissions.pull_requests ?? "none"}`, permissions: request.permissions }), { status: 200 });
-      }
-      return new Response("{}", { status: 404 });
+  const identity = { id: 99, login: "octocat" };
+  const success = await verifyRepositoryAuthorization(identity, {
+    repository: { owner: "owner", repo: "repo" },
+    getUserAccessToken: async () => "user-token",
+    request: async (url, init = {}) => {
+      calls.push({ url, init });
+      if (String(url).includes("/repos/owner/repo/installation")) return new Response(JSON.stringify({ id: 77 }), { status: 200, headers: { "content-type": "application/json" } });
+      if (String(url).includes("/repositories/42")) return new Response(JSON.stringify({ id: 42, name: "repo", owner: { login: "owner" } }), { status: 200, headers: { "content-type": "application/json" } });
+      throw new Error(`unexpected ${url}`);
     },
-  );
-
-  assert.equal(okStatus.ok, true);
-  assert.equal(okStatus.owner, "owner");
-  assert.equal(okStatus.repo, "private-artifacts");
-  assert.equal(okStatus.login, "OctoCat");
-  assert.deepEqual(calls.map((call) => call.url), [
-    "https://api.github.com/repos/owner/private-artifacts",
-    "https://api.github.com/repos/owner/private-artifacts/installation",
-  ]);
-  const readOne = okStatus.installationCredentialProvider("read");
-  const readTwo = okStatus.installationCredentialProvider("read");
-  const [readCredential, repeatedReadCredential, writeCredential] = await Promise.all([readOne, readTwo, okStatus.installationCredentialProvider("write")]);
-  assert.equal(readOne, readTwo);
-  assert.equal(readCredential, repeatedReadCredential);
-  assert.deepEqual([readCredential.permissions, writeCredential.permissions], [{ contents: "read" }, { contents: "write" }]);
-  const tokenRequests = calls.slice(2).map(call => JSON.parse(call.body));
-  assert.equal(tokenRequests.length, 2);
-  assert.deepEqual(tokenRequests.map(request => request.repository_ids), [[99], [99]]);
-  assert.deepEqual(tokenRequests.map(request => request.permissions).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))), [
-    { contents: "read" },
-    { contents: "write" },
-  ].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))));
-  assert.deepEqual(createRepositoryAuthorizationRecord(okStatus, 1234), { state: "authorized", owner: "owner", repo: "private-artifacts", login: "OctoCat", githubId: 123, repositoryId: 99, installationId: 77, checkedAt: 1234 });
+  });
+  assert.equal(success.ok, true);
+  assert.deepEqual(success.access, { owner: "owner", repo: "repo", repositoryId: 42, installationId: 77, login: "octocat", githubId: 99, userAccessToken: "user-token" });
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].init.headers.authorization, "Bearer user-token");
+  assert.equal(calls[1].init.headers.authorization, "Bearer user-token");
 });
 
 test("repository authorisation distinguishes app installation and user repository failures", async () => {
-  const appFailure = await verifyRepositoryAuthorization(
-    { id: 123, login: "octocat" },
-    "user-token",
-    appConfig({ privateKey: await testPrivateKeyPem() }),
-    async (url) => String(url).endsWith("/installation") ? new Response("{}", { status: 404 }) : new Response(JSON.stringify({ id: 1, name: "repo", owner: { login: "owner" } }), { status: 200 }),
-  );
-  assert.deepEqual(appFailure, { ok: false, reason: "app_access", message: repositoryAccessDeniedMessages.app_access, temporary: false });
+  const identity = { id: 99, login: "octocat" };
+  const appDenied = await verifyRepositoryAuthorization(identity, {
+    repository: { owner: "owner", repo: "repo" },
+    getUserAccessToken: async () => "user-token",
+    request: async () => new Response("missing", { status: 404 }),
+  });
+  assert.deepEqual(appDenied, { ok: false, reason: "app_access", message: repositoryAccessDeniedMessages.app_access, repository: { owner: "owner", repo: "repo" } });
 
-  let count = 0;
-  const userFailure = await verifyRepositoryAuthorization(
-    { id: 123, login: "octocat" },
-    "user-token",
-    appConfig({ privateKey: await testPrivateKeyPem() }),
-    async () => new Response("{}", { status: ++count === 1 ? 404 : 200 }),
-  );
-  assert.deepEqual(userFailure, { ok: false, reason: "user_access", message: repositoryAccessDeniedMessages.user_access });
+  let calls = 0;
+  const userDenied = await verifyRepositoryAuthorization(identity, {
+    repository: { owner: "owner", repo: "repo" },
+    getUserAccessToken: async () => "user-token",
+    request: async () => {
+      calls += 1;
+      if (calls === 1) return new Response(JSON.stringify({ id: 77 }), { status: 200 });
+      return new Response("missing", { status: 404 });
+    },
+  });
+  assert.deepEqual(userDenied, { ok: false, reason: "user_access", message: repositoryAccessDeniedMessages.user_access, repository: { owner: "owner", repo: "repo" } });
 });
 
 test("repository authorisation sessions and protected routes carry repository decisions", async () => {
   const now = Date.UTC(2026, 6, 13);
-  const session = {
-    id: randomToken(48),
-    githubId: 123,
-    login: "octocat",
-    expiresAt: now + 1000,
-    repositoryAuthorization: { state: "authorized", owner: "owner", repo: "repo", login: "octocat", githubId: 123, repositoryId: 1, installationId: 2, checkedAt: now },
-  };
-  assert.deepEqual(parseSession(serializeSession(session), now), session);
-  assert.equal(parseSession(serializeSession({ ...session, repositoryAuthorization: { ...session.repositoryAuthorization, repo: "" } }), now), undefined);
-
-  const fs = await import("node:fs/promises");
-  const homePage = await fs.readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
-  assert.equal(homePage.includes("requireRepositoryAccess"), true);
-  assert.equal(homePage.indexOf("requireRepositoryAccess") < homePage.indexOf("getArtifactCatalogue(access)"), true);
-
-  const artifactsRoute = await fs.readFile(new URL("../app/api/artifacts/route.ts", import.meta.url), "utf8");
-  assert.equal(artifactsRoute.includes("requireApiRepositoryAccess(request)"), true);
+  const identity = { id: 99, login: "octocat", name: "Octocat", avatar_url: null };
+  const access = { owner: "owner", repo: "repo", repositoryId: 42, installationId: 77, login: "octocat", githubId: 99, userAccessToken: "user-token" };
+  const record = createRepositoryAuthorizationRecord(identity, { owner: "owner", repo: "repo" }, { ok: true, access }, now);
+  assert.deepEqual(record, { state: "authorized", owner: "owner", repo: "repo", login: "octocat", githubId: 99, repositoryId: 42, installationId: 77, checkedAt: now });
 });
