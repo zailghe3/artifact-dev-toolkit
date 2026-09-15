@@ -89,5 +89,5 @@ export function InfrastructureFreshnessIndicator() {
       : "text-slate-500 dark:text-slate-400";
   const dot = state.status === "loaded" && state.snapshot.state === "current" ? "●" : state.status === "loaded" && state.snapshot.state === "superseded" ? "●" : "○";
 
-  return <span className={`inline-block min-w-[9rem] ${tone}`} role="status" aria-live="polite"><span aria-hidden="true">{dot} </span>{label}</span>;
+  return <span className={`inline-block min-w-[9rem] ${tone}`} role="status" aria-live="polite"><span aria-hidden="true"> · {dot} </span>{label}</span>;
 }
