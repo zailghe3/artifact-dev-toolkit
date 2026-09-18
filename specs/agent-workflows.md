@@ -46,6 +46,12 @@
 - Tool-enabled runs also freeze the authorised repository identity and catalogue scope without persisting repository credentials.
 - The first Agent on a linear path receives the user's Workflow input.
 - A later Agent receives the persisted textual output selected by the graph path.
+- Graph handoff remains the Agent's primary input. A Workflow Agent block may separately publish its successful textual output for explicit use as reference context by structurally later Agent blocks.
+- A Workflow Agent block may add the immutable initial run request and selected published outputs from prior successful activations. Unavailable selected outputs are omitted until that source has successfully executed on the current run and path.
+- Context selection does not create an edge, dependency, execution order, or provider conversation. In a cycle, a selection resolves to the latest successful published output already available before that activation.
+- Selected context is included verbatim in deterministic framing after the primary input; the framework does not implicitly summarise, rank, rewrite, or truncate it.
+- Context publication and selection are frozen with the run snapshot. Reusable Workflow selections remain local to their authored Workflow, while the initial request always means the root run input.
+- Workflows and legacy Agent blocks without context settings retain their existing handoff behaviour.
 - The framework does not implicitly summarise, rewrite, trim, parse, or reinterpret a successful text handoff.
 - Reusable Workflow blocks expose their successful terminal text as their block output while remaining part of the parent run and execution budget.
 
