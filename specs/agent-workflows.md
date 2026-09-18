@@ -51,7 +51,7 @@
 - Context selection does not create an edge, dependency, execution order, or provider conversation. In a cycle, a selection resolves to the latest successful published output already available before that activation.
 - Selected context is included verbatim in deterministic framing after the primary input; the framework does not implicitly summarise, rank, rewrite, or truncate it.
 - Context publication and selection are frozen with the run snapshot. Reusable Workflow selections remain local to their authored Workflow, while the initial request always means the root run input.
-- Workflows and legacy Agent blocks without context settings retain their existing handoff behaviour.
+- Workflow Agent blocks with no active context settings retain existing handoff and Runtime-compatibility behaviour, including blocks that previously used and then cleared context settings.
 - The framework does not implicitly summarise, rewrite, trim, parse, or reinterpret a successful text handoff.
 - Reusable Workflow blocks expose their successful terminal text as their block output while remaining part of the parent run and execution budget.
 
