@@ -19,6 +19,8 @@ export const agentBlockConfigSchema=z.object({agentId:z.string().regex(/^[a-z0-9
 export const MAX_AGENT_CONTEXT_SOURCES=16;
 export const agentContextSchema=z.object({publishOutput:z.boolean().default(false),includeRunInput:z.boolean().default(false),includeNodeOutputs:z.array(z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(80)).max(MAX_AGENT_CONTEXT_SOURCES).default([])}).strict();
 export const agentBlockV2ConfigSchema=z.object({agentId:z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(80),context:agentContextSchema.optional()}).strict();
+export const agentConversationSchema=z.object({sourceNodeId:z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(80)}).strict();
+export const agentBlockV3ConfigSchema=z.object({agentId:z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(80),context:agentContextSchema.optional(),conversation:agentConversationSchema.optional()}).strict();
 export const conditionBlockConfigSchema=z.object({operator:z.literal("contains"),value:z.string().min(1).max(4096),caseSensitive:z.boolean().default(false)}).strict();
 export const joinBlockConfigSchema=z.object({}).strict();
 export const APPROVAL_MESSAGE_MAX_LENGTH=2000;
@@ -28,6 +30,7 @@ export const publishGitHubPrBlockConfigSchema=z.object({sourceNodeId:z.string().
 export const workflowBlockRegistry=new WorkflowBlockRegistry()
  .register({type:"agent",version:1,configSchema:agentBlockConfigSchema,interface:{inputs:[{id:"in",dataType:"text",default:true}],outputs:[{id:"out",dataType:"text",default:true}]},references:config=>({agentIds:[config.agentId]}),ui:{label:"Agent",description:"Runs an ADT Agent with incoming text."}})
  .register({type:"agent",version:2,configSchema:agentBlockV2ConfigSchema,interface:{inputs:[{id:"in",dataType:"text",default:true}],outputs:[{id:"out",dataType:"text",default:true}]},references:config=>({agentIds:[config.agentId]}),ui:{label:"Agent",description:"Runs an ADT Agent with incoming text and explicitly selected Workflow context."}})
+ .register({type:"agent",version:3,configSchema:agentBlockV3ConfigSchema,interface:{inputs:[{id:"in",dataType:"text",default:true}],outputs:[{id:"out",dataType:"text",default:true}]},references:config=>({agentIds:[config.agentId]}),ui:{label:"Agent",description:"Runs an ADT Agent with independently selected Workflow context and Codex conversation lineage."}})
  .register({type:"condition",version:1,configSchema:conditionBlockConfigSchema,interface:{inputs:[{id:"in",dataType:"text",default:true}],outputs:[{id:"true",dataType:"text",default:true},{id:"false",dataType:"text"}]},ui:{label:"Condition",description:"Routes incoming text through a bounded contains predicate."}})
  .register({type:"approval",version:1,configSchema:approvalBlockConfigSchema,interface:{inputs:[{id:"in",dataType:"text",default:true}],outputs:[{id:"out",dataType:"text",default:true}]},ui:{label:"Approval",description:"Pauses for authorised human approval, then passes incoming text unchanged."}})
  .register({type:"publish-github-pr",version:1,configSchema:publishGitHubPrBlockConfigSchema,interface:{inputs:[{id:"managed-result",dataType:"text",default:true}],outputs:[{id:"pull-request",dataType:"text",default:true}]},ui:{label:"Publish GitHub PR",description:"Publishes a managed Codex result as a draft or ready pull request."}})

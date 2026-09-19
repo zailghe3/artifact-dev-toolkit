@@ -4,7 +4,7 @@ ADT Codex Runner is the independently deployed execution boundary for model-dire
 
 `release.json` is the canonical source for protocol compatibility, Runner revision, and the packaged Codex version. Source, tests, image configuration, and publication workflows remain authoritative for exact protocol fields, limits, timeouts, and release mechanics.
 
-The packaged Codex binary is an experimental GNU/glibc build and is not an OpenAI-published GNU prebuilt artifact.
+The packaged Codex binary is an experimental GNU/glibc build and is neither release-equivalent nor an OpenAI-published GNU prebuilt artifact.
 
 ## Reference security model
 

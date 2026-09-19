@@ -1,0 +1,5 @@
+ALTER TABLE workflow_step_attempts ADD COLUMN conversation_source_run_id TEXT;
+ALTER TABLE workflow_step_attempts ADD COLUMN conversation_source_step_id TEXT;
+ALTER TABLE workflow_step_attempts ADD COLUMN conversation_source_activation_id TEXT;
+ALTER TABLE workflow_step_attempts ADD COLUMN conversation_source_iteration INTEGER;
+ALTER TABLE workflow_step_attempts ADD COLUMN conversation_source_attempt INTEGER;
