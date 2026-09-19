@@ -1,4 +1,4 @@
-export type WorkflowEditorAgent={id:string;name:string;publishEligible?:boolean};
+export type WorkflowEditorAgent={id:string;name:string;publishEligible?:boolean;connectionKey?:string;adapter?:string;environmentKey?:string;managedGit?:boolean;agentContinueFrom?:boolean};
 export type WorkflowEditorNode={id:string;type?:string;position:{x:number;y:number};data:Record<string,unknown>};
 
 export type PublishAvailability=

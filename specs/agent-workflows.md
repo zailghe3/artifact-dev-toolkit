@@ -52,6 +52,13 @@
 - Selected context is included verbatim in deterministic framing after the primary input; the framework does not implicitly summarise, rank, rewrite, or truncate it.
 - Context publication and selection are frozen with the run snapshot. Reusable Workflow selections remain local to their authored Workflow, while the initial request always means the root run input.
 - Workflow Agent blocks with no active context settings retain existing handoff and Runtime-compatibility behaviour, including blocks that previously used and then cleared context settings.
+- Workflow Context Selection and Codex Conversation Continuation are independent: context adds reference material, while continuation selects a prior provider conversation; graph handoff remains the new turn prompt in both cases.
+- A Codex Runner Agent block may explicitly continue a compatible, structurally earlier Codex Agent execution from the same run. Existing blocks without this setting always start a fresh conversation.
+- Conversation relationships are semantic Workflow settings frozen with the run snapshot. References authored inside a reusable Workflow remain local to that Workflow when it is composed.
+- One conversation lineage is an ordered chain. Independent parallel appends to the same lineage are rejected before execution.
+- The application durably binds each continuation attempt to one exact successful source execution, while raw provider conversation identities remain private to Codex Runner.
+- If the selected conversation cannot be resumed, execution fails explicitly and never starts a replacement conversation.
+- Managed Git conversation continuation requires the exact source execution to have an authorised published branch and pull-request association. Later publication updates that same branch and pull request.
 - The framework does not implicitly summarise, rewrite, trim, parse, or reinterpret a successful text handoff.
 - Reusable Workflow blocks expose their successful terminal text as their block output while remaining part of the parent run and execution budget.
 
