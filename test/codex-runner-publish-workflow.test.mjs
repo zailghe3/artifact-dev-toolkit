@@ -9,14 +9,17 @@ const publish = read('.github/workflows/publish-codex-runner.yml');
 const smoke = read('codex-runner/scripts/smoke-image.sh');
 const invocation = /codex-runner\/scripts\/smoke-image\.sh adt-codex-runner:(?:pr|validated)/g;
 
-test('trusted Runner publication is reusable, exact-commit, and avoids duplicate TypeScript compilation', () => {
+test('trusted Runner publication is reusable, exact-commit, installs cross-boundary root dependencies, and avoids duplicate TypeScript compilation', () => {
   assert.match(publish, /workflow_call:[\s\S]*commit_sha:[\s\S]*required: true/);
   assert.match(publish, /workflow_dispatch:/);
   assert.doesNotMatch(publish, /\n  push:/);
   assert.match(publish, /TARGET_SHA: \$\{\{ inputs\.commit_sha \|\| github\.sha \}\}/);
   assert.match(publish, /ref: \$\{\{ inputs\.commit_sha \|\| github\.sha \}\}/);
   assert.match(publish, /test "\$\(git rev-parse HEAD\)" = "\$\{TARGET_SHA\}"/);
-  assert.doesNotMatch(publish, /Install root dependencies required by cross-boundary Runner integration tests/);
+  assert.match(publish, /cache-dependency-path:\s*\|[\s\S]*package-lock\.json[\s\S]*codex-runner\/package-lock\.json/);
+  const rootInstall = publish.indexOf('\n        run: npm ci\n');
+  const runnerTest = publish.indexOf('working-directory: codex-runner');
+  assert.ok(rootInstall >= 0 && rootInstall < runnerTest);
   assert.match(publish, /working-directory: codex-runner[\s\S]*run: npm ci && npm test/);
   assert.doesNotMatch(publish, /npm test && npm run typecheck/);
 });
