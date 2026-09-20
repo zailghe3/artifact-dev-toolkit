@@ -77,10 +77,15 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
-          cache-dependency-path: codex-runner/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            codex-runner/package-lock.json
 
       - name: Install canonical npm
         run: npm install -g "$(node -p 'require("./package.json").packageManager')"
+
+      - name: Install root dependencies required by cross-boundary Runner tests
+        run: npm ci
 
       - name: Test exact merged source
         working-directory: codex-runner
