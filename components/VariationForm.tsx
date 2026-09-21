@@ -4,6 +4,7 @@ import { useState } from "react";
 import {PendingButtonContent} from "@/components/PendingButtonContent";
 import { unknownVariationErrorMessage, variationErrorMessage } from "@/lib/variation-errors";
 import { hasPreview, safeGitHubUrl } from "@/lib/edit-ui";
+import {FormActions,Panel,buttonStyles} from "@/components/Ui";
 
 export function VariationForm({ artifactId, defaultBody, defaultTitle }: { artifactId: string; defaultBody: string; defaultTitle: string }) {
   const [title, setTitle] = useState(`${defaultTitle} Variation`);
@@ -54,7 +55,7 @@ export function VariationForm({ artifactId, defaultBody, defaultTitle }: { artif
   }
 
   return (
-    <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-soft dark:border-slate-800 dark:bg-slate-900">
+    <Panel>
       <div className="mb-4">
         <p className="text-sm font-semibold uppercase tracking-[0.25em] text-sky-700 dark:text-orange-300">Create variation</p>
         <h2 className="text-2xl font-bold text-slate-950 dark:text-slate-50">Create a variation</h2>
@@ -62,21 +63,20 @@ export function VariationForm({ artifactId, defaultBody, defaultTitle }: { artif
       </div>
       <label className="mb-3 block text-sm font-semibold text-slate-700 dark:text-slate-200">
         Title
-        <input value={title} onChange={(event) => setTitle(event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-950 outline-none focus:border-sky-500 focus:ring-4 focus:ring-sky-200 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:border-orange-400 dark:focus:ring-orange-500/35" />
+        <input value={title} onChange={(event) => setTitle(event.target.value)} className="adt-field mt-1" />
       </label>
       <label className="block text-sm font-semibold text-slate-700 dark:text-slate-200">
         Body
-        <textarea value={body} onChange={(event) => setBody(event.target.value)} rows={12} className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-sm text-slate-950 outline-none focus:border-sky-500 focus:ring-4 focus:ring-sky-200 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:border-orange-400 dark:focus:ring-orange-500/35" />
+        <textarea value={body} onChange={(event) => setBody(event.target.value)} rows={12} className="adt-field mt-1 font-mono text-sm" />
       </label>
-      <div className="mt-4 flex flex-wrap items-center gap-3">
-        <button disabled={saving} onClick={previewVariation} className="rounded-xl border border-sky-600 px-4 py-2 text-sm font-semibold text-sky-700 dark:border-orange-400 dark:text-orange-300">Preview</button>
-        <button disabled={saving} aria-busy={saving} onClick={saveVariation} className="rounded-xl bg-sky-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-700 focus:outline-none focus:ring-4 focus:ring-sky-200 disabled:opacity-60 dark:bg-orange-500 dark:text-slate-950 dark:hover:bg-orange-400 dark:focus:ring-orange-500/35">
+      <div className="mt-4"><FormActions feedback={message ? <p className="text-sm text-slate-600 dark:text-slate-300">{message}</p> : null}>
+        <button disabled={saving} onClick={previewVariation} className={buttonStyles.secondary}>Preview</button>
+        <button disabled={saving} aria-busy={saving} onClick={saveVariation} className={buttonStyles.primary}>
           <PendingButtonContent pending={saving}>{saving ? "Saving…" : "Save variation"}</PendingButtonContent>
         </button>
-        {message ? <p className="text-sm text-slate-600 dark:text-slate-300">{message}</p> : null}
-      </div>
+      </FormActions></div>
       {success ? <div className="mt-4 rounded-xl bg-emerald-50 p-4 text-sm text-emerald-900"><strong>Variation saved</strong><div className="mt-2 flex gap-4"><a className="underline" href={success.artifactUrl}>View variation</a><a className="underline" href={success.commitUrl} target="_blank" rel="noreferrer">View GitHub commit</a></div></div> : null}
       {hasPreview(preview) ? <article className="mt-5 rounded-2xl border border-slate-200 p-5 dark:border-slate-700"><h3 className="text-xl font-bold">{preview.metadata.title}</h3><dl className="my-3 text-sm"><dt className="font-semibold">Source</dt><dd>{preview.metadata.sourceId}</dd><dt className="font-semibold">Tags</dt><dd>{preview.metadata.tags.join(", ") || "None"}</dd><dt className="font-semibold">Aliases</dt><dd>{preview.metadata.aliases.join(", ") || "None"}</dd></dl><div className="prose" dangerouslySetInnerHTML={{ __html: preview.bodyHtml }} /></article> : null}
-    </section>
+    </Panel>
   );
 }

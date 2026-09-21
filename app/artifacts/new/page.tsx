@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { PageHeader } from "@/components/Ui";
 import { ArtifactEditor } from "@/components/ArtifactEditor";
 import { AppHeader } from "@/components/AppHeader";
 import { getTagSuggestions } from "@/lib/artifacts";
@@ -12,5 +13,5 @@ export default async function NewArtifactPage() {
   let tagSuggestions: TagSuggestion[] = []; let tagSuggestionsUnavailable = false;
   try { tagSuggestions = await getTagSuggestions(access); }
   catch (error) { if (!isExpectedOperationalError(error)) throw error; tagSuggestionsUnavailable = true; }
-  return <><AppHeader login={session.login} currentPath="/artifacts/new" /><main className="mx-auto min-h-screen max-w-4xl px-4 py-6 sm:px-6"><div className="mb-5"><Link href="/" className="font-semibold text-sky-700 dark:text-orange-300">← Back to artifacts</Link></div><ArtifactEditor tagSuggestions={tagSuggestions} tagSuggestionsUnavailable={tagSuggestionsUnavailable} /></main></>;
+  return <><AppHeader login={session.login} currentPath="/artifacts/new" /><main className="mx-auto min-h-screen max-w-4xl px-4 py-6 sm:px-6"><div className="mb-5"><Link href="/" className="font-semibold text-sky-700 dark:text-orange-300">← Back to artifacts</Link></div><PageHeader title="New artifact" description="Create a reusable Artifact in the configured repository."/><ArtifactEditor tagSuggestions={tagSuggestions} tagSuggestionsUnavailable={tagSuggestionsUnavailable} /></main></>;
 }

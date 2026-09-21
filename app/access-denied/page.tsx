@@ -1,4 +1,5 @@
 import Link from "next/link";
+import {buttonStyles} from "@/components/Ui";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { getSession } from "@/lib/auth";
 import { repositoryAccessDeniedMessages, type RepositoryAuthorizationFailureReason } from "@/lib/repository-authorization";
@@ -23,8 +24,8 @@ export default async function AccessDeniedPage() {
         <p className="mt-4 text-base leading-7 text-slate-700 dark:text-slate-300">{repositoryAccessDeniedMessages[reason]}</p>
         <p className="mt-3 text-sm leading-6 text-slate-500 dark:text-slate-400">Signing in proves your GitHub identity, but this library also requires access to the exact configured private artifact repository through the installed GitHub App.</p>
         <div className="mt-8 flex flex-wrap gap-3">
-          <Link href="/sign-in" className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-bold text-white transition hover:bg-slate-800 focus:outline-none focus:ring-4 focus:ring-sky-200 dark:bg-orange-500 dark:text-slate-950 dark:hover:bg-orange-400 dark:focus:ring-orange-500/35">Sign in again</Link>
-          <Link href="/" className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-50 focus:outline-none focus:ring-4 focus:ring-sky-200 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-900 dark:focus:ring-orange-500/35">Back to library</Link>
+          <Link href="/sign-in" className={buttonStyles.primary}>Sign in again</Link>
+          <Link href="/" className={buttonStyles.secondary}>Back to library</Link>
         </div>
       </section>
     </main>

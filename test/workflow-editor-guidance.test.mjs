@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {installTsxHook} from './render-tsx.mjs';
@@ -20,7 +21,7 @@ const agent={id:'planning-agent',name:'Planning Agent'};
 const codexConnection={key:'codex-primary',name:'Codex',adapter:'codex-runner',enabled:false,capabilities:{asynchronous:true,cancellation:true}};
 const snapshot=(overrides={})=>({configured:true,reachable:true,capabilitiesAvailable:true,codexAvailable:true,jobExecution:true,environmentCatalogAvailable:true,authenticated:true,authStatusAvailable:true,modelCatalogAvailable:true,available:true,environments:[{key:'dev',name:'Development',enabled:true,ready:true,sandbox:'workspace-write'},{key:'offline',name:'Offline',enabled:true,ready:false,sandbox:'read-only'}],models:[{id:'model-a',displayName:'Model A',isDefault:true,defaultReasoningEffort:'medium',supportedReasoningEfforts:[{reasoningEffort:'high',description:'First'},{reasoningEffort:'low',description:'Second'}]}],...overrides});
 const savedAgent=(adapterOptions={})=>({id:'saved',name:'Saved',description:'',prompt:{source:'custom',text:'Act.'},connectionKey:'codex-primary',adapterOptions});
-const saveDisabled=html=>/<button[^>]*disabled=""[^>]*>Save Agent<\/button>/.test(html);
+const saveDisabled=html=>/<button(?=[^>]*disabled="")(?=[^>]*aria-describedby="agent-save-feedback")[^>]*>/.test(html);
 
 test('shared definition ID generation is normalized, bounded, and schema-compatible',()=>{
  assert.equal(definitionIdFromName('Todo List Planner'),'todo-list-planner');
@@ -49,6 +50,7 @@ test('Agent create and edit forms expose required fields and immutable persisted
  assert.match(create,/<input(?=[^>]*name="id")(?=[^>]*required="")/);
  assert.match(create,/<textarea(?=[^>]*name="masterPrompt")(?=[^>]*required="")/);
  assert.match(create,/<select(?=[^>]*name="connectionKey")(?=[^>]*required="")/);
+ assert.match(create,/aria-label="Agent save action"/);
  const edit=render(React.createElement(WorkflowAgentEditor,{connections:[connection],initial:{id:'existing-agent',name:'Existing Agent',description:'',prompt:{source:'custom',text:'Act.'},connectionKey:'deterministic-test'}}));
  assert.match(edit,/<input(?=[^>]*name="id")(?=[^>]*required="")(?=[^>]*readOnly="")(?=[^>]*value="existing-agent")/);
 });
@@ -88,7 +90,7 @@ test('managed Publish authoring eligibility is durable while operational readine
 
 test('Publish button has visible accessible disabled guidance',()=>{
  const html=render(React.createElement(WorkflowDefinitionEditor,{agents:[agent]}));
- assert.match(html,/<button(?=[^>]*disabled="")(?=[^>]*aria-describedby="publish-github-pr-help")(?=[^>]*disabled:cursor-not-allowed)[^>]*>Add Publish GitHub PR block<\/button>/);
+ assert.match(html,/<button(?=[^>]*disabled="")(?=[^>]*aria-describedby="publish-github-pr-help")(?=[^>]*class="adt-button adt-button-secondary")[^>]*>Add Publish GitHub PR block<\/button>/);
  assert.match(html,/No publish-authoring-eligible managed Agent exists in ADT/);
 });
 
@@ -184,6 +186,7 @@ test('OpenAI Agents editor preserves explicit artifact_search while other runtim
 });
 
 test('read-only Workflow graph renders Approval distinctly with its immutable message',()=>{const {WorkflowLayoutEditor}=requireTsx('../components/WorkflowLayoutEditor.tsx'),workflow={schemaVersion:2,id:'approval-layout',name:'Approval',description:'',status:'draft',nodes:[{id:'start',blockType:'agent',blockVersion:1,config:{agentId:'planning-agent'}},{id:'review',blockType:'approval',blockVersion:1,config:{message:'Approve this exact result?'}},{id:'finish',blockType:'agent',blockVersion:1,config:{agentId:'planning-agent'}}],edges:[{id:'one',source:'start',target:'review'},{id:'two',source:'review',target:'finish'}],limits:{maxStepExecutions:3}},html=render(React.createElement(WorkflowLayoutEditor,{workflow,agents:{'planning-agent':'Planning Agent'}}));assert.match(html,/>Approval</);assert.match(html,/Approve this exact result\?/);assert.doesNotMatch(html,/review[^]*Wait for every branch/)});
+test('editable and read-only Workflow graphs share one semantic node mapping',async()=>{const {workflowGraphNodeClass}=requireTsx('../components/WorkflowGraphNodeStyles.ts');for(const kind of ['agent','condition','approval','publish-github-pr','join','subworkflow']){const value=workflowGraphNodeClass(kind);assert.match(value,/dark:/);assert.match(value,/border-/)}assert.match(workflowGraphNodeClass('subworkflow',true),/border-red/);const [edit,view]=await Promise.all([readFile(new URL('../components/WorkflowDefinitionEditor.tsx',import.meta.url),'utf8'),readFile(new URL('../components/WorkflowLayoutEditor.tsx',import.meta.url),'utf8')]);for(const source of [edit,view])assert.match(source,/workflowGraphNodeClass/)});
 
 test('composite run labels use frozen Agent and Block Registry labels with distinct invocation paths',()=>{const agentNodeId=`swn-${'a'.repeat(64)}`,approvalNodeId=`swn-${'b'.repeat(64)}`,repeatedNodeId=`swn-${'c'.repeat(64)}`,run={semanticWorkflowSnapshot:{name:'Assessment'},compositionSnapshot:{nodes:[{executionNodeId:agentNodeId,semanticNodeId:'researcher',invocationPath:[{workflowId:'research-flow',workflowName:'Research Flow',invocationNodeId:'research-call'}]},{executionNodeId:approvalNodeId,semanticNodeId:'approve-child',invocationPath:[{workflowId:'review-flow',workflowName:'Review Flow',invocationNodeId:'review-call'}]},{executionNodeId:repeatedNodeId,semanticNodeId:'researcher',invocationPath:[{workflowId:'research-flow',workflowName:'Research Flow',invocationNodeId:'second-research-call'}]}]},executionPlan:{planVersion:2,nodes:[{id:agentNodeId,blockType:'agent',blockVersion:1,config:{agentId:'research-agent'}},{id:approvalNodeId,blockType:'approval',blockVersion:1,config:{message:'Review'}},{id:repeatedNodeId,blockType:'agent',blockVersion:1,config:{agentId:'research-agent'}}]},agentSnapshots:{'research-agent':{name:'Researcher'}}};assert.equal(workflowRunNodeLabel(run,agentNodeId),'Assessment / Research Flow (research-call) / Researcher');assert.equal(workflowRunNodeLabel(run,approvalNodeId),'Assessment / Review Flow (review-call) / Approval');assert.equal(workflowRunNodeLabel(run,repeatedNodeId),'Assessment / Research Flow (second-research-call) / Researcher');assert.equal(workflowRunNodeLabel(run,'unknown'),'unknown')});
 
