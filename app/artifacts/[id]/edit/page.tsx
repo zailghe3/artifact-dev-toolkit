@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { PageHeader } from "@/components/Ui";
 import { ArtifactEditor } from "@/components/ArtifactEditor";
 import { OperationalState } from "@/components/OperationalState";
 import { ProtectedArtifactShell } from "@/components/ProtectedArtifactShell";
@@ -16,5 +17,5 @@ export default async function EditArtifactPage({ params }: { params: Promise<{ i
   if (suggestionRead.status === "rejected" && !isExpectedOperationalError(suggestionRead.reason)) throw suggestionRead.reason;
   const result = artifactRead.value;
   const tagSuggestions = suggestionRead.status === "fulfilled" ? suggestionRead.value : []; const tagSuggestionsUnavailable = suggestionRead.status === "rejected";
-  return <ProtectedArtifactShell login={session.login} currentPath={`/artifacts/${encodeURIComponent(id)}/edit`}><div className="mb-5"><Link href={`/artifacts/${encodeURIComponent(id)}`} className="font-semibold text-sky-700 dark:text-orange-300">← Back to artifact</Link></div><ArtifactEditor artifact={result.artifact} currentFileSha={result.currentFileSha} tagSuggestions={tagSuggestions} tagSuggestionsUnavailable={tagSuggestionsUnavailable} /></ProtectedArtifactShell>;
+  return <ProtectedArtifactShell login={session.login} currentPath={`/artifacts/${encodeURIComponent(id)}/edit`}><div className="mb-5"><Link href={`/artifacts/${encodeURIComponent(id)}`} className="font-semibold text-sky-700 dark:text-orange-300">← Back to artifact</Link></div><PageHeader title={`Edit ${result.artifact.title}`} description="Update this Artifact using the repository revision that was loaded."/><ArtifactEditor artifact={result.artifact} currentFileSha={result.currentFileSha} tagSuggestions={tagSuggestions} tagSuggestionsUnavailable={tagSuggestionsUnavailable} /></ProtectedArtifactShell>;
 }

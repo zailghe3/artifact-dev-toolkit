@@ -29,7 +29,7 @@ export function EntityCard({href,label,children,actions}:{href:string;label:stri
 }
 
 export function EntityActions({danger,children}:{danger?:React.ReactNode;children?:React.ReactNode}) {
-  return <div className="flex w-full flex-wrap items-center gap-2">{danger&&<div>{danger}</div>}<div className="ml-auto flex flex-wrap items-center justify-end gap-2">{children}</div></div>;
+  return <div className="flex w-full flex-wrap items-center gap-2" data-entity-actions>{danger}<div className="ml-auto flex flex-wrap items-center justify-end gap-2" data-entity-actions-utilities>{children}</div></div>;
 }
 
 export function FormActions({danger,children,feedback,label="Form actions"}:{danger?:React.ReactNode;children:React.ReactNode;feedback?:React.ReactNode;label?:string}) {
