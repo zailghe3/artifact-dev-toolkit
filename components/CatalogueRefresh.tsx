@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import {buttonStyles} from "@/components/Ui";
 import {PendingButtonContent} from "@/components/PendingButtonContent";
 import type { CatalogueRefreshAvailability } from "@/lib/diagnostics-model";
 
@@ -46,7 +47,7 @@ function AvailableCatalogueRefreshControls() {
     } catch { setError(apiErrorMessages.refresh_failed); }
     finally { setPending(false); }
   }
-  return <div className="space-y-2"><div className="flex flex-wrap gap-2"><button disabled={pending} aria-busy={pending} onClick={() => refresh()} className="rounded-lg bg-sky-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"><PendingButtonContent pending={pending}>{pending ? "Refreshing…" : "Refresh"}</PendingButtonContent></button><button disabled={pending} aria-busy={pending} onClick={() => refresh(true)} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold disabled:opacity-50"><PendingButtonContent pending={pending}>{pending?"Rebuilding…":"Full rebuild"}</PendingButtonContent></button></div>{error ? <p role="alert" className="text-sm font-semibold text-red-700 dark:text-red-300">{error}</p> : null}</div>;
+  return <div className="space-y-2"><div className="flex flex-wrap gap-2"><button disabled={pending} aria-busy={pending} onClick={() => refresh()} className={buttonStyles.primary}><PendingButtonContent pending={pending}>{pending ? "Refreshing…" : "Refresh"}</PendingButtonContent></button><button disabled={pending} aria-busy={pending} onClick={() => refresh(true)} className={buttonStyles.secondary}><PendingButtonContent pending={pending}>{pending?"Rebuilding…":"Full rebuild"}</PendingButtonContent></button></div>{error ? <p role="alert" className="text-sm font-semibold text-red-700 dark:text-red-300">{error}</p> : null}</div>;
 }
 
 export function CatalogueRefreshControls({ availability }: { availability: CatalogueRefreshAvailability }) {

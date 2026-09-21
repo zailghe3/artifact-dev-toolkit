@@ -6,7 +6,7 @@ import { installTsxHook } from './render-tsx.mjs';
 import { workflowSectionState } from '../lib/workflow-navigation.ts';
 
 const requireTsx = installTsxHook();
-const { EntityCard, WorkflowSectionHeader } = requireTsx('../components/WorkflowUi.tsx');
+const { EntityCard, PageHeader } = requireTsx('../components/Ui.tsx');
 
 function activeSection(path) {
   return workflowSectionState(path).find((item) => item.active)?.label;
@@ -23,8 +23,8 @@ test('Workflow submenu maps exact and nested routes to one active section', () =
   assert.equal(workflowSectionState('/workflows/runs/123').filter((item) => item.active).length, 1);
 });
 
-test('shared workflow section header exposes its title, description, and optional creation action', () => {
-  const html = renderToStaticMarkup(React.createElement(WorkflowSectionHeader, {
+test('shared application page header exposes its title, description, and optional creation action', () => {
+  const html = renderToStaticMarkup(React.createElement(PageHeader, {
     title: 'Agents',
     description: 'Manage reusable Agents.',
     action: { href: '/workflows/agents/new', label: 'New agent' },

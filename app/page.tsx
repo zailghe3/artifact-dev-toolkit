@@ -5,6 +5,7 @@ import { getArtifactCatalogue } from "@/lib/artifacts";
 import { requireRepositoryAccess } from "@/lib/auth";
 import { isExpectedOperationalError, mapOperationalError } from "@/lib/operational-errors";
 import Link from "next/link";
+import { PageHeader } from "@/components/Ui";
 
 export const dynamic = "force-dynamic";
 
@@ -23,13 +24,7 @@ export default async function Home() {
     <>
       <AppHeader login={session.login} currentPath="/" />
       <main className="mx-auto min-h-screen max-w-5xl px-4 py-6 sm:px-6 lg:px-8">
-        <section aria-labelledby="artifacts-heading" className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h1 id="artifacts-heading" className="text-3xl font-black tracking-tight text-slate-950 dark:text-slate-50">Artifacts</h1>
-            <p className="mt-1 text-sm font-semibold text-slate-600 dark:text-slate-300">{artifacts.length} artifacts</p>
-          </div>
-          <Link href="/artifacts/new" className="inline-flex min-h-11 items-center justify-center rounded-xl bg-sky-700 px-4 py-2 text-sm font-bold text-white shadow-sm outline-none transition hover:bg-sky-800 focus:ring-4 focus:ring-sky-200 dark:bg-orange-500 dark:text-slate-950 dark:hover:bg-orange-400 dark:focus:ring-orange-500/35 sm:w-auto motion-reduce:transition-none">+ Create artifact</Link>
-        </section>
+        <PageHeader title="Artifacts" meta={`${artifacts.length} artifacts`} action={{href:"/artifacts/new",label:"New artifact"}} />
         <CatalogueWarning cacheState={catalogue.cacheState} />
         <ArtifactSearch artifacts={artifacts} />
       </main>

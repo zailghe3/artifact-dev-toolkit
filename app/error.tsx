@@ -1,4 +1,5 @@
 "use client";
+import {buttonStyles} from "@/components/Ui";
 
 export default function ApplicationError({ reset }: { error: Error & { digest?: string }; reset: () => void }) {
   return (
@@ -7,7 +8,7 @@ export default function ApplicationError({ reset }: { error: Error & { digest?: 
         <p className="text-sm font-semibold uppercase tracking-[0.3em] text-red-700 dark:text-red-300">Application error</p>
         <h1 className="mt-4 text-3xl font-black text-slate-950 dark:text-slate-50">This page could not be loaded.</h1>
         <p className="mt-4 text-slate-700 dark:text-slate-300">A temporary service or configuration problem prevented this request. No private implementation details have been displayed.</p>
-        <button type="button" onClick={reset} className="mt-6 rounded-xl bg-slate-950 px-4 py-2 font-bold text-white dark:bg-orange-500 dark:text-slate-950">Try again</button>
+        <button type="button" onClick={reset} className={`${buttonStyles.primary} mt-6`}>Try again</button>
       </section>
     </main>
   );
