@@ -5,6 +5,7 @@ export type RunnerRevisionStatus="current"|"update_available"|"runner_newer_than
 export type CodexVersionStatus="current"|"mismatch"|"unknown";
 export interface RunnerVersionFacts{protocolVersion?:number;runnerRevision?:number;codexVersion?:string;runnerVersion?:string}
 export interface RunnerCompatibility{protocol:ProtocolStatus;runnerRevision:RunnerRevisionStatus;codexVersion:CodexVersionStatus}
+export interface RunnerReleaseFreshness{state:"current"|"superseded"|"unknown";deployedRevision?:string}
 
 export function evaluateRunnerCompatibility(installed:RunnerVersionFacts|undefined,expected:ExpectedRunnerRelease=EXPECTED_RUNNER_RELEASE):RunnerCompatibility{
  if(!installed)return{protocol:"unknown",runnerRevision:"unknown",codexVersion:"unknown"};
@@ -12,6 +13,14 @@ export function evaluateRunnerCompatibility(installed:RunnerVersionFacts|undefin
  const runnerRevision=!Number.isInteger(installed.runnerRevision)?"unknown":installed.runnerRevision===expected.runnerRevision?"current":installed.runnerRevision!<expected.runnerRevision?"update_available":"runner_newer_than_adt";
  const codexVersion=typeof installed.codexVersion!=="string"?"unknown":installed.codexVersion===expected.codexVersion?"current":"mismatch";
  return{protocol,runnerRevision,codexVersion};
+}
+
+export function runnerReleaseFreshness(installed:RunnerVersionFacts|undefined,expected:ExpectedRunnerRelease=EXPECTED_RUNNER_RELEASE):RunnerReleaseFreshness{
+ const build=typeof installed?.runnerVersion==="string"&&/^[0-9a-f]{40}$/i.test(installed.runnerVersion)?installed.runnerVersion.toLowerCase():undefined;
+ if(!build)return{state:"unknown"};
+ const revision=evaluateRunnerCompatibility(installed,expected).runnerRevision;
+ const state=revision==="current"?"current":revision==="update_available"||revision==="runner_newer_than_adt"?"superseded":"unknown";
+ return{state,...(build?{deployedRevision:build}:{})};
 }
 
 export const shortBuildRevision=(revision:string)=>revision==="development"?revision:revision.slice(0,10);

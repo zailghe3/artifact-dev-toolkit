@@ -50,7 +50,7 @@ test('freshness collection keeps confirmed component results when another probe 
   const result = await collectInfrastructureFreshness({
     workerRevision,
     runtimeRevision: async () => runtimeRevision,
-    runnerRevision: async () => { throw new Error('runner unavailable'); },
+    runnerFreshness: async () => { throw new Error('runner unavailable'); },
     resolveRevisionFreshness: async (kind) => kind === 'runtime'
       ? { state: 'superseded', sourceHeadRevision: sourceHead }
       : { state: 'current', sourceHeadRevision: sourceHead },
@@ -68,7 +68,7 @@ test('freshness collection deadline degrades a hung component without delaying c
   const result = await collectInfrastructureFreshness({
     workerRevision: revision,
     runtimeRevision: async () => revision,
-    runnerRevision: async () => new Promise(() => {}),
+    runnerFreshness: async () => new Promise(() => {}),
     resolveRevisionFreshness: async () => ({ state: 'current', sourceHeadRevision: sourceHead }),
     timeoutMs: 250,
   });
@@ -77,4 +77,36 @@ test('freshness collection deadline degrades a hung component without delaying c
   assert.equal(result.components.worker.state, 'current');
   assert.equal(result.components.runtime.state, 'current');
   assert.equal(result.components.runner.state, 'unknown');
+});
+
+test('Runner compatibility freshness bypasses GitHub comparison and outranks an unrelated unknown', async () => {
+  const runnerBuild = 'b'.repeat(40);
+  const compared = [];
+  const result = await collectInfrastructureFreshness({
+    runtimeRevision: async () => undefined,
+    runnerFreshness: async () => ({ state: 'superseded', deployedRevision: runnerBuild }),
+    resolveRevisionFreshness: async (component) => { compared.push(component); return { state: 'current' }; },
+  });
+  assert.equal(result.state, 'superseded');
+  assert.deepEqual(result.components.runner, { state: 'superseded', deployedRevision: runnerBuild });
+  assert.deepEqual(compared, []);
+  assert.equal(infrastructureFreshnessLabel(result), 'Update pending · Runner · Unknown: Worker + Runtime');
+  assert.match(infrastructureRevisionLabel(result), /Runner bbbbbbb/);
+});
+
+test('matching Runner compatibility is current without a GitHub comparison', async () => {
+  const revision = 'a'.repeat(40);
+  let runnerCompared = false;
+  const result = await collectInfrastructureFreshness({
+    workerRevision: revision,
+    runtimeRevision: async () => revision,
+    runnerFreshness: async () => ({ state: 'current', deployedRevision: 'c'.repeat(40) }),
+    resolveRevisionFreshness: async (component) => {
+      if (component === 'runner') runnerCompared = true;
+      return { state: 'current', sourceHeadRevision: revision };
+    },
+  });
+  assert.equal(result.components.runner.state, 'current');
+  assert.equal(result.state, 'current');
+  assert.equal(runnerCompared, false);
 });
