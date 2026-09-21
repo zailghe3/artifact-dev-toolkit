@@ -1,7 +1,8 @@
 import "server-only";
 import { deploymentMetadata } from "./deployment-metadata.ts";
+import { runnerReleaseFreshness } from "./codex-runner-compatibility.ts";
 import { resolveComponentFreshnessFromCompare } from "./deployment-freshness-resolution.ts";
-import { readCodexRunnerConfiguration } from "./codex-runner-client.ts";
+import { getCodexRunnerClient } from "./codex-runner-client.ts";
 import { diagnoseADTRuntime } from "./workflow-services.ts";
 import {
   collectInfrastructureFreshness,
@@ -41,54 +42,11 @@ async function runtimeRevision(signal: AbortSignal): Promise<string | undefined>
   return diagnostic?.runtimeRevision;
 }
 
-async function runnerRevision(signal: AbortSignal): Promise<string | undefined> {
-  let configuration;
+async function runnerFreshness(signal: AbortSignal) {
   try {
-    configuration = readCodexRunnerConfiguration();
+    return runnerReleaseFreshness(await getCodexRunnerClient().capabilities(signal));
   } catch {
-    return undefined;
-  }
-  let base: URL;
-  try {
-    base = new URL(configuration.baseUrl);
-  } catch {
-    return undefined;
-  }
-  if (configuration.production && base.protocol !== "https:") return undefined;
-  let response: Response;
-  try {
-    response = await fetch(new URL("/v1/capabilities", base), {
-      method: "GET",
-      cache: "no-store",
-      redirect: "manual",
-      signal,
-      headers: {
-        accept: "application/json",
-        "CF-Access-Client-Id": configuration.accessClientId,
-        "CF-Access-Client-Secret": configuration.accessClientSecret,
-        "X-Codex-Runner-Secret": configuration.sharedSecret,
-      },
-    });
-  } catch {
-    return undefined;
-  }
-  if (!response.ok) return undefined;
-  const declared = Number(response.headers.get("content-length") ?? 0);
-  if (declared > 8_192) return undefined;
-  let text: string;
-  try {
-    text = await response.text();
-  } catch {
-    return undefined;
-  }
-  if (new TextEncoder().encode(text).byteLength > 8_192) return undefined;
-  try {
-    const value = JSON.parse(text) as Record<string, unknown>;
-    return typeof value.runnerVersion === "string" && FULL_SHA.test(value.runnerVersion)
-      ? value.runnerVersion.toLowerCase()
-      : undefined;
-  } catch {
-    return undefined;
+    return { state: "unknown" as const };
   }
 }
 
@@ -161,7 +119,7 @@ async function collectLiveInfrastructureFreshness(): Promise<InfrastructureFresh
   return collectInfrastructureFreshness({
     workerRevision: deploymentMetadata?.commitSha,
     runtimeRevision,
-    runnerRevision,
+    runnerFreshness,
     resolveRevisionFreshness: resolver,
     timeoutMs: 1_500,
   });

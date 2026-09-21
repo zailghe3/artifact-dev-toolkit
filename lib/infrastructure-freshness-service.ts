@@ -6,6 +6,9 @@ import {
 } from "./infrastructure-freshness.ts";
 
 export type InfrastructureRevisionProbe = (signal: AbortSignal) => Promise<string | undefined>;
+export type InfrastructureComponentFreshnessProbe = (
+  signal: AbortSignal,
+) => Promise<InfrastructureComponentFreshness>;
 export type InfrastructureRevisionFreshnessResolver = (
   component: InfrastructureComponent,
   deployedRevision: string,
@@ -15,7 +18,7 @@ export type InfrastructureRevisionFreshnessResolver = (
 export type InfrastructureFreshnessDependencies = {
   workerRevision?: string;
   runtimeRevision: InfrastructureRevisionProbe;
-  runnerRevision: InfrastructureRevisionProbe;
+  runnerFreshness: InfrastructureComponentFreshnessProbe;
   resolveRevisionFreshness: InfrastructureRevisionFreshnessResolver;
   now?: () => Date;
   timeoutMs?: number;
@@ -50,6 +53,25 @@ async function componentFreshness(
   }
 }
 
+async function observedComponentFreshness(
+  observationPromise: Promise<InfrastructureComponentFreshness>,
+  signal: AbortSignal,
+): Promise<InfrastructureComponentFreshness> {
+  try {
+    const observed = await observationPromise;
+    if (signal.aborted) return { state: "unknown" };
+    const deployedRevision = normalizedRevision(observed.deployedRevision);
+    const sourceHeadRevision = normalizedRevision(observed.sourceHeadRevision);
+    return {
+      state: observed.state,
+      ...(deployedRevision ? { deployedRevision } : {}),
+      ...(sourceHeadRevision ? { sourceHeadRevision } : {}),
+    };
+  } catch {
+    return { state: "unknown" };
+  }
+}
+
 function withDeadline(
   value: Promise<InfrastructureComponentFreshness>,
   signal: AbortSignal,
@@ -71,11 +93,11 @@ export async function collectInfrastructureFreshness(
   try {
     const workerRevision = Promise.resolve(normalizedRevision(dependencies.workerRevision));
     const runtimeRevision = dependencies.runtimeRevision(signal);
-    const runnerRevision = dependencies.runnerRevision(signal);
+    const runnerFreshness = dependencies.runnerFreshness(signal);
     const [worker, runtime, runner] = await Promise.all([
       withDeadline(componentFreshness("worker", workerRevision, dependencies.resolveRevisionFreshness, signal), signal),
       withDeadline(componentFreshness("runtime", runtimeRevision, dependencies.resolveRevisionFreshness, signal), signal),
-      withDeadline(componentFreshness("runner", runnerRevision, dependencies.resolveRevisionFreshness, signal), signal),
+      withDeadline(observedComponentFreshness(runnerFreshness, signal), signal),
     ]);
     const components = { worker, runtime, runner };
     return {
