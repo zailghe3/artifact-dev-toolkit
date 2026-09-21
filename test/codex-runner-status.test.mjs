@@ -174,6 +174,14 @@ test("capabilities can finish after eight seconds but remain bounded by their re
  await assert.rejects(outside,error=>error.category==="runner_unavailable"&&error.transport==="timeout");
 });
 
+test("capabilities accepts a caller deadline without changing its normal timeout",async()=>{
+ const caller=new AbortController();let requestSignal;
+ const client=new CodexRunnerClient(configuration,async(_url,options)=>{requestSignal=options.signal;return new Promise((_resolve,reject)=>options.signal.addEventListener("abort",()=>reject(new Error("aborted")),{once:true}))});
+ const result=client.capabilities(caller.signal);await Promise.resolve();
+ assert.equal(requestSignal.aborted,false);caller.abort();assert.equal(requestSignal.aborted,true);
+ await assert.rejects(result,error=>error.category==="runner_unavailable"&&error.transport==="fetch_error");
+});
+
 test("diagnostics can outlive eight seconds but fail closed at forty seconds without real waiting",async t=>{
  t.mock.timers.enable({apis:["setTimeout"]});
  const delayed=new CodexRunnerClient(configuration,async()=>new Promise(resolve=>setTimeout(()=>resolve(Response.json({})),9_000)));

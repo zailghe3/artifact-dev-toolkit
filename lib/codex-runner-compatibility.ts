@@ -19,7 +19,7 @@ export function runnerReleaseFreshness(installed:RunnerVersionFacts|undefined,ex
  const build=typeof installed?.runnerVersion==="string"&&/^[0-9a-f]{40}$/i.test(installed.runnerVersion)?installed.runnerVersion.toLowerCase():undefined;
  if(!build)return{state:"unknown"};
  const revision=evaluateRunnerCompatibility(installed,expected).runnerRevision;
- const state=revision==="current"?"current":revision==="update_available"||revision==="runner_newer_than_adt"?"superseded":"unknown";
+ const state=revision==="current"?"current":revision==="update_available"?"superseded":"unknown";
  return{state,...(build?{deployedRevision:build}:{})};
 }
 

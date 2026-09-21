@@ -42,9 +42,9 @@ async function runtimeRevision(signal: AbortSignal): Promise<string | undefined>
   return diagnostic?.runtimeRevision;
 }
 
-async function runnerFreshness(_signal: AbortSignal) {
+async function runnerFreshness(signal: AbortSignal) {
   try {
-    return runnerReleaseFreshness(await getCodexRunnerClient().capabilities());
+    return runnerReleaseFreshness(await getCodexRunnerClient().capabilities(signal));
   } catch {
     return { state: "unknown" as const };
   }
