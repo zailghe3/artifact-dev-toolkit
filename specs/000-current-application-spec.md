@@ -101,25 +101,28 @@
 
 ## 8. Diagnostics and operational experience
 
-- Authorised users can inspect a protected diagnostics view.
+- Authorised users can inspect the protected Diagnostics & maintenance surface as the canonical live operational dashboard.
 - Diagnostics groups overall health, authentication and access, Artifact Library, application control-plane, ADT Runtime, and Codex Runner observations into distinct operational domains.
 - Runtime and Runner readiness diagnostics remain bounded, exclude secrets and private Runner information, and do not invoke a provider or start model-directed execution.
 - An authorised user may explicitly run a non-mutating Runtime execution-path diagnostic that reports checkpoint, graph-node, and optional Artifact Search callback reachability, narrow-authority acceptance, and required control-plane backend availability.
 - Passive page loading never starts the Runtime execution-path diagnostic, and its ephemeral result does not change overall health.
 - Overall health includes required ADT Runtime configuration and current Workflow graph capability, while an intentionally unconfigured optional Codex Runner does not make the application unhealthy.
 - Codex Runner overview health uses short, passive readiness observations and stops after a failed basic connection probe. A valid capability response preserves Runner reachability even when Codex is unavailable.
-- Deeper Codex Runner authentication, environment, filesystem, startup, storage, and execution-boundary diagnostics are explicit on-demand operations rather than passive page work.
-- Detailed Codex Runner mutation controls and explicit functional testing remain separate from the unified diagnostics overview.
+- Essential domain health uses bounded passive observations; repository content validation, job history, workspace and sandbox state, storage/recovery state, network probes, and active execution-path checks load only after an explicit user action.
+- Queried optional detail that is unavailable remains unknown and does not falsify a separately established healthy observation; stale Runner job state never implies that retry is safe.
+- Codex Runner operational status, job history, compatibility detail, bounded diagnostics, execution controls, and storage/recovery maintenance are consolidated into Diagnostics & maintenance. Connection management remains on Connections.
 - Codex Runner keeps live SQLite state on executor-local storage separately from durable Codex home state and supports consistent durable backups plus confirmed, quiesced SQLite-only restore.
 - Authorised Runner operations expose only safe storage and backup metadata; restore never replaces workspaces, credentials, sessions, or other durable non-SQLite state.
 - A restore never mutates live SQLite before App Server termination is confirmed, and an incomplete rollback preserves recoverable safety state while execution remains fail-closed.
-- Diagnostics is observational unless the user explicitly invokes a supported active action such as catalogue refresh or the non-mutating Runtime execution-path test.
+- Observed status, queried read-only detail, active diagnostics, and state-changing maintenance actions are visually and behaviorally distinct.
+- Diagnostics is observational unless the user explicitly invokes a supported active action such as catalogue refresh, repository validation, the non-mutating Runtime execution-path test, or a Runner maintenance control.
 - Operational states distinguish healthy, degraded, unavailable, unauthorised, misconfigured, and invalid-content conditions where relevant.
 - Degraded states should preserve safe usable functionality where possible.
 - Blocking states should provide concise recovery guidance.
 - Diagnostic statuses must be understandable without relying on colour alone.
 - User-facing event times use the user's local presentation while retaining canonical timestamps where appropriate.
 - Diagnostics must not expose secrets, tokens, private artifact bodies, cache contents, arbitrary upstream responses, or internal exception text.
+- Copyable diagnostic summaries and technical reports are built from explicit allow-listed safe fields; credential and secret values are excluded by construction.
 
 ## 9. Application interface
 

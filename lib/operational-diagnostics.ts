@@ -37,7 +37,7 @@ export function artifactLibraryDiagnosticChecks(d: RepositoryDiagnostics): Diagn
     { id: "repository-revision", label: "Repository revision", status: revisionStatusPresentation(d.repositoryRevision.state), value: d.repositoryRevision.value?.slice(0, 12) },
     { id: "cache-binding", label: "Cache binding", status: configurationStatusPresentation(d.configuration.cacheBinding) },
     { id: "catalogue-cache", label: "Catalogue/cache", status: cacheStatusPresentation(d.cache.state) },
-    { id: "artifact-validation", label: "Content validation", status: validationStatusPresentation(d.validation.state) },
+    { id: "artifact-validation", label: "Content validation", status: validationStatusPresentation(d.validation.state), ...(d.validation.state === "not_run" ? { contributes: false } : {}) },
   ];
 }
 
@@ -120,11 +120,12 @@ export function runnerDiagnosticChecks(runner: SafeRunnerDiagnostics): Diagnosti
     for (const item of enabled) {
       const prefix = `runner-environment-${item.environment.key}`;
       checks.push({ id: prefix, label: item.environment.name, status: item.environment.ready ? status("Ready", "positive") : status("Unavailable", "negative"), value: item.environment.key });
-      checks.push({ id: `${prefix}-workspace`, label: `${item.environment.name} workspace`, status: workspaceStatus(item.workspace), ...(item.workspace.state === "available" && item.workspace.value.headCommit ? { value: `${item.workspace.value.headCommit.slice(0, 12)} · ${item.workspace.value.dirty === true ? "Modified" : item.workspace.value.dirty === false ? "Clean" : "State unknown"}` } : {}) });
+      checks.push({ id: `${prefix}-workspace`, label: `${item.environment.name} workspace`, status: workspaceStatus(item.workspace), ...(item.workspace.state === "not-observed" ? { contributes: false } : {}), ...(item.workspace.state === "available" && item.workspace.value.headCommit ? { value: `${item.workspace.value.headCommit.slice(0, 12)} · ${item.workspace.value.dirty === true ? "Modified" : item.workspace.value.dirty === false ? "Clean" : "State unknown"}` } : {}) });
       checks.push({ id: `${prefix}-sandbox`, label: `${item.environment.name} sandbox`, status: sandboxStatus(item.sandbox),...(item.sandbox.state==="not-observed"?{contributes:false}:{}), ...(item.sandbox.state === "available" && item.sandbox.value ? { value: item.sandbox.value.backend } : {}) });
     }
   }
-  if (runner.jobs.state !== "available") checks.push({ id: "runner-operations", label: "Current operations", status: status("Unknown", "warning", "The latest job observation failed; idle cannot be inferred.") });
+  if (runner.jobs.state === "not-observed") checks.push({ id: "runner-operations", label: "Current operations", status: status("Not queried", "neutral", "Query recent jobs before making a retry decision."), contributes: false });
+  else if (runner.jobs.state !== "available") checks.push({ id: "runner-operations", label: "Current operations", status: status("Unknown", "warning", "The latest job observation failed; idle cannot be inferred.") });
   else {
     const activeId = runner.jobs.value.capacity.activeJobId, active = activeId ? runner.jobs.value.jobs.find(job => job.jobId === activeId) : undefined;
     checks.push({ id: "runner-operations", label: "Current operations", status: status(active ? "Active" : "Idle", "positive"), value: active ? `${active.state} · ${active.environmentKey}` : `${runner.jobs.value.jobs.length} recent job(s)` });
@@ -158,6 +159,6 @@ export function operationalOverall(domains: DiagnosticDomain[]) {
 }
 
 export function operationalContributors(domains: DiagnosticDomain[], limit = 8): { contributors: OperationalContributor[]; omittedCount: number } {
-  const all = domains.flatMap(domain => domain.state === "not-configured" ? [] : domain.checks.filter(check => check.status.tone === "negative" || check.status.tone === "warning").map(check => ({ id: `${domain.key}-${check.id}`, message: `${domain.title}: ${check.label} is ${check.status.label.toLowerCase()}.`, href: `#${check.id}` })));
+  const all = domains.flatMap(domain => domain.state === "not-configured" ? [] : domain.checks.filter(check => check.contributes !== false && (check.status.tone === "negative" || check.status.tone === "warning")).map(check => ({ id: `${domain.key}-${check.id}`, message: `${domain.title}: ${check.label} is ${check.status.label.toLowerCase()}.`, href: `#${check.id}` })));
   return { contributors: all.slice(0, Math.max(0, limit)), omittedCount: Math.max(0, all.length - Math.max(0, limit)) };
 }
