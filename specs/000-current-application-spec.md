@@ -110,7 +110,7 @@
 - Codex Runner overview health uses short, passive readiness observations and stops after a failed basic connection probe. A valid capability response preserves Runner reachability even when Codex is unavailable.
 - Essential domain health uses bounded passive observations; repository content validation, job history, workspace and sandbox state, storage/recovery state, network probes, and active execution-path checks load only after an explicit user action.
 - Once explicitly queried, repository content validation participates in Artifact Library and overall health; invalid or unavailable validation cannot coexist with a healthy claim.
-- Queried optional detail that is unavailable remains unknown and does not falsify a separately established healthy observation; stale Runner job state never implies that retry is safe.
+- Queried optional detail that is unavailable remains unknown and does not falsify a separately established healthy observation; a failed re-query does not present an earlier observation as current, and stale Runner job state never implies that retry is safe.
 - Codex Runner operational status, job history, compatibility detail, bounded diagnostics, execution controls, and storage/recovery maintenance are consolidated into Diagnostics & maintenance. Connection management remains on Connections.
 - A valid workflow-attempt diagnostic deep link explicitly loads only bounded Runner job history so a matching record can be highlighted without loading unrelated Runner detail.
 - The Application / control-plane domain may query the same canonical component-aware infrastructure freshness observation used by the deployment footer.
