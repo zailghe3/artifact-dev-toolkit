@@ -80,6 +80,20 @@ test("Runner operational observations and CLI compatibility prevent false Health
   assert.equal(operationalOverall(deriveOperationalDomains(repository(), runtime(), missing, true)).state, "healthy");
 });
 
+test("Runner newer than ADT is uncertain, while an older Runner still requires update", () => {
+  const newer = runner({ connection: connection({ compatibility: { protocol: "compatible", runnerRevision: "runner_newer_than_adt", codexVersion: "current" } }) });
+  const newerCheck = runnerDiagnosticChecks(newer).find(check => check.id === "runner-revision");
+  assert.equal(newerCheck.status.label, "Runner newer than ADT");
+  assert.equal(newerCheck.status.tone, "warning");
+  assert.notEqual(newerCheck.status.label, "Update required");
+  assert.equal(domain(repository(), runtime(), newer, "codex-runner").state, "degraded");
+  const older = runner({ connection: connection({ compatibility: { protocol: "compatible", runnerRevision: "update_available", codexVersion: "current" } }) });
+  const olderCheck = runnerDiagnosticChecks(older).find(check => check.id === "runner-revision");
+  assert.equal(olderCheck.status.label, "Update required");
+  assert.equal(olderCheck.status.tone, "negative");
+  assert.equal(domain(repository(), runtime(), older, "codex-runner").state, "failed");
+});
+
 test("safe Runner collector isolates read-only observations and never invokes functional or mutation methods", async () => {
   const called = [], client = { capabilities: async () => connection().capabilities, authStatus: async () => ({ connected: true }), controlStatus: async () => { called.push("controlStatus"); throw Error("private"); }, environments: async () => { called.push("environments"); return []; }, jobs: async limit => { called.push(`jobs:${limit}`); return { capacity: { maxActive: 1, activeJobId: null }, jobs: [] }; }, authEnvironmentDiagnostics: async () => { called.push("authEnvironmentDiagnostics"); return authEnvironment; }, workspaceDiagnostics: async () => { throw Error("unused"); }, sandboxDiagnostics: async () => { throw Error("unused"); }, testCodex: async () => { called.push("testCodex"); }, emergencyStop: async () => { called.push("emergencyStop"); } };
   const result = await collectSafeRunnerDiagnostics({ clientFactory: () => client, logger: () => {} });

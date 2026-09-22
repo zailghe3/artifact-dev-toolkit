@@ -114,6 +114,7 @@
 - Codex Runner operational status, job history, compatibility detail, bounded diagnostics, execution controls, and storage/recovery maintenance are consolidated into Diagnostics & maintenance. Connection management remains on Connections.
 - A valid workflow-attempt diagnostic deep link explicitly loads only bounded Runner job history so a matching record can be highlighted without loading unrelated Runner detail.
 - The Application / control-plane domain may query the same canonical component-aware infrastructure freshness observation used by the deployment footer.
+- Confirmed non-blocking maintenance such as superseded infrastructure is presented under Maintenance due separately from operational failures; current, unknown, unavailable, and unqueried freshness do not create maintenance claims.
 - The bounded Codex functional test is an explicit active diagnostic in Diagnostics & maintenance and is never run during passive page loading.
 - Codex Runner keeps live SQLite state on executor-local storage separately from durable Codex home state and supports consistent durable backups plus confirmed, quiesced SQLite-only restore.
 - Authorised Runner operations expose only safe storage and backup metadata; restore never replaces workspaces, credentials, sessions, or other durable non-SQLite state.

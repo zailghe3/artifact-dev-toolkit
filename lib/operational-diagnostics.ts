@@ -96,7 +96,11 @@ export function runnerDiagnosticChecks(runner: SafeRunnerDiagnostics): Diagnosti
     const capabilities = runner.capabilities.value, compatibility = runner.connection.compatibility;
     checks.push({ id: "runner-reachability", label: "Reachability", status: status("Available", "positive") });
     checks.push({ id: "runner-protocol", label: "Protocol compatibility", status: compatibility?.protocol === "compatible" ? status("Compatible", "positive") : status(compatibility?.protocol === "incompatible" ? "Incompatible" : "Unknown", compatibility?.protocol === "incompatible" ? "negative" : "warning") });
-    checks.push({ id: "runner-revision", label: "Runner revision", status: compatibility?.runnerRevision === "current" ? status("Current", "positive") : status(compatibility?.runnerRevision === "unknown" ? "Unknown" : "Update required", compatibility?.runnerRevision === "unknown" ? "warning" : "negative"), ...(capabilities.releaseMetadata === "current" ? { value: String(capabilities.runnerRevision) } : {}) });
+    const revisionStatus = compatibility?.runnerRevision === "current" ? status("Current", "positive")
+      : compatibility?.runnerRevision === "update_available" ? status("Update required", "negative")
+      : compatibility?.runnerRevision === "runner_newer_than_adt" ? status("Runner newer than ADT", "warning", "Release compatibility is uncertain until ADT recognizes this Runner release.")
+      : status("Unknown", "warning");
+    checks.push({ id: "runner-revision", label: "Runner revision", status: revisionStatus, ...(capabilities.releaseMetadata === "current" ? { value: String(capabilities.runnerRevision) } : {}) });
     checks.push({ id: "runner-codex-cli", label: "Codex CLI", status: !capabilities.codexAvailable ? status("Unavailable", "negative") : compatibility?.codexVersion === "current" ? status("Compatible", "positive") : status(compatibility?.codexVersion === "mismatch" ? "Version mismatch" : "Unknown", compatibility?.codexVersion === "mismatch" ? "negative" : "warning"), ...(capabilities.releaseMetadata === "current" ? { value: capabilities.codexVersion } : {}) });
     checks.push({ id: "runner-device-auth", label: "Device authentication", status: capabilities.deviceAuth ? status("Available", "positive") : status("Unavailable", "negative") });
     checks.push({ id: "runner-job-execution", label: "Job execution", status: capabilities.jobExecution ? status("Available", "positive") : status("Unavailable", "negative") });
