@@ -1,0 +1,15 @@
+"use client";
+import { useState } from "react";
+import { buttonStyles } from "./Ui";
+import { PendingButtonContent } from "./PendingButtonContent";
+import { DiagnosticCopyActions } from "./DiagnosticCopyActions";
+import { infrastructureFreshnessLabel, type InfrastructureFreshnessSnapshot } from "@/lib/infrastructure-freshness";
+import { queryInfrastructureFreshness } from "./InfrastructureFreshnessIndicator";
+
+type Deployment = { revision?: string; pullRequest?: number; deployedAt?: string };
+export function ApplicationControlPlaneDiagnostics({ deployment, observedAt }: { deployment: Deployment; observedAt: string }) {
+  const [pending, setPending] = useState(false), [snapshot, setSnapshot] = useState<InfrastructureFreshnessSnapshot>(), [unavailable, setUnavailable] = useState(false);
+  async function query() { setPending(true); setUnavailable(false); const result = await queryInfrastructureFreshness(); if (result.status === "loaded") setSnapshot(result.snapshot); else setUnavailable(true); setPending(false); }
+  const freshness = snapshot?.state ?? "unknown";
+  return <div className="mt-4"><section className="rounded-xl border border-slate-200 p-4 dark:border-slate-700"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-black">Infrastructure freshness</h3><strong>{snapshot ? infrastructureFreshnessLabel(snapshot) : unavailable ? "Freshness unavailable" : "Not queried"}</strong></div><p className="mt-2 text-sm">Uses the same component-aware freshness contract as the deployment footer, including authoritative Runner release compatibility.</p><button className={`${buttonStyles.secondary} mt-3`} onClick={() => void query()} disabled={pending} aria-busy={pending}><PendingButtonContent pending={pending}>{pending ? "Querying…" : "Query infrastructure freshness"}</PendingButtonContent></button>{unavailable ? <p role="alert" className="mt-3">Infrastructure freshness could not be verified.</p> : null}{snapshot ? <details className="mt-3"><summary className="cursor-pointer font-bold">Component revisions</summary><dl className="mt-2 grid grid-cols-1 gap-1 text-sm sm:grid-cols-[auto_1fr]">{(["worker", "runtime", "runner"] as const).flatMap(key => [<dt key={`${key}-term`} className="capitalize">{key}</dt>, <dd key={`${key}-value`} className="break-all">{snapshot.components[key].state} · deployed {snapshot.components[key].deployedRevision?.slice(0, 12) ?? "unknown"} · source {snapshot.components[key].sourceHeadRevision?.slice(0, 12) ?? "unknown"}</dd>])}</dl></details> : null}</section><DiagnosticCopyActions report={{ domain: "application-control-plane", observedAt: snapshot?.checkedAt ?? observedAt, state: snapshot?.state === "superseded" ? "degraded" : snapshot?.state === "current" ? "healthy" : "unknown", deployedRevision: deployment.revision, pullRequest: deployment.pullRequest, deployedAt: deployment.deployedAt, freshness, workerRevision: snapshot?.components.worker.deployedRevision, runtimeRevision: snapshot?.components.runtime.deployedRevision, runnerRevision: snapshot?.components.runner.deployedRevision }} /></div>;
+}
