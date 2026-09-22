@@ -11,7 +11,7 @@ import {
 const CLIENT_TTL_MS = 2 * 60_000;
 const REQUEST_TIMEOUT_MS = 2_000;
 
-type IndicatorState =
+export type InfrastructureFreshnessQueryState =
   | { status: "checking" }
   | { status: "hidden" }
   | { status: "loaded"; snapshot: InfrastructureFreshnessSnapshot }
@@ -19,7 +19,7 @@ type IndicatorState =
 
 type CachedValue = { expiresAt: number; snapshot: InfrastructureFreshnessSnapshot };
 let memoryCache: CachedValue | undefined;
-let inFlight: Promise<IndicatorState> | undefined;
+let inFlight: Promise<InfrastructureFreshnessQueryState> | undefined;
 
 function readMemoryCache(now = Date.now()): CachedValue | undefined {
   if (memoryCache && memoryCache.expiresAt > now) return memoryCache;
@@ -31,7 +31,7 @@ function writeMemoryCache(snapshot: InfrastructureFreshnessSnapshot, now = Date.
   memoryCache = { expiresAt: now + CLIENT_TTL_MS, snapshot };
 }
 
-async function fetchFreshness(): Promise<IndicatorState> {
+export async function queryInfrastructureFreshness(): Promise<InfrastructureFreshnessQueryState> {
   const cached = readMemoryCache();
   if (cached) return { status: "loaded", snapshot: cached.snapshot };
   if (inFlight) return inFlight;
@@ -56,7 +56,7 @@ async function fetchFreshness(): Promise<IndicatorState> {
   return inFlight;
 }
 
-function initialIndicatorState(): IndicatorState {
+function initialIndicatorState(): InfrastructureFreshnessQueryState {
   const cached = readMemoryCache();
   return cached ? { status: "loaded", snapshot: cached.snapshot } : { status: "checking" };
 }
@@ -66,7 +66,7 @@ function pageVisible() {
 }
 
 export function InfrastructureFreshnessIndicator() {
-  const [state, setState] = useState<IndicatorState>(initialIndicatorState);
+  const [state, setState] = useState<InfrastructureFreshnessQueryState>(initialIndicatorState);
 
   useEffect(() => {
     let active = true;
@@ -87,7 +87,7 @@ export function InfrastructureFreshnessIndicator() {
     const run = () => {
       refreshTimer = undefined;
       if (!active || !pageVisible()) return;
-      void fetchFreshness().then((next) => {
+      void queryInfrastructureFreshness().then((next) => {
         if (!active) return;
         setState(next);
         if (next.status === "hidden") return;

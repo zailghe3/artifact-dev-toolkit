@@ -1,2 +1,8 @@
-import {CodexRunnerOperationalStatus} from "@/components/CodexRunnerOperationalStatus";import {getSafeCodexConnectionStatus} from "@/lib/codex-runner-status";import {codexRunnerAttemptDigest,parseWorkflowAttemptCoordinates} from "@/lib/codex-runner-correlation";
-export default async function Page({searchParams}:{searchParams:Promise<Record<string,string|string[]|undefined>>}){const query=await searchParams,coordinates=parseWorkflowAttemptCoordinates(query),expectedDigest=coordinates?codexRunnerAttemptDigest(coordinates):undefined;return <CodexRunnerOperationalStatus connection={await getSafeCodexConnectionStatus()} expectedDigest={expectedDigest}/>}
+import { redirect } from "next/navigation";
+
+export default async function Page({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const input = await searchParams;
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(input)) if (typeof value === "string") query.set(key, value);
+  redirect(`/diagnostics${query.size ? `?${query}` : ""}#codex-runner`);
+}

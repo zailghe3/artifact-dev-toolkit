@@ -81,3 +81,26 @@ export async function collectSafeRunnerDiagnostics(dependencies: Dependencies = 
   }
   return { connection, capabilities, authentication, control, environments, jobs: observation(jobsResult), authEnvironment: notObserved() };
 }
+
+/** The bounded observations needed to answer whether the Runner can accept work.
+ * Workspace, job history, sandbox, storage, and network probes intentionally remain
+ * behind explicit operator actions in the diagnostics UI. */
+export async function collectEssentialRunnerDiagnostics(dependencies: Dependencies = {}): Promise<SafeRunnerDiagnostics> {
+  const logger = dependencies.logger ?? console.error;
+  let client: RunnerDiagnosticClient;
+  try { client = (dependencies.clientFactory ?? getCodexRunnerClient)(); }
+  catch (error) {
+    const connection: SafeCodexConnectionStatus = error instanceof CodexRunnerError && error.category === "configuration_missing" ? { state: "configuration-missing", label: "Runner configuration missing" } : { state: "unavailable", label: "Runner unavailable" };
+    return { connection, capabilities: { state: "unavailable", reason: "unknown" }, authentication: unavailable(), control: unavailable(), environments: unavailable(), jobs: notObserved(), authEnvironment: notObserved() };
+  }
+  const capabilitiesResult = (await Promise.allSettled([client.capabilities()]))[0];
+  const capabilities: RunnerCapabilityObservation = capabilitiesResult.status === "fulfilled" ? { state: "available", value: capabilitiesResult.value } : { state: "unavailable", reason: capabilityFailure(capabilitiesResult.reason) };
+  if (capabilities.state === "unavailable") return { connection: connectionFrom(capabilities, unavailable()), capabilities, authentication: unavailable(), control: unavailable(), environments: unavailable(), jobs: notObserved(), authEnvironment: notObserved() };
+  const [authenticationResult, controlResult, environmentsResult] = await Promise.allSettled([client.authStatus(), client.controlStatus(), client.environments()]);
+  const authentication = observation(authenticationResult);
+  if (authenticationResult.status === "rejected") logger(JSON.stringify({ event: "codex_runner_diagnostics_failed", stage: "auth_status" }));
+  const environments: RunnerObservation<SafeRunnerEnvironmentDiagnostic[]> = environmentsResult.status === "fulfilled"
+    ? { state: "available", value: environmentsResult.value.map(environment => ({ environment, workspace: notObserved(), sandbox: notObserved() })) }
+    : unavailable();
+  return { connection: connectionFrom(capabilities, authentication), capabilities, authentication, control: observation(controlResult), environments, jobs: notObserved(), authEnvironment: notObserved() };
+}
