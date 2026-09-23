@@ -4,7 +4,7 @@ import {
   deploymentComponentImpact,
   hasUnclassifiedDeploymentChanges,
 } from '../lib/deployment-component-impact.js';
-import { resolveComponentFreshnessFromCompare } from '../lib/deployment-freshness-resolution.ts';
+import { resolveComponentFreshness, resolveComponentFreshnessFromCompare } from '../lib/deployment-freshness-resolution.ts';
 import { classifyChanges } from '../scripts/classify-changes.mjs';
 
 const samples = [
@@ -47,6 +47,28 @@ test('compare resolution is component-aware rather than exact-SHA-only', () => {
   assert.equal(resolveComponentFreshnessFromCompare('worker', workerChange, head).state, 'superseded');
   assert.equal(resolveComponentFreshnessFromCompare('runtime', workerChange, head).state, 'current');
   assert.equal(resolveComponentFreshnessFromCompare('runner', workerChange, head).state, 'current');
+});
+
+test('matching deployed head is current without an unnecessary comparison', async () => {
+  const head = 'a'.repeat(40);
+  let comparisons = 0;
+  assert.deepEqual(await resolveComponentFreshness('worker', head, head, async () => { comparisons++; }), { state: 'current', sourceHeadRevision: head });
+  assert.equal(comparisons, 0);
+});
+
+test('observed production revisions retain current Worker and Runtime when later changes do not impact Runtime', async () => {
+  const head = '22fc4bfb50e7c7a68e1a65cb97d8d7ba17744331';
+  const runtime = 'b7b1ce84a08e065bb998c02838d17f0264dfcbe2';
+  const comparison = { status: 'ahead', head_commit: { sha: head }, files: [{ filename: 'components/InfrastructureFreshnessIndicator.tsx' }] };
+  assert.equal((await resolveComponentFreshness('worker', head, head, async () => comparison)).state, 'current');
+  assert.equal((await resolveComponentFreshness('runtime', runtime, head, async () => comparison)).state, 'current');
+  assert.equal((await resolveComponentFreshness('runner', runtime, head, async () => comparison)).state, 'current');
+});
+
+test('a later Runtime image change makes an older Runtime superseded', async () => {
+  const head = 'a'.repeat(40), deployed = 'b'.repeat(40);
+  const comparison = { status: 'ahead', head_commit: { sha: head }, files: [{ filename: 'adt-runtime/src/server.ts' }] };
+  assert.equal((await resolveComponentFreshness('runtime', deployed, head, async () => comparison)).state, 'superseded');
 });
 
 test('compare resolution fails closed when the deployment classifier cannot classify a path', () => {

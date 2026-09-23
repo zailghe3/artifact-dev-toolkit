@@ -4,12 +4,12 @@ import { useEffect, useState } from "react";
 import {
   infrastructureFreshnessLabel,
   infrastructureRevisionLabel,
+  INFRASTRUCTURE_FRESHNESS_CLIENT_TIMEOUT_MS,
   parseInfrastructureFreshnessSnapshot,
   type InfrastructureFreshnessSnapshot,
 } from "@/lib/infrastructure-freshness";
 
 const CLIENT_TTL_MS = 2 * 60_000;
-const REQUEST_TIMEOUT_MS = 2_000;
 
 export type InfrastructureFreshnessQueryState =
   | { status: "checking" }
@@ -37,7 +37,7 @@ export async function queryInfrastructureFreshness(): Promise<InfrastructureFres
   if (inFlight) return inFlight;
   inFlight = (async () => {
     const controller = new AbortController();
-    const timer = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const timer = window.setTimeout(() => controller.abort(), INFRASTRUCTURE_FRESHNESS_CLIENT_TIMEOUT_MS);
     try {
       const response = await fetch("/api/infrastructure-freshness", { cache: "no-store", signal: controller.signal });
       if (response.status === 401 || response.status === 403) return { status: "hidden" };
@@ -111,7 +111,7 @@ export function InfrastructureFreshnessIndicator() {
   }, []);
 
   if (state.status === "hidden") return null;
-  const label = state.status === "checking" ? "Checking infra…" : state.status === "loaded" ? infrastructureFreshnessLabel(state.snapshot) : "Infra freshness unavailable";
+  const label = state.status === "checking" ? "Checking infra…" : state.status === "loaded" ? infrastructureFreshnessLabel(state.snapshot) : "Infrastructure freshness unavailable";
   const revisions = state.status === "loaded" ? infrastructureRevisionLabel(state.snapshot) : undefined;
   const tone = state.status === "loaded" && state.snapshot.state === "current"
     ? "text-emerald-700 dark:text-emerald-300"

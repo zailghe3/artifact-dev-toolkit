@@ -1,5 +1,6 @@
 import {
   aggregateInfrastructureFreshness,
+  INFRASTRUCTURE_FRESHNESS_SERVER_TIMEOUT_MS,
   type InfrastructureComponent,
   type InfrastructureComponentFreshness,
   type InfrastructureFreshnessSnapshot,
@@ -87,7 +88,7 @@ export async function collectInfrastructureFreshness(
   dependencies: InfrastructureFreshnessDependencies,
 ): Promise<InfrastructureFreshnessSnapshot> {
   const controller = new AbortController();
-  const timeoutMs = Math.max(250, Math.min(dependencies.timeoutMs ?? 1_500, 5_000));
+  const timeoutMs = Math.max(250, Math.min(dependencies.timeoutMs ?? INFRASTRUCTURE_FRESHNESS_SERVER_TIMEOUT_MS, 5_000));
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const signal = controller.signal;
   try {

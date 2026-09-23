@@ -45,3 +45,17 @@ export function resolveComponentFreshnessFromCompare(
     sourceHeadRevision,
   };
 }
+
+export async function resolveComponentFreshness(
+  component: InfrastructureComponent,
+  deployedRevision: string,
+  sourceHeadRevision: string,
+  loadComparison: () => Promise<unknown | undefined>,
+): Promise<InfrastructureComponentFreshness> {
+  if (deployedRevision === sourceHeadRevision) {
+    return { state: "current", sourceHeadRevision };
+  }
+  const comparison = await loadComparison();
+  if (comparison === undefined) return { state: "unknown" };
+  return resolveComponentFreshnessFromCompare(component, comparison, sourceHeadRevision);
+}
