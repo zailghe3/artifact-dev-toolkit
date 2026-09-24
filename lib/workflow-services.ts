@@ -8,7 +8,7 @@ import type {RunnerEnvironmentDescriptor,RunnerModelDescriptor} from "./codex-ru
 import {createWorkflowAdapterRegistry} from "./agent-runtime.ts";
 import {GitHubWorkflowConnectionDefinitionRepository} from "./workflow-connection-definition-repository.ts";
 import {GitAuthoritativeWorkflowProviderConnectionStore} from "./git-workflow-provider-connection-store.ts";
-import {validateOpenAIModel} from "./openai-models.ts";
+import {providerModelService} from "./provider-model-service.ts";
 import {RemoteOpenAIAgentsRuntime,type ADTRuntimeConfiguration} from "./adt-runtime-client.ts";
 import {D1ProviderCredentialVault,type ProviderCredentialVaultDatabase} from "./provider-credential-vault.ts";
 import {providerCredentialVaultV1KeyResolver} from "./provider-credential-vault-crypto.ts";
@@ -27,7 +27,7 @@ export async function getWorkflowEnvironment(){const {env}=await getCloudflareCo
 export async function getWorkflowRunStorage(){const env=await getWorkflowEnvironment();return new D1WorkflowRunStorage(env.AUTH_SESSIONS_DB as unknown as WorkflowD1Database);}
 export async function getProviderCredentialVault(){const env=await getWorkflowEnvironment();return new D1ProviderCredentialVault(env.AUTH_SESSIONS_DB as unknown as ProviderCredentialVaultDatabase,providerCredentialVaultV1KeyResolver(env.WORKFLOW_PROVIDER_SECRET_ENCRYPTION_KEY));}
 export function createWorkflowConnectionDefinitionRepository(access:RepositoryAccessContext){return new GitHubWorkflowConnectionDefinitionRepository(githubContentsRequest(access))}
-export async function getWorkflowProviderConnectionStore(access:RepositoryAccessContext){return new GitAuthoritativeWorkflowProviderConnectionStore(createWorkflowConnectionDefinitionRepository(access),validateOpenAIModel,await getProviderCredentialVault());}
+export async function getWorkflowProviderConnectionStore(access:RepositoryAccessContext){return new GitAuthoritativeWorkflowProviderConnectionStore(createWorkflowConnectionDefinitionRepository(access),(credential,model,connectionType)=>providerModelService.validate(connectionType??"",credential,model),await getProviderCredentialVault());}
 export async function getWorkflowCodexEnvironmentStore(){const env=await getWorkflowEnvironment();return new D1WorkflowCodexEnvironmentStore(env.AUTH_SESSIONS_DB as never);}
 export function getWorkflowAdapterRegistry(){return createWorkflowAdapterRegistry();}
 export function adtRuntimeConfiguration(env:Record<string,unknown>):ADTRuntimeConfiguration{return{baseUrl:typeof env.ADT_RUNTIME_BASE_URL==="string"?env.ADT_RUNTIME_BASE_URL:undefined,authSecret:typeof env.ADT_RUNTIME_AUTH_SECRET==="string"?env.ADT_RUNTIME_AUTH_SECRET:undefined,wrappingPublicKey:typeof env.ADT_RUNTIME_WRAPPING_PUBLIC_KEY==="string"?env.ADT_RUNTIME_WRAPPING_PUBLIC_KEY:undefined}}

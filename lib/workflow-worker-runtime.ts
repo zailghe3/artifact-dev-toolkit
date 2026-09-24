@@ -7,7 +7,9 @@ import { D1WorkflowRunStorage, type WorkflowD1Database } from "./workflow-d1-sto
 import { createAgentRuntimeRegistry } from "./agent-runtime.ts";
 import { codexRunnerDescriptor,resolveConnection } from "./workflow-connections.ts";
 import { executeDurableGraphNodeTurn,MAX_WORKFLOW_RUN_MS,NO_PLATFORM_RETRY, type DurableStep } from "./workflow-durable-driver.ts";
-import {resolveGitSnapshotCredential} from "./git-workflow-provider-connection-store.ts";
+import {resolveApiKeySnapshotCredential} from "./git-workflow-provider-connection-store.ts";
+import {requireProviderConnectionType} from "./provider-connection-types.ts";
+import {resolveAuthenticationForExecution} from "./provider-authentication-lifecycle.ts";
 import {D1ProviderCredentialVault,type ProviderCredentialVaultDatabase} from "./provider-credential-vault.ts";
 import {providerCredentialVaultV1KeyResolver} from "./provider-credential-vault-crypto.ts";
 import type {ConnectionDescriptor,ResolvedConnection} from "./workflow-connections.ts";
@@ -29,7 +31,7 @@ export function createWorkflowADTRuntimeConfiguration(env:Record<string,string|u
 
 export function createWorkflowExecutionConnectionResolver(env:CloudflareEnv){
  const vault=new D1ProviderCredentialVault(env.AUTH_SESSIONS_DB as unknown as ProviderCredentialVaultDatabase,providerCredentialVaultV1KeyResolver(env.WORKFLOW_PROVIDER_SECRET_ENCRYPTION_KEY));
- return (key:string,snapshot?:ConnectionDescriptor):Promise<ResolvedConnection>=>snapshot?resolveGitSnapshotCredential(key,snapshot,vault):Promise.reject(new Error("connection_unavailable"));
+ return (key:string,snapshot?:ConnectionDescriptor):Promise<ResolvedConnection>=>snapshot?resolveAuthenticationForExecution(requireProviderConnectionType(snapshot.adapter),()=>resolveApiKeySnapshotCredential(key,snapshot,vault)):Promise.reject(new Error("connection_unavailable"));
 }
 
 function executionComposition(env:CloudflareEnv,sourceBranch?:string){const resolveProviderConnection=createWorkflowExecutionConnectionResolver(env),runtimeEnv=env as unknown as Record<string,string|undefined>,runtimes=createAgentRuntimeRegistry(undefined,createWorkflowADTRuntimeConfiguration(runtimeEnv)),resolveConnectionForRun=(key:string,snapshot?:ConnectionDescriptor)=>key==="deterministic-test"?Promise.resolve(resolveConnection(key,env as unknown as Record<string,string|undefined>)):key==="codex-primary"?Promise.resolve({...codexRunnerDescriptor(true),serverConfiguration:{baseUrl:env.CODEX_RUNNER_BASE_URL,accessClientId:env.CODEX_RUNNER_ACCESS_CLIENT_ID,accessClientSecret:env.CODEX_RUNNER_ACCESS_CLIENT_SECRET,sharedSecret:env.CODEX_RUNNER_SHARED_SECRET},...(sourceBranch?{privateOptions:{sourceBranch}}:{})}):resolveProviderConnection(key,snapshot);return{runtimes,resolveConnectionForRun,runtimeEnv}}
