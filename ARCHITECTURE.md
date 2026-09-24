@@ -100,7 +100,7 @@ The product invariants are in [`specs/agent-workflows.md`](specs/agent-workflows
 ### Provider connections
 
 - OpenAI Responses and OpenAI Agents SDK are supported server-side execution providers.
-- Git-managed provider connection types centrally define their safe configuration, authentication kind, execution path, and capabilities; unsupported types fail closed.
+- Git-managed provider connection types centrally define their safe configuration, authentication kind, model policy, Agent option family, execution path, and capabilities; unsupported types fail closed.
 - Git definitions under `connections/` are authoritative for current non-secret connection configuration.
 - Provider credential values live in the permanent encrypted ADT vault and are never stored in Agent or Workflow definitions.
 - Historical provider rows or retired credential sources may remain physically present but are not current execution inputs.

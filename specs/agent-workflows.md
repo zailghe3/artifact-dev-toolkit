@@ -112,7 +112,7 @@
 ## 9. Connections and credentials
 
 - Agents reference connections by stable application-visible identity.
-- A connection type determines the execution adapter, authentication kind, safe provider configuration, and supported execution capabilities; Agents do not select a separate Agent type.
+- A connection type determines the execution adapter, authentication kind, safe provider configuration, model requirements where applicable, supported Agent option family, and execution capabilities; Agents do not select a separate Agent type.
 - Git is authoritative for current non-secret connection configuration.
 - Current provider credentials use logical ADT-vault references; credential values are permanent encrypted application state and are managed through a write-only interface.
 - Credential resolution is source-exact and never falls back to retired or same-ID historical state.
