@@ -29,6 +29,9 @@ Next.js -> OpenNext -> Cloudflare Worker
     +--> OpenAI
     |       - direct Responses execution path
     |
+    +--> Anthropic
+    |       - direct Messages execution path
+    |
     +--> authenticated ADT Runtime
     |       - LangGraph Workflow sequencing
     |       - execution-heavy provider SDKs
@@ -99,7 +102,7 @@ The product invariants are in [`specs/agent-workflows.md`](specs/agent-workflows
 
 ### Provider connections
 
-- OpenAI Responses and OpenAI Agents SDK are supported server-side execution providers.
+- OpenAI Responses, OpenAI Agents SDK, and Anthropic Messages are supported server-side execution providers.
 - Git-managed provider connection types centrally define their safe configuration, authentication family, model policy, Agent option family, execution path, and capabilities; unsupported types and authentication lifecycles fail closed.
 - Git definitions under `connections/` are authoritative for validated non-secret connection configuration; only explicitly execution-safe provider fields may enter run snapshots.
 - Provider credential values live in the permanent encrypted ADT vault and are never stored in Agent or Workflow definitions.

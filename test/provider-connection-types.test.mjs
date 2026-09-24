@@ -20,9 +20,9 @@ test('policy shape supports non-OpenAI authentication, model, and Agent-setting 
  assert.equal(getProviderConnectionType(futurePolicy.id),undefined);assert.throws(()=>requireProviderConnectionType(futurePolicy.id),/connection_unavailable/);
 });
 
-test('registry contains only safe current OpenAI connection policies',()=>{
- assert.deepEqual(providerConnectionTypes.map(item=>item.id),['openai-responses','openai-agents']);
- assert.equal(getProviderConnectionType('openai-agents').execution,'adt-runtime');assert.equal(getProviderConnectionType('openai-responses').agentSettings,'openai-model');
+test('registry contains only safe current provider connection policies',()=>{
+ assert.deepEqual(providerConnectionTypes.map(item=>item.id),['openai-responses','openai-agents','anthropic-messages']);
+ assert.equal(getProviderConnectionType('openai-agents').execution,'adt-runtime');const anthropic=getProviderConnectionType('anthropic-messages');assert.equal(anthropic.provider,'anthropic');assert.equal(anthropic.authentication,'api-key');assert.deepEqual(anthropic.model,{required:true,discovery:true,discoveryGuidance:'Load models available to this authenticated Anthropic account or workspace.'});assert.deepEqual(anthropic.capabilities,{asynchronous:false,cancellation:false});assert.equal(anthropic.execution,'direct');assert.equal(anthropic.agentSettings,'anthropic-messages');assert.equal(anthropic.safeConfiguration.parse(undefined),undefined);assert.equal(getProviderConnectionType('openai-responses').agentSettings,'openai-model');
  assert.doesNotMatch(JSON.stringify(providerConnectionTypes),/secret|token|credential/i);
 });
 
