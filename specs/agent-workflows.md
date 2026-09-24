@@ -147,7 +147,7 @@
 
 ### Anthropic Messages execution
 
-- Anthropic Messages uses the normal Git-managed API-key connection lifecycle and encrypted ADT vault rather than a separate credential or Agent architecture.
+- Anthropic Messages uses the normal Git-managed API-key connection lifecycle and encrypted ADT vault rather than a separate credential or Agent architecture. An optional non-secret Anthropic Workspace ID may be stored in Git and frozen with the safe execution context; API credentials remain vault-only.
 - A connection selects a provider-discovered Claude model before an Agent can use it.
 - The resolved Agent prompt is the Anthropic system prompt; the Workflow handoff is one user message. Neither value is implicitly transformed.
 - Execution is one synchronous direct Messages request with no provider task or cancellation identity.

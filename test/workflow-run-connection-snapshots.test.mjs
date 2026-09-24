@@ -39,3 +39,5 @@ test('Workflow validation still rejects an unavailable Codex Runner before snaps
 });
 
 test('safe provider execution configuration survives snapshots without credentials',()=>{const connection=descriptor('synthetic','synthetic-provider',{providerConfiguration:{tenantId:'tenant-1',clientId:'client-1'},credential:'secret',privateOptions:{accessToken:'secret'}}),snapshot=safeConnectionSnapshot(connection);assert.deepEqual(snapshot.providerConfiguration,{tenantId:'tenant-1',clientId:'client-1'});assert.doesNotMatch(JSON.stringify(snapshot),/accessToken|secret/)});
+
+test('Anthropic snapshot freezes only safe Workspace ID configuration',()=>{const connection=descriptor('anthropic','anthropic-messages',{providerConfiguration:{workspaceId:'wrkspc_team'},credential:'api-secret',credentialSource:'adt-vault',credentialSecretRef:'sec_ref'}),snapshot=safeConnectionSnapshot(connection);assert.deepEqual(snapshot.providerConfiguration,{workspaceId:'wrkspc_team'});assert.equal(snapshot.credentialSecretRef,'sec_ref');assert.doesNotMatch(JSON.stringify(snapshot),/api-secret|Authorization/)})

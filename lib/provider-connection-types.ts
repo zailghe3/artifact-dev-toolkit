@@ -19,10 +19,12 @@ export function createStringSafeConfigurationPolicy(fields:Record<string,{requir
 export function normalizeProviderSafeConfiguration(policy:Pick<ProviderConnectionTypePolicy,"safeConfiguration">,value:unknown){return policy.safeConfiguration.parse(value)}
 const openAIModel={required:true,discovery:true,discoveryGuidance:"Search the models available to this authenticated OpenAI project."} as const;
 const anthropicModel={required:true,discovery:true,discoveryGuidance:"Load models available to this authenticated Anthropic account or workspace."} as const;
+const anthropicConfigurationBase=createStringSafeConfigurationPolicy({workspaceId:{maxLength:128,pattern:/^wrkspc_[A-Za-z0-9_-]+$/}});
+const anthropicSafeConfiguration:ProviderSafeConfigurationPolicy={forExecution:true,parse(value){if(value===undefined)return undefined;const parsed=anthropicConfigurationBase.parse(value)!;return Object.keys(parsed).length?parsed:undefined}};
 const types:Record<ProviderConnectionTypeId,ProviderConnectionType>={
  "openai-responses":{id:"openai-responses",provider:"openai",label:"OpenAI Responses",catalogueLabel:"OpenAI Responses",endpoint:"https://api.openai.com/v1",authentication:"api-key",model:openAIModel,capabilities:{asynchronous:true,cancellation:true},execution:"direct",agentSettings:"openai-model",safeConfiguration:noSafeConfiguration},
  "openai-agents":{id:"openai-agents",provider:"openai",label:"OpenAI Agents (ADT Runtime)",catalogueLabel:"OpenAI Agents / ADT Runtime",endpoint:"https://api.openai.com/v1",authentication:"api-key",model:openAIModel,capabilities:{asynchronous:false,cancellation:false},execution:"adt-runtime",agentSettings:"openai-model",safeConfiguration:noSafeConfiguration},
- "anthropic-messages":{id:"anthropic-messages",provider:"anthropic",label:"Anthropic",catalogueLabel:"Anthropic",endpoint:"https://api.anthropic.com",authentication:"api-key",model:anthropicModel,capabilities:{asynchronous:false,cancellation:false},execution:"direct",agentSettings:"anthropic-messages",safeConfiguration:noSafeConfiguration},
+ "anthropic-messages":{id:"anthropic-messages",provider:"anthropic",label:"Anthropic",catalogueLabel:"Anthropic",endpoint:"https://api.anthropic.com",authentication:"api-key",model:anthropicModel,capabilities:{asynchronous:false,cancellation:false},execution:"direct",agentSettings:"anthropic-messages",safeConfiguration:anthropicSafeConfiguration},
 };
 
 export function getProviderConnectionType(value:string):ProviderConnectionType|undefined{return types[value as ProviderConnectionTypeId]}

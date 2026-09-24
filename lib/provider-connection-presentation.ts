@@ -45,5 +45,6 @@ export function duplicateConnectionDraft(source: ConnectionDescriptor, existingK
     name: `${source.name.slice(0, CONNECTION_NAME_MAX_LENGTH - nameSuffix.length).trimEnd()}${nameSuffix}`,
     model: source.defaultModel ?? '',
     runtime: source.adapter as ProviderConnectionTypeId,
+    ...(source.providerConfiguration ? { providerConfiguration: source.providerConfiguration } : {}),
   };
 }

@@ -55,3 +55,5 @@ test('legacy Codex Cloud environment management page and navigation are retired'
  const navigation=await readFile(new URL('../lib/workflow-navigation.ts',import.meta.url),'utf8');
  assert.doesNotMatch(navigation,/Codex environments|codex-environments/);
 });
+
+test('Anthropic duplication copies only safe workspace configuration',()=>{const source={key:'anthropic',name:'Anthropic',adapter:'anthropic-messages',defaultModel:'claude',providerConfiguration:{workspaceId:'wrkspc_team'},enabled:true,configured:true,credentialSource:'adt-vault',credentialSecretRef:'sec_secret',repositoryRevision:'revision',management:'git',capabilities:{asynchronous:false,cancellation:false}},draft=duplicateConnectionDraft(source,new Set(['anthropic']));assert.deepEqual(draft.providerConfiguration,{workspaceId:'wrkspc_team'});assert.doesNotMatch(JSON.stringify(draft),/sec_secret|credential|revision|configured/)})
