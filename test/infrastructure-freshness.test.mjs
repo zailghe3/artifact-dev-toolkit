@@ -4,12 +4,15 @@ import {
   aggregateInfrastructureFreshness,
   infrastructureFreshnessLabel,
   infrastructureFreshnessClientTtl,
+  infrastructureFreshnessServerTtl,
   infrastructureRevisionLabel,
   parseInfrastructureFreshnessSnapshot,
   INFRASTRUCTURE_FRESHNESS_CLIENT_TTL_MS,
   INFRASTRUCTURE_FRESHNESS_CLIENT_TIMEOUT_MS,
   INFRASTRUCTURE_FRESHNESS_SERVER_TIMEOUT_MS,
+  INFRASTRUCTURE_FRESHNESS_SERVER_CACHE_MS,
   INFRASTRUCTURE_FRESHNESS_UNKNOWN_CLIENT_TTL_MS,
+  INFRASTRUCTURE_FRESHNESS_UNKNOWN_SERVER_CACHE_MS,
 } from '../lib/infrastructure-freshness.ts';
 import { collectInfrastructureFreshness } from '../lib/infrastructure-freshness-service.ts';
 import { resolveComponentFreshness } from '../lib/deployment-freshness-resolution.ts';
@@ -60,6 +63,14 @@ test('client cache retries any component uncertainty sooner regardless of aggreg
   assert.equal(infrastructureFreshnessClientTtl(snapshot(component('current'), component('superseded'), component('current'))), INFRASTRUCTURE_FRESHNESS_CLIENT_TTL_MS);
   assert.equal(infrastructureFreshnessClientTtl(snapshot(component('unknown'), component('current'), component('current'))), INFRASTRUCTURE_FRESHNESS_UNKNOWN_CLIENT_TTL_MS);
   assert.equal(infrastructureFreshnessClientTtl(snapshot(component('unknown'), component('current'), component('superseded'))), INFRASTRUCTURE_FRESHNESS_UNKNOWN_CLIENT_TTL_MS);
+});
+
+test('server cache retries any component uncertainty sooner regardless of aggregate state', () => {
+  assert.equal(infrastructureFreshnessServerTtl(snapshot(component('current'), component('current'), component('current'))), INFRASTRUCTURE_FRESHNESS_SERVER_CACHE_MS);
+  assert.equal(infrastructureFreshnessServerTtl(snapshot(component('current'), component('current'), component('superseded'))), INFRASTRUCTURE_FRESHNESS_SERVER_CACHE_MS);
+  assert.equal(infrastructureFreshnessServerTtl(snapshot(component('unknown'), component('current'), component('current'))), INFRASTRUCTURE_FRESHNESS_UNKNOWN_SERVER_CACHE_MS);
+  assert.equal(infrastructureFreshnessServerTtl(snapshot(component('unknown'), component('current'), component('superseded'))), INFRASTRUCTURE_FRESHNESS_UNKNOWN_SERVER_CACHE_MS);
+  assert.equal(infrastructureFreshnessServerTtl(snapshot(component('current'), component('superseded'), component('unknown'))), INFRASTRUCTURE_FRESHNESS_UNKNOWN_SERVER_CACHE_MS);
 });
 
 test('identical concurrent GitHub evidence loads are coalesced and successful evidence is cached', async () => {

@@ -25,11 +25,23 @@ export const INFRASTRUCTURE_FRESHNESS_SERVER_TIMEOUT_MS = 3_500;
 export const INFRASTRUCTURE_FRESHNESS_CLIENT_TIMEOUT_MS = 5_000;
 export const INFRASTRUCTURE_FRESHNESS_CLIENT_TTL_MS = 2 * 60_000;
 export const INFRASTRUCTURE_FRESHNESS_UNKNOWN_CLIENT_TTL_MS = 15_000;
+export const INFRASTRUCTURE_FRESHNESS_SERVER_CACHE_MS = 60_000;
+export const INFRASTRUCTURE_FRESHNESS_UNKNOWN_SERVER_CACHE_MS = 15_000;
+
+export function infrastructureFreshnessHasUnknownComponent(snapshot: InfrastructureFreshnessSnapshot): boolean {
+  return componentKeys.some((component) => snapshot.components[component].state === "unknown");
+}
 
 export function infrastructureFreshnessClientTtl(snapshot: InfrastructureFreshnessSnapshot): number {
-  return componentKeys.some((component) => snapshot.components[component].state === "unknown")
+  return infrastructureFreshnessHasUnknownComponent(snapshot)
     ? INFRASTRUCTURE_FRESHNESS_UNKNOWN_CLIENT_TTL_MS
     : INFRASTRUCTURE_FRESHNESS_CLIENT_TTL_MS;
+}
+
+export function infrastructureFreshnessServerTtl(snapshot: InfrastructureFreshnessSnapshot): number {
+  return infrastructureFreshnessHasUnknownComponent(snapshot)
+    ? INFRASTRUCTURE_FRESHNESS_UNKNOWN_SERVER_CACHE_MS
+    : INFRASTRUCTURE_FRESHNESS_SERVER_CACHE_MS;
 }
 
 export function aggregateInfrastructureFreshness(

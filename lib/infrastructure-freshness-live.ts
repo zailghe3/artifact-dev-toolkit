@@ -8,15 +8,16 @@ import {
   collectInfrastructureFreshness,
   type InfrastructureRevisionFreshnessResolver,
 } from "./infrastructure-freshness-service.ts";
-import type { InfrastructureFreshnessSnapshot } from "./infrastructure-freshness.ts";
-import { INFRASTRUCTURE_FRESHNESS_SERVER_TIMEOUT_MS } from "./infrastructure-freshness.ts";
+import {
+  infrastructureFreshnessServerTtl,
+  INFRASTRUCTURE_FRESHNESS_SERVER_TIMEOUT_MS,
+  type InfrastructureFreshnessSnapshot,
+} from "./infrastructure-freshness.ts";
 import { InfrastructureFreshnessEvidenceCache } from "./infrastructure-freshness-evidence-cache.ts";
 
 const SOURCE_REPOSITORY = deploymentMetadata?.repository ?? "zailghe3/artifact-dev-toolkit";
 const FULL_SHA = /^[0-9a-f]{40}$/i;
 const REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
-const SERVER_CACHE_MS = 60_000;
-const SERVER_UNKNOWN_CACHE_MS = 15_000;
 const GITHUB_EVIDENCE_CACHE_MS = 2 * 60_000;
 
 let cached: { expiresAt: number; snapshot: InfrastructureFreshnessSnapshot } | undefined;
@@ -137,7 +138,7 @@ export async function getInfrastructureFreshnessSnapshot(now = Date.now()): Prom
   inFlight = collectLiveInfrastructureFreshness().then((snapshot) => {
     cached = {
       snapshot,
-      expiresAt: Date.now() + (snapshot.state === "unknown" ? SERVER_UNKNOWN_CACHE_MS : SERVER_CACHE_MS),
+      expiresAt: Date.now() + infrastructureFreshnessServerTtl(snapshot),
     };
     return snapshot;
   }).finally(() => { inFlight = undefined; });
