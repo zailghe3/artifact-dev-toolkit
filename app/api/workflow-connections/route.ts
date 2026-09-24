@@ -10,7 +10,7 @@ import {createApiKeyVaultConnection} from "@/lib/provider-api-key-connection-cre
 import {createConnectionForAuthentication} from "@/lib/provider-authentication-lifecycle";
 
 export async function GET(request:Request){const auth=await requireApiRepositoryAccess(request);if(auth instanceof Response)return auth;return NextResponse.json({connections:await listWorkflowConnectionDescriptors(undefined,auth.access)},{headers:noStoreHeaders});}
-const key=/^[a-z0-9]+(?:-[a-z0-9]+)*$/,input=z.object({connectionKey:z.string().max(80).regex(key),displayName:z.string().trim().min(1).max(120),adapter:z.enum(PROVIDER_CONNECTION_TYPE_IDS),model:z.string().trim().min(1).max(120).optional(),credential:z.string().min(1).max(8192).optional()}).strict();
+const key=/^[a-z0-9]+(?:-[a-z0-9]+)*$/,input=z.object({connectionKey:z.string().max(80).regex(key),displayName:z.string().trim().min(1).max(120),adapter:z.enum(PROVIDER_CONNECTION_TYPE_IDS),model:z.string().trim().min(1).max(120).optional(),configuration:z.unknown().optional(),credential:z.string().min(1).max(8192).optional()}).strict();
 function sameOrigin(r:Request){const origin=r.headers.get("origin");return !!origin&&origin===new URL(r.url).origin;}
 
 /** Dispatch authentication before reserving secrets or mutating Git. */

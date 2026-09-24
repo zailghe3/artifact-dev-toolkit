@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {resolveWorkflowRunConnectionSnapshot} from '../lib/workflow-run-connection-snapshots.ts';
+import {safeConnectionSnapshot} from '../lib/workflow-connections.ts';
 import {validateWorkflowReferences,agentDefinitionSchema} from '../lib/workflow-definitions.ts';
 
 const capabilities={asynchronous:true,cancellation:true};
@@ -36,3 +37,5 @@ test('Workflow validation still rejects an unavailable Codex Runner before snaps
  const gpt=agentDefinitionSchema.parse({schemaVersion:2,id:'gpt',name:'GPT',description:'',status:'draft',prompt:{source:'custom',text:'First.'},connectionKey:'openai-primary'}),codex=agentDefinitionSchema.parse({schemaVersion:2,id:'codex',name:'Codex',description:'',status:'draft',prompt:{source:'custom',text:'Second.'},connectionKey:'codex-primary',adapterOptions:{environmentKey:'ready'}}),workflow={schemaVersion:2,id:'mixed',name:'Mixed',description:'',status:'draft',nodes:[{id:'gpt-node',blockType:'agent',blockVersion:1,config:{agentId:'gpt'}},{id:'codex-node',blockType:'agent',blockVersion:1,config:{agentId:'codex'}}],edges:[{id:'handoff',source:'gpt-node',target:'codex-node'}],limits:{maxStepExecutions:2}};
  await assert.rejects(validateWorkflowReferences(workflow,[gpt,codex],new Set(['openai-primary'])),/connection_unavailable/);
 });
+
+test('safe provider execution configuration survives snapshots without credentials',()=>{const connection=descriptor('synthetic','synthetic-provider',{providerConfiguration:{tenantId:'tenant-1',clientId:'client-1'},credential:'secret',privateOptions:{accessToken:'secret'}}),snapshot=safeConnectionSnapshot(connection);assert.deepEqual(snapshot.providerConfiguration,{tenantId:'tenant-1',clientId:'client-1'});assert.doesNotMatch(JSON.stringify(snapshot),/accessToken|secret/)});
