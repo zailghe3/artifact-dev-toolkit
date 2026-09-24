@@ -3,13 +3,13 @@
 import { useEffect, useState } from "react";
 import {
   infrastructureFreshnessLabel,
+  infrastructureFreshnessClientTtl,
   infrastructureRevisionLabel,
+  INFRASTRUCTURE_FRESHNESS_CLIENT_TIMEOUT_MS,
+  INFRASTRUCTURE_FRESHNESS_CLIENT_TTL_MS,
   parseInfrastructureFreshnessSnapshot,
   type InfrastructureFreshnessSnapshot,
 } from "@/lib/infrastructure-freshness";
-
-const CLIENT_TTL_MS = 2 * 60_000;
-const REQUEST_TIMEOUT_MS = 2_000;
 
 export type InfrastructureFreshnessQueryState =
   | { status: "checking" }
@@ -28,7 +28,7 @@ function readMemoryCache(now = Date.now()): CachedValue | undefined {
 }
 
 function writeMemoryCache(snapshot: InfrastructureFreshnessSnapshot, now = Date.now()) {
-  memoryCache = { expiresAt: now + CLIENT_TTL_MS, snapshot };
+  memoryCache = { expiresAt: now + infrastructureFreshnessClientTtl(snapshot), snapshot };
 }
 
 export async function queryInfrastructureFreshness(): Promise<InfrastructureFreshnessQueryState> {
@@ -37,7 +37,7 @@ export async function queryInfrastructureFreshness(): Promise<InfrastructureFres
   if (inFlight) return inFlight;
   inFlight = (async () => {
     const controller = new AbortController();
-    const timer = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const timer = window.setTimeout(() => controller.abort(), INFRASTRUCTURE_FRESHNESS_CLIENT_TIMEOUT_MS);
     try {
       const response = await fetch("/api/infrastructure-freshness", { cache: "no-store", signal: controller.signal });
       if (response.status === 401 || response.status === 403) return { status: "hidden" };
@@ -92,7 +92,7 @@ export function InfrastructureFreshnessIndicator() {
         setState(next);
         if (next.status === "hidden") return;
         const cached = readMemoryCache();
-        schedule(cached ? cached.expiresAt - Date.now() : CLIENT_TTL_MS);
+        schedule(cached ? cached.expiresAt - Date.now() : INFRASTRUCTURE_FRESHNESS_CLIENT_TTL_MS);
       });
     };
     const refreshExpiredOnReturn = () => {
@@ -111,7 +111,7 @@ export function InfrastructureFreshnessIndicator() {
   }, []);
 
   if (state.status === "hidden") return null;
-  const label = state.status === "checking" ? "Checking infra…" : state.status === "loaded" ? infrastructureFreshnessLabel(state.snapshot) : "Infra freshness unavailable";
+  const label = state.status === "checking" ? "Checking infra…" : state.status === "loaded" ? infrastructureFreshnessLabel(state.snapshot) : "Infrastructure freshness unavailable";
   const revisions = state.status === "loaded" ? infrastructureRevisionLabel(state.snapshot) : undefined;
   const tone = state.status === "loaded" && state.snapshot.state === "current"
     ? "text-emerald-700 dark:text-emerald-300"

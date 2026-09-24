@@ -52,8 +52,18 @@ test('footer freshness renders first, refreshes after expiry, and never polls wh
       runner: { state: 'current', deployedRevision: '3'.repeat(40), sourceHeadRevision },
     },
   };
+  const uncertainUpdate = {
+    ...snapshot,
+    state: 'superseded',
+    components: {
+      ...snapshot.components,
+      worker: { state: 'unknown' },
+      runner: { ...snapshot.components.runner, state: 'superseded' },
+    },
+  };
+  let responseSnapshot = snapshot;
   let calls = 0;
-  globalThis.fetch = async () => { calls++; return Response.json(snapshot); };
+  globalThis.fetch = async () => { calls++; return Response.json(responseSnapshot); };
   let view;
   try {
     await act(async () => { view = create(React.createElement(InfrastructureFreshnessIndicator)); });
@@ -87,6 +97,7 @@ test('footer freshness renders first, refreshes after expiry, and never polls wh
     assert.equal([...timers.values()].some(timer => timer.milliseconds >= 120_000), false, 'hidden expiry should wait for an explicit return signal');
 
     visibilityState = 'visible';
+    responseSnapshot = uncertainUpdate;
     documentListeners.get('visibilitychange')();
     assert.equal(typeof deferredLoad?.callback, 'function', 'returning to an expired tab should schedule a background refresh');
     const resumedLoad = deferredLoad;
@@ -94,12 +105,21 @@ test('footer freshness renders first, refreshes after expiry, and never polls wh
     deferredLoad = undefined;
     await act(async () => { resumedLoad.callback(); await Promise.resolve(); });
     assert.equal(calls, 3);
+    assert.match(text(view.root), /Runner update available/);
+
+    const shortExpiry = [...timers.entries()].find(([, timer]) => timer.milliseconds === 15_000);
+    assert.ok(shortExpiry, 'a superseded aggregate with component uncertainty should use the short retry window');
+    responseSnapshot = snapshot;
+    now += 15_001;
+    timers.delete(shortExpiry[0]);
+    await act(async () => { shortExpiry[1].callback(); await Promise.resolve(); });
+    assert.equal(calls, 4, 'component uncertainty must refresh after the short TTL');
     assert.match(text(view.root), /Infra current/);
     await act(async () => view.unmount());
 
     deferredLoad = undefined;
     await act(async () => { view = create(React.createElement(InfrastructureFreshnessIndicator)); });
-    assert.equal(calls, 3, 'a still-live cache must not start another request on remount/navigation-like reuse');
+    assert.equal(calls, 4, 'a still-live cache must not start another request on remount/navigation-like reuse');
     assert.match(text(view.root), /Infra current/);
     assert.equal(deferredLoad, undefined);
     await act(async () => view.unmount());

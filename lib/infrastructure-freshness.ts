@@ -18,6 +18,32 @@ const componentKeys: InfrastructureComponent[] = ["worker", "runtime", "runner"]
 const componentStates = new Set<InfrastructureComponentFreshnessState>(["current", "superseded", "unknown"]);
 const fullSha = /^[0-9a-f]{40}$/i;
 
+// Keep the browser budget comfortably above the bounded server collection so
+// serialization and transport do not turn a completed observation into a
+// client-side timeout.
+export const INFRASTRUCTURE_FRESHNESS_SERVER_TIMEOUT_MS = 3_500;
+export const INFRASTRUCTURE_FRESHNESS_CLIENT_TIMEOUT_MS = 5_000;
+export const INFRASTRUCTURE_FRESHNESS_CLIENT_TTL_MS = 2 * 60_000;
+export const INFRASTRUCTURE_FRESHNESS_UNKNOWN_CLIENT_TTL_MS = 15_000;
+export const INFRASTRUCTURE_FRESHNESS_SERVER_CACHE_MS = 60_000;
+export const INFRASTRUCTURE_FRESHNESS_UNKNOWN_SERVER_CACHE_MS = 15_000;
+
+export function infrastructureFreshnessHasUnknownComponent(snapshot: InfrastructureFreshnessSnapshot): boolean {
+  return componentKeys.some((component) => snapshot.components[component].state === "unknown");
+}
+
+export function infrastructureFreshnessClientTtl(snapshot: InfrastructureFreshnessSnapshot): number {
+  return infrastructureFreshnessHasUnknownComponent(snapshot)
+    ? INFRASTRUCTURE_FRESHNESS_UNKNOWN_CLIENT_TTL_MS
+    : INFRASTRUCTURE_FRESHNESS_CLIENT_TTL_MS;
+}
+
+export function infrastructureFreshnessServerTtl(snapshot: InfrastructureFreshnessSnapshot): number {
+  return infrastructureFreshnessHasUnknownComponent(snapshot)
+    ? INFRASTRUCTURE_FRESHNESS_UNKNOWN_SERVER_CACHE_MS
+    : INFRASTRUCTURE_FRESHNESS_SERVER_CACHE_MS;
+}
+
 export function aggregateInfrastructureFreshness(
   components: InfrastructureFreshnessSnapshot["components"],
 ): InfrastructureFreshnessState {
@@ -58,11 +84,11 @@ export function parseInfrastructureFreshnessSnapshot(value: unknown): Infrastruc
 
 export function infrastructureFreshnessLabel(snapshot: InfrastructureFreshnessSnapshot): string {
   if (snapshot.state === "current") return "Infra current";
-  if (snapshot.state === "unknown") return "Infra freshness unavailable";
-  const labels: Record<InfrastructureComponent, string> = { worker: "Worker", runtime: "Runtime", runner: "Runner" };
+  const labels: Record<InfrastructureComponent, string> = { worker: "App", runtime: "Runtime", runner: "Runner" };
   const stale = componentKeys.filter((key) => snapshot.components[key].state === "superseded").map((key) => labels[key]);
-  const unknown = componentKeys.filter((key) => snapshot.components[key].state === "unknown").map((key) => labels[key]);
-  return `Update pending${stale.length ? ` · ${stale.join(" + ")}` : ""}${unknown.length ? ` · Unknown: ${unknown.join(" + ")}` : ""}`;
+  if (stale.length === 1) return `${stale[0]} update available`;
+  if (stale.length > 1) return `Updates available · ${stale.join(" + ")}`;
+  return "Infrastructure freshness unavailable";
 }
 
 function shortRevision(value: string | undefined): string {
@@ -70,5 +96,10 @@ function shortRevision(value: string | undefined): string {
 }
 
 export function infrastructureRevisionLabel(snapshot: InfrastructureFreshnessSnapshot): string {
-  return `Runtime ${shortRevision(snapshot.components.runtime.deployedRevision)} · Runner ${shortRevision(snapshot.components.runner.deployedRevision)}`;
+  return (["runtime", "runner"] as const)
+    .flatMap((component) => {
+      const revision = snapshot.components[component].deployedRevision;
+      return revision ? [`${component === "runtime" ? "Runtime" : "Runner"} ${shortRevision(revision)}`] : [];
+    })
+    .join(" · ");
 }

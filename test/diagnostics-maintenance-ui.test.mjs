@@ -39,7 +39,7 @@ test("Maintenance due includes only confirmed component-aware supersession", () 
   assert.equal(infrastructureMaintenanceItem({ state: "unknown", checkedAt: "2026-09-22T00:00:00.000Z", components: { ...components, runtime: { state: "unknown" } } }), undefined);
   const item = infrastructureMaintenanceItem({ state: "superseded", checkedAt: "2026-09-22T00:00:00.000Z", components: { ...components, worker: { state: "superseded", deployedRevision: "a".repeat(40), sourceHeadRevision: "b".repeat(40) }, runtime: { state: "unknown" } } });
   assert.equal(item.href, "#application-control-plane");
-  assert.match(item.message, /Update pending · Worker · Unknown: Runtime/);
+  assert.equal(item.message, "App update available");
 });
 
 test("page-level Maintenance due is wired to the on-demand freshness result", async () => {
@@ -64,8 +64,8 @@ test("freshness re-query clears stale snapshot, revisions, copy data, and mainte
   const render = () => JSON.stringify(tree.toJSON()), query = async () => renderer.act(async () => { const button = tree.root.findAllByType("button").find(item => item.props["aria-busy"] !== undefined); await button.props.onClick(); });
   assert.match(render(), /Not queried/); assert.doesNotMatch(render(), /Maintenance due/);
   await query(); assert.match(render(), /Infra current/); assert.doesNotMatch(render(), /Maintenance due/);
-  await query(); assert.match(render(), /Update pending.*Worker/); assert.match(render(), /Maintenance due/); assert.match(render(), /bbbbbbbbbbbb/);
-  await query(); assert.match(render(), /Freshness unavailable/); assert.doesNotMatch(render(), /Maintenance due|bbbbbbbbbbbb|Component revisions|Update pending/);
+  await query(); assert.match(render(), /App update available/); assert.match(render(), /Maintenance due/); assert.match(render(), /bbbbbbbbbbbb/);
+  await query(); assert.match(render(), /Freshness unavailable/); assert.doesNotMatch(render(), /Maintenance due|bbbbbbbbbbbb|Component revisions|update available/);
   await query(); assert.match(render(), /Maintenance due/);
   await query(); assert.match(render(), /Infra current/); assert.doesNotMatch(render(), /Maintenance due/);
   renderer.act(() => tree.unmount());

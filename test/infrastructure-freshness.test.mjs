@@ -3,10 +3,20 @@ import assert from 'node:assert/strict';
 import {
   aggregateInfrastructureFreshness,
   infrastructureFreshnessLabel,
+  infrastructureFreshnessClientTtl,
+  infrastructureFreshnessServerTtl,
   infrastructureRevisionLabel,
   parseInfrastructureFreshnessSnapshot,
+  INFRASTRUCTURE_FRESHNESS_CLIENT_TTL_MS,
+  INFRASTRUCTURE_FRESHNESS_CLIENT_TIMEOUT_MS,
+  INFRASTRUCTURE_FRESHNESS_SERVER_TIMEOUT_MS,
+  INFRASTRUCTURE_FRESHNESS_SERVER_CACHE_MS,
+  INFRASTRUCTURE_FRESHNESS_UNKNOWN_CLIENT_TTL_MS,
+  INFRASTRUCTURE_FRESHNESS_UNKNOWN_SERVER_CACHE_MS,
 } from '../lib/infrastructure-freshness.ts';
 import { collectInfrastructureFreshness } from '../lib/infrastructure-freshness-service.ts';
+import { resolveComponentFreshness } from '../lib/deployment-freshness-resolution.ts';
+import { InfrastructureFreshnessEvidenceCache } from '../lib/infrastructure-freshness-evidence-cache.ts';
 
 const component = (state, deployedRevision = '1'.repeat(40), sourceHeadRevision = deployedRevision) => ({ state, deployedRevision, sourceHeadRevision });
 const snapshot = (worker, runtime, runner) => ({
@@ -33,16 +43,57 @@ test('infrastructure freshness parser accepts only internally consistent bounded
 
 test('infrastructure freshness labels identify stale and uncertain components without relying on colour', () => {
   assert.equal(infrastructureFreshnessLabel(snapshot(component('current'), component('current'), component('current'))), 'Infra current');
-  assert.equal(infrastructureFreshnessLabel(snapshot(component('current'), component('superseded'), component('superseded'))), 'Update pending · Runtime + Runner');
-  assert.equal(infrastructureFreshnessLabel(snapshot(component('unknown'), component('current'), component('current'))), 'Infra freshness unavailable');
-  assert.equal(infrastructureFreshnessLabel(snapshot(component('current'), component('superseded'), component('unknown'))), 'Update pending · Runtime · Unknown: Runner');
+  assert.equal(infrastructureFreshnessLabel(snapshot(component('current'), component('current'), component('superseded'))), 'Runner update available');
+  assert.equal(infrastructureFreshnessLabel(snapshot(component('current'), component('superseded'), component('current'))), 'Runtime update available');
+  assert.equal(infrastructureFreshnessLabel(snapshot(component('superseded'), component('current'), component('current'))), 'App update available');
+  assert.equal(infrastructureFreshnessLabel(snapshot(component('current'), component('superseded'), component('superseded'))), 'Updates available · Runtime + Runner');
+  assert.equal(infrastructureFreshnessLabel(snapshot(component('unknown'), component('current'), component('current'))), 'Infrastructure freshness unavailable');
+  assert.equal(infrastructureFreshnessLabel(snapshot(component('unknown'), component('unknown'), component('superseded'))), 'Runner update available');
 });
 
 test('infrastructure revision label exposes short Runtime and Runner build identities', () => {
   const value = snapshot(component('current', '1'.repeat(40)), component('current', 'abcdef0' + '1'.repeat(33)), component('current', '7654321' + '2'.repeat(33)));
   assert.equal(infrastructureRevisionLabel(value), 'Runtime abcdef0 · Runner 7654321');
   value.components.runner = { state: 'unknown' };
-  assert.equal(infrastructureRevisionLabel(value), 'Runtime abcdef0 · Runner ?');
+  assert.equal(infrastructureRevisionLabel(value), 'Runtime abcdef0');
+});
+
+test('client cache retries any component uncertainty sooner regardless of aggregate state', () => {
+  assert.equal(infrastructureFreshnessClientTtl(snapshot(component('current'), component('current'), component('current'))), INFRASTRUCTURE_FRESHNESS_CLIENT_TTL_MS);
+  assert.equal(infrastructureFreshnessClientTtl(snapshot(component('current'), component('superseded'), component('current'))), INFRASTRUCTURE_FRESHNESS_CLIENT_TTL_MS);
+  assert.equal(infrastructureFreshnessClientTtl(snapshot(component('unknown'), component('current'), component('current'))), INFRASTRUCTURE_FRESHNESS_UNKNOWN_CLIENT_TTL_MS);
+  assert.equal(infrastructureFreshnessClientTtl(snapshot(component('unknown'), component('current'), component('superseded'))), INFRASTRUCTURE_FRESHNESS_UNKNOWN_CLIENT_TTL_MS);
+});
+
+test('server cache retries any component uncertainty sooner regardless of aggregate state', () => {
+  assert.equal(infrastructureFreshnessServerTtl(snapshot(component('current'), component('current'), component('current'))), INFRASTRUCTURE_FRESHNESS_SERVER_CACHE_MS);
+  assert.equal(infrastructureFreshnessServerTtl(snapshot(component('current'), component('current'), component('superseded'))), INFRASTRUCTURE_FRESHNESS_SERVER_CACHE_MS);
+  assert.equal(infrastructureFreshnessServerTtl(snapshot(component('unknown'), component('current'), component('current'))), INFRASTRUCTURE_FRESHNESS_UNKNOWN_SERVER_CACHE_MS);
+  assert.equal(infrastructureFreshnessServerTtl(snapshot(component('unknown'), component('current'), component('superseded'))), INFRASTRUCTURE_FRESHNESS_UNKNOWN_SERVER_CACHE_MS);
+  assert.equal(infrastructureFreshnessServerTtl(snapshot(component('current'), component('superseded'), component('unknown'))), INFRASTRUCTURE_FRESHNESS_UNKNOWN_SERVER_CACHE_MS);
+});
+
+test('identical concurrent GitHub evidence loads are coalesced and successful evidence is cached', async () => {
+  const cache = new InfrastructureFreshnessEvidenceCache(60_000);
+  let calls = 0;
+  let release;
+  const load = () => {
+    calls++;
+    return new Promise(resolve => { release = resolve; });
+  };
+  const first = cache.get('head:deployed', load);
+  const second = cache.get('head:deployed', load);
+  assert.equal(calls, 1);
+  release({ status: 'ahead' });
+  assert.deepEqual(await Promise.all([first, second]), [{ status: 'ahead' }, { status: 'ahead' }]);
+  assert.deepEqual(await cache.get('head:deployed', load), { status: 'ahead' });
+  assert.equal(calls, 1);
+
+  let failures = 0;
+  const unavailable = async () => { failures++; return undefined; };
+  assert.equal(await cache.get('other-head:deployed', unavailable), undefined);
+  assert.equal(await cache.get('other-head:deployed', unavailable), undefined);
+  assert.equal(failures, 2, 'unavailable evidence must remain retryable rather than becoming cached');
 });
 
 test('freshness collection keeps confirmed component results when another probe fails', async () => {
@@ -60,7 +111,7 @@ test('freshness collection keeps confirmed component results when another probe 
   assert.deepEqual(result.components.worker, { state: 'current', deployedRevision: workerRevision, sourceHeadRevision: sourceHead });
   assert.deepEqual(result.components.runtime, { state: 'superseded', deployedRevision: runtimeRevision, sourceHeadRevision: sourceHead });
   assert.deepEqual(result.components.runner, { state: 'unknown' });
-  assert.equal(infrastructureFreshnessLabel(result), 'Update pending · Runtime · Unknown: Runner');
+  assert.equal(infrastructureFreshnessLabel(result), 'Runtime update available');
 });
 
 test('freshness collection deadline degrades a hung component without delaying confirmed results indefinitely', async () => {
@@ -90,8 +141,13 @@ test('Runner compatibility freshness bypasses GitHub comparison and outranks an 
   assert.equal(result.state, 'superseded');
   assert.deepEqual(result.components.runner, { state: 'superseded', deployedRevision: runnerBuild });
   assert.deepEqual(compared, []);
-  assert.equal(infrastructureFreshnessLabel(result), 'Update pending · Runner · Unknown: Worker + Runtime');
+  assert.equal(infrastructureFreshnessLabel(result), 'Runner update available');
   assert.match(infrastructureRevisionLabel(result), /Runner bbbbbbb/);
+});
+
+test('client freshness timeout leaves a response margin above bounded server collection', () => {
+  assert.ok(INFRASTRUCTURE_FRESHNESS_SERVER_TIMEOUT_MS >= 3_000);
+  assert.ok(INFRASTRUCTURE_FRESHNESS_CLIENT_TIMEOUT_MS - INFRASTRUCTURE_FRESHNESS_SERVER_TIMEOUT_MS >= 1_000);
 });
 
 test('matching Runner compatibility is current without a GitHub comparison', async () => {
@@ -109,4 +165,22 @@ test('matching Runner compatibility is current without a GitHub comparison', asy
   assert.equal(result.components.runner.state, 'current');
   assert.equal(result.state, 'current');
   assert.equal(runnerCompared, false);
+});
+
+test('production regression resolves current Worker and Runtime while reporting the Runner update', async () => {
+  const head = '22fc4bfb50e7c7a68e1a65cb97d8d7ba17744331';
+  const runtimeRevision = 'b7b1ce84a08e065bb998c02838d17f0264dfcbe2';
+  const runnerRevision = 'b70d7ff000000000000000000000000000000000';
+  const comparison = { status: 'ahead', head_commit: { sha: head }, files: [{ filename: 'components/DeploymentFooter.tsx' }] };
+  const result = await collectInfrastructureFreshness({
+    workerRevision: head,
+    runtimeRevision: async () => runtimeRevision,
+    runnerFreshness: async () => ({ state: 'superseded', deployedRevision: runnerRevision }),
+    resolveRevisionFreshness: (component, deployed) => resolveComponentFreshness(component, deployed, head, async () => comparison),
+  });
+  assert.deepEqual(
+    [result.components.worker.state, result.components.runtime.state, result.components.runner.state],
+    ['current', 'current', 'superseded'],
+  );
+  assert.equal(infrastructureFreshnessLabel(result), 'Runner update available');
 });
