@@ -114,7 +114,8 @@
 - Agents reference connections by stable application-visible identity.
 - A connection type determines the execution adapter, authentication kind, safe provider configuration, model requirements where applicable, supported Agent option family, and execution capabilities; Agents do not select a separate Agent type.
 - Git is authoritative for current non-secret connection configuration.
-- Current provider credentials use logical ADT-vault references; credential values are permanent encrypted application state and are managed through a write-only interface.
+- Current API-key provider credentials use logical ADT-vault references; credential values are permanent encrypted application state and are managed through a write-only interface.
+- Unsupported connection authentication lifecycles fail closed and never fall back to API-key handling.
 - Credential resolution is source-exact and never falls back to retired or same-ID historical state.
 - Workflow snapshots may retain the safe credential source/reference needed for later resolution but never the resolved credential.
 - Credential plaintext, encrypted envelopes, and key material never pass through user-authored Agent/Workflow definitions or client-facing connection representations.
