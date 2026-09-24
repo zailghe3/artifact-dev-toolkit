@@ -2,6 +2,7 @@ import {z} from "zod";
 import {DEFINITION_ID} from "./workflow-definitions.ts";
 import {RESERVED_CONNECTION_KEYS} from "./workflow-connections.ts";
 import {isProviderCredentialVaultSecretId} from "./provider-credential-vault.ts";
+import {PROVIDER_CONNECTION_TYPE_IDS,getProviderConnectionType} from "./provider-connection-types.ts";
 
 export const CONNECTION_ROOT="connections";
 export const CONNECTION_SUFFIX=".connection.json";
@@ -10,8 +11,8 @@ const id=z.string().max(80).regex(DEFINITION_ID);
 
 const vaultCredential=z.object({source:z.literal("adt-vault"),secretRef:z.string().refine(isProviderCredentialVaultSecretId,"Invalid ADT vault secret reference.")}).strict();
 export const connectionDefinitionSchema=z.object({
- schemaVersion:z.literal(1),id,name:z.string().trim().min(1).max(CONNECTION_NAME_MAX_LENGTH),runtime:z.enum(["openai-responses","openai-agents"]),provider:z.literal("openai"),model:z.string().trim().min(1).max(120),credential:vaultCredential,
-}).strict().superRefine((value,context)=>{if(RESERVED_CONNECTION_KEYS.has(value.id))context.addIssue({code:"custom",message:"Reserved connection IDs are not permitted.",path:["id"]})});
+ schemaVersion:z.literal(1),id,name:z.string().trim().min(1).max(CONNECTION_NAME_MAX_LENGTH),runtime:z.enum(PROVIDER_CONNECTION_TYPE_IDS),provider:z.string().trim().min(1).max(80),model:z.string().trim().min(1).max(120).optional(),credential:vaultCredential,
+}).strict().superRefine((value,context)=>{if(RESERVED_CONNECTION_KEYS.has(value.id))context.addIssue({code:"custom",message:"Reserved connection IDs are not permitted.",path:["id"]});const type=getProviderConnectionType(value.runtime);if(!type||type.provider!==value.provider)context.addIssue({code:"custom",message:"Provider does not match connection type.",path:["provider"]});if(type?.model.required&&!value.model)context.addIssue({code:"custom",message:"Model is required for this connection type.",path:["model"]})});
 export type ConnectionDefinition=z.infer<typeof connectionDefinitionSchema>;
 export const connectionDefinitionPath=(value:string)=>`${CONNECTION_ROOT}/${id.parse(value)}${CONNECTION_SUFFIX}`;
 
