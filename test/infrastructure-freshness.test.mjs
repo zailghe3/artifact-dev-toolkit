@@ -3,13 +3,17 @@ import assert from 'node:assert/strict';
 import {
   aggregateInfrastructureFreshness,
   infrastructureFreshnessLabel,
+  infrastructureFreshnessClientTtl,
   infrastructureRevisionLabel,
   parseInfrastructureFreshnessSnapshot,
+  INFRASTRUCTURE_FRESHNESS_CLIENT_TTL_MS,
   INFRASTRUCTURE_FRESHNESS_CLIENT_TIMEOUT_MS,
   INFRASTRUCTURE_FRESHNESS_SERVER_TIMEOUT_MS,
+  INFRASTRUCTURE_FRESHNESS_UNKNOWN_CLIENT_TTL_MS,
 } from '../lib/infrastructure-freshness.ts';
 import { collectInfrastructureFreshness } from '../lib/infrastructure-freshness-service.ts';
 import { resolveComponentFreshness } from '../lib/deployment-freshness-resolution.ts';
+import { InfrastructureFreshnessEvidenceCache } from '../lib/infrastructure-freshness-evidence-cache.ts';
 
 const component = (state, deployedRevision = '1'.repeat(40), sourceHeadRevision = deployedRevision) => ({ state, deployedRevision, sourceHeadRevision });
 const snapshot = (worker, runtime, runner) => ({
@@ -49,6 +53,36 @@ test('infrastructure revision label exposes short Runtime and Runner build ident
   assert.equal(infrastructureRevisionLabel(value), 'Runtime abcdef0 · Runner 7654321');
   value.components.runner = { state: 'unknown' };
   assert.equal(infrastructureRevisionLabel(value), 'Runtime abcdef0');
+});
+
+test('client cache retries any component uncertainty sooner regardless of aggregate state', () => {
+  assert.equal(infrastructureFreshnessClientTtl(snapshot(component('current'), component('current'), component('current'))), INFRASTRUCTURE_FRESHNESS_CLIENT_TTL_MS);
+  assert.equal(infrastructureFreshnessClientTtl(snapshot(component('current'), component('superseded'), component('current'))), INFRASTRUCTURE_FRESHNESS_CLIENT_TTL_MS);
+  assert.equal(infrastructureFreshnessClientTtl(snapshot(component('unknown'), component('current'), component('current'))), INFRASTRUCTURE_FRESHNESS_UNKNOWN_CLIENT_TTL_MS);
+  assert.equal(infrastructureFreshnessClientTtl(snapshot(component('unknown'), component('current'), component('superseded'))), INFRASTRUCTURE_FRESHNESS_UNKNOWN_CLIENT_TTL_MS);
+});
+
+test('identical concurrent GitHub evidence loads are coalesced and successful evidence is cached', async () => {
+  const cache = new InfrastructureFreshnessEvidenceCache(60_000);
+  let calls = 0;
+  let release;
+  const load = () => {
+    calls++;
+    return new Promise(resolve => { release = resolve; });
+  };
+  const first = cache.get('head:deployed', load);
+  const second = cache.get('head:deployed', load);
+  assert.equal(calls, 1);
+  release({ status: 'ahead' });
+  assert.deepEqual(await Promise.all([first, second]), [{ status: 'ahead' }, { status: 'ahead' }]);
+  assert.deepEqual(await cache.get('head:deployed', load), { status: 'ahead' });
+  assert.equal(calls, 1);
+
+  let failures = 0;
+  const unavailable = async () => { failures++; return undefined; };
+  assert.equal(await cache.get('other-head:deployed', unavailable), undefined);
+  assert.equal(await cache.get('other-head:deployed', unavailable), undefined);
+  assert.equal(failures, 2, 'unavailable evidence must remain retryable rather than becoming cached');
 });
 
 test('freshness collection keeps confirmed component results when another probe fails', async () => {

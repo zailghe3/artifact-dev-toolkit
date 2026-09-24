@@ -10,6 +10,7 @@ import {
 } from "./infrastructure-freshness-service.ts";
 import type { InfrastructureFreshnessSnapshot } from "./infrastructure-freshness.ts";
 import { INFRASTRUCTURE_FRESHNESS_SERVER_TIMEOUT_MS } from "./infrastructure-freshness.ts";
+import { InfrastructureFreshnessEvidenceCache } from "./infrastructure-freshness-evidence-cache.ts";
 
 const SOURCE_REPOSITORY = deploymentMetadata?.repository ?? "zailghe3/artifact-dev-toolkit";
 const FULL_SHA = /^[0-9a-f]{40}$/i;
@@ -21,7 +22,7 @@ const GITHUB_EVIDENCE_CACHE_MS = 2 * 60_000;
 let cached: { expiresAt: number; snapshot: InfrastructureFreshnessSnapshot } | undefined;
 let inFlight: Promise<InfrastructureFreshnessSnapshot> | undefined;
 let mainRevisionCache: { expiresAt: number; revision: string } | undefined;
-const compareCache = new Map<string, { expiresAt: number; value: unknown }>();
+const compareCache = new InfrastructureFreshnessEvidenceCache(GITHUB_EVIDENCE_CACHE_MS);
 
 function aborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T | undefined> {
   if (signal.aborted) return Promise.resolve(undefined);
@@ -81,19 +82,10 @@ async function comparisonAtHead(
   signal: AbortSignal,
 ): Promise<unknown | undefined> {
   const key = `${headRevision}:${deployedRevision}`;
-  const cachedCompare = compareCache.get(key);
-  if (cachedCompare && cachedCompare.expiresAt > Date.now()) return cachedCompare.value;
-  compareCache.delete(key);
-  try {
-    const value = await githubJson(
-      `https://api.github.com/repos/${repository}/compare/${deployedRevision}...${headRevision}`,
-      signal,
-    );
-    compareCache.set(key, { value, expiresAt: Date.now() + GITHUB_EVIDENCE_CACHE_MS });
-    return value;
-  } catch {
-    return undefined;
-  }
+  return compareCache.get(key, () => githubJson(
+    `https://api.github.com/repos/${repository}/compare/${deployedRevision}...${headRevision}`,
+    signal,
+  ));
 }
 
 async function collectLiveInfrastructureFreshness(): Promise<InfrastructureFreshnessSnapshot> {

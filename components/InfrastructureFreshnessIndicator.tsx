@@ -3,13 +3,13 @@
 import { useEffect, useState } from "react";
 import {
   infrastructureFreshnessLabel,
+  infrastructureFreshnessClientTtl,
   infrastructureRevisionLabel,
   INFRASTRUCTURE_FRESHNESS_CLIENT_TIMEOUT_MS,
+  INFRASTRUCTURE_FRESHNESS_CLIENT_TTL_MS,
   parseInfrastructureFreshnessSnapshot,
   type InfrastructureFreshnessSnapshot,
 } from "@/lib/infrastructure-freshness";
-
-const CLIENT_TTL_MS = 2 * 60_000;
 
 export type InfrastructureFreshnessQueryState =
   | { status: "checking" }
@@ -28,7 +28,7 @@ function readMemoryCache(now = Date.now()): CachedValue | undefined {
 }
 
 function writeMemoryCache(snapshot: InfrastructureFreshnessSnapshot, now = Date.now()) {
-  memoryCache = { expiresAt: now + CLIENT_TTL_MS, snapshot };
+  memoryCache = { expiresAt: now + infrastructureFreshnessClientTtl(snapshot), snapshot };
 }
 
 export async function queryInfrastructureFreshness(): Promise<InfrastructureFreshnessQueryState> {
@@ -92,7 +92,7 @@ export function InfrastructureFreshnessIndicator() {
         setState(next);
         if (next.status === "hidden") return;
         const cached = readMemoryCache();
-        schedule(cached ? cached.expiresAt - Date.now() : CLIENT_TTL_MS);
+        schedule(cached ? cached.expiresAt - Date.now() : INFRASTRUCTURE_FRESHNESS_CLIENT_TTL_MS);
       });
     };
     const refreshExpiredOnReturn = () => {
