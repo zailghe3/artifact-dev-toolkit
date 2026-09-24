@@ -20,9 +20,9 @@ test('policy shape supports non-OpenAI authentication, model, and Agent-setting 
  assert.equal(getProviderConnectionType(futurePolicy.id),undefined);assert.throws(()=>requireProviderConnectionType(futurePolicy.id),/connection_unavailable/);
 });
 
-test('registry contains only safe current OpenAI connection policies',()=>{
- assert.deepEqual(providerConnectionTypes.map(item=>item.id),['openai-responses','openai-agents']);
- assert.equal(getProviderConnectionType('openai-agents').execution,'adt-runtime');assert.equal(getProviderConnectionType('openai-responses').agentSettings,'openai-model');
+test('registry contains only safe current provider connection policies',()=>{
+ assert.deepEqual(providerConnectionTypes.map(item=>item.id),['openai-responses','openai-agents','anthropic-messages']);
+ assert.equal(getProviderConnectionType('openai-agents').execution,'adt-runtime');const anthropic=getProviderConnectionType('anthropic-messages');assert.equal(anthropic.provider,'anthropic');assert.equal(anthropic.authentication,'api-key');assert.deepEqual(anthropic.model,{required:true,discovery:true,discoveryGuidance:'Load models available to this authenticated Anthropic account or workspace.'});assert.deepEqual(anthropic.capabilities,{asynchronous:false,cancellation:false});assert.equal(anthropic.execution,'direct');assert.equal(anthropic.agentSettings,'anthropic-messages');assert.equal(anthropic.safeConfiguration.parse(undefined),undefined);assert.equal(getProviderConnectionType('openai-responses').agentSettings,'openai-model');
  assert.doesNotMatch(JSON.stringify(providerConnectionTypes),/secret|token|credential/i);
 });
 
@@ -40,7 +40,7 @@ test('provider model service dispatches OpenAI and skips or rejects operations a
  await assert.rejects(service.listForPolicy(futurePolicy,'unused'),/model_discovery_unsupported/);await assert.rejects(service.list('unsupported','key'),/connection_unavailable/);
 });
 
-test('model-less readiness never invokes model validation',async()=>{let calls=0;await validateProviderConnectionReadiness(futurePolicy,'credential','stale-model',async()=>{calls++});assert.equal(calls,0)});
+test('model-less readiness never invokes model validation',async()=>{let calls=0;await validateProviderConnectionReadiness(futurePolicy,'credential','stale-model',undefined,async()=>{calls++});assert.equal(calls,0)});
 
 test('catalogue uses registered labels and omits absent models',()=>{
  const base={enabled:true,configured:true,management:'git',capabilities:{asynchronous:true,cancellation:true}};
@@ -53,3 +53,15 @@ test('synthetic safe configuration is strict, normalized, and secret fields are 
 test('OpenAI definitions retain their historical shape without empty configuration',()=>{const policy=getProviderConnectionType('openai-responses'),definition=buildProviderConnectionDefinition(policy,{schemaVersion:1,id:'openai',name:'OpenAI',credential},'gpt-5');assert.deepEqual(Object.keys(definition).sort(),['credential','id','model','name','provider','runtime','schemaVersion']);assert.equal('configuration' in definition,false)});
 
 test('target policy rebuilding drops prior provider configuration',()=>{const first=buildProviderConnectionDefinition(futurePolicy,{schemaVersion:1,id:'connection',name:'Connection',credential},undefined,{tenantId:'tenant-1',clientId:'client-1'}),openAI=buildProviderConnectionDefinition(getProviderConnectionType('openai-agents'),{schemaVersion:1,id:first.id,name:first.name,credential:first.credential},'gpt-5');assert.equal('configuration' in openAI,false);assert.deepEqual(providerConnectionConfigurationPayload(futurePolicy,{tenantId:'tenant-1',clientId:'client-1'}),{configuration:{tenantId:'tenant-1',clientId:'client-1'}})});
+
+test('Anthropic Workspace ID is optional, normalized, strict, and execution-safe',()=>{
+ const policy=getProviderConnectionType('anthropic-messages');
+ assert.equal(policy.safeConfiguration.forExecution,true);
+ assert.equal(policy.safeConfiguration.parse(undefined),undefined);
+ assert.equal(policy.safeConfiguration.parse({}),undefined);
+ assert.deepEqual(policy.safeConfiguration.parse({workspaceId:'  wrkspc_team-123_A  '}),{workspaceId:'wrkspc_team-123_A'});
+ for(const value of [{workspaceId:'workspace-1'},{workspaceId:'wrkspc_bad value'},{workspaceId:'wrkspc_bad\nheader'},{unknown:'x'},{apiKey:'secret'},{workspaceId:'wrkspc_ok',clientSecret:'secret'}])assert.throws(()=>policy.safeConfiguration.parse(value),/provider_configuration_invalid/);
+ assert.throws(()=>getProviderConnectionType('openai-responses').safeConfiguration.parse({workspaceId:'wrkspc_team'}),/provider_configuration_invalid/);
+});
+
+test('provider model service passes only validated Anthropic configuration',async()=>{const calls=[],service=new ProviderModelService({listAnthropicModels:async(credential,configuration)=>{calls.push(['list',credential,configuration]);return['claude']},validateAnthropicModel:async(credential,model,configuration)=>{calls.push(['validate',credential,model,configuration])}});assert.deepEqual(await service.list('anthropic-messages','key',{workspaceId:' wrkspc_team '}),['claude']);await service.validate('anthropic-messages','key','claude',{workspaceId:'wrkspc_team'});assert.deepEqual(calls,[['list','key',{workspaceId:'wrkspc_team'}],['validate','key','claude',{workspaceId:'wrkspc_team'}]]);await assert.rejects(service.list('anthropic-messages','key',{authorization:'secret'}),/provider_configuration_invalid/)})

@@ -145,6 +145,15 @@
 - Application and Runtime may roll independently; compatibility is determined by their explicit protocol/capability contract rather than matching revisions.
 - Model availability is validated against the authenticated provider rather than assumed from a hard-coded application list.
 
+### Anthropic Messages execution
+
+- Anthropic Messages uses the normal Git-managed API-key connection lifecycle and encrypted ADT vault rather than a separate credential or Agent architecture. An optional non-secret Anthropic Workspace ID may be stored in Git and frozen with the safe execution context; API credentials remain vault-only.
+- A connection selects a provider-discovered Claude model before an Agent can use it.
+- The resolved Agent prompt is the Anthropic system prompt; the Workflow handoff is one user message. Neither value is implicitly transformed.
+- Execution is one synchronous direct Messages request with no provider task or cancellation identity.
+- Only bounded ordered text blocks become Workflow output. Tools, thinking, streaming, provider sessions, and non-text response data are not supported.
+- An ambiguous synchronous start is not blindly retried because the request may already have produced billable provider work.
+
 ## 11. Codex execution boundary
 
 - Codex execution is distinct from a normal OpenAI model call.
