@@ -21,9 +21,17 @@ test('policy shape supports non-OpenAI authentication, model, and Agent-setting 
 });
 
 test('registry contains only safe current provider connection policies',()=>{
- assert.deepEqual(providerConnectionTypes.map(item=>item.id),['openai-responses','openai-agents','anthropic-messages']);
+ assert.deepEqual(providerConnectionTypes.map(item=>item.id),['openai-responses','openai-agents','anthropic-messages','work-iq-rest']);
  assert.equal(getProviderConnectionType('openai-agents').execution,'adt-runtime');const anthropic=getProviderConnectionType('anthropic-messages');assert.equal(anthropic.provider,'anthropic');assert.equal(anthropic.authentication,'api-key');assert.deepEqual(anthropic.model,{required:true,discovery:true,discoveryGuidance:'Load models available to this authenticated Anthropic account or workspace.'});assert.deepEqual(anthropic.capabilities,{asynchronous:false,cancellation:false});assert.equal(anthropic.execution,'direct');assert.equal(anthropic.agentSettings,'anthropic-messages');assert.equal(anthropic.safeConfiguration.parse(undefined),undefined);assert.equal(getProviderConnectionType('openai-responses').agentSettings,'openai-model');
  assert.doesNotMatch(JSON.stringify(providerConnectionTypes),/secret|token|credential/i);
+});
+
+test('Work IQ is model-less delegated direct execution with strict safe Entra identifiers',()=>{
+ const policy=getProviderConnectionType('work-iq-rest');
+ assert.equal(policy.provider,'microsoft-work-iq');assert.equal(policy.authentication,'delegated-oauth');assert.equal(policy.endpoint,'https://workiq.svc.cloud.microsoft');assert.deepEqual(policy.model,{required:false,discovery:false});assert.deepEqual(policy.capabilities,{asynchronous:false,cancellation:false});assert.equal(policy.execution,'direct');assert.equal(policy.agentSettings,'work-iq-rest');
+ const configuration={tenantId:'11111111-1111-4111-8111-111111111111',clientId:'22222222-2222-4222-8222-222222222222'};assert.deepEqual(policy.safeConfiguration.parse(configuration),configuration);
+ for(const invalid of [{tenantId:'common',clientId:configuration.clientId},{tenantId:configuration.tenantId,clientId:'bad'},{...configuration,clientSecret:'secret'},{...configuration,scope:'User.Read'}])assert.throws(()=>policy.safeConfiguration.parse(invalid),/provider_configuration_invalid/);
+ const definition=buildProviderConnectionDefinition(policy,{schemaVersion:1,id:'work-iq',name:'Work IQ',credential},'copilot',configuration);assert.equal('model' in definition,false);assert.doesNotMatch(JSON.stringify(definition),/clientSecret|refreshToken|accessToken/);
 });
 
 test('model policy requires current OpenAI models and strips stale models for a no-model policy',()=>{
