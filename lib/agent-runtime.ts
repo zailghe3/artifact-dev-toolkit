@@ -3,6 +3,7 @@ import { UnavailableCodexCloudGateway } from "./codex-cloud-gateway.ts";
 import { CodexRunnerAdapter } from "./codex-runner-adapter.ts";
 import { OpenAIResponsesAdapter } from "./openai-responses-adapter.ts";
 import { AnthropicMessagesAdapter } from "./anthropic-messages-adapter.ts";
+import { WorkIqRestAdapter } from "./work-iq-rest-adapter.ts";
 import { RemoteOpenAIAgentsRuntime } from "./adt-runtime-client.ts";
 import { DeterministicTestAdapter, type AdapterInvocation, type AdapterResult, type AgentProviderAdapter } from "./workflow-adapter.ts";
 
@@ -51,6 +52,7 @@ export function createWorkflowAdapterRegistry(fetcher?: ConstructorParameters<ty
     new DeterministicTestAdapter(),
     new OpenAIResponsesAdapter(fetcher),
     new AnthropicMessagesAdapter(fetcher),
+    new WorkIqRestAdapter(fetcher),
     new CodexRunnerAdapter(),
     new CodexCloudAdapter(new UnavailableCodexCloudGateway()),
   ];

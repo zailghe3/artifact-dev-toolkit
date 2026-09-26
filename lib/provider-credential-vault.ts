@@ -23,6 +23,7 @@ type VaultRow = {
   master_key_version: number;
   created_at: string;
   updated_at: string;
+  revision: number;
 };
 
 export type ProviderCredentialVaultServiceErrorCode =
@@ -106,6 +107,23 @@ export class D1ProviderCredentialVault {
       encryptionVersion: row.encryption_version,
       masterKeyVersion: row.master_key_version,
     }, secretId, this.resolveKey);
+  }
+
+  async resolveWithRevision(secretId: string) {
+    assertSecretId(secretId);
+    const row = await this.row(secretId);
+    if (!row) throw new ProviderCredentialVaultServiceError("vault_secret_unavailable");
+    const value = await decryptVaultCredential({ ciphertext: row.encrypted_credential, iv: row.credential_iv, encryptionVersion: row.encryption_version, masterKeyVersion: row.master_key_version }, secretId, this.resolveKey);
+    return { value, revision: row.revision ?? 1 };
+  }
+
+  async replaceIfRevision(secretId: string, expectedRevision: number, credential: string) {
+    assertSecretId(secretId);
+    if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1) throw new ProviderCredentialVaultServiceError("vault_persistence_failed");
+    const encrypted = await encryptVaultCredential(credential, secretId, this.resolveKey, this.activeMasterKeyVersion);
+    const result = await this.db.prepare("UPDATE provider_credential_vault SET encrypted_credential = ?, credential_iv = ?, encryption_version = ?, master_key_version = ?, revision = revision + 1, updated_at = ? WHERE secret_id = ? AND revision = ?")
+      .bind(encrypted.ciphertext, encrypted.iv, encrypted.encryptionVersion, encrypted.masterKeyVersion, new Date().toISOString(), secretId, expectedRevision).run();
+    return changes(result) === 1;
   }
 
   async replace(secretId: string, credential: string) {

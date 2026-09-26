@@ -154,6 +154,18 @@
 - Only bounded ordered text blocks become Workflow output. Tools, thinking, streaming, provider sessions, and non-text response data are not supported.
 - An ambiguous synchronous start is not blindly retried because the request may already have produced billable provider work.
 
+### Microsoft Work IQ execution
+
+- Microsoft Work IQ is a normal Git-managed provider connection that reuses the provider-neutral connection, safe-configuration, vault, Agent, and run-snapshot contracts.
+- One connection represents one Entra application and one delegated Microsoft 365 work or school account. Every Agent sharing it acts with that connected account's Microsoft 365 permissions.
+- Tenant and client IDs are safe Git configuration. Client secrets and refresh/access tokens remain server-only; ADT never selects or stores a Work IQ model.
+- A Work IQ Agent stores one explicit IANA time zone and whether web grounding is allowed. The saved time zone does not change with the browser's later location.
+- ADT frames the resolved Agent prompt and Workflow input, unchanged, into one Work IQ user message. It does not represent the Agent prompt as a provider system message or grounding context.
+- Each invocation creates a fresh conversation and performs one synchronous chat. There is no durable provider task, provider conversation continuation, or cancellation identity.
+- Uncertain conversation creation or chat submission is not blindly repeated.
+- Connecting or reconnecting creates a new opaque delegated authorization context; disconnecting removes it. A snapshotted run executes only with its frozen authorization context and cannot silently switch to a newly connected Microsoft identity.
+- Creating a run verifies delegated authorization from local encrypted state only. Microsoft access tokens are acquired only for an actual provider invocation or an explicit connection test.
+
 ## 11. Codex execution boundary
 
 - Codex execution is distinct from a normal OpenAI model call.
