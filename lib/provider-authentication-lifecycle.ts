@@ -4,8 +4,10 @@ export function assertCompatibleConnectionTypeChange(current:ProviderConnectionT
 
 export function connectionAuthenticationPayload(policy:Pick<ProviderConnectionTypePolicy,"authentication">,credential:string){if(policy.authentication==="api-key")return{credential};return{}}
 
-export async function createConnectionForAuthentication<T>(policy:ProviderConnectionTypePolicy,credential:string|undefined,createApiKey:(credential:string)=>Promise<T>){if(policy.authentication!=="api-key")throw new Error("authentication_lifecycle_unsupported");if(!credential)throw new Error("credential_required");return createApiKey(credential)}
+function isRegisteredWorkIqDelegated(policy:ProviderConnectionTypePolicy){return policy.authentication==="delegated-oauth"&&policy.id==="work-iq-rest"&&policy.provider==="microsoft-work-iq"}
+export async function createConnectionForAuthentication<T>(policy:ProviderConnectionTypePolicy,credential:string|undefined,createApiKey:(credential:string)=>Promise<T>,createDelegated?:()=>Promise<T>){if(policy.authentication==="api-key"){if(!credential)throw new Error("credential_required");return createApiKey(credential)}if(isRegisteredWorkIqDelegated(policy)&&createDelegated)return createDelegated();throw new Error("authentication_lifecycle_unsupported")}
 
-export async function resolveAuthenticationForExecution<T>(policy:ProviderConnectionTypePolicy,resolveApiKey:()=>Promise<T>){if(policy.authentication!=="api-key")throw new Error("authentication_lifecycle_unsupported");return resolveApiKey()}
+export async function resolveAuthenticationForExecution<T>(policy:ProviderConnectionTypePolicy,resolveApiKey:()=>Promise<T>,resolveDelegated?:()=>Promise<T>){if(policy.authentication==="api-key")return resolveApiKey();if(isRegisteredWorkIqDelegated(policy)&&resolveDelegated)return resolveDelegated();throw new Error("authentication_lifecycle_unsupported")}
 
-export async function resolveAuthenticationForReadiness<T>(policy:ProviderConnectionTypePolicy,resolveApiKey:()=>Promise<T>){return resolveAuthenticationForExecution(policy,resolveApiKey)}
+export async function resolveAuthenticationForReadiness<T>(policy:ProviderConnectionTypePolicy,resolveApiKey:()=>Promise<T>,resolveDelegated?:()=>Promise<T>){return resolveAuthenticationForExecution(policy,resolveApiKey,resolveDelegated)}
+export async function resolveAuthenticationForSnapshot<T>(policy:ProviderConnectionTypePolicy,resolveApiKey:()=>Promise<T>,resolveDelegated?:()=>Promise<T>){return resolveAuthenticationForExecution(policy,resolveApiKey,resolveDelegated)}

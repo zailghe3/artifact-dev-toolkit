@@ -164,6 +164,7 @@
 - Each invocation creates a fresh conversation and performs one synchronous chat. There is no durable provider task, provider conversation continuation, or cancellation identity.
 - Uncertain conversation creation or chat submission is not blindly repeated.
 - Connecting or reconnecting creates a new opaque delegated authorization context; disconnecting removes it. A snapshotted run executes only with its frozen authorization context and cannot silently switch to a newly connected Microsoft identity.
+- Creating a run verifies delegated authorization from local encrypted state only. Microsoft access tokens are acquired only for an actual provider invocation or an explicit connection test.
 
 ## 11. Codex execution boundary
 
