@@ -12,6 +12,7 @@ ADT Runtime is the independently deployed compute and provider-execution boundar
 - Execution-heavy AI/provider libraries that do not require broad control-plane authority belong here; control-plane-only policy and privileged mutation do not.
 - Application and Runtime revisions may roll independently through an explicit protocol/capability contract.
 - Runtime owns bounded remote MCP Streamable HTTP discovery and calls. MCP credentials are optional invocation-scoped encrypted bearer values and are never persisted.
+- Agent execution registers only control-plane-authorised frozen MCP definitions. Deterministic `mcp_<remote prefix>_<identity digest>` aliases prevent server/tool collisions while calls retain the original remote name; MCP and built-in tools share one security gate and call budget.
 
 ## Operator contract
 

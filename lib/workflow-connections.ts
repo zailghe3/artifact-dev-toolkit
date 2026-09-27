@@ -1,5 +1,5 @@
 import type {ProviderSafeConfiguration} from "./provider-connection-types.ts";
-export type ConnectionDescriptor={key:string;name:string;adapter:string;endpoint?:string;defaultModel?:string;providerConfiguration?:ProviderSafeConfiguration;authorizationContextId?:string;enabled:boolean;configured?:boolean;management?:"git"|"d1";credentialSource?:"adt-vault"|"cloudflare-binding";credentialSecretRef?:string;repositoryRevision?:string;capabilities:{asynchronous:boolean;cancellation:boolean}};
+export type ConnectionDescriptor={key:string;name:string;adapter:string;endpoint?:string;defaultModel?:string;providerConfiguration?:ProviderSafeConfiguration;authorizationContextId?:string;enabled:boolean;configured?:boolean;management?:"git"|"d1";credentialSource?:"adt-vault"|"cloudflare-binding";credentialSecretRef?:string;repositoryRevision?:string;capabilities:{asynchronous:boolean;cancellation:boolean;agentTools?:boolean}};
 export type ResolvedConnection=ConnectionDescriptor&{credential?:string;serverConfiguration?:unknown;privateOptions?:unknown};
 export const RESERVED_CONNECTION_KEYS=new Set(["deterministic-test","codex-primary","codex-cloud-primary"]);
 export function assertProviderConnectionKey(key:string){if(RESERVED_CONNECTION_KEYS.has(key))throw new Error("reserved_connection_key");return key}

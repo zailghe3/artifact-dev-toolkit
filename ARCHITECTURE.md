@@ -117,6 +117,15 @@ The product invariants are in [`specs/agent-workflows.md`](specs/agent-workflows
 - Live provider readiness is distinct from saved configuration.
 - Provider creation, polling, retry, cancellation, and ambiguous outcomes are trust and billing boundaries.
 
+### Tools
+
+- Tools is the top-level domain for Agent tool integrations; MCP is the first configurable external integration type and remains separate from provider Connections.
+- Git definitions under `tools/` hold non-secret MCP Streamable HTTP configuration and the last explicitly discovered, frozen catalogue. Bearer values remain in the encrypted ADT vault.
+- Agent grants identify an MCP server by stable ID and explicitly selected remote tool names. Catalogue refresh never grants newly discovered tools, and missing granted tools fail closed.
+- The Worker authorises discovery and execution, resolves vault credentials, and sends only selected frozen definitions with invocation-scoped encrypted credentials to ADT Runtime.
+- ADT Runtime alone owns the MCP client. It exposes authorised tools through collision-safe aliases derived from server ID and remote name, applies the shared tool security gate and call budget, and calls the unchanged remote name.
+- Normal Agent execution never discovers or refreshes an MCP catalogue. Agent-tool eligibility follows provider capability policy.
+
 ### ADT Runtime
 
 - ADT Runtime is an independently deployed, replaceable compute and provider-execution service with no durable ADT state or persisted provider credentials.

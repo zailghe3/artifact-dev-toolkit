@@ -1,11 +1,13 @@
 import type { ConnectionDescriptor, ResolvedConnection } from "./workflow-connections.ts";
 import type {RunRepositoryContext} from "./workflow-storage.ts";
 import type {ManagedCodeRepositoryContext} from "./managed-code-repository.ts";
+import type {AgentDefinitionV1} from "./workflow-definitions.ts";
 import { z } from "zod";
 
 export const failureCategories = ["configuration_invalid", "connection_unavailable", "authentication_failed", "permission_denied", "provider_rejected", "provider_start_ambiguous", "provider_publish_ambiguous", "rate_limited", "provider_unavailable", "provider_timeout", "malformed_response", "output_too_large", "cancelled", "conversation_unavailable", "internal_error"] as const;
 export type FailureCategory = typeof failureCategories[number];
-export type AdapterInvocation = { runId: string; stepId: string; iteration: number; attempt: number; providerPollCount: number; idempotencyKey: string; agentName: string; masterPrompt: string; inputText: string; tools?: readonly "artifact_search"[]; repositoryContext?:RunRepositoryContext; managedCodeRepositoryContext?:ManagedCodeRepositoryContext; connection: ResolvedConnection; providerOptions?: unknown; conversationRef?:string };
+export type AuthorizedMcpTool={alias:string;serverId:string;server:{url:string;transport:"streamable-http"};tool:{name:string;description?:string;inputSchema:Record<string,unknown>};credential?:string};
+export type AdapterInvocation = { runId: string; stepId: string; iteration: number; attempt: number; providerPollCount: number; idempotencyKey: string; agentName: string; masterPrompt: string; inputText: string; tools?: AgentDefinitionV1["tools"]; authorizedMcpTools?:AuthorizedMcpTool[]; repositoryContext?:RunRepositoryContext; managedCodeRepositoryContext?:ManagedCodeRepositoryContext; connection: ResolvedConnection; providerOptions?: unknown; conversationRef?:string };
 export type ProviderTransportReason="cross_request_io"|"platform_subrequest_limit"|"invalid_request_context"|"network_connection_lost"|"aborted"|"fetch_type_error"|"unknown";
 export type ProviderRuntimeErrorName="TypeError"|"AbortError"|"Error";
 export type ProviderTransportDiagnostics={clientRequestId:string;requestId?:string;httpStatus?:number;elapsedMs:number;processingMs?:number;outcome:"response_received"|"timeout"|"network_error";reason?:ProviderTransportReason;runtimeErrorName?:ProviderRuntimeErrorName};
