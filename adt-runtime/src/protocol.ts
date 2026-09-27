@@ -17,6 +17,9 @@ export const envelopeSchema = z.object({
   version: z.literal(1), keyId: bounded(128), algorithm: z.literal("RSA-OAEP-256+A256GCM"),
   wrappedKey: bounded(2048), nonce: bounded(64), ciphertext: bounded(16_384),
 }).strict();
+const mcpConfig=z.object({url:z.string().url().max(2048),transport:z.literal("streamable-http")}).strict();
+const mcpTool=z.object({name:bounded(128),description:z.string().max(2048).optional(),inputSchema:z.record(z.string(),z.unknown())}).strict();
+const authorizedMcpTool=z.object({alias:bounded(64).regex(/^[A-Za-z_][A-Za-z0-9_-]*$/),serverId:bounded(80),server:mcpConfig,tool:mcpTool,credential:envelopeSchema.optional()}).strict();
 export const executionSchema = z.object({
   protocolVersion: z.literal(PROTOCOL_VERSION), capability: z.literal("openai-agents"),
   requestId: bounded(128), idempotencyKey: bounded(256), agentName: bounded(160),
@@ -25,11 +28,10 @@ export const executionSchema = z.object({
   options: z.object({reasoningEffort:z.enum(["none","low","medium","high","xhigh","max"]).optional(),verbosity:z.enum(["low","medium","high"]).optional(),maxOutputTokens:z.number().int().positive().max(262_144).optional()}).strict(),
   tools:z.array(z.literal("artifact_search")).max(1).default([]),
   toolGateway:z.object({url:z.string().url().max(2048),authority:bounded(4096)}).strict().optional(),
+  mcpTools:z.array(authorizedMcpTool).max(128).default([]),
   credential: envelopeSchema,
-}).strict().superRefine((value,context)=>{if(value.tools.length&&!value.toolGateway)context.addIssue({code:"custom",message:"Tool gateway is required.",path:["toolGateway"]});});
+}).strict().superRefine((value,context)=>{if(value.tools.length&&!value.toolGateway)context.addIssue({code:"custom",message:"Tool gateway is required.",path:["toolGateway"]});if(new Set(value.mcpTools.map(x=>x.alias)).size!==value.mcpTools.length)context.addIssue({code:"custom",message:"MCP aliases must be unique.",path:["mcpTools"]});});
 export type ExecutionRequest = z.infer<typeof executionSchema>;
-const mcpConfig=z.object({url:z.string().url().max(2048),transport:z.literal("streamable-http")}).strict();
-const mcpTool=z.object({name:bounded(128),description:z.string().max(2048).optional(),inputSchema:z.record(z.string(),z.unknown())}).strict();
 const mcpBase={protocolVersion:z.literal(PROTOCOL_VERSION),requestId:bounded(128),server:mcpConfig,credential:envelopeSchema.optional()};
 export const mcpDiscoverySchema=z.object({...mcpBase,capability:z.literal("mcp:streamable-http:discover")}).strict();
 export const mcpCallSchema=z.object({...mcpBase,capability:z.literal("mcp:streamable-http:call"),tool:mcpTool,arguments:z.record(z.string(),z.unknown())}).strict();

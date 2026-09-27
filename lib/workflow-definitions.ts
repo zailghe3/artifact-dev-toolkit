@@ -12,8 +12,8 @@ const id = z.string().regex(DEFINITION_ID).max(80);
 const credentialKey = /(?:credential|password|secret|token|api.?key|private.?key)/i;
 
 export const AGENT_MASTER_PROMPT_MAX_LENGTH=65536;
-export const agentToolSchema=z.enum(["artifact_search"]);
-const agentBase={id,name:z.string().trim().min(1).max(120),description:z.string().max(2000),status:z.literal("draft"),connectionKey:id,tools:z.array(agentToolSchema).max(1).optional(),adapterOptions:z.unknown().optional()};
+export const agentToolSchema=z.union([z.literal("artifact_search"),z.object({type:z.literal("builtin"),name:z.literal("artifact_search")}).strict(),z.object({type:z.literal("mcp"),serverId:id,toolName:z.string().trim().min(1).max(128)}).strict()]);
+const agentBase={id,name:z.string().trim().min(1).max(120),description:z.string().max(2000),status:z.literal("draft"),connectionKey:id,tools:z.array(agentToolSchema).max(129).superRefine((tools,ctx)=>{const keys=tools.map(tool=>typeof tool==="string"?tool:tool.type==="builtin"?tool.name:`mcp:${tool.serverId}:${tool.toolName}`);if(new Set(keys).size!==keys.length)ctx.addIssue({code:"custom",message:"Tool grants must be unique."})}).optional(),adapterOptions:z.unknown().optional()};
 export const historicalAgentDefinitionV1Schema=z.object({schemaVersion:z.literal(1),...agentBase,masterPrompt:z.string().min(1).max(AGENT_MASTER_PROMPT_MAX_LENGTH)}).strict();
 const agentV2Schema=z.object({schemaVersion:z.literal(2),...agentBase,prompt:z.discriminatedUnion("source",[
   z.object({source:z.literal("custom"),text:z.string().min(1).max(AGENT_MASTER_PROMPT_MAX_LENGTH)}).strict(),
@@ -113,7 +113,9 @@ export type GenericWorkflowExecutionPlan=z.infer<typeof genericWorkflowExecution
 export type WorkflowV2ExecutionPlan=z.infer<typeof workflowV2ExecutionPlanSchema>;
 
 export function validateAgentAdapterOptions(agent:AgentDefinitionV1,adapter:string){return {...agent,adapterOptions:validateAdapterOptions(adapter,agent.adapterOptions)};}
-export function validateAgentForConnection(agent:AgentDefinitionV1,connection:{adapter:string;defaultModel?:string}){const definition=validateAgentAdapterOptions(agent,connection.adapter);if(definition.tools?.length&&connection.adapter!=="openai-agents")throw new Error("agent_tool_runtime_unsupported");if(connection.adapter==="openai-responses"||connection.adapter==="openai-agents")validateOpenAIModelAgentOptions(connection.defaultModel,definition.adapterOptions as import("./workflow-adapter.ts").OpenAIResponsesOptions);return definition;}
+export function validateAgentForConnection(agent:AgentDefinitionV1,connection:{adapter:string;defaultModel?:string;capabilities?:{agentTools?:boolean}}){const definition=validateAgentAdapterOptions(agent,connection.adapter);if(definition.tools?.length&&connection.capabilities?.agentTools!==true)throw new Error("agent_tool_runtime_unsupported");if(connection.adapter==="openai-responses"||connection.adapter==="openai-agents")validateOpenAIModelAgentOptions(connection.defaultModel,definition.adapterOptions as import("./workflow-adapter.ts").OpenAIResponsesOptions);return definition;}
+export const hasArtifactSearchGrant=(tools:AgentDefinitionV1["tools"])=>tools?.some(tool=>tool==="artifact_search"||(typeof tool!=="string"&&tool.type==="builtin"&&tool.name==="artifact_search"))===true;
+export const mcpToolGrants=(tools:AgentDefinitionV1["tools"])=>(tools?.filter(tool=>typeof tool!=="string"&&tool.type==="mcp")??[]) as Array<{type:"mcp";serverId:string;toolName:string}>;
 
 /** Validates and returns the only representation permitted in current Agent Git files. */
 export function persistedAgentDefinition(agent:AgentDefinitionV1):PersistedAgentDefinition {const persisted:Record<string,unknown>={...agent};delete persisted.masterPrompt;return persistedAgentDefinitionSchema.parse(persisted);}

@@ -135,7 +135,12 @@
 - MCP calls use an explicitly selected tool schema and do not rediscover tools during execution.
 - Remote tool connections use validated public destinations and fail closed on DNS changes, non-public networks, or cross-origin and forbidden redirects.
 - Ambiguous MCP tool calls are not automatically retried.
-- MCP server definitions, Agent grants, and MCP-backed Agent execution are not currently persisted or exposed in the application.
+- Tools is a top-level configuration domain, distinct from provider Connections. MCP is its first external integration type.
+- An MCP server has a stable ID, remote Streamable HTTP endpoint, authentication mode, and last successfully discovered frozen catalogue. Bearer credentials are write-only and vault-backed rather than Git-backed.
+- Catalogue discovery is an explicit user action. A failed refresh preserves the previous catalogue, and a refresh never expands existing Agent authority.
+- Agent grants retain legacy Artifact Search compatibility and identify each MCP permission by server ID plus selected remote tool name. Missing catalogue entries are presented as unavailable and fail closed.
+- The control plane resolves grants and credentials authoritatively. Runtime receives only selected frozen tool definitions and invocation-scoped encrypted credentials; it never discovers tools during Agent execution.
+- Model-facing MCP names use a bounded `mcp_<sanitised remote-name prefix>_<server-ID-and-remote-name digest>` alias. The remote tool name is unchanged on the MCP call.
 - Retired provider rows and legacy Codex Cloud configuration may remain readable as historical data but are not current execution inputs.
 
 ## 11. OpenAI execution connections and ADT Runtime

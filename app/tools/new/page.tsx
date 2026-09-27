@@ -1,0 +1,1 @@
+import {PageHeader} from "@/components/Ui";import {McpServerEditor} from "@/components/McpServerEditor";import {requireRepositoryAccess} from "@/lib/auth";export default async function Page(){await requireRepositoryAccess("/tools/new");return <><PageHeader title="New MCP server" description="Configure a remote Streamable HTTP tool integration."/><McpServerEditor/></>}
