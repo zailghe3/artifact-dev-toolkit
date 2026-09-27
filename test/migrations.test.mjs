@@ -6,6 +6,7 @@ const migration0001 = readFileSync('migrations/0001_create_auth_sessions.sql', '
 const migration0002 = readFileSync('migrations/0002_rebuild_auth_sessions.sql', 'utf8');
 const migration0009 = readFileSync('migrations/0009_create_provider_credential_vault.sql', 'utf8');
 const migration0019 = readFileSync('migrations/0019_add_work_iq_oauth_state.sql', 'utf8');
+const migration0020 = readFileSync('migrations/0020_add_workflow_run_mcp_snapshots.sql', 'utf8');
 
 test('0001 retains original AUTH-001 schema', () => {
   assert.match(migration0001, /revoked_at INTEGER\n\);/);
@@ -33,4 +34,11 @@ test('0019 preserves vault rows while adding integer CAS and isolated one-time W
  assert.match(migration0019,/CREATE TABLE work_iq_oauth_states/);
  for(const column of ['state_hash','connection_key','repository_revision','tenant_id','client_id','session_hash','verifier_secret_ref','expires_at','consumed_at'])assert.match(migration0019,new RegExp(column));
  assert.doesNotMatch(migration0019,/DROP TABLE|DELETE FROM|UPDATE provider_credential_vault|auth_sessions/);
+});
+test('0020 stores non-secret run MCP contracts separately from logical credential bindings',()=>{
+ assert.match(migration0020,/ADD COLUMN mcp_tool_snapshots_json TEXT/);
+ assert.match(migration0020,/CREATE TABLE mcp_server_credentials/);
+ assert.match(migration0020,/server_id TEXT PRIMARY KEY/);
+ assert.match(migration0020,/secret_id TEXT NOT NULL/);
+ assert.doesNotMatch(migration0020,/encrypted_credential|credential_iv|bearer|token/i);
 });

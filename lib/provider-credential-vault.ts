@@ -109,6 +109,20 @@ export class D1ProviderCredentialVault {
     }, secretId, this.resolveKey);
   }
 
+  async bindMcpServerCredential(serverId:string,secretId:string){
+    assertSecretId(secretId);
+    if(!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(serverId))throw new ProviderCredentialVaultServiceError("vault_persistence_failed");
+    await this.db.prepare("INSERT INTO mcp_server_credentials(server_id,secret_id,updated_at) VALUES(?,?,?) ON CONFLICT(server_id) DO UPDATE SET secret_id=excluded.secret_id,updated_at=excluded.updated_at").bind(serverId,secretId,new Date().toISOString()).run();
+  }
+
+  async resolveMcpServerCredential(serverId:string){
+    const row=await this.db.prepare("SELECT secret_id FROM mcp_server_credentials WHERE server_id=?").bind(serverId).first<{secret_id:string}>();
+    if(!row)throw new ProviderCredentialVaultServiceError("vault_secret_unavailable");
+    return this.resolve(row.secret_id);
+  }
+
+  async unbindMcpServerCredential(serverId:string){await this.db.prepare("DELETE FROM mcp_server_credentials WHERE server_id=?").bind(serverId).run();}
+
   async resolveWithRevision(secretId: string) {
     assertSecretId(secretId);
     const row = await this.row(secretId);
