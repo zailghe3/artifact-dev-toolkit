@@ -133,7 +133,7 @@
 - ADT Runtime can discover and invoke bounded remote MCP tools over Streamable HTTP using no authentication or an invocation-scoped bearer credential.
 - MCP discovery returns only bounded tool names, descriptions, and input schemas.
 - MCP calls use an explicitly selected tool schema and do not rediscover tools during execution.
-- Remote tool destinations fail closed when they target non-public networks or redirect to a forbidden destination.
+- Remote tool connections use validated public destinations and fail closed on DNS changes, non-public networks, or cross-origin and forbidden redirects.
 - Ambiguous MCP tool calls are not automatically retried.
 - MCP server definitions, Agent grants, and MCP-backed Agent execution are not currently persisted or exposed in the application.
 - Retired provider rows and legacy Codex Cloud configuration may remain readable as historical data but are not current execution inputs.
