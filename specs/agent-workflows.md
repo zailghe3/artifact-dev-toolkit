@@ -8,6 +8,7 @@
 - Agent Workflows let users run a bounded graph of configured Agents and deterministic control blocks.
 - The framework owns execution order, durability, retry, cancellation, history, and visibility.
 - Agents own reasoning and text generation through their configured connection and prompt.
+- Agent tools are a distinct execution domain from provider Connections.
 - Agent Workflows are not an autonomous multi-agent system.
 - Implementation technologies, storage schemas, protocol details, and deployment mechanics are outside this specification.
 
@@ -123,9 +124,21 @@
 - Connection configuration, credential availability, provider/model readiness, ADT Runtime readiness, and Codex Runner readiness are distinct states.
 - The Connections catalogue shows safe summaries; credential management and explicit provider testing are connection-editor operations.
 - Duplicating a Git connection creates an unsaved non-secret draft and never copies credentials, revision identity, or source identity.
+
+## 10. Agent tools
+
+- Provider capability policy explicitly determines whether an Agent execution path supports tools.
+- Artifact Search remains a built-in ADT tool and uses the authorised application gateway.
+- Runtime evaluates a provider-independent security boundary after a model requests a tool and before execution.
+- ADT Runtime can discover and invoke bounded remote MCP tools over Streamable HTTP using no authentication or an invocation-scoped bearer credential.
+- MCP discovery returns only bounded tool names, descriptions, and input schemas.
+- MCP calls use an explicitly selected tool schema and do not rediscover tools during execution.
+- Remote tool destinations fail closed when they target non-public networks or redirect to a forbidden destination.
+- Ambiguous MCP tool calls are not automatically retried.
+- MCP server definitions, Agent grants, and MCP-backed Agent execution are not currently persisted or exposed in the application.
 - Retired provider rows and legacy Codex Cloud configuration may remain readable as historical data but are not current execution inputs.
 
-## 10. OpenAI execution connections and ADT Runtime
+## 11. OpenAI execution connections and ADT Runtime
 
 - Artifact Toolkit supports the direct `openai-responses` execution path and the independently deployed `openai-agents` path.
 - Current OpenAI execution uses Git-defined connections backed by the encrypted ADT vault.
@@ -166,7 +179,7 @@
 - Connecting or reconnecting creates a new opaque delegated authorization context; disconnecting removes it. A snapshotted run executes only with its frozen authorization context and cannot silently switch to a newly connected Microsoft identity.
 - Creating a run verifies delegated authorization from local encrypted state only. Microsoft access tokens are acquired only for an actual provider invocation or an explicit connection test.
 
-## 11. Codex execution boundary
+## 12. Codex execution boundary
 
 - Codex execution is distinct from a normal OpenAI model call.
 - The supported self-hosted path is exposed through a `codex-runner` connection.
@@ -174,7 +187,7 @@
 - Current supported connections remain visible with explicit readiness problems when temporarily unavailable; visibility does not imply executability.
 - Legacy Codex Cloud connections remain historical/read-only configuration and are not offered for new executable setup.
 
-## 12. Codex Runner responsibilities and split security model
+## 13. Codex Runner responsibilities and split security model
 
 - Codex Runner is independently deployed. Split mode is the reference security architecture; integrated mode remains a compatibility deployment.
 - The **Controller** owns ADT-facing admission, durable job/idempotency state, emergency control, and internal signing authority. It does not execute model-generated commands.
@@ -187,7 +200,7 @@
 - Codex identity material belongs to the Executor trust boundary: model-directed execution may be able to read Executor-visible Codex state, but that does not grant ADT, GitHub, or infrastructure authority.
 - Runner returns only bounded final Agent text and bounded safe operational metadata to ADT.
 
-## 13. Runner workspaces and managed repositories
+## 14. Runner workspaces and managed repositories
 
 - An ordinary Runner environment is an operator-provisioned private workspace referenced by a safe public key; ADT never supplies an arbitrary filesystem path.
 - Ordinary workspaces may be normal directories or Git checkouts, may retain changes between jobs, and are reset/provisioned according to operator policy.
@@ -198,7 +211,7 @@
 - Managed repository identity and allowed continuation association are determined by trusted configuration and durable application state rather than by model-selected remotes, branches, or credentials.
 - Workspace and execution-boundary diagnostics are bounded and must not expose private paths, remotes, filenames, credentials, arbitrary command output, or unsafe upstream data.
 
-## 14. Codex Runner job behaviour
+## 15. Codex Runner job behaviour
 
 - Runner jobs are durably identifiable and protected against duplicate execution.
 - Matching replays resolve to the same accepted job; conflicting replays do not execute.
@@ -208,7 +221,7 @@
 - Cancellation targets the existing accepted job and does not report success until the relevant work is known to be quiescent.
 - An uncertain acknowledgement from a side-effecting Codex turn start is reconciled against that same turn rather than retried as a second turn. Unresolved ambiguity remains explicit.
 
-## 15. Runner readiness and operations
+## 16. Runner readiness and operations
 
 - Runner reachability, protocol compatibility, environment readiness, Codex authentication, model discovery, execution-boundary readiness, and job readiness are distinct conditions.
 - Failure in one dimension should produce a specific bounded safe status where possible.
@@ -220,7 +233,7 @@
 - Deployment, restart, image rollout, mounts, persistent storage, and Runner lifecycle remain operator-owned.
 - Detailed deployment, storage, protocol, and recovery guidance belongs in [`codex-runner/README.md`](../codex-runner/README.md).
 
-## 16. Managed GitHub publication
+## 17. Managed GitHub publication
 
 - A Codex Runner Agent may opt into a trusted managed repository environment.
 - The managed repository identity and base branch are bound from trusted Runner configuration and current run context before execution.
@@ -235,7 +248,7 @@
 - Ambiguous push/publication outcomes are reconciled against the same deterministic managed task and association rather than blindly repeated.
 - Safe Workflow state may retain task, branch, commit, and pull-request association metadata but never installation credentials.
 
-## 17. Safety, observability, and current limitations
+## 18. Safety, observability, and current limitations
 
 - Workflow state is visible without exposing provider secrets or private execution content beyond authorised run output.
 - Real runs may retain bounded run-level orchestration evidence separately from provider diagnostics on Agent attempts.

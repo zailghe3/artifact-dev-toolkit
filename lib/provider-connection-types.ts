@@ -8,7 +8,7 @@ export type ProviderSafeConfigurationPolicy={forExecution:boolean;parse(value:un
 export type ProviderConnectionTypePolicy={
  id:string;provider:string;label:string;catalogueLabel:string;endpoint?:string;
  authentication:ProviderAuthenticationKind;model:{required:boolean;discovery:boolean;discoveryGuidance?:string};
- capabilities:{asynchronous:boolean;cancellation:boolean};execution:ProviderExecutionPath;
+ capabilities:{asynchronous:boolean;cancellation:boolean;agentTools?:boolean};execution:ProviderExecutionPath;
  agentSettings:ProviderAgentSettingsFamily;safeConfiguration:ProviderSafeConfigurationPolicy;
 };
 export type ProviderConnectionType=ProviderConnectionTypePolicy&{id:ProviderConnectionTypeId};
@@ -25,7 +25,7 @@ const guid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]
 const workIqSafeConfiguration=createStringSafeConfigurationPolicy({tenantId:{required:true,maxLength:36,pattern:guid},clientId:{required:true,maxLength:36,pattern:guid}});
 const types:Record<ProviderConnectionTypeId,ProviderConnectionType>={
  "openai-responses":{id:"openai-responses",provider:"openai",label:"OpenAI Responses",catalogueLabel:"OpenAI Responses",endpoint:"https://api.openai.com/v1",authentication:"api-key",model:openAIModel,capabilities:{asynchronous:true,cancellation:true},execution:"direct",agentSettings:"openai-model",safeConfiguration:noSafeConfiguration},
- "openai-agents":{id:"openai-agents",provider:"openai",label:"OpenAI Agents (ADT Runtime)",catalogueLabel:"OpenAI Agents / ADT Runtime",endpoint:"https://api.openai.com/v1",authentication:"api-key",model:openAIModel,capabilities:{asynchronous:false,cancellation:false},execution:"adt-runtime",agentSettings:"openai-model",safeConfiguration:noSafeConfiguration},
+ "openai-agents":{id:"openai-agents",provider:"openai",label:"OpenAI Agents (ADT Runtime)",catalogueLabel:"OpenAI Agents / ADT Runtime",endpoint:"https://api.openai.com/v1",authentication:"api-key",model:openAIModel,capabilities:{asynchronous:false,cancellation:false,agentTools:true},execution:"adt-runtime",agentSettings:"openai-model",safeConfiguration:noSafeConfiguration},
  "anthropic-messages":{id:"anthropic-messages",provider:"anthropic",label:"Anthropic",catalogueLabel:"Anthropic",endpoint:"https://api.anthropic.com",authentication:"api-key",model:anthropicModel,capabilities:{asynchronous:false,cancellation:false},execution:"direct",agentSettings:"anthropic-messages",safeConfiguration:anthropicSafeConfiguration},
  "work-iq-rest":{id:"work-iq-rest",provider:"microsoft-work-iq",label:"Microsoft Work IQ",catalogueLabel:"Microsoft Work IQ",endpoint:"https://workiq.svc.cloud.microsoft",authentication:"delegated-oauth",model:{required:false,discovery:false},capabilities:{asynchronous:false,cancellation:false},execution:"direct",agentSettings:"work-iq-rest",safeConfiguration:workIqSafeConfiguration},
 };
@@ -37,5 +37,6 @@ export function isExecutableGitProviderAdapter(value:string){return Boolean(getP
 export function usesOpenAIModelAgentSettings(policy:Pick<ProviderConnectionTypePolicy,"agentSettings">|undefined){return policy?.agentSettings==="openai-model"}
 export function usesAnthropicMessagesAgentSettings(policy:Pick<ProviderConnectionTypePolicy,"agentSettings">|undefined){return policy?.agentSettings==="anthropic-messages"}
 export function usesWorkIqAgentSettings(policy:Pick<ProviderConnectionTypePolicy,"agentSettings">|undefined){return policy?.agentSettings==="work-iq-rest"}
+export function supportsAgentTools(policy:Pick<ProviderConnectionTypePolicy,"capabilities">|undefined){return policy?.capabilities.agentTools===true}
 export function normalizeConnectionModel(policy:Pick<ProviderConnectionTypePolicy,"model">,model?:string){const value=model?.trim();if(policy.model.required&&!value)throw new Error("model_required");return policy.model.required&&value?{model:value}:{};}
 export function connectionRequestModel(policy:Pick<ProviderConnectionTypePolicy,"model">,model:string){return normalizeConnectionModel(policy,model)}

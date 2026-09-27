@@ -5,6 +5,7 @@ import { z } from "zod";
 export const PROTOCOL_VERSION = "adt-runtime-v1";
 export const EXECUTE_PATH = "/v1/executions/openai-agents";
 export const READINESS_PATH = "/v1/readiness";
+export const MCP_DISCOVER_PATH="/v1/tools/mcp/discover",MCP_CALL_PATH="/v1/tools/mcp/call";
 export const MAX_BODY_BYTES = 1_100_000;
 export const MAX_RESPONSE_BYTES = 300_000;
 export const AUTH_WINDOW_MS = 5 * 60_000;
@@ -27,6 +28,11 @@ export const executionSchema = z.object({
   credential: envelopeSchema,
 }).strict().superRefine((value,context)=>{if(value.tools.length&&!value.toolGateway)context.addIssue({code:"custom",message:"Tool gateway is required.",path:["toolGateway"]});});
 export type ExecutionRequest = z.infer<typeof executionSchema>;
+const mcpConfig=z.object({url:z.string().url().max(2048),transport:z.literal("streamable-http")}).strict();
+const mcpTool=z.object({name:bounded(128),description:z.string().max(2048).optional(),inputSchema:z.record(z.string(),z.unknown())}).strict();
+const mcpBase={protocolVersion:z.literal(PROTOCOL_VERSION),requestId:bounded(128),server:mcpConfig,credential:envelopeSchema.optional()};
+export const mcpDiscoverySchema=z.object({...mcpBase,capability:z.literal("mcp:streamable-http:discover")}).strict();
+export const mcpCallSchema=z.object({...mcpBase,capability:z.literal("mcp:streamable-http:call"),tool:mcpTool,arguments:z.record(z.string(),z.unknown())}).strict();
 
 export function sha256(value: Uint8Array | string) { return createHash("sha256").update(value).digest("base64url"); }
 export function canonical(method:string,path:string,timestamp:string,nonce:string,digest:string,version=PROTOCOL_VERSION) {
