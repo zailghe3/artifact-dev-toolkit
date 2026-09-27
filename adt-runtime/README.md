@@ -11,6 +11,7 @@ ADT Runtime is the independently deployed compute and provider-execution boundar
 - Runtime may keep bounded ephemeral process state needed for protocol safety, such as replay protection, but replacement requires no local durable application volume.
 - Execution-heavy AI/provider libraries that do not require broad control-plane authority belong here; control-plane-only policy and privileged mutation do not.
 - Application and Runtime revisions may roll independently through an explicit protocol/capability contract.
+- Runtime owns bounded remote MCP Streamable HTTP discovery and calls. MCP credentials are optional invocation-scoped encrypted bearer values and are never persisted.
 
 ## Operator contract
 
@@ -48,6 +49,8 @@ Current provider credentials resolve only from the ADT vault in the control plan
 
 - Readiness advertises protocol compatibility, supported execution capabilities, image revision, and wrapping-key identity. Exact capability identifiers and payload schemas are authoritative in source and tests.
 - Runtime requests are authenticated and replay-protected; malformed, stale, replayed, incompatible, or unsupported requests fail closed before provider work.
+- MCP endpoints are restricted to safe public HTTPS destinations in normal operation. Connections use only policy-validated DNS answers, and redirects remain bounded to the same origin with destination validation repeated. A narrow explicit localhost mode exists only for deterministic development and tests.
+- MCP discovery exposes bounded catalogue metadata. MCP calls consume a caller-selected frozen schema, map remote failures to safe errors, and are never automatically retried after dispatch.
 - One LangGraph advance reconstructs the frozen ADT plan, resumes through the remote checkpoint boundary, admits a bounded executable frontier through the control plane, checkpoints, and returns control to the outer Cloudflare Workflow.
 - Checkpoint and Agent-node callbacks carry only narrowly scoped authority for the exact run/action being performed. Runtime never receives the Worker-only authority secret itself.
 - `openai-agents` executes one bounded synchronous provider invocation. Agent-configured execution timeout is the only user-facing timeout; transport and HTTP-server ceilings are derived/internal safety bounds.

@@ -38,6 +38,7 @@ Next.js -> OpenNext -> Cloudflare Worker
     +--> authenticated ADT Runtime
     |       - LangGraph Workflow sequencing
     |       - execution-heavy provider SDKs
+    |       - bounded remote MCP Streamable HTTP client execution
     |       - no durable ADT state or broad control-plane authority
     |
     +--> independently deployed Codex Runner
@@ -58,6 +59,7 @@ Exact bindings, schemas, versions, limits, identifiers, protocols, retries, and 
 - Browsers and execution services receive only the authority needed for their role; broad GitHub, Cloudflare, vault, or infrastructure credentials remain in the control plane or the exact trusted component that needs them.
 - Keep the Cloudflare Worker lean. Execution-heavy provider SDKs and orchestration libraries belong in ADT Runtime unless they genuinely require control-plane authority.
 - ADT Runtime is the extensible AI execution plane; Codex Runner remains a separate trust boundary for model-directed command execution.
+- Tool integrations are distinct from provider Connections. Built-in tools may retain control-plane gateways, while external tool protocol clients that need no control-plane authority belong in ADT Runtime.
 
 ## Major product domains
 
@@ -121,6 +123,7 @@ The product invariants are in [`specs/agent-workflows.md`](specs/agent-workflows
 - LangGraph computes bounded Workflow progression, but durable checkpoints and executable-node admission remain behind narrowly scoped Worker gateways.
 - The Worker retains Workflow admission, durable state, credential authority, outer recovery, and repository/tool authority.
 - Provider credentials are resolved in the control plane and supplied only for the exact invocation that needs them.
+- Invocation-scoped external-tool credentials follow the same encrypted Runtime boundary and are neither persisted nor exposed by Runtime.
 - Runtime and application revisions may roll independently through explicit protocol and capability compatibility.
 - Execution-heavy AI/provider libraries that do not need broad control-plane authority belong here.
 
