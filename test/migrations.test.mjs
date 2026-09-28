@@ -38,7 +38,9 @@ test('0019 preserves vault rows while adding integer CAS and isolated one-time W
 test('0020 stores non-secret run MCP contracts separately from logical credential bindings',()=>{
  assert.match(migration0020,/ADD COLUMN mcp_tool_snapshots_json TEXT/);
  assert.match(migration0020,/CREATE TABLE mcp_server_credentials/);
- assert.match(migration0020,/server_id TEXT PRIMARY KEY/);
+ assert.match(migration0020,/repository_id INTEGER NOT NULL/);
+ assert.match(migration0020,/server_id TEXT NOT NULL/);
+ assert.match(migration0020,/PRIMARY KEY \(repository_id, server_id\)/);
  assert.match(migration0020,/secret_id TEXT NOT NULL/);
  assert.doesNotMatch(migration0020,/encrypted_credential|credential_iv|bearer|token/i);
 });

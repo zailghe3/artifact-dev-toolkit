@@ -109,19 +109,23 @@ export class D1ProviderCredentialVault {
     }, secretId, this.resolveKey);
   }
 
-  async bindMcpServerCredential(serverId:string,secretId:string){
+  async bindMcpServerCredential(repositoryId:number,serverId:string,secretId:string,expectedSecretId?:string|null){
+    if(!Number.isSafeInteger(repositoryId)||repositoryId<1)throw new ProviderCredentialVaultServiceError("vault_persistence_failed");
     assertSecretId(secretId);
     if(!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(serverId))throw new ProviderCredentialVaultServiceError("vault_persistence_failed");
-    await this.db.prepare("INSERT INTO mcp_server_credentials(server_id,secret_id,updated_at) VALUES(?,?,?) ON CONFLICT(server_id) DO UPDATE SET secret_id=excluded.secret_id,updated_at=excluded.updated_at").bind(serverId,secretId,new Date().toISOString()).run();
+    const current=await this.db.prepare("SELECT secret_id FROM mcp_server_credentials WHERE repository_id=? AND server_id=?").bind(repositoryId,serverId).first<{secret_id:string}>();
+    if(current?.secret_id===secretId)return;
+    if(expectedSecretId===undefined||expectedSecretId===null){if(current)throw new ProviderCredentialVaultServiceError("vault_persistence_failed");await this.db.prepare("INSERT INTO mcp_server_credentials(repository_id,server_id,secret_id,updated_at) VALUES(?,?,?,?)").bind(repositoryId,serverId,secretId,new Date().toISOString()).run();return;}
+    assertSecretId(expectedSecretId);const result=await this.db.prepare("UPDATE mcp_server_credentials SET secret_id=?,updated_at=? WHERE repository_id=? AND server_id=? AND secret_id=?").bind(secretId,new Date().toISOString(),repositoryId,serverId,expectedSecretId).run();if(changes(result)!==1)throw new ProviderCredentialVaultServiceError("vault_persistence_failed");
   }
 
-  async resolveMcpServerCredential(serverId:string){
-    const row=await this.db.prepare("SELECT secret_id FROM mcp_server_credentials WHERE server_id=?").bind(serverId).first<{secret_id:string}>();
+  async resolveMcpServerCredential(repositoryId:number,serverId:string){
+    const row=await this.db.prepare("SELECT secret_id FROM mcp_server_credentials WHERE repository_id=? AND server_id=?").bind(repositoryId,serverId).first<{secret_id:string}>();
     if(!row)throw new ProviderCredentialVaultServiceError("vault_secret_unavailable");
     return this.resolve(row.secret_id);
   }
 
-  async unbindMcpServerCredential(serverId:string){await this.db.prepare("DELETE FROM mcp_server_credentials WHERE server_id=?").bind(serverId).run();}
+  async unbindMcpServerCredential(repositoryId:number,serverId:string,expectedSecretId?:string){if(expectedSecretId)assertSecretId(expectedSecretId);const result=await this.db.prepare(`DELETE FROM mcp_server_credentials WHERE repository_id=? AND server_id=?${expectedSecretId?" AND secret_id=?":""}`).bind(repositoryId,serverId,...(expectedSecretId?[expectedSecretId]:[])).run();if(expectedSecretId&&changes(result)!==1)throw new ProviderCredentialVaultServiceError("vault_persistence_failed");}
 
   async resolveWithRevision(secretId: string) {
     assertSecretId(secretId);
