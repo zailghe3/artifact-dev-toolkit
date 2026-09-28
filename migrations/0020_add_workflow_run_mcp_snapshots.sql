@@ -4,6 +4,7 @@ CREATE TABLE mcp_server_credentials (
   repository_id INTEGER NOT NULL,
   server_id TEXT NOT NULL,
   binding_id TEXT NOT NULL,
+  trust_target TEXT NOT NULL,
   secret_id TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   PRIMARY KEY (repository_id, binding_id),

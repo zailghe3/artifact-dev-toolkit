@@ -41,6 +41,7 @@ test('0020 stores non-secret run MCP contracts separately from logical credentia
  assert.match(migration0020,/repository_id INTEGER NOT NULL/);
  assert.match(migration0020,/server_id TEXT NOT NULL/);
  assert.match(migration0020,/binding_id TEXT NOT NULL/);
+ assert.match(migration0020,/trust_target TEXT NOT NULL/);
  assert.match(migration0020,/PRIMARY KEY \(repository_id, binding_id\)/);
  assert.match(migration0020,/UNIQUE \(repository_id, server_id\)/);
  assert.match(migration0020,/secret_id TEXT NOT NULL/);
