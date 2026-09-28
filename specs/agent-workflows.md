@@ -15,7 +15,9 @@
 ## 2. Core concepts
 
 - A **Connection** identifies an execution provider without exposing its private credentials.
-- An **Agent** selects a connection, prompt, and supported provider options.
+- A **Security Profile** selects a non-secret Adrian trust target and bounded decision timeout; Adrian policy remains managed by Adrian.
+- An **Agent** selects a connection, prompt, supported provider options, and optionally a Security Profile when the connection supports Runtime security.
+- Security Profiles are distinct from provider Connections and tool grants. They can only further restrict tool authority already granted by ADT.
 - An Agent prompt is either custom text or a reference to an Artifact Library prompt.
 - A **Workflow** is a v2 semantic graph of versioned blocks and edges.
 - Supported backend-executable blocks are Agent references, deterministic text Conditions, Join barriers, resumable human Approval gates, reusable Workflow composites, and the explicit managed GitHub publication block.

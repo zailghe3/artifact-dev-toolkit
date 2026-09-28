@@ -1,6 +1,7 @@
 import type {Tool} from "@openai/agents";
 
 export type ToolSecurityContext={name:string;arguments:unknown;callId?:string};
+export type SecurityDecision={outcome:"allow"|"deny"|"timeout"|"unavailable";elapsedMs:number};
 export type ToolSecurityGate={authorize(input:ToolSecurityContext):Promise<void>;completed?(input:ToolSecurityContext,result:string):Promise<void>;failed?(input:ToolSecurityContext,error:unknown):Promise<void>};
 export const allowAllToolSecurityGate:ToolSecurityGate={async authorize(){}};
 export type RuntimeTool={name:string;execute(arguments_:unknown,callId?:string):Promise<string>;asAgentTool(execute:(arguments_:unknown,callId?:string)=>Promise<string>):Tool<unknown>};

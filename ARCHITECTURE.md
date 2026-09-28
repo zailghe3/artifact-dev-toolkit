@@ -126,6 +126,17 @@ The product invariants are in [`specs/agent-workflows.md`](specs/agent-workflows
 - ADT Runtime alone owns the MCP client. It exposes authorised tools through collision-safe aliases derived from server ID and remote name, applies the shared tool security gate and call budget, and calls the unchanged remote name.
 - Normal Agent execution never discovers or refreshes an MCP catalogue. Agent-tool eligibility follows provider capability policy.
 
+### Security Profiles
+
+- Security Profiles are a first-class domain, separate from Connections, Tools, Agents, and Workflows.
+- Git definitions under `security-profiles/` contain only validated non-secret Adrian configuration. Adrian API keys belong in the encrypted, repository-scoped vault and must never enter Git or run snapshots.
+- Agents may optionally reference a Security Profile only when their provider connection advertises Runtime security support. Absence preserves unsecured execution behavior.
+- Adrian is an additional restriction after ADT authorization, frozen tool authority, and the global tool-call budget; it cannot grant tools or expand an MCP contract.
+- OpenAI execution remains direct through ADT's OpenAI Agents provider. The Adrian SDK remains Runtime-only and is not an OpenAI proxy.
+- Runtime security decisions are `allow`, `deny`, `timeout`, or `unavailable`. Only positive, exact-call allow evidence permits external tool execution; every other or ambiguous state fails closed.
+- Adrian's process-global lifecycle requires one exclusive protected execution per Runtime process. Contending protected executions fail closed without queueing; unsecured executions do not acquire the lease.
+- Adrian policy and remit remain managed by Adrian. Human Review and HITL are not part of the automated V1 enforcement contract.
+
 ### ADT Runtime
 
 - ADT Runtime is an independently deployed, replaceable compute and provider-execution service with no durable ADT state or persisted provider credentials.
@@ -158,7 +169,7 @@ Operational detail belongs in [`codex-runner/README.md`](codex-runner/README.md)
 | Product behaviour and stable invariants | `specs/` |
 | Repository-wide agent/contributor rules | `AGENTS.md` and scoped `AGENTS.md` files |
 | Repeatable Codex procedures | `.agents/skills/` |
-| Artifact content and Git-backed Agent, Workflow, layout, and provider connection definitions | configured GitHub repository |
+| Artifact content and Git-backed Agent, Workflow, layout, provider connection, and Security Profile definitions | configured GitHub repository |
 | Artifact repository layout and metadata | `docs/external-artifact-repository-contract.md` plus validation code |
 | Application sessions, encrypted provider credential vault, and durable Workflow state | D1 schema, migrations, and source |
 | Catalogue acceleration | KV cache; GitHub remains authoritative |
