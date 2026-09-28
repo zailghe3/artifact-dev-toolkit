@@ -5,6 +5,7 @@ import {
 } from "./provider-credential-vault-crypto.ts";
 
 const SECRET_ID_PATTERN = /^sec_[A-Za-z0-9_-]{43}$/;
+const MCP_BINDING_ID_PATTERN=/^mcpb_[A-Za-z0-9_-]{43}$/;
 
 export type ProviderCredentialVaultDatabase = {
   prepare(sql: string): {
@@ -62,16 +63,19 @@ export class D1ProviderCredentialVault {
   private readonly resolveKey: ProviderCredentialVaultKeyResolver;
   private readonly activeMasterKeyVersion: number;
   private readonly generateSecretId: () => string;
+  private readonly generateBindingId:()=>string;
   constructor(
     db: ProviderCredentialVaultDatabase,
     resolveKey: ProviderCredentialVaultKeyResolver,
     activeMasterKeyVersion = 1,
     generateSecretId: () => string = generateProviderCredentialVaultSecretId,
+    generateBindingId:()=>string=()=>`mcpb_${Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url")}`,
   ) {
     this.db = db;
     this.resolveKey = resolveKey;
     this.activeMasterKeyVersion = activeMasterKeyVersion;
     this.generateSecretId = generateSecretId;
+    this.generateBindingId=generateBindingId;
   }
 
   private async row(secretId: string) {
@@ -108,6 +112,25 @@ export class D1ProviderCredentialVault {
       masterKeyVersion: row.master_key_version,
     }, secretId, this.resolveKey);
   }
+
+  private assertMcpIdentity(repositoryId:number,serverId:string,bindingId?:string){
+    if(!Number.isSafeInteger(repositoryId)||repositoryId<1)throw new ProviderCredentialVaultServiceError("vault_persistence_failed");
+    if(!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(serverId))throw new ProviderCredentialVaultServiceError("vault_persistence_failed");
+    if(bindingId&&!MCP_BINDING_ID_PATTERN.test(bindingId))throw new ProviderCredentialVaultServiceError("vault_persistence_failed");
+  }
+  private mcpTrustTarget(endpoint:string){try{const value=new URL(endpoint);if(value.protocol!=="https:")throw new Error();return value.href}catch{throw new ProviderCredentialVaultServiceError("vault_persistence_failed")}}
+  private async mcpBinding(repositoryId:number,serverId:string){return this.db.prepare("SELECT binding_id,trust_target,secret_id FROM mcp_server_credentials WHERE repository_id=? AND server_id=?").bind(repositoryId,serverId).first<{binding_id:string;trust_target:string;secret_id:string}>();}
+  async ensureMcpServerCredentialBinding(repositoryId:number,serverId:string,endpoint:string,secretId:string){this.assertMcpIdentity(repositoryId,serverId);const trustTarget=this.mcpTrustTarget(endpoint);assertSecretId(secretId);const current=await this.mcpBinding(repositoryId,serverId);if(current){if(current.secret_id!==secretId||current.trust_target!==trustTarget)throw new ProviderCredentialVaultServiceError("vault_persistence_failed");return current.binding_id}const bindingId=this.generateBindingId();this.assertMcpIdentity(repositoryId,serverId,bindingId);try{await this.db.prepare("INSERT INTO mcp_server_credentials(repository_id,server_id,binding_id,trust_target,secret_id,updated_at) VALUES(?,?,?,?,?,?)").bind(repositoryId,serverId,bindingId,trustTarget,secretId,new Date().toISOString()).run()}catch{const raced=await this.mcpBinding(repositoryId,serverId);if(raced?.secret_id===secretId&&raced.trust_target===trustTarget)return raced.binding_id;throw new ProviderCredentialVaultServiceError("vault_persistence_failed")}return bindingId;}
+  async rotateMcpServerCredential(repositoryId:number,serverId:string,bindingId:string,endpoint:string,secretId:string,expectedSecretId:string){this.assertMcpIdentity(repositoryId,serverId,bindingId);const trustTarget=this.mcpTrustTarget(endpoint);assertSecretId(secretId);assertSecretId(expectedSecretId);const result=await this.db.prepare("UPDATE mcp_server_credentials SET secret_id=?,updated_at=? WHERE repository_id=? AND server_id=? AND binding_id=? AND trust_target=? AND secret_id=?").bind(secretId,new Date().toISOString(),repositoryId,serverId,bindingId,trustTarget,expectedSecretId).run();if(changes(result)!==1)throw new ProviderCredentialVaultServiceError("vault_persistence_failed");}
+  async replaceMcpServerCredentialBinding(repositoryId:number,serverId:string,oldBindingId:string,oldEndpoint:string,newEndpoint:string,secretId:string){this.assertMcpIdentity(repositoryId,serverId,oldBindingId);const oldTarget=this.mcpTrustTarget(oldEndpoint),newTarget=this.mcpTrustTarget(newEndpoint);assertSecretId(secretId);const bindingId=this.generateBindingId();this.assertMcpIdentity(repositoryId,serverId,bindingId);const result=await this.db.prepare("UPDATE mcp_server_credentials SET binding_id=?,trust_target=?,secret_id=?,updated_at=? WHERE repository_id=? AND server_id=? AND binding_id=? AND trust_target=?").bind(bindingId,newTarget,secretId,new Date().toISOString(),repositoryId,serverId,oldBindingId,oldTarget).run();if(changes(result)!==1)throw new ProviderCredentialVaultServiceError("vault_persistence_failed");return bindingId;}
+  async restoreMcpServerCredentialBinding(repositoryId:number,serverId:string,bindingId:string,endpoint:string,secretId:string){this.assertMcpIdentity(repositoryId,serverId,bindingId);const trustTarget=this.mcpTrustTarget(endpoint);assertSecretId(secretId);const current=await this.mcpBinding(repositoryId,serverId);if(current?.binding_id===bindingId&&current.trust_target===trustTarget&&current.secret_id===secretId)return;if(current)await this.db.prepare("UPDATE mcp_server_credentials SET binding_id=?,trust_target=?,secret_id=?,updated_at=? WHERE repository_id=? AND server_id=?").bind(bindingId,trustTarget,secretId,new Date().toISOString(),repositoryId,serverId).run();else await this.db.prepare("INSERT INTO mcp_server_credentials(repository_id,server_id,binding_id,trust_target,secret_id,updated_at) VALUES(?,?,?,?,?,?)").bind(repositoryId,serverId,bindingId,trustTarget,secretId,new Date().toISOString()).run();}
+  async resolveMcpServerCredential(repositoryId:number,bindingId:string){
+    this.assertMcpIdentity(repositoryId,"binding",bindingId);const row=await this.db.prepare("SELECT secret_id FROM mcp_server_credentials WHERE repository_id=? AND binding_id=?").bind(repositoryId,bindingId).first<{secret_id:string}>();
+    if(!row)throw new ProviderCredentialVaultServiceError("vault_secret_unavailable");
+    return this.resolve(row.secret_id);
+  }
+
+  async revokeMcpServerCredentialBinding(repositoryId:number,serverId:string,bindingId:string){this.assertMcpIdentity(repositoryId,serverId,bindingId);const result=await this.db.prepare("DELETE FROM mcp_server_credentials WHERE repository_id=? AND server_id=? AND binding_id=?").bind(repositoryId,serverId,bindingId).run();if(changes(result)!==1)throw new ProviderCredentialVaultServiceError("vault_persistence_failed");}
 
   async resolveWithRevision(secretId: string) {
     assertSecretId(secretId);

@@ -138,8 +138,11 @@
 - Tools is a top-level configuration domain, distinct from provider Connections. MCP is its first external integration type.
 - An MCP server has a stable ID, remote Streamable HTTP endpoint, authentication mode, and last successfully discovered frozen catalogue. Bearer credentials are write-only and vault-backed rather than Git-backed.
 - Catalogue discovery is an explicit user action. A failed refresh preserves the previous catalogue, and a refresh never expands existing Agent authority.
-- Agent grants retain legacy Artifact Search compatibility and identify each MCP permission by server ID plus selected remote tool name. Missing catalogue entries are presented as unavailable and fail closed.
-- The control plane resolves grants and credentials authoritatively. Runtime receives only selected frozen tool definitions and invocation-scoped encrypted credentials; it never discovers tools during Agent execution.
+- Agent definitions store grants, retain legacy Artifact Search compatibility, and identify each MCP permission by server ID plus selected remote tool name. Missing catalogue entries are presented as unavailable and fail closed.
+- Creating a Workflow run resolves every MCP grant and freezes its selected non-secret server endpoint, authentication mode, credential-binding generation, remote name, description, input schema, and model-facing alias. Later catalogue and server edits affect future runs only.
+- MCP credentials are not part of the run snapshot. Each binding generation is tied to its configured HTTPS endpoint; admission requires that endpoint to match before freezing the generation. The control plane resolves the current credential for the run's repository identity plus the exact frozen binding generation and supplies it to Runtime only for that invocation.
+- Token rotation at an unchanged endpoint preserves the binding generation. Endpoint or authentication trust-boundary changes replace or revoke it, so historical runs cannot receive credentials from a later server incarnation.
+- Historical runs with MCP grants but no frozen MCP execution contract fail closed rather than consulting the current catalogue. Runtime never discovers tools during Agent execution.
 - Model-facing MCP names use a bounded `mcp_<sanitised remote-name prefix>_<server-ID-and-remote-name digest>` alias. The remote tool name is unchanged on the MCP call.
 - Retired provider rows and legacy Codex Cloud configuration may remain readable as historical data but are not current execution inputs.
 
