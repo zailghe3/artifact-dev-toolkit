@@ -22,6 +22,7 @@
 - Agents SDK 0.17.0 passes the original function-call ID through the public tool callback `details.toolCall.callId`.
 - The generic `ToolSecurityGate` receives that ID with the tool name and arguments. The Adrian adapter reports tool start before execution and tool result/error after execution.
 - The existing order is: Agent/tool grant construction, global tool-call budget consumption, security-gate authorization, then Artifact Search or MCP execution. A denied call consumes budget but does not invoke the underlying side effect.
+- Pre-execution `authorize()` is the authoritative enforcement hook. Post-execution `completed()` and `failed()` callbacks are observational; reporting failures cannot change an already-established tool result, mask the original error, or invite replay of a completed side effect.
 - A real BLOCK-mode `M3` verdict is observable as `gateToolCallIds()` returning `block/policy_halt`; the adapter can deny before the tool implementation runs.
 - An explicit non-halting verdict allows the implementation exactly once.
 - Existing MCP transport ambiguity and no-retry behavior is below the unchanged generic gate and is unaffected.
