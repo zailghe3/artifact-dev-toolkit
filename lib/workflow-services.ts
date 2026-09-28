@@ -26,6 +26,7 @@ export function createWorkflowDefinitionRepository(access:RepositoryAccessContex
 }
 export function createToolDefinitionRepository(access:RepositoryAccessContext){return new GitHubToolDefinitionRepository(githubContentsRequest(access));}
 export function createSecurityProfileDefinitionRepository(access:RepositoryAccessContext){return new GitHubSecurityProfileDefinitionRepository(githubContentsRequest(access));}
+export async function listSafeSecurityProfiles(access:RepositoryAccessContext){const repository=createSecurityProfileDefinitionRepository(access),vault=await getProviderCredentialVault();return Promise.all((await repository.list()).map(async item=>{let credentialConfigured=false;try{await vault.currentSecurityProfileCredentialBinding(access.repositoryId,item.definition.id,item.definition.endpointUrl);credentialConfigured=true}catch{}return{...item,definition:{...item.definition,credentialConfigured}}}))}
 export function createWorkflowLayoutRepository(access:RepositoryAccessContext){return new GitHubWorkflowLayoutRepository(githubContentsRequest(access));}
 export async function getWorkflowEnvironment(){const {env}=await getCloudflareContext({async:true});return env as CloudflareEnv;}
 export async function getWorkflowRunStorage(){const env=await getWorkflowEnvironment();return new D1WorkflowRunStorage(env.AUTH_SESSIONS_DB as unknown as WorkflowD1Database);}

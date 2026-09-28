@@ -11,6 +11,7 @@ export type SafeFailure={category:string;safeMessage:string;retryable:false};
 export class RuntimeFailure extends Error implements SafeFailure{readonly retryable=false as const;constructor(readonly category:string,readonly safeMessage:string){super(category)}}
 const fail=(category:string,safeMessage:string)=>new RuntimeFailure(category,safeMessage);
 function classify(error:unknown){
+ if(error&&typeof error==="object"&&"category" in error&&["security_denied","security_timeout","security_unavailable"].includes(String(error.category))&&"safeMessage" in error&&typeof error.safeMessage==="string")return fail(String(error.category),error.safeMessage);
  if(error instanceof MaxTurnsExceededError)return fail("provider_rejected","The model exceeded the permitted execution turns.");
  if(error instanceof ModelTimeoutError)return fail("provider_timeout","The model request timed out.");
  if(error instanceof ModelRefusalError)return fail("provider_rejected","The model refused the request.");
