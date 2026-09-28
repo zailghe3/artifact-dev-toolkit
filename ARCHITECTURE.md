@@ -129,9 +129,10 @@ The product invariants are in [`specs/agent-workflows.md`](specs/agent-workflows
 ### Security Profiles
 
 - Security Profiles are a first-class domain, separate from Connections, Tools, Agents, and Workflows.
-- Git definitions under `security-profiles/` contain only validated non-secret Adrian configuration. Adrian API keys belong in the encrypted, repository-scoped vault and must never enter Git or run snapshots.
+- Git definitions under `security-profiles/` contain only validated non-secret Adrian configuration. Adrian API keys belong in the encrypted, repository-scoped vault and never enter Git or run snapshots.
 - Agents may optionally reference a Security Profile only when their provider connection advertises Runtime security support. Absence preserves unsecured execution behavior.
 - Adrian is an additional restriction after ADT authorization, frozen tool authority, and the global tool-call budget; it cannot grant tools or expand an MCP contract.
+- New runs freeze each secured Agent's profile identity, endpoint, decision timeout, and repository-scoped credential generation. Execution resolves only that generation, so same-endpoint key rotation remains live while endpoint changes and deletion revoke historical authority.
 - OpenAI execution remains direct through ADT's OpenAI Agents provider. The Adrian SDK remains Runtime-only and is not an OpenAI proxy.
 - Runtime security decisions are `allow`, `deny`, `timeout`, or `unavailable`. Only positive, exact-call allow evidence permits external tool execution; every other or ambiguous state fails closed.
 - Adrian's process-global lifecycle requires one exclusive protected execution per Runtime process. Contending protected executions fail closed without queueing; unsecured executions do not acquire the lease.

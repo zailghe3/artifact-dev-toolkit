@@ -14,7 +14,8 @@ const credentialKey = /(?:credential|password|secret|token|api.?key|private.?key
 export const AGENT_MASTER_PROMPT_MAX_LENGTH=65536;
 export const agentToolSchema=z.union([z.literal("artifact_search"),z.object({type:z.literal("builtin"),name:z.literal("artifact_search")}).strict(),z.object({type:z.literal("mcp"),serverId:id,toolName:z.string().trim().min(1).max(128)}).strict()]);
 const agentBase={id,name:z.string().trim().min(1).max(120),description:z.string().max(2000),status:z.literal("draft"),connectionKey:id,securityProfileId:id.optional(),tools:z.array(agentToolSchema).max(129).superRefine((tools,ctx)=>{const keys=tools.map(tool=>typeof tool==="string"?tool:tool.type==="builtin"?tool.name:`mcp:${tool.serverId}:${tool.toolName}`);if(new Set(keys).size!==keys.length)ctx.addIssue({code:"custom",message:"Tool grants must be unique."})}).optional(),adapterOptions:z.unknown().optional()};
-export const historicalAgentDefinitionV1Schema=z.object({schemaVersion:z.literal(1),...agentBase,masterPrompt:z.string().min(1).max(AGENT_MASTER_PROMPT_MAX_LENGTH)}).strict();
+const {securityProfileId:_securityProfileId,...historicalAgentBase}=agentBase;void _securityProfileId;
+export const historicalAgentDefinitionV1Schema=z.object({schemaVersion:z.literal(1),...historicalAgentBase,masterPrompt:z.string().min(1).max(AGENT_MASTER_PROMPT_MAX_LENGTH)}).strict();
 const agentV2Schema=z.object({schemaVersion:z.literal(2),...agentBase,prompt:z.discriminatedUnion("source",[
   z.object({source:z.literal("custom"),text:z.string().min(1).max(AGENT_MASTER_PROMPT_MAX_LENGTH)}).strict(),
   z.object({source:z.literal("artifact"),artifactId:id}).strict(),

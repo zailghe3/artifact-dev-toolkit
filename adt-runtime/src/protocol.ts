@@ -20,6 +20,7 @@ export const envelopeSchema = z.object({
 const mcpConfig=z.object({url:z.string().url().max(2048),transport:z.literal("streamable-http")}).strict();
 const mcpTool=z.object({name:bounded(128),description:z.string().max(2048).optional(),inputSchema:z.record(z.string(),z.unknown())}).strict();
 const authorizedMcpTool=z.object({alias:bounded(64).regex(/^[A-Za-z_][A-Za-z0-9_-]*$/),serverId:bounded(80),server:mcpConfig,tool:mcpTool,credential:envelopeSchema.optional()}).strict();
+const runtimeSecurity=z.object({provider:z.literal("adrian"),profileId:bounded(80).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),endpointUrl:z.string().url().max(2048).refine(value=>{const url=new URL(value);return url.protocol==="wss:"&&!url.username&&!url.password&&!url.search}),decisionTimeoutMs:z.number().int().min(250).max(30_000),credential:envelopeSchema}).strict();
 export const executionSchema = z.object({
   protocolVersion: z.literal(PROTOCOL_VERSION), capability: z.literal("openai-agents"),
   requestId: bounded(128), idempotencyKey: bounded(256), agentName: bounded(160),
@@ -29,6 +30,7 @@ export const executionSchema = z.object({
   tools:z.array(z.literal("artifact_search")).max(1).default([]),
   toolGateway:z.object({url:z.string().url().max(2048),authority:bounded(4096)}).strict().optional(),
   mcpTools:z.array(authorizedMcpTool).max(128).default([]),
+  runtimeSecurity:runtimeSecurity.optional(),
   credential: envelopeSchema,
 }).strict().superRefine((value,context)=>{if(value.tools.length&&!value.toolGateway)context.addIssue({code:"custom",message:"Tool gateway is required.",path:["toolGateway"]});if(new Set(value.mcpTools.map(x=>x.alias)).size!==value.mcpTools.length)context.addIssue({code:"custom",message:"MCP aliases must be unique.",path:["mcpTools"]});});
 export type ExecutionRequest = z.infer<typeof executionSchema>;

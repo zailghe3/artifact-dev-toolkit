@@ -6,8 +6,11 @@ export const SECURITY_PROFILE_TIMEOUT_MAX_MS=30_000;
 const id=z.string().regex(DEFINITION_ID).max(80);
 
 export function canonicalAdrianEndpoint(value:string){
- const url=new URL(value);url.hash="";url.username="";url.password="";
+ const url=new URL(value);
  if(url.protocol!=="wss:")throw new Error("security_profile_endpoint_insecure");
+ if(url.username||url.password)throw new Error("security_profile_endpoint_userinfo");
+ if(url.search)throw new Error("security_profile_endpoint_query");
+ url.hash="";
  url.hostname=url.hostname.toLowerCase();if(url.port==="443")url.port="";
  return url.toString();
 }
