@@ -4,7 +4,7 @@ import type {ModelTurnInstrumentation} from "./model-instrumentation.js";
 import type {SecurityDecision,ToolSecurityContext,ToolSecurityGate} from "./tools.js";
 
 export class AdrianExecutionLeaseUnavailableError extends Error{readonly category="security_unavailable";readonly safeMessage="Security enforcement is temporarily unavailable.";readonly retryable=false;constructor(){super("adrian_execution_lease_unavailable")}}
-export class SecurityDecisionError extends Error{readonly retryable=false;readonly category;readonly safeMessage;constructor(readonly outcome:Exclude<SecurityDecision["outcome"],"allow">){super(`security_${outcome}`);this.category=`security_${outcome}`;this.safeMessage=outcome==="deny"?"The tool call was denied by the security policy.":outcome==="timeout"?"The security decision timed out.":"Security enforcement is unavailable."}}
+export class SecurityDecisionError extends Error{readonly retryable=false;readonly category;readonly safeMessage;constructor(readonly outcome:Exclude<SecurityDecision["outcome"],"allow">){const category=outcome==="deny"?"security_denied":`security_${outcome}`;super(category);this.category=category;this.safeMessage=outcome==="deny"?"The tool call was denied by the security policy.":outcome==="timeout"?"The security decision timed out.":"Security enforcement is unavailable."}}
 
 let leaseHeld=false;
 export function acquireAdrianExecutionLease(){if(leaseHeld)throw new AdrianExecutionLeaseUnavailableError();leaseHeld=true;let released=false;return()=>{if(!released){released=true;leaseHeld=false}}}
@@ -15,11 +15,13 @@ export async function evaluateAdrianToolCall(client:Pick<WebSocketClient,"loginA
 
 export class ProductionAdrianSecurityGate implements ToolSecurityGate,ModelTurnInstrumentation{
  private readonly toolRuns=new WeakMap<ToolSecurityContext,string>();
+ private terminalFailure:SecurityDecisionError|undefined;
  constructor(private handler:NonNullable<ReturnType<typeof adrian.getHandler>>,private client:WebSocketClient,private timeoutMs:number,private diagnostic?:(decision:SecurityDecision)=>void){}
  async modelTurnStarted({turnId,model,request}:{turnId:string;model:string;request:ModelRequest}){try{await this.handler.handleChatModelStart({name:model},[messages(request)],turnId,undefined,{metadata:{adt_turn_id:turnId}})}catch{throw new AdrianExecutionLeaseUnavailableError()}}
  async modelTurnCompleted({turnId,response}:{turnId:string;model:string;response:ModelResponse}){const data:LlmEndData={output:outputText(response.output),toolCalls:response.output.map(toolCall).filter((call):call is ToolCallRecord=>call!==null),usage:usage(response)};try{await this.handler.handleLLMEnd(data,turnId)}catch{throw new AdrianExecutionLeaseUnavailableError()}}
  async modelTurnFailed({turnId}:{turnId:string;model:string;error:unknown}){await this.handler.handleLLMError(safeError("model"),turnId)}
- async authorize(input:ToolSecurityContext){const runId=`tool:${input.callId??crypto.randomUUID()}`;this.toolRuns.set(input,runId);try{await this.handler.handleToolStart({name:input.name},safeText(input.arguments),runId,undefined,{tool_call_id:input.callId})}catch{this.toolRuns.delete(input);throw new AdrianExecutionLeaseUnavailableError()}const decision=await evaluateAdrianToolCall(this.client,input.callId,this.timeoutMs);this.diagnostic?.(decision);if(decision.outcome!=="allow"){try{await this.handler.handleToolError(safeError("tool"),runId)}catch{}this.toolRuns.delete(input);throw new SecurityDecisionError(decision.outcome)}}
+ async authorize(input:ToolSecurityContext){const runId=`tool:${input.callId??crypto.randomUUID()}`;this.toolRuns.set(input,runId);try{await this.handler.handleToolStart({name:input.name},safeText(input.arguments),runId,undefined,{tool_call_id:input.callId})}catch{this.toolRuns.delete(input);throw new AdrianExecutionLeaseUnavailableError()}const decision=await evaluateAdrianToolCall(this.client,input.callId,this.timeoutMs);this.diagnostic?.(decision);if(decision.outcome!=="allow"){try{await this.handler.handleToolError(safeError("tool"),runId)}catch{}this.toolRuns.delete(input);this.terminalFailure=new SecurityDecisionError(decision.outcome);throw this.terminalFailure}}
+ assertNoFailure(){if(this.terminalFailure)throw this.terminalFailure}
  async completed(input:ToolSecurityContext,result:string){await this.handler.handleToolEnd(safeText(result),this.toolRuns.get(input)??`tool:${input.callId??"uncorrelated"}`);this.toolRuns.delete(input)}
  async failed(input:ToolSecurityContext){await this.handler.handleToolError(safeError("tool"),this.toolRuns.get(input)??`tool:${input.callId??"uncorrelated"}`);this.toolRuns.delete(input)}
 }
