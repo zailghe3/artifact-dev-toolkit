@@ -6,7 +6,7 @@ export const PROTOCOL_VERSION = "adt-runtime-v1";
 export const EXECUTE_PATH = "/v1/executions/openai-agents";
 export const READINESS_PATH = "/v1/readiness";
 export const MCP_DISCOVER_PATH="/v1/tools/mcp/discover",MCP_CALL_PATH="/v1/tools/mcp/call";
-export const SECURITY_TEST_PATH="/v1/security/adrian/test";
+export const SECURITY_TEST_PATH="/v1/security/adrian/test",ADRIAN_SECURITY_CAPABILITY="security:adrian",ADRIAN_SECURITY_TEST_CAPABILITY="security:adrian:test";
 export const MAX_BODY_BYTES = 1_100_000;
 export const MAX_RESPONSE_BYTES = 300_000;
 export const AUTH_WINDOW_MS = 5 * 60_000;

@@ -7,7 +7,7 @@ class InstrumentedModel implements Model{
  constructor(private readonly model:string,private readonly delegate:Model,private readonly executionId:string,private readonly instrumentation:ModelTurnInstrumentation){}
  async getResponse(request:ModelRequest){
   const turnId=`${this.executionId}:turn:${++this.turn}`;await this.instrumentation.modelTurnStarted({turnId,model:this.model,request});
-  try{const response=await this.delegate.getResponse(request);await this.instrumentation.modelTurnCompleted({turnId,model:this.model,response});return response}catch(error){await this.instrumentation.modelTurnFailed?.({turnId,model:this.model,error});throw error}
+  try{const response=await this.delegate.getResponse(request);await this.instrumentation.modelTurnCompleted({turnId,model:this.model,response});return response}catch(error){try{await this.instrumentation.modelTurnFailed?.({turnId,model:this.model,error})}catch{/* Failure reporting cannot replace the established model outcome. */}throw error}
  }
  getStreamedResponse(request:ModelRequest){return this.delegate.getStreamedResponse(request)}
  getRetryAdvice(request:ModelRetryAdviceRequest){return this.delegate.getRetryAdvice?.(request)}
