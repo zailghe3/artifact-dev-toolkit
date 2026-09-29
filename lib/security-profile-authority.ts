@@ -15,7 +15,7 @@ export async function resolveFrozenSecurityProfile(repositoryId:number,agent:Age
 
 
 type ProfileMutationRepository=Pick<SecurityProfileDefinitionRepository,"get"|"update">;
-type ProfileMutationVault=Pick<D1ProviderCredentialVault,"currentSecurityProfileCredentialBinding"|"createSecurityProfileCredentialBinding"|"rotateSecurityProfileCredential"|"replaceSecurityProfileCredentialBinding">;
+type ProfileMutationVault=Pick<D1ProviderCredentialVault,"currentSecurityProfileCredentialBinding"|"recoverSecurityProfileCredentialBinding"|"rotateSecurityProfileCredential"|"replaceSecurityProfileCredentialBinding">;
 /** One revision-checked Git mutation followed by a compensated credential-authority transition. */
 export async function updateSecurityProfileAuthority(repositoryId:number,definition:SecurityProfileDefinition,fileSha:string,apiKey:string|undefined,repository:ProfileMutationRepository,vault:ProfileMutationVault):Promise<Versioned<SecurityProfileDefinition>>{
  const old=await repository.get(definition.id);if(!old)throw new DefinitionNotFoundError();if(old.fileSha!==fileSha)throw new DefinitionConflictError();
@@ -24,7 +24,7 @@ export async function updateSecurityProfileAuthority(repositoryId:number,definit
  if(binding&&old.definition.endpointUrl!==definition.endpointUrl&&!apiKey)throw new Error("security_profile_credential_required");
  const saved=await repository.update(definition,fileSha);
  try{
-  if(!binding)await vault.createSecurityProfileCredentialBinding(repositoryId,definition.id,saved.definition.endpointUrl,apiKey!);
+  if(!binding)await vault.recoverSecurityProfileCredentialBinding(repositoryId,definition.id,saved.definition.endpointUrl,apiKey!);
   else if(old.definition.endpointUrl!==saved.definition.endpointUrl)await vault.replaceSecurityProfileCredentialBinding(repositoryId,definition.id,binding.bindingId,old.definition.endpointUrl,saved.definition.endpointUrl,apiKey!);
   else if(apiKey)await vault.rotateSecurityProfileCredential(repositoryId,definition.id,binding.bindingId,saved.definition.endpointUrl,apiKey);
   return saved;

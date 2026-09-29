@@ -103,3 +103,15 @@ test('Security Profile binding generations are repository and endpoint isolated 
  await assert.rejects(()=>vault.resolveSecurityProfileCredential(101,g1,endpointA),code('vault_secret_unavailable'));
  const rows=(await db.prepare('SELECT * FROM security_profile_credentials').all()).results;assert.doesNotMatch(JSON.stringify(rows),/key-a1|key-a2|key-b|key-c/);
 });
+
+test('Security Profile recovery atomically replaces a stale trust-target binding with a fresh generation',async t=>{
+ const{mf,db,vault}=await fixture();t.after(()=>mf.dispose());await db.prepare('CREATE TABLE workflow_runs(id TEXT)').run();const migration=await readFile(new URL('../migrations/0021_add_security_profile_authority.sql',import.meta.url),'utf8');await db.batch(migration.split(';').map(value=>value.trim()).filter(Boolean).map(statement=>db.prepare(statement)));
+ const endpointA='wss://security.example/a',endpointB='wss://security.example/b',g1=await vault.createSecurityProfileCredentialBinding(101,'production',endpointA,'key-A');
+ await assert.rejects(()=>vault.currentSecurityProfileCredentialBinding(101,'production',endpointB),code('vault_secret_unavailable'));
+ const g2=await vault.recoverSecurityProfileCredentialBinding(101,'production',endpointB,'key-B');assert.notEqual(g2,g1);assert.equal((await vault.currentSecurityProfileCredentialBinding(101,'production',endpointB)).bindingId,g2);assert.equal(await vault.resolveSecurityProfileCredential(101,g2,endpointB),'key-B');
+ for(const [generation,endpoint] of [[g1,endpointA],[g1,endpointB],[g2,endpointA]])await assert.rejects(()=>vault.resolveSecurityProfileCredential(101,generation,endpoint),code('vault_secret_unavailable'));
+ assert.doesNotMatch(JSON.stringify((await db.prepare('SELECT * FROM security_profile_credentials').all()).results),/key-A|key-B/);
+ const noRow=await vault.recoverSecurityProfileCredentialBinding(101,'secondary',endpointB,'key-C');assert.equal(await vault.resolveSecurityProfileCredential(101,noRow,endpointB),'key-C');
+ const before=(await db.prepare('SELECT COUNT(*) AS count FROM provider_credential_vault').first()).count;await db.prepare("CREATE TRIGGER reject_security_recovery BEFORE UPDATE ON security_profile_credentials WHEN OLD.security_profile_id='production' BEGIN SELECT RAISE(ABORT,'injected'); END").run();
+ await assert.rejects(()=>vault.recoverSecurityProfileCredentialBinding(101,'production',endpointA,'candidate-key'),code('vault_persistence_failed'));assert.equal((await db.prepare('SELECT COUNT(*) AS count FROM provider_credential_vault').first()).count,before);assert.equal((await vault.currentSecurityProfileCredentialBinding(101,'production',endpointB)).bindingId,g2);assert.equal(await vault.resolveSecurityProfileCredential(101,g2,endpointB),'key-B');
+});
