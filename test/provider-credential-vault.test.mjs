@@ -82,3 +82,36 @@ test('OAuth consumed and denied states clean verifiers boundedly and remain repl
 
 
 test('MCP binding generations isolate repository, rotation, replacement, and revocation',async t=>{const{mf,db,vault}=await fixture();t.after(()=>mf.dispose());await db.prepare('CREATE TABLE workflow_runs(id TEXT)').run();const migration=await readFile(new URL('../migrations/0020_add_workflow_run_mcp_snapshots.sql',import.meta.url),'utf8');await db.batch(migration.split(';').map(value=>value.trim()).filter(Boolean).map(statement=>db.prepare(statement)));const a=await vault.create('repo-a'),b=await vault.create('repo-b'),generationA=await vault.ensureMcpServerCredentialBinding(101,'docs','https://a.example/mcp',a),generationB=await vault.ensureMcpServerCredentialBinding(202,'docs','https://b.example/mcp',b);assert.notEqual(generationA,generationB);assert.equal(await vault.resolveMcpServerCredential(101,generationA),'repo-a');assert.equal(await vault.resolveMcpServerCredential(202,generationB),'repo-b');const b2=await vault.create('repo-b-rotated');await vault.rotateMcpServerCredential(202,'docs',generationB,'https://b.example/mcp',b2,b);assert.equal(await vault.resolveMcpServerCredential(202,generationB),'repo-b-rotated');assert.equal(await vault.resolveMcpServerCredential(101,generationA),'repo-a');const generationB2=await vault.replaceMcpServerCredentialBinding(202,'docs',generationB,'https://b.example/mcp','https://b2.example/mcp',b2);assert.notEqual(generationB2,generationB);await assert.rejects(()=>vault.resolveMcpServerCredential(202,generationB),code('vault_secret_unavailable'));await vault.revokeMcpServerCredentialBinding(202,'docs',generationB2);assert.equal(await vault.resolveMcpServerCredential(101,generationA),'repo-a');const rows=(await db.prepare('SELECT repository_id,server_id,binding_id,trust_target FROM mcp_server_credentials').all()).results;assert.deepEqual(rows,[{repository_id:101,server_id:'docs',binding_id:generationA,trust_target:'https://a.example/mcp'}])});
+
+test('Security Profile binding generations are repository and endpoint isolated in D1',async t=>{
+ const{mf,db,vault}=await fixture();t.after(()=>mf.dispose());
+ await db.prepare('CREATE TABLE workflow_runs(id TEXT)').run();
+ const migration=await readFile(new URL('../migrations/0021_add_security_profile_authority.sql',import.meta.url),'utf8');
+ await db.batch(migration.split(';').map(value=>value.trim()).filter(Boolean).map(statement=>db.prepare(statement)));
+ const endpointA='wss://security.example/a',endpointB='wss://security.example/b';
+ const g1=await vault.createSecurityProfileCredentialBinding(101,'production',endpointA,'key-a1');
+ const other=await vault.createSecurityProfileCredentialBinding(202,'production',endpointA,'key-other');
+ assert.notEqual(g1,other);assert.equal(await vault.resolveSecurityProfileCredential(101,g1,endpointA),'key-a1');assert.equal(await vault.resolveSecurityProfileCredential(202,other,endpointA),'key-other');
+ await vault.rotateSecurityProfileCredential(101,'production',g1,endpointA,'key-a2');assert.equal(await vault.resolveSecurityProfileCredential(101,g1,endpointA),'key-a2');
+ const g2=await vault.replaceSecurityProfileCredentialBinding(101,'production',g1,endpointA,endpointB,'key-b');assert.notEqual(g2,g1);
+ await assert.rejects(()=>vault.resolveSecurityProfileCredential(101,g1,endpointA),code('vault_secret_unavailable'));
+ await assert.rejects(()=>vault.resolveSecurityProfileCredential(101,g2,endpointA),code('vault_secret_unavailable'));
+ await assert.rejects(()=>vault.resolveSecurityProfileCredential(202,g2,endpointB),code('vault_secret_unavailable'));
+ assert.equal(await vault.resolveSecurityProfileCredential(101,g2,endpointB),'key-b');
+ await vault.revokeSecurityProfileCredentialBinding(101,'production',g2);await assert.rejects(()=>vault.resolveSecurityProfileCredential(101,g2,endpointB),code('vault_secret_unavailable'));
+ const g3=await vault.createSecurityProfileCredentialBinding(101,'production',endpointB,'key-c');assert.notEqual(g3,g2);assert.equal(await vault.resolveSecurityProfileCredential(101,g3,endpointB),'key-c');
+ await assert.rejects(()=>vault.resolveSecurityProfileCredential(101,g1,endpointA),code('vault_secret_unavailable'));
+ const rows=(await db.prepare('SELECT * FROM security_profile_credentials').all()).results;assert.doesNotMatch(JSON.stringify(rows),/key-a1|key-a2|key-b|key-c/);
+});
+
+test('Security Profile recovery atomically replaces a stale trust-target binding with a fresh generation',async t=>{
+ const{mf,db,vault}=await fixture();t.after(()=>mf.dispose());await db.prepare('CREATE TABLE workflow_runs(id TEXT)').run();const migration=await readFile(new URL('../migrations/0021_add_security_profile_authority.sql',import.meta.url),'utf8');await db.batch(migration.split(';').map(value=>value.trim()).filter(Boolean).map(statement=>db.prepare(statement)));
+ const endpointA='wss://security.example/a',endpointB='wss://security.example/b',g1=await vault.createSecurityProfileCredentialBinding(101,'production',endpointA,'key-A');
+ await assert.rejects(()=>vault.currentSecurityProfileCredentialBinding(101,'production',endpointB),code('vault_secret_unavailable'));
+ const g2=await vault.recoverSecurityProfileCredentialBinding(101,'production',endpointB,'key-B');assert.notEqual(g2,g1);assert.equal((await vault.currentSecurityProfileCredentialBinding(101,'production',endpointB)).bindingId,g2);assert.equal(await vault.resolveSecurityProfileCredential(101,g2,endpointB),'key-B');
+ for(const [generation,endpoint] of [[g1,endpointA],[g1,endpointB],[g2,endpointA]])await assert.rejects(()=>vault.resolveSecurityProfileCredential(101,generation,endpoint),code('vault_secret_unavailable'));
+ assert.doesNotMatch(JSON.stringify((await db.prepare('SELECT * FROM security_profile_credentials').all()).results),/key-A|key-B/);
+ const noRow=await vault.recoverSecurityProfileCredentialBinding(101,'secondary',endpointB,'key-C');assert.equal(await vault.resolveSecurityProfileCredential(101,noRow,endpointB),'key-C');
+ const before=(await db.prepare('SELECT COUNT(*) AS count FROM provider_credential_vault').first()).count;await db.prepare("CREATE TRIGGER reject_security_recovery BEFORE UPDATE ON security_profile_credentials WHEN OLD.security_profile_id='production' BEGIN SELECT RAISE(ABORT,'injected'); END").run();
+ await assert.rejects(()=>vault.recoverSecurityProfileCredentialBinding(101,'production',endpointA,'candidate-key'),code('vault_persistence_failed'));assert.equal((await db.prepare('SELECT COUNT(*) AS count FROM provider_credential_vault').first()).count,before);assert.equal((await vault.currentSecurityProfileCredentialBinding(101,'production',endpointB)).bindingId,g2);assert.equal(await vault.resolveSecurityProfileCredential(101,g2,endpointB),'key-B');
+});

@@ -7,6 +7,7 @@ const migration0002 = readFileSync('migrations/0002_rebuild_auth_sessions.sql', 
 const migration0009 = readFileSync('migrations/0009_create_provider_credential_vault.sql', 'utf8');
 const migration0019 = readFileSync('migrations/0019_add_work_iq_oauth_state.sql', 'utf8');
 const migration0020 = readFileSync('migrations/0020_add_workflow_run_mcp_snapshots.sql', 'utf8');
+const migration0021 = readFileSync('migrations/0021_add_security_profile_authority.sql', 'utf8');
 
 test('0001 retains original AUTH-001 schema', () => {
   assert.match(migration0001, /revoked_at INTEGER\n\);/);
@@ -46,4 +47,13 @@ test('0020 stores non-secret run MCP contracts separately from logical credentia
  assert.match(migration0020,/UNIQUE \(repository_id, server_id\)/);
  assert.match(migration0020,/secret_id TEXT NOT NULL/);
  assert.doesNotMatch(migration0020,/encrypted_credential|credential_iv|bearer|token/i);
+});
+
+test('0021 stores frozen security contracts and repository-scoped credential generations',()=>{
+ assert.match(migration0021,/ADD COLUMN security_profile_snapshots_json TEXT/);
+ assert.match(migration0021,/CREATE TABLE security_profile_credentials/);
+ for(const column of ['repository_id','security_profile_id','binding_id','trust_target','secret_id','updated_at'])assert.match(migration0021,new RegExp(`${column} (?:INTEGER|TEXT) NOT NULL`));
+ assert.match(migration0021,/PRIMARY KEY \(repository_id, binding_id\)/);
+ assert.match(migration0021,/UNIQUE \(repository_id, security_profile_id\)/);
+ assert.doesNotMatch(migration0021,/encrypted_credential|api.?key|token/i);
 });

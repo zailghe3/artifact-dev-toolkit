@@ -11,6 +11,7 @@ export type SafeFailure={category:string;safeMessage:string;retryable:false};
 export class RuntimeFailure extends Error implements SafeFailure{readonly retryable=false as const;constructor(readonly category:string,readonly safeMessage:string){super(category)}}
 const fail=(category:string,safeMessage:string)=>new RuntimeFailure(category,safeMessage);
 function classify(error:unknown){
+ if(error&&typeof error==="object"&&"category" in error&&["security_denied","security_timeout","security_unavailable"].includes(String(error.category))&&"safeMessage" in error&&typeof error.safeMessage==="string")return fail(String(error.category),error.safeMessage);
  if(error instanceof MaxTurnsExceededError)return fail("provider_rejected","The model exceeded the permitted execution turns.");
  if(error instanceof ModelTimeoutError)return fail("provider_timeout","The model request timed out.");
  if(error instanceof ModelRefusalError)return fail("provider_rejected","The model refused the request.");
@@ -29,6 +30,6 @@ export async function executeOpenAIAgents(request:ExecutionRequest,credential:st
  for(const grant of request.mcpTools??[])definitions.push({name:grant.alias,asAgentTool:execute=>tool({name:grant.alias,description:grant.tool.description??`MCP tool ${grant.tool.name}`,parameters:grant.tool.inputSchema as never,execute:async(args,_context,details)=>execute(args,details?.toolCall?.callId)}),execute:async args=>{try{const result=await callMcpTool(grant.server,grant.tool,(args&&typeof args==="object"?args:{}) as Record<string,unknown>,f.mcpCredentials?.get(grant.alias),{fetch:f.fetcher});return JSON.stringify(result)}catch(error){if(error instanceof McpFailure)throw fail(error.category,error.safeMessage);throw error}}});
  const tools=registerAgentTools(definitions,f.securityGate,MAX_TOOL_CALLS);
  const agent=f.agent({name:request.agentName,instructions:request.instructions,model:request.model,modelSettings,tools});
- try{const result=await runner.run(agent,request.input,{maxTurns:MAX_TURNS});if(typeof result.finalOutput!=="string")throw fail("malformed_response","The Agents runtime returned no textual output.");if(Buffer.byteLength(result.finalOutput,"utf8")>MAX_OUTPUT_BYTES)throw fail("output_too_large","The Agents runtime output exceeded the permitted size.");return result.finalOutput;}
+ try{const result=await runner.run(agent,request.input,{maxTurns:MAX_TURNS});f.securityGate.assertNoFailure?.();if(typeof result.finalOutput!=="string")throw fail("malformed_response","The Agents runtime returned no textual output.");if(Buffer.byteLength(result.finalOutput,"utf8")>MAX_OUTPUT_BYTES)throw fail("output_too_large","The Agents runtime output exceeded the permitted size.");return result.finalOutput;}
  catch(error){if(error instanceof RuntimeFailure)throw error;throw classify(error)}finally{await provider.close?.().catch(()=>undefined)}
 }

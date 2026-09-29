@@ -1,0 +1,13 @@
+ALTER TABLE workflow_runs ADD COLUMN security_profile_snapshots_json TEXT;
+
+CREATE TABLE security_profile_credentials (
+  repository_id INTEGER NOT NULL,
+  security_profile_id TEXT NOT NULL,
+  binding_id TEXT NOT NULL,
+  trust_target TEXT NOT NULL,
+  secret_id TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (repository_id, binding_id),
+  UNIQUE (repository_id, security_profile_id),
+  FOREIGN KEY (secret_id) REFERENCES provider_credential_vault(secret_id) ON DELETE CASCADE
+);

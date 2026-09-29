@@ -1,7 +1,30 @@
-import {adrian,gateToolCallIds,type EventHandler,type InitOptions,type LlmEndData,type ToolCallRecord,type TokenUsage} from "@secureagentics/adrian";
+import {adrian,gateToolCallIds,shouldHalt,type EventHandler,type InitOptions,type LlmEndData,type ToolCallRecord,type TokenUsage,type WebSocketClient} from "@secureagentics/adrian";
 import type {AgentInputItem,AgentOutputItem,ModelRequest,ModelResponse} from "@openai/agents";
 import type {ModelTurnInstrumentation} from "./model-instrumentation.js";
-import type {ToolSecurityContext,ToolSecurityGate} from "./tools.js";
+import type {SecurityDecision,ToolSecurityContext,ToolSecurityGate} from "./tools.js";
+
+export class AdrianExecutionLeaseUnavailableError extends Error{readonly category="security_unavailable";readonly safeMessage="Security enforcement is temporarily unavailable.";readonly retryable=false;constructor(){super("adrian_execution_lease_unavailable")}}
+export class SecurityDecisionError extends Error{readonly retryable=false;readonly category;readonly safeMessage;constructor(readonly outcome:Exclude<SecurityDecision["outcome"],"allow">){const category=outcome==="deny"?"security_denied":`security_${outcome}`;super(category);this.category=category;this.safeMessage=outcome==="deny"?"The tool call was denied by the security policy.":outcome==="timeout"?"The security decision timed out.":"Security enforcement is unavailable."}}
+
+let leaseHeld=false;
+export function acquireAdrianExecutionLease(){if(leaseHeld)throw new AdrianExecutionLeaseUnavailableError();leaseHeld=true;let released=false;return()=>{if(!released){released=true;leaseHeld=false}}}
+export async function withAdrianExecutionLease<T>(operation:()=>Promise<T>,shutdown:()=>Promise<void>=()=>adrian.shutdown()){const release=acquireAdrianExecutionLease();try{return await operation()}finally{try{await shutdown()}catch{/* Shutdown is best-effort and cannot replace an established outcome. */}release()}}
+
+/** Uses only exact-call lower-level verdict evidence. The SDK's fail-open gate is intentionally not consulted. */
+export async function evaluateAdrianToolCall(client:Pick<WebSocketClient,"loginAcked"|"policyActive"|"waitForToolCallVerdict">|null,callId:string|undefined,timeoutMs:number):Promise<SecurityDecision>{const started=Date.now();if(!client||!callId||!client.loginAcked()||!client.policyActive())return{outcome:"unavailable",elapsedMs:Date.now()-started};try{const verdict=await client.waitForToolCallVerdict(callId,timeoutMs/1000);const elapsedMs=Date.now()-started;if(verdict)return{outcome:shouldHalt(verdict)?"deny":"allow",elapsedMs};return{outcome:"unavailable",elapsedMs}}catch{return{outcome:"unavailable",elapsedMs:Date.now()-started}}}
+
+export class ProductionAdrianSecurityGate implements ToolSecurityGate,ModelTurnInstrumentation{
+ private readonly toolRuns=new WeakMap<ToolSecurityContext,string>();
+ private terminalFailure:SecurityDecisionError|undefined;
+ constructor(private handler:NonNullable<ReturnType<typeof adrian.getHandler>>,private client:WebSocketClient,private timeoutMs:number,private diagnostic?:(decision:SecurityDecision)=>void){}
+ async modelTurnStarted({turnId,model,request}:{turnId:string;model:string;request:ModelRequest}){try{await this.handler.handleChatModelStart({name:model},[messages(request)],turnId,undefined,{metadata:{adt_turn_id:turnId}})}catch{throw new AdrianExecutionLeaseUnavailableError()}}
+ async modelTurnCompleted({turnId,response}:{turnId:string;model:string;response:ModelResponse}){const data:LlmEndData={output:outputText(response.output),toolCalls:response.output.map(toolCall).filter((call):call is ToolCallRecord=>call!==null),usage:usage(response)};try{await this.handler.handleLLMEnd(data,turnId)}catch{throw new AdrianExecutionLeaseUnavailableError()}}
+ async modelTurnFailed({turnId}:{turnId:string;model:string;error:unknown}){await this.handler.handleLLMError(safeError("model"),turnId)}
+ async authorize(input:ToolSecurityContext){const runId=`tool:${input.callId??crypto.randomUUID()}`;this.toolRuns.set(input,runId);try{await this.handler.handleToolStart({name:input.name},safeText(input.arguments),runId,undefined,{tool_call_id:input.callId})}catch{this.toolRuns.delete(input);throw new AdrianExecutionLeaseUnavailableError()}const decision=await evaluateAdrianToolCall(this.client,input.callId,this.timeoutMs);this.diagnostic?.(decision);if(decision.outcome!=="allow"){try{await this.handler.handleToolError(safeError("tool"),runId)}catch{}this.toolRuns.delete(input);this.terminalFailure=new SecurityDecisionError(decision.outcome);throw this.terminalFailure}}
+ assertNoFailure(){if(this.terminalFailure)throw this.terminalFailure}
+ async completed(input:ToolSecurityContext,result:string){await this.handler.handleToolEnd(safeText(result),this.toolRuns.get(input)??`tool:${input.callId??"uncorrelated"}`);this.toolRuns.delete(input)}
+ async failed(input:ToolSecurityContext){await this.handler.handleToolError(safeError("tool"),this.toolRuns.get(input)??`tool:${input.callId??"uncorrelated"}`);this.toolRuns.delete(input)}
+}
 
 export class AdrianToolDeniedError extends Error{readonly category="provider_rejected";readonly safeMessage="The tool call was blocked by the experimental security observer.";readonly retryable=false;constructor(){super("adrian_tool_denied")}}
 
