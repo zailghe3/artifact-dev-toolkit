@@ -18,7 +18,7 @@
 - A **Security Profile** selects a non-secret Adrian trust target and bounded decision timeout; Adrian policy remains managed by Adrian.
 - An **Agent** selects a connection, prompt, supported provider options, and optionally a Security Profile when the connection supports Runtime security.
 - Security Profiles are distinct from provider Connections and tool grants. They can only further restrict tool authority already granted by ADT.
-- Security Profile readiness testing reports bounded Runtime and Adrian failure stages without exposing credentials or upstream error content. Runtime capability and component freshness are independently observable.
+- Security Profile readiness testing runs from ADT Runtime, reports bounded WebSocket upgrade, Adrian login, policy-mode, and SDK-readiness evidence without exposing credentials or upstream error content, and performs no provider or tool work. Only an authenticated Block policy is enforcement-ready; Alert is diagnostic-only and Human Review remains unsupported.
 - A secured run freezes its Security Profile trust target and credential generation. Profile edits do not rewrite an existing run, and unavailable or ambiguous security evidence prevents external tool execution.
 - Provider model discovery contacts the selected provider directly from the control plane. It does not depend on ADT Runtime, Adrian, or a Security Profile, and reports only bounded provider diagnostics.
 - An Agent prompt is either custom text or a reference to an Artifact Library prompt.

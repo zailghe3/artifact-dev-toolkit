@@ -1,0 +1,5 @@
+// Narrow test decoder for the stable SessionLogin fields emitted by Adrian's public encoder.
+function varint(bytes,index){let value=0,shift=0;while(index<bytes.length){const byte=bytes[index++];value|=(byte&127)<<shift;if(!(byte&128))return[value,index];shift+=7}throw Error('invalid')}
+function fields(bytes){const out=[];for(let i=0;i<bytes.length;){let tag;[tag,i]=varint(bytes,i);const field=tag>>3,wire=tag&7;if(wire===2){let length;[length,i]=varint(bytes,i);out.push([field,bytes.subarray(i,i+length)]);i+=length}else if(wire===0){let value;[value,i]=varint(bytes,i);out.push([field,value])}else throw Error('unsupported')}return out}
+const str=value=>Buffer.from(value).toString();
+export function decodeClientFrame(data){const login=fields(Buffer.from(data)).find(([field])=>field===1)[1],values=fields(login),stack=fields(values.find(([field])=>field===2)[1]);return{sessionId:str(values.find(([field])=>field===1)[1]),provider:str(stack.find(([field])=>field===1)[1]),model:str(stack.find(([field])=>field===2)[1]),schemaVersion:values.find(([field])=>field===4)[1]}}
