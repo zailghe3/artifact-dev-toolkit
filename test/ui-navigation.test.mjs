@@ -42,6 +42,7 @@ test('shared application header renders semantic navigation without duplicate id
   assert.equal(textCount(html, 'Artifact Toolkit'), 1);
   assert.equal(textCount(html, 'octocat'), 1);
   assert.match(html, />Sign out/);
+  assert.match(html, /<form[^>]*class="[^"]*flex-col[^"]*items-end[^"]*"[^>]*>.*Signed in as.*<button[^>]*>Sign out<\/button><\/form>/);
   assert.doesNotMatch(html, /Create artifact/);
   for (const button of html.match(/<button[^>]*>[\s\S]*?<\/button>/g) ?? []) assert.doesNotMatch(button, /<a\b/);
   for (const anchor of html.match(/<a[^>]*>[\s\S]*?<\/a>/g) ?? []) assert.doesNotMatch(anchor, /<button\b/);
