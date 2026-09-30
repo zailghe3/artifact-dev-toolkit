@@ -7,16 +7,16 @@ export function AppHeader({ login, currentPath }: { login: string; currentPath: 
   const navigation = primaryNavigationState(currentPath);
   return (
     <header className="sticky top-0 z-30 border-b border-slate-200 bg-slate-50/95 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95">
-      <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
-        <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 py-3 md:flex-nowrap">
+      <div className="mx-auto max-w-5xl px-4 sm:px-5">
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 py-3 lg:flex-nowrap">
           <div className="min-w-0">
             <Link href="/" className="block rounded-md text-base font-black tracking-tight text-slate-950 outline-none transition focus:ring-4 focus:ring-sky-200 dark:text-slate-50 dark:focus:ring-orange-500/35">
               {applicationIdentity.name}
             </Link>
             <p className="hidden text-xs font-medium text-slate-500 sm:block dark:text-slate-400">{applicationIdentity.purpose}</p>
           </div>
-          <nav aria-label="Primary" className="order-last -mx-4 w-[calc(100%+2rem)] overflow-x-auto px-4 pb-1 md:order-none md:mx-0 md:w-auto md:flex-1 md:px-0 md:pb-0">
-            <ul className="flex min-w-max items-center gap-2 md:justify-start">
+          <nav aria-label="Primary" className="order-last -mx-4 w-[calc(100%+2rem)] overflow-x-auto px-4 pb-1 lg:order-none lg:mx-0 lg:w-auto lg:flex-1 lg:px-0 lg:pb-0">
+            <ul className="flex min-w-max items-center gap-2 lg:justify-start">
               {navigation.map((item) => (
                 <li key={item.href}>
                   <Link

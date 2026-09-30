@@ -132,7 +132,7 @@
 ## 9. Application interface
 
 - Protected application pages share a consistent application header and primary navigation.
-- Primary navigation includes the major functional areas available to the user.
+- Primary navigation presents Artifacts, Workflows, and Diagnostics; Workflow-area navigation presents Overview, Runs, Workflows, Agents, Connections, Tools, and Security.
 - The interface is responsive across desktop and mobile layouts.
 - The application supports light and dark themes.
 - Theme changes apply immediately and persist for the user.

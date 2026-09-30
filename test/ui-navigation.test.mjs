@@ -14,7 +14,7 @@ const textCount = (html, text) => (html.match(new RegExp(text.replace(/[.*+?^${}
 
 test('primary navigation exposes the stable product destinations', () => {
   assert.equal(applicationIdentity.name, 'Artifact Toolkit');
-  assert.deepEqual(primaryNavigation.map(({ label, href }) => [label, href]), [['Artifacts', '/'], ['Workflows', '/workflows'], ['Tools', '/tools'], ['Security', '/security'], ['Diagnostics', '/diagnostics']]);
+  assert.deepEqual(primaryNavigation.map(({ label, href }) => [label, href]), [['Artifacts', '/'], ['Workflows', '/workflows'], ['Diagnostics', '/diagnostics']]);
   assert.equal(primaryNavigation.some((item) => item.label === 'Create artifact'), false);
 });
 
@@ -23,8 +23,10 @@ test('primary navigation resolves one active product area for nested routes', ()
     ['/', 'Artifacts'],
     ['/artifacts/example/edit', 'Artifacts'],
     ['/workflows/runs', 'Workflows'],
-    ['/tools/example/edit', 'Tools'],
-    ['/security/example/edit', 'Security'],
+    ['/tools', 'Workflows'],
+    ['/tools/example/edit', 'Workflows'],
+    ['/security', 'Workflows'],
+    ['/security/example/edit', 'Workflows'],
     ['/diagnostics', 'Diagnostics'],
   ];
   for (const [path, expected] of cases) {
@@ -42,6 +44,7 @@ test('shared application header renders semantic navigation without duplicate id
   assert.equal(textCount(html, 'Artifact Toolkit'), 1);
   assert.equal(textCount(html, 'octocat'), 1);
   assert.match(html, />Sign out/);
+  assert.match(html, /<form[^>]*class="[^"]*flex-col[^"]*items-end[^"]*"[^>]*>.*Signed in as.*<button[^>]*>Sign out<\/button><\/form>/);
   assert.doesNotMatch(html, /Create artifact/);
   for (const button of html.match(/<button[^>]*>[\s\S]*?<\/button>/g) ?? []) assert.doesNotMatch(button, /<a\b/);
   for (const anchor of html.match(/<a[^>]*>[\s\S]*?<\/a>/g) ?? []) assert.doesNotMatch(anchor, /<button\b/);

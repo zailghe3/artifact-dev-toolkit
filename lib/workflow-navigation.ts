@@ -10,6 +10,8 @@ export const workflowSections: WorkflowSection[] = [
   { label: 'Workflows', href: '/workflows/definitions', matches: (path) => path === '/workflows/definitions' || path.startsWith('/workflows/definitions/') },
   { label: 'Agents', href: '/workflows/agents', matches: (path) => path === '/workflows/agents' || path.startsWith('/workflows/agents/') },
   { label: 'Connections', href: '/workflows/connections', matches: (path) => path === '/workflows/connections' || path.startsWith('/workflows/connections/') },
+  { label: 'Tools', href: '/tools', matches: (path) => path === '/tools' || path.startsWith('/tools/') },
+  { label: 'Security', href: '/security', matches: (path) => path === '/security' || path.startsWith('/security/') },
 ];
 
 export function workflowSectionState(pathname: string) {

@@ -140,7 +140,7 @@
 - MCP calls use an explicitly selected tool schema and do not rediscover tools during execution.
 - Remote tool connections use validated public destinations and fail closed on DNS changes, non-public networks, or cross-origin and forbidden redirects.
 - Ambiguous MCP tool calls are not automatically retried.
-- Tools is a top-level configuration domain, distinct from provider Connections. MCP is its first external integration type.
+- Tools is a configuration domain within the Workflows product area, distinct from provider Connections. MCP is its first external integration type.
 - An MCP server has a stable ID, remote Streamable HTTP endpoint, authentication mode, and last successfully discovered frozen catalogue. Bearer credentials are write-only and vault-backed rather than Git-backed.
 - Catalogue discovery is an explicit user action. A failed refresh preserves the previous catalogue, and a refresh never expands existing Agent authority.
 - Agent definitions store grants, retain legacy Artifact Search compatibility, and identify each MCP permission by server ID plus selected remote tool name. Missing catalogue entries are presented as unavailable and fail closed.
