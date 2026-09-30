@@ -184,3 +184,18 @@ test('production regression resolves current Worker and Runtime while reporting 
   );
   assert.equal(infrastructureFreshnessLabel(result), 'Runner update available');
 });
+
+test('Runtime-only freshness resolves current, superseded, and unknown with the canonical classifier and no Runner probe',async()=>{
+ const {resolveObservedComponentFreshness}=await import('../lib/live-component-freshness.ts'),deployed='1'.repeat(40),head='2'.repeat(40),signal=new AbortController().signal;
+ let heads=0,comparisons=0,runnerProbes=0;
+ const run=(revision,files,available=true)=>resolveObservedComponentFreshness('runtime',revision,signal,async()=>{heads++;return available?head:undefined},async()=>{comparisons++;return available?{status:'ahead',head_commit:{sha:head},files:files.map(filename=>({filename}))}:undefined});
+ assert.deepEqual(await resolveObservedComponentFreshness('runtime',head,signal,async()=>{heads++;return head},async()=>{comparisons++;throw Error('comparison unnecessary')}),{state:'current',deployedRevision:head,sourceHeadRevision:head});
+ assert.equal((await run(deployed,['components/AppHeader.tsx'])).state,'current');
+ assert.equal((await run(deployed,['adt-runtime/src/server.ts'])).state,'superseded');
+ assert.equal((await run(deployed,[],false)).state,'unknown');
+ assert.deepEqual(await run('malformed',[]),{state:'unknown'});
+ assert.deepEqual(await run(undefined,[]),{state:'unknown'});
+ assert.equal(runnerProbes,0);
+ assert.equal(comparisons,2);
+ assert.ok(heads>=4);
+});

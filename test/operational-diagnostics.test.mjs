@@ -264,3 +264,8 @@ test("failed Runner capabilities degrade the overall diagnostics model without b
 });
 
 test("passive split sandbox Not observed does not degrade an otherwise healthy Runner",()=>{const passive=runner({environments:{state:"available",value:[{...readyEnvironment,sandbox:{state:"not-observed"}}]}}),domain=deriveOperationalDomains(repository(),runtime(),passive,true).find(value=>value.key==="codex-runner");assert.equal(domain.state,"healthy");const failed=runner({environments:{state:"available",value:[{...readyEnvironment,sandbox:{state:"available",value:{environmentKey:"dev",status:"unavailable",backend:"container",reason:"execution_probe_failed"}}}]}});assert.equal(deriveOperationalDomains(repository(),runtime(),failed,true).find(value=>value.key==="codex-runner").state,"failed")});
+
+test('Runtime diagnostics present canonical component freshness instead of revision observation',()=>{
+ const base={configured:true,reachable:true,authenticationAccepted:true,protocolCompatible:true,capabilityAvailable:true,graphCapabilityAvailable:true,adrianSecurityCapabilityAvailable:true,adrianSecurityTestCapabilityAvailable:true,wrappingKeyMatches:true,runtimeRevision:'a'.repeat(40),runtimeSourceHeadRevision:'b'.repeat(40),elapsedMs:5};
+ for(const [runtimeFreshness,label] of [['current','Current'],['superseded','Update required'],['unknown','Not verified']]){const check=runtimeDiagnosticChecks({...base,runtimeFreshness}).find(item=>item.id==='runtime-freshness');assert.equal(check.status.label,label);assert.match(check.value,/aaaaaaaaaaaa/);assert.doesNotMatch(check.status.label,/Observed/);if(runtimeFreshness==='superseded')assert.match(check.guidance,/latest applicable ADT Runtime image/)}
+});
