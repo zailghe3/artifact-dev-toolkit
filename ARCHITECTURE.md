@@ -119,7 +119,7 @@ The product invariants are in [`specs/agent-workflows.md`](specs/agent-workflows
 
 ### Tools
 
-- Tools is the top-level domain for Agent tool integrations; MCP is the first configurable external integration type and remains separate from provider Connections.
+- Tools is the Workflow-area domain for Agent tool integrations; MCP is the first configurable external integration type and remains separate from provider Connections.
 - Git definitions under `tools/` hold non-secret MCP Streamable HTTP configuration and the last explicitly discovered, frozen catalogue. Bearer values remain in the encrypted ADT vault.
 - Agent definitions grant an MCP server stable ID and explicitly selected remote tool names. New Workflow runs freeze the selected non-secret execution contract, so later catalogue or server edits affect future runs only.
 - The Worker authorises discovery and execution, admits only credential-binding generations tied to the frozen configured endpoint, resolves the current vault credential for the frozen repository identity plus generation, and sends only frozen definitions with invocation-scoped encrypted credentials to ADT Runtime. Credentials never enter run snapshots.

@@ -2,8 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { readFile } from 'node:fs/promises';
 import { installTsxHook } from './render-tsx.mjs';
-import { workflowSectionState } from '../lib/workflow-navigation.ts';
+import { workflowSections, workflowSectionState } from '../lib/workflow-navigation.ts';
 
 const requireTsx = installTsxHook();
 const { EntityCard, PageHeader } = requireTsx('../components/Ui.tsx');
@@ -13,14 +14,38 @@ function activeSection(path) {
 }
 
 test('Workflow submenu maps exact and nested routes to one active section', () => {
+  assert.deepEqual(workflowSections.map(({ label, href }) => [label, href]), [
+    ['Overview', '/workflows'],
+    ['Runs', '/workflows/runs'],
+    ['Workflows', '/workflows/definitions'],
+    ['Agents', '/workflows/agents'],
+    ['Connections', '/workflows/connections'],
+    ['Tools', '/tools'],
+    ['Security', '/security'],
+  ]);
   assert.equal(activeSection('/workflows'), 'Overview');
   assert.equal(activeSection('/workflows/runs'), 'Runs');
   assert.equal(activeSection('/workflows/runs/123'), 'Runs');
   assert.equal(activeSection('/workflows/definitions/example/edit'), 'Workflows');
   assert.equal(activeSection('/workflows/agents/example'), 'Agents');
   assert.equal(activeSection('/workflows/connections/openai-primary'), 'Connections');
+  assert.equal(activeSection('/tools'), 'Tools');
+  assert.equal(activeSection('/tools/example/edit'), 'Tools');
+  assert.equal(activeSection('/security'), 'Security');
+  assert.equal(activeSection('/security/example/edit'), 'Security');
   assert.equal(activeSection('/workflows/codex-environments/example'), undefined);
-  assert.equal(workflowSectionState('/workflows/runs/123').filter((item) => item.active).length, 1);
+  for (const path of ['/workflows/runs/123', '/tools/example/edit', '/security/example/edit']) {
+    assert.equal(workflowSectionState(path).filter((item) => item.active).length, 1, path);
+  }
+});
+
+test('Tools and Security layouts expose the protected Workflow section shell', async () => {
+  for (const [area, returnPath] of [['tools', '/tools'], ['security', '/security']]) {
+    const source = await readFile(new URL(`../app/${area}/layout.tsx`, import.meta.url), 'utf8');
+    assert.match(source, new RegExp(`requireRepositoryAuthorization\\("${returnPath}"\\)`));
+    assert.match(source, /<AppHeader/);
+    assert.match(source, /<WorkflowSubnav\s*\/>/);
+  }
 });
 
 test('shared application page header exposes its title, description, and optional creation action', () => {
