@@ -22,7 +22,7 @@ const REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const GITHUB_EVIDENCE_CACHE_MS = 2 * 60_000;
 const sourceRepository = parseSourceRepository(SOURCE_REPOSITORY);
 const sourceEvidence = sourceRepository ? createGitHubFreshnessEvidence(sourceRepository) : undefined;
-type SourceEvidence = { json(path: string, signal: AbortSignal): Promise<unknown> };
+type SourceEvidence = ReturnType<typeof createGitHubFreshnessEvidence>;
 
 let cached: { expiresAt: number; snapshot: InfrastructureFreshnessSnapshot } | undefined;
 let inFlight: Promise<InfrastructureFreshnessSnapshot> | undefined;
@@ -120,7 +120,7 @@ export async function resolveLiveComponentFreshnessWithSignal(
     signal,
     currentSignal => resolveMainRevision(currentSignal, evidence),
     (revision, headRevision, currentSignal) => comparisonAtHead(SOURCE_REPOSITORY, revision, headRevision, currentSignal, evidence),
-    (sha, currentSignal) => commitCache.get(sha, () => githubJson(`/commits/${sha}`, currentSignal, evidence)),
+    (kind, sha, currentSignal) => commitCache.get(`${kind}:${sha}`, () => (evidence ?? sourceEvidence)!.commitImpact(kind, sha, currentSignal)) as Promise<"relevant" | "irrelevant" | "incomplete">,
   );
 }
 

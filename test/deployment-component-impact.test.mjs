@@ -4,7 +4,7 @@ import {
   deploymentComponentImpact,
   hasUnclassifiedDeploymentChanges,
 } from '../lib/deployment-component-impact.js';
-import { latestRelevantRevisionFromCommits, resolveComponentFreshness, resolveComponentFreshnessFromCompare } from '../lib/deployment-freshness-resolution.ts';
+import { resolveComponentFreshness, resolveComponentFreshnessFromCompare } from '../lib/deployment-freshness-resolution.ts';
 import { classifyChanges } from '../scripts/classify-changes.mjs';
 
 const samples = [
@@ -81,7 +81,6 @@ test('historical production Runtime regression resolves its exact required revis
   ];
   const result = await resolveComponentFreshness('runtime', deployed, head, async () => ({ status: 'ahead', head_commit: { sha: head }, files }));
   assert.equal(result.state, 'superseded');
-  assert.equal(latestRelevantRevisionFromCommits('runtime', [{ sha: head, files }]), head);
 });
 
 test('different Runtime and source SHAs remain current without intervening Runtime inputs', async () => {

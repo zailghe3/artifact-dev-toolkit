@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { clearGitHubFreshnessCredentialCacheForTests, createGitHubFreshnessEvidence, GitHubFreshnessEvidenceError } from '../lib/github-freshness-evidence.ts';
+import { clearGitHubFreshnessCredentialCacheForTests, createGitHubFreshnessEvidence, GitHubFreshnessEvidenceError, GITHUB_COMMIT_FILE_PAGE_LIMIT } from '../lib/github-freshness-evidence.ts';
 import { resolveComponentFromGitHubEvidence } from '../lib/live-component-freshness-evidence.ts';
 import { aggregateInfrastructureFreshness, infrastructureFreshnessLabel, infrastructureRevisionLabel } from '../lib/infrastructure-freshness.ts';
 
@@ -82,18 +82,79 @@ test('authenticated live evidence resolves the historical stale Runtime end to e
     mintToken: async () => ({ token: 'source-token', permissions: { contents: 'read' }, expiresAt: '2099-01-01T00:00:00Z' }),
     fetch: async url => String(url).includes('/git/ref/') ? Response.json({ object: { sha: head } })
       : String(url).includes('/compare/') ? Response.json({ status: 'ahead', head_commit: { sha: head }, files: [{ filename: 'adt-runtime/src/adrian-commissioning.ts' }], commits: [{ sha: head }] })
-      : String(url).endsWith(`/commits/${head}`) ? Response.json({ files: [{ filename: 'adt-runtime/src/adrian-commissioning.ts' }] })
+      : String(url).includes(`/commits/${head}?`) ? Response.json({ files: [{ filename: 'adt-runtime/src/adrian-commissioning.ts' }] })
       : new Response(null, { status: 404 }),
   });
   const signal = new AbortController().signal;
   const runtime = await resolveComponentFromGitHubEvidence('runtime', deployed, signal,
     currentSignal => evidence.json('/git/ref/heads/main', currentSignal).then(value => value.object.sha),
     (revision, sourceHead, currentSignal) => evidence.json(`/compare/${revision}...${sourceHead}`, currentSignal),
-    (sha, currentSignal) => evidence.json(`/commits/${sha}`, currentSignal));
+    (component, sha, currentSignal) => evidence.commitImpact(component, sha, currentSignal));
   assert.deepEqual(runtime, { state: 'superseded', deployedRevision: deployed, sourceHeadRevision: head, latestRelevantRevision: head });
   const components = { worker: { state: 'current', deployedRevision: head, sourceHeadRevision: head, latestRelevantRevision: head }, runtime, runner: { state: 'unknown', unknownReason: 'github_access_unavailable' } };
   const snapshot = { state: aggregateInfrastructureFreshness(components), checkedAt: new Date().toISOString(), components };
   assert.equal(snapshot.state, 'superseded');
   assert.equal(infrastructureFreshnessLabel(snapshot), 'Runtime update available');
   assert.equal(infrastructureRevisionLabel(snapshot), 'Runtime 5938413 → bdaf073');
+});
+
+function paginatedEvidence(fetch, requests) {
+  clearGitHubFreshnessCredentialCacheForTests();
+  return createGitHubFreshnessEvidence(source, {
+    identity: () => ({ appId: 'app', privateKey: 'private' }), createJwt: async () => 'jwt', getInstallation: async () => ({ id: 77 }),
+    mintToken: async () => ({ token: 'source-token', permissions: { contents: 'read' }, expiresAt: '2099-01-01T00:00:00Z' }),
+    fetch: async url => { requests.push(String(url)); return fetch(String(url)); },
+  });
+}
+
+const page = (files, next = false) => Response.json({ files }, { headers: next ? { link: '<https://api.github.com/next>; rel="next"' } : {} });
+const docs = count => Array.from({ length: count }, (_, index) => ({ filename: `docs/change-${index}.md` }));
+
+test('a Runtime path on page two establishes the newest commit rather than an older target', async () => {
+  const deployed = '1'.repeat(40), older = '2'.repeat(40), newest = '3'.repeat(40), requests = [];
+  const evidence = paginatedEvidence(url => url.includes(`/commits/${newest}`) && url.includes('&page=1') ? page(docs(100), true)
+    : url.includes(`/commits/${newest}`) ? page([{ filename: 'adt-runtime/src/server.ts' }])
+    : page([{ filename: 'adt-runtime/src/older-change.ts' }]), requests);
+  const result = await resolveComponentFromGitHubEvidence('runtime', deployed, new AbortController().signal, async () => newest,
+    async () => ({ status: 'ahead', head_commit: { sha: newest }, files: [{ filename: 'adt-runtime/src/server.ts' }], commits: [{ sha: older }, { sha: newest }] }),
+    (component, sha, signal) => evidence.commitImpact(component, sha, signal));
+  assert.equal(result.latestRelevantRevision, newest);
+  assert.equal(requests.filter(url => url.includes(`/commits/${newest}`)).length, 2);
+  assert.equal(requests.some(url => url.includes(`/commits/${older}`)), false);
+});
+
+test('bounded partial commit evidence preserves superseded without guessing an older target or footer arrow', async () => {
+  const deployed = '4'.repeat(40), older = '5'.repeat(40), newest = '6'.repeat(40), requests = [];
+  const evidence = paginatedEvidence(() => page(docs(100), true), requests);
+  const result = await resolveComponentFromGitHubEvidence('runtime', deployed, new AbortController().signal, async () => newest,
+    async () => ({ status: 'ahead', head_commit: { sha: newest }, files: [{ filename: 'adt-runtime/src/proven-stale.ts' }], commits: [{ sha: older }, { sha: newest }] }),
+    (component, sha, signal) => evidence.commitImpact(component, sha, signal));
+  assert.equal(result.state, 'superseded');
+  assert.equal('latestRelevantRevision' in result, false);
+  assert.equal(requests.length, GITHUB_COMMIT_FILE_PAGE_LIMIT);
+  assert.equal(requests.some(url => url.includes(`/commits/${older}`)), false);
+  const snapshot = { state: 'superseded', checkedAt: new Date().toISOString(), components: { worker: { state: 'current' }, runtime: result, runner: { state: 'current' } } };
+  assert.equal(infrastructureRevisionLabel(snapshot), 'Runtime 4444444');
+});
+
+test('a page-one positive match is cheap for Runtime and Worker', async () => {
+  for (const [component, filename] of [['runtime', 'adt-runtime/src/server.ts'], ['worker', 'components/AppHeader.tsx']]) {
+    const requests = [], sha = component === 'runtime' ? '7'.repeat(40) : '8'.repeat(40);
+    const evidence = paginatedEvidence(() => page([{ filename }], true), requests);
+    assert.equal(await evidence.commitImpact(component, sha, new AbortController().signal), 'relevant');
+    assert.equal(requests.length, 1);
+  }
+});
+
+test('only exhaustively irrelevant newest evidence permits inspecting the previous commit', async () => {
+  const deployed = '9'.repeat(40), older = 'a'.repeat(40), newest = 'b'.repeat(40), requests = [];
+  const evidence = paginatedEvidence(url => url.includes(`/commits/${newest}`) && url.includes('&page=1') ? page(docs(100), true)
+    : url.includes(`/commits/${newest}`) ? page([{ filename: 'components/AppHeader.tsx' }])
+    : page([{ filename: 'docs/renamed-runtime.ts', previous_filename: 'adt-runtime/src/older-change.ts' }]), requests);
+  const result = await resolveComponentFromGitHubEvidence('runtime', deployed, new AbortController().signal, async () => newest,
+    async () => ({ status: 'ahead', head_commit: { sha: newest }, files: [{ filename: 'adt-runtime/src/older-change.ts' }], commits: [{ sha: older }, { sha: newest }] }),
+    (component, sha, signal) => evidence.commitImpact(component, sha, signal));
+  assert.equal(result.latestRelevantRevision, older);
+  assert.equal(requests.filter(url => url.includes(`/commits/${newest}`)).length, 2);
+  assert.equal(requests.filter(url => url.includes(`/commits/${older}`)).length, 1);
 });

@@ -10,24 +10,6 @@ const GITHUB_MAX_SAFE_FILES = 299;
 type CompareFile = { filename?: unknown; previous_filename?: unknown };
 type CompareView = { status?: unknown; files?: unknown; head_commit?: unknown };
 
-export function latestRelevantRevisionFromCommits(
-  component: InfrastructureComponent,
-  commitsNewestFirst: Array<{ sha: string; files: CompareFile[] }>,
-): string | undefined {
-  for (const commit of commitsNewestFirst) {
-    const sha = commit.sha.toLowerCase();
-    if (!FULL_SHA.test(sha) || !Array.isArray(commit.files)) return undefined;
-    const paths: string[] = [];
-    for (const file of commit.files) {
-      if (!file || typeof file.filename !== "string" || !file.filename) return undefined;
-      paths.push(file.filename);
-      if (typeof file.previous_filename === "string" && file.previous_filename) paths.push(file.previous_filename);
-    }
-    if (deploymentComponentImpact(paths)[component]) return sha;
-  }
-  return undefined;
-}
-
 function headRevision(value: CompareView): string | undefined {
   if (!value.head_commit || typeof value.head_commit !== "object" || Array.isArray(value.head_commit)) return undefined;
   const sha = (value.head_commit as Record<string, unknown>).sha;
