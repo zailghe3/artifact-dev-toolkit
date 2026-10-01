@@ -38,7 +38,8 @@ test('infrastructure freshness parser accepts only internally consistent bounded
   assert.equal(parseInfrastructureFreshnessSnapshot({ ...value, extra: true }), undefined);
   assert.equal(parseInfrastructureFreshnessSnapshot({ ...value, components: { ...value.components, runtime: { ...value.components.runtime, deployedRevision: 'not-a-sha' } } }), undefined);
   assert.equal(parseInfrastructureFreshnessSnapshot({ ...value, components: { ...value.components, runtime: { ...value.components.runtime, sourceHeadRevision: 'not-a-sha' } } }), undefined);
-  assert.equal(parseInfrastructureFreshnessSnapshot({ ...value, components: { ...value.components, runtime: { ...value.components.runtime, latestRelevantRevision: '3'.repeat(40) } } }), undefined);
+  assert.equal(parseInfrastructureFreshnessSnapshot({ ...value, components: { ...value.components, runtime: { ...value.components.runtime, latestRelevantRevision: 'not-a-sha' } } }), undefined);
+  assert.equal(parseInfrastructureFreshnessSnapshot({ ...value, components: { ...value.components, runtime: { ...value.components.runtime, state: 'current', unknownReason: 'comparison_timeout' } } }), undefined);
 });
 
 test('infrastructure freshness labels identify stale and uncertain components without relying on colour', () => {
@@ -47,7 +48,7 @@ test('infrastructure freshness labels identify stale and uncertain components wi
   assert.equal(infrastructureFreshnessLabel(snapshot(component('current'), component('superseded'), component('current'))), 'Runtime update available');
   assert.equal(infrastructureFreshnessLabel(snapshot(component('superseded'), component('current'), component('current'))), 'App update available');
   assert.equal(infrastructureFreshnessLabel(snapshot(component('current'), component('superseded'), component('superseded'))), 'Updates available · Runtime + Runner');
-  assert.equal(infrastructureFreshnessLabel(snapshot(component('unknown'), component('current'), component('current'))), 'Infrastructure freshness unavailable');
+  assert.equal(infrastructureFreshnessLabel(snapshot(component('unknown'), component('current'), component('current'))), 'App freshness unavailable');
   assert.equal(infrastructureFreshnessLabel(snapshot(component('unknown'), component('unknown'), component('superseded'))), 'Runner update available');
 });
 
@@ -110,7 +111,7 @@ test('freshness collection keeps confirmed component results when another probe 
   assert.equal(result.state, 'superseded');
   assert.deepEqual(result.components.worker, { state: 'current', deployedRevision: workerRevision, sourceHeadRevision: sourceHead });
   assert.deepEqual(result.components.runtime, { state: 'superseded', deployedRevision: runtimeRevision, sourceHeadRevision: sourceHead });
-  assert.deepEqual(result.components.runner, { state: 'unknown' });
+  assert.deepEqual(result.components.runner, { state: 'unknown', unknownReason: 'github_access_unavailable' });
   assert.equal(infrastructureFreshnessLabel(result), 'Runtime update available');
 });
 
@@ -189,12 +190,12 @@ test('Runtime-only freshness resolves current, superseded, and unknown with the 
  const {resolveObservedComponentFreshness}=await import('../lib/live-component-freshness.ts'),deployed='1'.repeat(40),head='2'.repeat(40),signal=new AbortController().signal;
  let heads=0,comparisons=0,runnerProbes=0;
  const run=(revision,files,available=true)=>resolveObservedComponentFreshness('runtime',revision,signal,async()=>{heads++;return available?head:undefined},async()=>{comparisons++;return available?{status:'ahead',head_commit:{sha:head},files:files.map(filename=>({filename}))}:undefined});
- assert.deepEqual(await resolveObservedComponentFreshness('runtime',head,signal,async()=>{heads++;return head},async()=>{comparisons++;throw Error('comparison unnecessary')}),{state:'current',deployedRevision:head,sourceHeadRevision:head});
+ assert.deepEqual(await resolveObservedComponentFreshness('runtime',head,signal,async()=>{heads++;return head},async()=>{comparisons++;throw Error('comparison unnecessary')}),{state:'current',deployedRevision:head,sourceHeadRevision:head,latestRelevantRevision:head});
  assert.equal((await run(deployed,['components/AppHeader.tsx'])).state,'current');
  assert.equal((await run(deployed,['adt-runtime/src/server.ts'])).state,'superseded');
  assert.equal((await run(deployed,[],false)).state,'unknown');
- assert.deepEqual(await run('malformed',[]),{state:'unknown'});
- assert.deepEqual(await run(undefined,[]),{state:'unknown'});
+ assert.deepEqual(await run('malformed',[]),{state:'unknown',unknownReason:'revision_unavailable'});
+ assert.deepEqual(await run(undefined,[]),{state:'unknown',unknownReason:'revision_unavailable'});
  assert.equal(runnerProbes,0);
  assert.equal(comparisons,2);
  assert.ok(heads>=4);

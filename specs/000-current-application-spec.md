@@ -113,7 +113,7 @@
 - Queried optional detail that is unavailable remains unknown and does not falsify a separately established healthy observation; a failed re-query does not present an earlier observation as current, and stale Runner job state never implies that retry is safe.
 - Codex Runner operational status, job history, compatibility detail, bounded diagnostics, execution controls, and storage/recovery maintenance are consolidated into Diagnostics & maintenance. Connection management remains on Connections.
 - A valid workflow-attempt diagnostic deep link explicitly loads only bounded Runner job history so a matching record can be highlighted without loading unrelated Runner detail.
-- The Application / control-plane domain may query the same canonical component-aware infrastructure freshness observation used by the deployment footer.
+- The Application / control-plane domain may query the same canonical component-aware infrastructure freshness observation used by the deployment footer. Diagnostics distinguish each component's deployed revision, source head, and latest positively established component-relevant revision so independently deployed components need not share a revision.
 - Confirmed non-blocking maintenance such as superseded infrastructure is presented under Maintenance due separately from operational failures; current, unknown, unavailable, and unqueried freshness do not create maintenance claims.
 - The bounded Codex functional test is an explicit active diagnostic in Diagnostics & maintenance and is never run during passive page loading.
 - Codex Runner keeps live SQLite state on executor-local storage separately from durable Codex home state and supports consistent durable backups plus confirmed, quiesced SQLite-only restore.
@@ -140,7 +140,7 @@
 - Status information combines text with visual treatment.
 - Operational warnings remain concise and do not dominate healthy workflows.
 - Deployment identity may expose safe source and deployment metadata without exposing private configuration.
-- The shared deployment footer may report safe ADT Runtime and Codex Runner build identities plus component-aware infrastructure freshness; confirmed maintenance is described as a component update being available, while unrelated uncertainty is reserved for detailed Diagnostics. Runner freshness uses the same authoritative release-compatibility evidence as protected Diagnostics, while missing or untrusted evidence remains unknown.
+- The shared deployment footer may report safe ADT Runtime and Codex Runner build identities plus component-aware infrastructure freshness; confirmed maintenance is described as a component update being available and may show the positively established target revision, while unrelated uncertainty does not obscure it. Different component revisions remain healthy when no relevant source change intervenes. Runner freshness uses the same authoritative release-compatibility evidence as protected Diagnostics, while missing or untrusted evidence remains unknown.
 - Footer freshness loads independently of normal page rendering and navigation, and an unavailable result never blocks application use.
 
 ## 10. Agent Workflows

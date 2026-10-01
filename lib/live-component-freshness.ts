@@ -11,9 +11,9 @@ export async function resolveObservedComponentFreshness(
   loadComparison:(deployedRevision:string,headRevision:string,signal:AbortSignal)=>Promise<unknown|undefined>,
 ):Promise<InfrastructureComponentFreshness> {
   const revision=deployedRevision?.trim().toLowerCase();
-  if(!revision||!FULL_SHA.test(revision)||signal.aborted)return{state:"unknown"};
+  if(!revision||!FULL_SHA.test(revision)||signal.aborted)return{state:"unknown",unknownReason:"revision_unavailable"};
   const headRevision=await loadHead(signal);
-  if(!headRevision||!FULL_SHA.test(headRevision)||signal.aborted)return{state:"unknown",deployedRevision:revision};
+  if(!headRevision||!FULL_SHA.test(headRevision)||signal.aborted)return{state:"unknown",deployedRevision:revision,unknownReason:"source_head_unavailable"};
   const result=await resolveComponentFreshness(component,revision,headRevision,()=>loadComparison(revision,headRevision,signal));
   return signal.aborted?{state:"unknown",deployedRevision:revision}:{...result,deployedRevision:revision};
 }

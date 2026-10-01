@@ -9,16 +9,17 @@ export async function GET(request: Request) {
   const session = await requireApiDiagnosticsAccess(request);
   if (session instanceof Response) return session;
   try {
-    return NextResponse.json(await getInfrastructureFreshnessSnapshot(), { headers: noStoreHeaders });
+    const authorization = session.repositoryAuthorization;
+    return NextResponse.json(await getInfrastructureFreshnessSnapshot({ repositoryId: authorization.repositoryId!, installationId: authorization.installationId!, owner: authorization.owner, repository: authorization.repo }), { headers: noStoreHeaders });
   } catch {
     return NextResponse.json(
       {
         state: "unknown",
         checkedAt: new Date().toISOString(),
         components: {
-          worker: { state: "unknown" },
-          runtime: { state: "unknown" },
-          runner: { state: "unknown" },
+          worker: { state: "unknown", unknownReason: "github_access_unavailable" },
+          runtime: { state: "unknown", unknownReason: "github_access_unavailable" },
+          runner: { state: "unknown", unknownReason: "github_access_unavailable" },
         },
       },
       { headers: noStoreHeaders },
