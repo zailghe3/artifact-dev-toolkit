@@ -30,7 +30,7 @@ type Dependencies = {
   mintToken?: typeof mintInstallationTokenForRepositoryName;
 };
 
-const credentialCache = new Map<string, { credential: RepositoryCredential; expiresAt: number }>();
+const credentialCache = new Map<string, { installationId: number; credential: RepositoryCredential; expiresAt: number }>();
 const credentialFlights = new Map<string, Promise<RepositoryCredential>>();
 
 export function parseSourceRepository(value: string): SourceRepository | undefined {
@@ -50,6 +50,9 @@ export function createGitHubFreshnessEvidence(source: SourceRepository, dependen
   const sourceKey = `${source.owner.toLowerCase()}/${source.repository.toLowerCase()}`;
 
   async function credential(): Promise<RepositoryCredential> {
+    const cached = credentialCache.get(sourceKey);
+    if (cached && cached.expiresAt > now()) return cached.credential;
+    credentialCache.delete(sourceKey);
     const existingFlight = credentialFlights.get(sourceKey);
     if (existingFlight) return existingFlight;
     const request = (async () => {
@@ -57,13 +60,11 @@ export function createGitHubFreshnessEvidence(source: SourceRepository, dependen
         const identity = (dependencies.identity ?? getGitHubAppIdentityConfig)();
         const appJwt = await (dependencies.createJwt ?? createGitHubAppJwt)(identity.appId, identity.privateKey);
         const installation = await (dependencies.getInstallation ?? getRepositoryInstallation)({ owner: source.owner, repo: source.repository }, appJwt, fetchImpl);
-        const cacheKey = `${installation.id}:${sourceKey}`;
-        const cached = credentialCache.get(cacheKey);
-        if (cached && cached.expiresAt > now()) return cached.credential;
         const minted = await (dependencies.mintToken ?? mintInstallationTokenForRepositoryName)(installation.id, source.repository, appJwt, "read", fetchImpl);
         if (minted.permissions.contents !== "read") throw new GitHubFreshnessEvidenceError("github_access_unavailable");
-        const expiresAt = minted.expiresAt ? Date.parse(minted.expiresAt) : now() + 5 * 60_000;
-        credentialCache.set(cacheKey, { credential: minted, expiresAt: Math.min(expiresAt - 60_000, now() + 5 * 60_000) });
+        const parsedExpiry = minted.expiresAt ? Date.parse(minted.expiresAt) : Number.NaN;
+        const safeExpiry = Number.isFinite(parsedExpiry) ? parsedExpiry - 60_000 : now() + 60_000;
+        credentialCache.set(sourceKey, { installationId: installation.id, credential: minted, expiresAt: Math.min(safeExpiry, now() + 5 * 60_000) });
         return minted;
       } catch (error) {
         if (error instanceof GitHubFreshnessEvidenceError) throw error;
@@ -76,32 +77,33 @@ export function createGitHubFreshnessEvidence(source: SourceRepository, dependen
     return request;
   }
 
+  async function request(path: string, signal: AbortSignal, retry401 = true): Promise<Response> {
+    let sourceCredential: RepositoryCredential;
+    let response: Response;
+    try {
+      sourceCredential = await credential();
+      response = await fetchImpl(`https://api.github.com/repos/${source.owner}/${source.repository}${path}`, { cache: "no-store", signal, headers: githubHeaders(sourceCredential.token) });
+    } catch (error) {
+      if (error instanceof GitHubFreshnessEvidenceError) throw error;
+      if (signal.aborted) throw new GitHubFreshnessEvidenceError("comparison_timeout");
+      throw new GitHubFreshnessEvidenceError("github_access_unavailable");
+    }
+    if (response.status === 401 && retry401) {
+      if (credentialCache.get(sourceKey)?.credential.token === sourceCredential.token) credentialCache.delete(sourceKey);
+      return request(path, signal, false);
+    }
+    if (!response.ok) throw classifiedResponseFailure(response);
+    return response;
+  }
+
   return {
     async json(path: string, signal: AbortSignal): Promise<unknown> {
-      let response: Response;
-      try {
-        const sourceCredential = await credential();
-        response = await fetchImpl(`https://api.github.com/repos/${source.owner}/${source.repository}${path}`, { cache: "no-store", signal, headers: githubHeaders(sourceCredential.token) });
-      } catch (error) {
-        if (error instanceof GitHubFreshnessEvidenceError) throw error;
-        if (signal.aborted) throw new GitHubFreshnessEvidenceError("comparison_timeout");
-        throw new GitHubFreshnessEvidenceError("github_access_unavailable");
-      }
-      if (!response.ok) throw classifiedResponseFailure(response);
+      const response = await request(path, signal);
       try { return await response.json(); } catch { throw new GitHubFreshnessEvidenceError("github_access_unavailable"); }
     },
     async commitImpact(component: "worker" | "runtime", sha: string, signal: AbortSignal): Promise<CommitComponentImpactEvidence> {
       for (let page = 1; page <= GITHUB_COMMIT_FILE_PAGE_LIMIT; page++) {
-        let response: Response;
-        try {
-          const sourceCredential = await credential();
-          response = await fetchImpl(`https://api.github.com/repos/${source.owner}/${source.repository}/commits/${sha}?per_page=${GITHUB_COMMIT_FILES_PER_PAGE}&page=${page}`, { cache: "no-store", signal, headers: githubHeaders(sourceCredential.token) });
-        } catch (error) {
-          if (error instanceof GitHubFreshnessEvidenceError) throw error;
-          if (signal.aborted) throw new GitHubFreshnessEvidenceError("comparison_timeout");
-          throw new GitHubFreshnessEvidenceError("github_access_unavailable");
-        }
-        if (!response.ok) throw classifiedResponseFailure(response);
+        const response = await request(`/commits/${sha}?per_page=${GITHUB_COMMIT_FILES_PER_PAGE}&page=${page}`, signal);
         let payload: { files?: unknown };
         try { payload = await response.json() as { files?: unknown }; } catch { return "incomplete"; }
         if (!Array.isArray(payload.files)) return "incomplete";

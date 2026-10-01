@@ -29,6 +29,94 @@ test('source freshness resolves independent source installation authority with r
   assert.doesNotMatch(JSON.stringify(calls), new RegExp(`${artifactAuthorization.repository}|${artifactAuthorization.repositoryId}|${artifactAuthorization.installationId}`));
 });
 
+test('sequential source evidence reuses one completed installation credential', async () => {
+  clearGitHubFreshnessCredentialCacheForTests();
+  let installations = 0, mints = 0;
+  const authorizations = [];
+  const evidence = createGitHubFreshnessEvidence(source, {
+    identity: () => ({ appId: 'app', privateKey: 'private' }), createJwt: async () => 'jwt',
+    getInstallation: async () => { installations++; return { id: 77 }; },
+    mintToken: async () => { mints++; return { token: 'one-source-token', permissions: { contents: 'read' }, expiresAt: '2099-01-01T00:00:00Z' }; },
+    fetch: async (url, init) => { authorizations.push(init.headers.authorization); return String(url).includes('/commits/') ? page([{ filename: 'docs/complete.md' }]) : Response.json({ ok: true }); },
+  });
+  await evidence.json('/git/ref/heads/main', new AbortController().signal);
+  await evidence.json('/compare/a...b', new AbortController().signal);
+  await evidence.commitImpact('runtime', 'a'.repeat(40), new AbortController().signal);
+  assert.deepEqual({ installations, mints }, { installations: 1, mints: 1 });
+  assert.deepEqual(new Set(authorizations), new Set(['Bearer one-source-token']));
+});
+
+test('three commit pages reuse one installation resolution and token mint', async () => {
+  clearGitHubFreshnessCredentialCacheForTests();
+  let installations = 0, mints = 0, pages = 0;
+  const evidence = createGitHubFreshnessEvidence(source, {
+    identity: () => ({ appId: 'app', privateKey: 'private' }), createJwt: async () => 'jwt',
+    getInstallation: async () => { installations++; return { id: 77 }; },
+    mintToken: async () => { mints++; return { token: 'paged-source-token', permissions: { contents: 'read' }, expiresAt: '2099-01-01T00:00:00Z' }; },
+    fetch: async (_url, init) => { pages++; assert.equal(init.headers.authorization, 'Bearer paged-source-token'); return page(docs(100), true); },
+  });
+  assert.equal(await evidence.commitImpact('runtime', 'b'.repeat(40), new AbortController().signal), 'incomplete');
+  assert.deepEqual({ pages, installations, mints }, { pages: 3, installations: 1, mints: 1 });
+});
+
+test('concurrent cold source requests coalesce installation resolution and token mint', async () => {
+  clearGitHubFreshnessCredentialCacheForTests();
+  let installations = 0, mints = 0, release;
+  const blocked = new Promise(resolve => { release = resolve; });
+  const evidence = createGitHubFreshnessEvidence(source, {
+    identity: () => ({ appId: 'app', privateKey: 'private' }), createJwt: async () => 'jwt',
+    getInstallation: async () => { installations++; await blocked; return { id: 77 }; },
+    mintToken: async () => { mints++; return { token: 'coalesced-token', permissions: { contents: 'read' }, expiresAt: '2099-01-01T00:00:00Z' }; },
+    fetch: async () => Response.json({ ok: true }),
+  });
+  const requests = ['/one', '/two', '/three'].map(path => evidence.json(path, new AbortController().signal));
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(installations, 1);
+  release();
+  await Promise.all(requests);
+  assert.deepEqual({ installations, mints }, { installations: 1, mints: 1 });
+});
+
+test('expired source credential causes exactly one new installation resolution and mint', async () => {
+  clearGitHubFreshnessCredentialCacheForTests();
+  let now = 1_000, installations = 0, mints = 0;
+  const evidence = createGitHubFreshnessEvidence(source, {
+    now: () => now, identity: () => ({ appId: 'app', privateKey: 'private' }), createJwt: async () => 'jwt',
+    getInstallation: async () => { installations++; return { id: 77 }; },
+    mintToken: async () => { mints++; return { token: `token-${mints}`, permissions: { contents: 'read' } }; },
+    fetch: async () => Response.json({ ok: true }),
+  });
+  await evidence.json('/one', new AbortController().signal);
+  now += 60_001;
+  await evidence.json('/two', new AbortController().signal);
+  assert.deepEqual({ installations, mints }, { installations: 2, mints: 2 });
+});
+
+test('cached-token 401 invalidates, refreshes, and retries only once without leaking credentials', async () => {
+  clearGitHubFreshnessCredentialCacheForTests();
+  let installations = 0, mints = 0, apiCalls = 0;
+  const evidence = createGitHubFreshnessEvidence(source, {
+    identity: () => ({ appId: 'app', privateKey: 'private-value' }), createJwt: async () => 'jwt-value',
+    getInstallation: async () => { installations++; return { id: 77 }; },
+    mintToken: async () => { mints++; return { token: `source-token-${mints}`, permissions: { contents: 'read' }, expiresAt: '2099-01-01T00:00:00Z' }; },
+    fetch: async (_url, init) => { apiCalls++; return init.headers.authorization === 'Bearer source-token-1' ? new Response(null, { status: 401 }) : Response.json({ ok: true }); },
+  });
+  assert.deepEqual(await evidence.json('/ref', new AbortController().signal), { ok: true });
+  assert.deepEqual({ apiCalls, installations, mints }, { apiCalls: 2, installations: 2, mints: 2 });
+
+  clearGitHubFreshnessCredentialCacheForTests(); installations = 0; mints = 0; apiCalls = 0;
+  const rejected = createGitHubFreshnessEvidence(source, {
+    identity: () => ({ appId: 'app', privateKey: 'private-value' }), createJwt: async () => 'jwt-value',
+    getInstallation: async () => { installations++; return { id: 77 }; },
+    mintToken: async () => { mints++; return { token: `rejected-token-${mints}`, permissions: { contents: 'read' } }; },
+    fetch: async () => { apiCalls++; return new Response('raw private response', { status: 401 }); },
+  });
+  const failure = await rejected.json('/ref', new AbortController().signal).catch(error => error);
+  assert.equal(failure.reason, 'github_access_unavailable');
+  assert.deepEqual({ apiCalls, installations, mints }, { apiCalls: 2, installations: 2, mints: 2 });
+  assert.doesNotMatch(JSON.stringify(failure), /token|jwt|private|authorization|raw/i);
+});
+
 for (const [name, response, reason] of [
   ['429', new Response('private upstream body', { status: 429 }), 'github_rate_limited'],
   ['rate-limited 403', new Response('private upstream body', { status: 403, headers: { 'x-ratelimit-remaining': '0' } }), 'github_rate_limited'],
