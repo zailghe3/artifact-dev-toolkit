@@ -9,8 +9,7 @@ export async function GET(request: Request) {
   const session = await requireApiDiagnosticsAccess(request);
   if (session instanceof Response) return session;
   try {
-    const authorization = session.repositoryAuthorization;
-    return NextResponse.json(await getInfrastructureFreshnessSnapshot({ repositoryId: authorization.repositoryId!, installationId: authorization.installationId!, owner: authorization.owner, repository: authorization.repo }), { headers: noStoreHeaders });
+    return NextResponse.json(await getInfrastructureFreshnessSnapshot(), { headers: noStoreHeaders });
   } catch {
     return NextResponse.json(
       {

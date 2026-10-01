@@ -91,9 +91,13 @@ test('identical concurrent GitHub evidence loads are coalesced and successful ev
   assert.equal(calls, 1);
 
   let failures = 0;
-  const unavailable = async () => { failures++; return undefined; };
-  assert.equal(await cache.get('other-head:deployed', unavailable), undefined);
-  assert.equal(await cache.get('other-head:deployed', unavailable), undefined);
+  const failure = Object.assign(new Error('safe'), { reason: 'github_rate_limited' });
+  const unavailable = async () => { failures++; throw failure; };
+  const concurrentA = cache.get('other-head:deployed', unavailable);
+  const concurrentB = cache.get('other-head:deployed', unavailable);
+  await assert.rejects(concurrentA, error => error === failure);
+  await assert.rejects(concurrentB, error => error === failure);
+  await assert.rejects(cache.get('other-head:deployed', unavailable), error => error === failure);
   assert.equal(failures, 2, 'unavailable evidence must remain retryable rather than becoming cached');
 });
 

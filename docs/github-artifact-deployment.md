@@ -28,6 +28,7 @@ Never commit `.env`, `.dev.vars`, PEM keys, secret values, OAuth tokens, or sess
 
 - Production callback URL: `https://adt.pouchet.net/auth/github/callback`.
 - Artifact Library operations require **Contents: read and write** and **Metadata: read-only** on the configured artifact repository.
+- Infrastructure freshness separately requires this GitHub App installation to include the ADT source repository (`zailghe3/artifact-dev-toolkit`). Freshness mints a source-repository-restricted token with **Contents: read**; authorisation against `zailghe3/fpo-artifacts` does not grant this source access.
 - Managed code-repository publication also requires the GitHub App installation on that repository with the permissions used by the managed publication path, including Pull requests write access.
 - Install the App with selected-repository access only to repositories ADT is intended to manage.
 - Permission upgrades may require administrator approval before the installation becomes usable.
