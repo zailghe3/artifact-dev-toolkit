@@ -9,6 +9,7 @@ import {SecretDraftInput} from "./SecretDraftInput";
 
 type Profile={id:string;name:string;description:string;endpointUrl:string;decisionTimeoutMs:number;credentialConfigured:boolean};
 const field="adt-field";
+export const ADRIAN_CLOUD_ENDPOINT="wss://adrian.secureagentics.ai/ws";
 
 export function SecurityProfileEditor({initial,fileSha}:{initial?:Profile;fileSha?:string}) {
   const router=useRouter(),[pending,setPending]=useState(""),[message,setMessage]=useState("");
@@ -19,9 +20,9 @@ export function SecurityProfileEditor({initial,fileSha}:{initial?:Profile;fileSh
     <label>ID *<input name="id" required readOnly={Boolean(initial)} value={identity.id} onChange={event=>updateIdentity({type:"id",value:event.target.value})} maxLength={DEFINITION_ID_MAX_LENGTH} pattern="[a-z0-9]+(?:-[a-z0-9]+)*" aria-describedby="security-profile-id-help" className={field}/></label>
     <p id="security-profile-id-help" className="text-sm">Permanent identifier used by Agents. It cannot be changed after creation.</p>
     <label>Description<textarea name="description" defaultValue={initial?.description} className={field}/></label>
-    <label>Adrian WebSocket endpoint *<input name="endpointUrl" type="url" required defaultValue={initial?.endpointUrl??"wss://"} className={field}/></label>
+    <label>Adrian WebSocket endpoint *<input name="endpointUrl" type="url" required defaultValue={initial?.endpointUrl??ADRIAN_CLOUD_ENDPOINT} className={field}/>{!initial&&<span className="block text-sm">Adrian Cloud endpoint: <code>{ADRIAN_CLOUD_ENDPOINT}</code>. Custom secure WSS endpoints remain supported.</span>}</label>
     <label>Decision timeout (milliseconds) *<input name="decisionTimeoutMs" type="number" min="250" max="30000" required defaultValue={initial?.decisionTimeoutMs??5000} className={field}/></label>
-    <label>{initial?.credentialConfigured?"Replace API key (optional)":"API key *"}<SecretDraftInput name="apiKey" required={!initial||!initial.credentialConfigured}/><span className="block text-sm">Write-only. Adrian policy and remit remain managed in Adrian.</span></label>
+    <label>{initial?.credentialConfigured?"Replace API key (optional)":"API key *"}<SecretDraftInput name="apiKey" required={!initial||!initial.credentialConfigured}/><span className="block text-sm">{!initial&&<>For Adrian Cloud, use an <code>adr_live_...</code> API key generated for an Adrian agent profile. </>}Write-only. Adrian policy and remit remain managed in Adrian.</span></label>
     <FormActions label="Security Profile save" feedback={<ActionFeedback id="security-profile-feedback" kind="error" message={message}/>}><button disabled={Boolean(pending)} className={buttonStyles.primary}>{pending?<PendingButtonContent pending>Saving…</PendingButtonContent>:initial?"Save changes":"Create profile"}</button></FormActions>
   </form>;
 }
