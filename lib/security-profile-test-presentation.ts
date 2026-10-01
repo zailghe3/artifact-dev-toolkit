@@ -7,7 +7,7 @@ export function securityProfileTestMessage(code:string,freshness:string,httpStat
  if(code==="runtime_configuration_invalid")return "ADT Runtime wrapping key configuration is invalid.";
  if(code==="runtime_wrapping_key_mismatch")return "ADT Runtime credential wrapping key does not match.";
  if(code==="adrian_ws_authentication_failed")return `Adrian authentication failed. The configured API key was rejected.${status}`;
- if(code==="adrian_ws_access_forbidden")return `Adrian WebSocket access was forbidden by the hosted service.${status}`;
+ if(code==="adrian_ws_access_forbidden")return `Adrian WebSocket access was forbidden.${status}`;
  if(code==="adrian_ws_upgrade_rejected")return `Adrian rejected the WebSocket endpoint.${status}`;
  if(code==="adrian_ws_unreachable")return "ADT Runtime could not establish a secure WebSocket connection to Adrian.";
  if(code==="adrian_ws_closed_before_login")return "Adrian WebSocket opened, but closed before policy login completed.";
