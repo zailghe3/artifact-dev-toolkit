@@ -22,23 +22,23 @@ export function resolveComponentFreshnessFromCompare(
   expectedHeadRevision: string,
 ): InfrastructureComponentFreshness {
   const expectedHead = expectedHeadRevision.trim().toLowerCase();
-  if (!FULL_SHA.test(expectedHead) || !value || typeof value !== "object" || Array.isArray(value)) return { state: "unknown" };
+  if (!FULL_SHA.test(expectedHead) || !value || typeof value !== "object" || Array.isArray(value)) return { state: "unknown", unknownReason: "comparison_inconclusive" };
   const compare = value as CompareView;
   const sourceHeadRevision = headRevision(compare);
-  if (sourceHeadRevision !== expectedHead) return { state: "unknown" };
+  if (sourceHeadRevision !== expectedHead) return { state: "unknown", unknownReason: "comparison_inconclusive" };
   if (compare.status === "identical") {
     return { state: "current", sourceHeadRevision };
   }
   if (compare.status !== "ahead" || !Array.isArray(compare.files) || compare.files.length > GITHUB_MAX_SAFE_FILES) {
-    return { state: "unknown" };
+    return { state: "unknown", unknownReason: "comparison_inconclusive" };
   }
   const paths: string[] = [];
   for (const raw of compare.files as CompareFile[]) {
-    if (!raw || typeof raw !== "object" || Array.isArray(raw) || typeof raw.filename !== "string" || !raw.filename) return { state: "unknown" };
+    if (!raw || typeof raw !== "object" || Array.isArray(raw) || typeof raw.filename !== "string" || !raw.filename) return { state: "unknown", unknownReason: "comparison_inconclusive" };
     paths.push(raw.filename);
     if (typeof raw.previous_filename === "string" && raw.previous_filename) paths.push(raw.previous_filename);
   }
-  if (hasUnclassifiedDeploymentChanges(paths)) return { state: "unknown" };
+  if (hasUnclassifiedDeploymentChanges(paths)) return { state: "unknown", unknownReason: "unclassified_changes" };
   const changed = deploymentComponentImpact(paths)[component];
   return {
     state: changed ? "superseded" : "current",
@@ -56,6 +56,6 @@ export async function resolveComponentFreshness(
     return { state: "current", sourceHeadRevision };
   }
   const comparison = await loadComparison();
-  if (comparison === undefined) return { state: "unknown" };
+  if (comparison === undefined) return { state: "unknown", sourceHeadRevision, unknownReason: "comparison_unavailable" };
   return resolveComponentFreshnessFromCompare(component, comparison, sourceHeadRevision);
 }

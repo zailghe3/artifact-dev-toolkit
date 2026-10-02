@@ -40,9 +40,9 @@ async function componentFreshness(
 ): Promise<InfrastructureComponentFreshness> {
   try {
     const deployedRevision = normalizedRevision(await revisionPromise);
-    if (!deployedRevision || signal.aborted) return { state: "unknown" };
+    if (!deployedRevision || signal.aborted) return { state: "unknown", unknownReason: "revision_unavailable" };
     const resolved = await resolveRevisionFreshness(component, deployedRevision, signal);
-    if (signal.aborted) return { state: "unknown", deployedRevision };
+    if (signal.aborted) return { state: "unknown", deployedRevision, unknownReason: "comparison_timeout" };
     const sourceHeadRevision = normalizedRevision(resolved.sourceHeadRevision);
     return {
       ...resolved,
@@ -50,7 +50,7 @@ async function componentFreshness(
       ...(sourceHeadRevision ? { sourceHeadRevision } : {}),
     };
   } catch {
-    return { state: "unknown" };
+    return { state: "unknown", unknownReason: "github_access_unavailable" };
   }
 }
 
@@ -67,9 +67,10 @@ async function observedComponentFreshness(
       state: observed.state,
       ...(deployedRevision ? { deployedRevision } : {}),
       ...(sourceHeadRevision ? { sourceHeadRevision } : {}),
+      ...(observed.state === "unknown" && observed.unknownReason ? { unknownReason: observed.unknownReason } : {}),
     };
   } catch {
-    return { state: "unknown" };
+    return { state: "unknown", unknownReason: "github_access_unavailable" };
   }
 }
 
@@ -77,10 +78,10 @@ function withDeadline(
   value: Promise<InfrastructureComponentFreshness>,
   signal: AbortSignal,
 ): Promise<InfrastructureComponentFreshness> {
-  if (signal.aborted) return Promise.resolve({ state: "unknown" });
+  if (signal.aborted) return Promise.resolve({ state: "unknown", unknownReason: "comparison_timeout" });
   return Promise.race([
     value,
-    new Promise<InfrastructureComponentFreshness>((resolve) => signal.addEventListener("abort", () => resolve({ state: "unknown" }), { once: true })),
+    new Promise<InfrastructureComponentFreshness>((resolve) => signal.addEventListener("abort", () => resolve({ state: "unknown", unknownReason: "comparison_timeout" }), { once: true })),
   ]);
 }
 

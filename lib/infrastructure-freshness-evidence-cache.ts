@@ -29,7 +29,7 @@ export class InfrastructureFreshnessEvidenceCache {
           this.completed.set(key, { value, expiresAt: Date.now() + this.ttlMs });
         }
         return value;
-      }, () => undefined)
+      })
       .finally(() => {
         if (this.inFlight.get(key) === request) this.inFlight.delete(key);
       });

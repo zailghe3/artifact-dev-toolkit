@@ -10,4 +10,5 @@ test('infrastructure freshness authorizes before probing protected infrastructur
   assert.ok(collection >= 0);
   assert.ok(authorization < collection);
   assert.match(route, /noStoreHeaders/);
+  assert.doesNotMatch(route, /repositoryId|installationId/);
 });

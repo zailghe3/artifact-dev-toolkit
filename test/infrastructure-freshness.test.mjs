@@ -39,6 +39,7 @@ test('infrastructure freshness parser accepts only internally consistent bounded
   assert.equal(parseInfrastructureFreshnessSnapshot({ ...value, components: { ...value.components, runtime: { ...value.components.runtime, deployedRevision: 'not-a-sha' } } }), undefined);
   assert.equal(parseInfrastructureFreshnessSnapshot({ ...value, components: { ...value.components, runtime: { ...value.components.runtime, sourceHeadRevision: 'not-a-sha' } } }), undefined);
   assert.equal(parseInfrastructureFreshnessSnapshot({ ...value, components: { ...value.components, runtime: { ...value.components.runtime, latestRelevantRevision: '3'.repeat(40) } } }), undefined);
+  assert.equal(parseInfrastructureFreshnessSnapshot({ ...value, components: { ...value.components, runtime: { ...value.components.runtime, state: 'current', unknownReason: 'comparison_timeout' } } }), undefined);
 });
 
 test('infrastructure freshness labels identify stale and uncertain components without relying on colour', () => {
@@ -47,7 +48,7 @@ test('infrastructure freshness labels identify stale and uncertain components wi
   assert.equal(infrastructureFreshnessLabel(snapshot(component('current'), component('superseded'), component('current'))), 'Runtime update available');
   assert.equal(infrastructureFreshnessLabel(snapshot(component('superseded'), component('current'), component('current'))), 'App update available');
   assert.equal(infrastructureFreshnessLabel(snapshot(component('current'), component('superseded'), component('superseded'))), 'Updates available · Runtime + Runner');
-  assert.equal(infrastructureFreshnessLabel(snapshot(component('unknown'), component('current'), component('current'))), 'Infrastructure freshness unavailable');
+  assert.equal(infrastructureFreshnessLabel(snapshot(component('unknown'), component('current'), component('current'))), 'App freshness unavailable');
   assert.equal(infrastructureFreshnessLabel(snapshot(component('unknown'), component('unknown'), component('superseded'))), 'Runner update available');
 });
 
@@ -90,9 +91,13 @@ test('identical concurrent GitHub evidence loads are coalesced and successful ev
   assert.equal(calls, 1);
 
   let failures = 0;
-  const unavailable = async () => { failures++; return undefined; };
-  assert.equal(await cache.get('other-head:deployed', unavailable), undefined);
-  assert.equal(await cache.get('other-head:deployed', unavailable), undefined);
+  const failure = Object.assign(new Error('safe'), { reason: 'github_rate_limited' });
+  const unavailable = async () => { failures++; throw failure; };
+  const concurrentA = cache.get('other-head:deployed', unavailable);
+  const concurrentB = cache.get('other-head:deployed', unavailable);
+  await assert.rejects(concurrentA, error => error === failure);
+  await assert.rejects(concurrentB, error => error === failure);
+  await assert.rejects(cache.get('other-head:deployed', unavailable), error => error === failure);
   assert.equal(failures, 2, 'unavailable evidence must remain retryable rather than becoming cached');
 });
 
@@ -110,7 +115,7 @@ test('freshness collection keeps confirmed component results when another probe 
   assert.equal(result.state, 'superseded');
   assert.deepEqual(result.components.worker, { state: 'current', deployedRevision: workerRevision, sourceHeadRevision: sourceHead });
   assert.deepEqual(result.components.runtime, { state: 'superseded', deployedRevision: runtimeRevision, sourceHeadRevision: sourceHead });
-  assert.deepEqual(result.components.runner, { state: 'unknown' });
+  assert.deepEqual(result.components.runner, { state: 'unknown', unknownReason: 'github_access_unavailable' });
   assert.equal(infrastructureFreshnessLabel(result), 'Runtime update available');
 });
 
@@ -193,8 +198,8 @@ test('Runtime-only freshness resolves current, superseded, and unknown with the 
  assert.equal((await run(deployed,['components/AppHeader.tsx'])).state,'current');
  assert.equal((await run(deployed,['adt-runtime/src/server.ts'])).state,'superseded');
  assert.equal((await run(deployed,[],false)).state,'unknown');
- assert.deepEqual(await run('malformed',[]),{state:'unknown'});
- assert.deepEqual(await run(undefined,[]),{state:'unknown'});
+ assert.deepEqual(await run('malformed',[]),{state:'unknown',unknownReason:'revision_unavailable'});
+ assert.deepEqual(await run(undefined,[]),{state:'unknown',unknownReason:'revision_unavailable'});
  assert.equal(runnerProbes,0);
  assert.equal(comparisons,2);
  assert.ok(heads>=4);

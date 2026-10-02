@@ -1,11 +1,14 @@
 export type InfrastructureComponent = "worker" | "runtime" | "runner";
 export type InfrastructureComponentFreshnessState = "current" | "superseded" | "unknown";
 export type InfrastructureFreshnessState = InfrastructureComponentFreshnessState;
+export const infrastructureFreshnessUnknownReasons = ["revision_unavailable", "source_head_unavailable", "comparison_unavailable", "comparison_timeout", "comparison_inconclusive", "unclassified_changes", "github_rate_limited", "github_access_unavailable"] as const;
+export type InfrastructureFreshnessUnknownReason = typeof infrastructureFreshnessUnknownReasons[number];
 
 export type InfrastructureComponentFreshness = {
   state: InfrastructureComponentFreshnessState;
   deployedRevision?: string;
   sourceHeadRevision?: string;
+  unknownReason?: InfrastructureFreshnessUnknownReason;
 };
 
 export type InfrastructureFreshnessSnapshot = {
@@ -17,6 +20,7 @@ export type InfrastructureFreshnessSnapshot = {
 const componentKeys: InfrastructureComponent[] = ["worker", "runtime", "runner"];
 const componentStates = new Set<InfrastructureComponentFreshnessState>(["current", "superseded", "unknown"]);
 const fullSha = /^[0-9a-f]{40}$/i;
+const unknownReasons = new Set<string>(infrastructureFreshnessUnknownReasons);
 
 // Keep the browser budget comfortably above the bounded server collection so
 // serialization and transport do not turn a completed observation into a
@@ -59,11 +63,13 @@ function parseComponent(value: unknown): InfrastructureComponentFreshness | unde
   if (!componentStates.has(item.state as InfrastructureComponentFreshnessState)) return undefined;
   if (item.deployedRevision !== undefined && (typeof item.deployedRevision !== "string" || !fullSha.test(item.deployedRevision))) return undefined;
   if (item.sourceHeadRevision !== undefined && (typeof item.sourceHeadRevision !== "string" || !fullSha.test(item.sourceHeadRevision))) return undefined;
-  if (Object.keys(item).some((key) => !["state", "deployedRevision", "sourceHeadRevision"].includes(key))) return undefined;
+  if (item.unknownReason !== undefined && (item.state !== "unknown" || typeof item.unknownReason !== "string" || !unknownReasons.has(item.unknownReason))) return undefined;
+  if (Object.keys(item).some((key) => !["state", "deployedRevision", "sourceHeadRevision", "unknownReason"].includes(key))) return undefined;
   return {
     state: item.state as InfrastructureComponentFreshnessState,
     ...(typeof item.deployedRevision === "string" ? { deployedRevision: item.deployedRevision.toLowerCase() } : {}),
     ...(typeof item.sourceHeadRevision === "string" ? { sourceHeadRevision: item.sourceHeadRevision.toLowerCase() } : {}),
+    ...(typeof item.unknownReason === "string" ? { unknownReason: item.unknownReason as InfrastructureFreshnessUnknownReason } : {}),
   };
 }
 
@@ -88,7 +94,8 @@ export function infrastructureFreshnessLabel(snapshot: InfrastructureFreshnessSn
   const stale = componentKeys.filter((key) => snapshot.components[key].state === "superseded").map((key) => labels[key]);
   if (stale.length === 1) return `${stale[0]} update available`;
   if (stale.length > 1) return `Updates available · ${stale.join(" + ")}`;
-  return "Infrastructure freshness unavailable";
+  const unknown = componentKeys.filter((key) => snapshot.components[key].state === "unknown").map((key) => labels[key]);
+  return unknown.length === 1 ? `${unknown[0]} freshness unavailable` : `Infrastructure freshness unavailable${unknown.length ? ` · ${unknown.join(" + ")}` : ""}`;
 }
 
 function shortRevision(value: string | undefined): string {

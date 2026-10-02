@@ -16,9 +16,9 @@ export async function GET(request: Request) {
         state: "unknown",
         checkedAt: new Date().toISOString(),
         components: {
-          worker: { state: "unknown" },
-          runtime: { state: "unknown" },
-          runner: { state: "unknown" },
+          worker: { state: "unknown", unknownReason: "github_access_unavailable" },
+          runtime: { state: "unknown", unknownReason: "github_access_unavailable" },
+          runner: { state: "unknown", unknownReason: "github_access_unavailable" },
         },
       },
       { headers: noStoreHeaders },

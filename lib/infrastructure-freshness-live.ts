@@ -13,12 +13,16 @@ import {
   type InfrastructureFreshnessSnapshot,
 } from "./infrastructure-freshness.ts";
 import { InfrastructureFreshnessEvidenceCache } from "./infrastructure-freshness-evidence-cache.ts";
+import { clearGitHubFreshnessCredentialCacheForTests, createGitHubFreshnessEvidence, parseSourceRepository } from "./github-freshness-evidence.ts";
 import { resolveObservedComponentFreshness } from "./live-component-freshness.ts";
 
 const SOURCE_REPOSITORY = deploymentMetadata?.repository ?? "zailghe3/artifact-dev-toolkit";
 const FULL_SHA = /^[0-9a-f]{40}$/i;
 const REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const GITHUB_EVIDENCE_CACHE_MS = 2 * 60_000;
+const sourceRepository = parseSourceRepository(SOURCE_REPOSITORY);
+const sourceEvidence = sourceRepository ? createGitHubFreshnessEvidence(sourceRepository) : undefined;
+type SourceEvidence = ReturnType<typeof createGitHubFreshnessEvidence>;
 
 let cached: { expiresAt: number; snapshot: InfrastructureFreshnessSnapshot } | undefined;
 let inFlight: Promise<InfrastructureFreshnessSnapshot> | undefined;
@@ -55,18 +59,9 @@ async function runnerFreshness(signal: AbortSignal) {
   }
 }
 
-async function githubJson(url: string, signal: AbortSignal): Promise<unknown> {
-  const response = await fetch(url, {
-    cache: "no-store",
-    signal,
-    headers: {
-      accept: "application/vnd.github+json",
-      "user-agent": "artifact-dev-toolkit",
-      "x-github-api-version": "2022-11-28",
-    },
-  });
-  if (!response.ok) throw new Error("github_unavailable");
-  return response.json();
+async function githubJson(path: string, signal: AbortSignal, evidence = sourceEvidence): Promise<unknown> {
+  if (!evidence) throw new Error("invalid_source_repository");
+  return evidence.json(path, signal);
 }
 
 function gitRefRevision(value: unknown): string | undefined {
@@ -82,21 +77,24 @@ async function comparisonAtHead(
   deployedRevision: string,
   headRevision: string,
   signal: AbortSignal,
+  evidence?: SourceEvidence,
 ): Promise<unknown | undefined> {
   const key = `${headRevision}:${deployedRevision}`;
   return compareCache.get(key, () => githubJson(
-    `https://api.github.com/repos/${repository}/compare/${deployedRevision}...${headRevision}`,
+    `/compare/${deployedRevision}...${headRevision}`,
     signal,
+    evidence,
   ));
 }
 
-function resolveMainRevision(signal: AbortSignal): Promise<string | undefined> {
+function resolveMainRevision(signal: AbortSignal, evidence?: SourceEvidence): Promise<string | undefined> {
   if (!REPOSITORY.test(SOURCE_REPOSITORY)) return Promise.resolve(undefined);
   if (mainRevisionCache && mainRevisionCache.expiresAt > Date.now()) return Promise.resolve(mainRevisionCache.revision);
   if (!mainRevisionInFlight) {
     mainRevisionInFlight = githubJson(
-      `https://api.github.com/repos/${SOURCE_REPOSITORY}/git/ref/heads/main`,
+      `/git/ref/heads/main`,
       signal,
+      evidence,
     ).then((value) => {
       const revision = gitRefRevision(value);
       if (revision) {
@@ -104,22 +102,23 @@ function resolveMainRevision(signal: AbortSignal): Promise<string | undefined> {
         mainRevisionCache = { revision, expiresAt: Date.now() + GITHUB_EVIDENCE_CACHE_MS };
       }
       return revision;
-    }, () => undefined).finally(() => { mainRevisionInFlight = undefined; });
+    }).finally(() => { mainRevisionInFlight = undefined; });
   }
   return mainRevisionInFlight;
 }
 
-async function resolveLiveComponentFreshnessWithSignal(
+export async function resolveLiveComponentFreshnessWithSignal(
   component: "worker" | "runtime",
   deployedRevision: string | undefined,
   signal: AbortSignal,
+  evidence?: SourceEvidence,
 ) {
   return resolveObservedComponentFreshness(
     component,
     deployedRevision,
     signal,
-    resolveMainRevision,
-    (revision, headRevision, currentSignal) => comparisonAtHead(SOURCE_REPOSITORY, revision, headRevision, currentSignal),
+    currentSignal => resolveMainRevision(currentSignal, evidence),
+    (revision, headRevision, currentSignal) => comparisonAtHead(SOURCE_REPOSITORY, revision, headRevision, currentSignal, evidence),
   );
 }
 
@@ -132,7 +131,7 @@ export async function resolveLiveComponentFreshness(
   const timer = setTimeout(() => controller.abort(), INFRASTRUCTURE_FRESHNESS_SERVER_TIMEOUT_MS);
   try {
     return await aborted(resolveLiveComponentFreshnessWithSignal(component, deployedRevision, controller.signal), controller.signal)
-      ?? { state: "unknown" as const };
+      ?? { state: "unknown" as const, unknownReason: "comparison_timeout" as const };
   } finally {
     clearTimeout(timer);
     controller.abort();
@@ -156,14 +155,15 @@ async function collectLiveInfrastructureFreshness(): Promise<InfrastructureFresh
 export async function getInfrastructureFreshnessSnapshot(now = Date.now()): Promise<InfrastructureFreshnessSnapshot> {
   if (cached && cached.expiresAt > now) return cached.snapshot;
   if (inFlight) return inFlight;
-  inFlight = collectLiveInfrastructureFreshness().then((snapshot) => {
+  const promise = collectLiveInfrastructureFreshness().then((snapshot) => {
     cached = {
       snapshot,
       expiresAt: Date.now() + infrastructureFreshnessServerTtl(snapshot),
     };
     return snapshot;
-  }).finally(() => { inFlight = undefined; });
-  return inFlight;
+  }).finally(() => { if (inFlight === promise) inFlight = undefined; });
+  inFlight = promise;
+  return promise;
 }
 
 export function clearInfrastructureFreshnessCacheForTests() {
@@ -172,4 +172,5 @@ export function clearInfrastructureFreshnessCacheForTests() {
   mainRevisionCache = undefined;
   mainRevisionInFlight = undefined;
   compareCache.clear();
+  clearGitHubFreshnessCredentialCacheForTests();
 }
