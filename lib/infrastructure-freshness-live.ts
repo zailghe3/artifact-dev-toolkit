@@ -14,7 +14,7 @@ import {
 } from "./infrastructure-freshness.ts";
 import { InfrastructureFreshnessEvidenceCache } from "./infrastructure-freshness-evidence-cache.ts";
 import { clearGitHubFreshnessCredentialCacheForTests, createGitHubFreshnessEvidence, parseSourceRepository } from "./github-freshness-evidence.ts";
-import { resolveComponentFromGitHubEvidence } from "./live-component-freshness-evidence.ts";
+import { resolveObservedComponentFreshness } from "./live-component-freshness.ts";
 
 const SOURCE_REPOSITORY = deploymentMetadata?.repository ?? "zailghe3/artifact-dev-toolkit";
 const FULL_SHA = /^[0-9a-f]{40}$/i;
@@ -29,7 +29,6 @@ let inFlight: Promise<InfrastructureFreshnessSnapshot> | undefined;
 let mainRevisionCache: { expiresAt: number; revision: string } | undefined;
 let mainRevisionInFlight: Promise<string | undefined> | undefined;
 const compareCache = new InfrastructureFreshnessEvidenceCache(GITHUB_EVIDENCE_CACHE_MS);
-const commitCache = new InfrastructureFreshnessEvidenceCache(GITHUB_EVIDENCE_CACHE_MS);
 
 function aborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T | undefined> {
   if (signal.aborted) return Promise.resolve(undefined);
@@ -114,13 +113,12 @@ export async function resolveLiveComponentFreshnessWithSignal(
   signal: AbortSignal,
   evidence?: SourceEvidence,
 ) {
-  return resolveComponentFromGitHubEvidence(
+  return resolveObservedComponentFreshness(
     component,
     deployedRevision,
     signal,
     currentSignal => resolveMainRevision(currentSignal, evidence),
     (revision, headRevision, currentSignal) => comparisonAtHead(SOURCE_REPOSITORY, revision, headRevision, currentSignal, evidence),
-    (kind, sha, currentSignal) => commitCache.get(`${kind}:${sha}`, () => (evidence ?? sourceEvidence)!.commitImpact(kind, sha, currentSignal)) as Promise<"relevant" | "irrelevant" | "incomplete">,
   );
 }
 
@@ -174,6 +172,5 @@ export function clearInfrastructureFreshnessCacheForTests() {
   mainRevisionCache = undefined;
   mainRevisionInFlight = undefined;
   compareCache.clear();
-  commitCache.clear();
   clearGitHubFreshnessCredentialCacheForTests();
 }

@@ -53,10 +53,9 @@ export async function resolveComponentFreshness(
   loadComparison: () => Promise<unknown | undefined>,
 ): Promise<InfrastructureComponentFreshness> {
   if (deployedRevision === sourceHeadRevision) {
-    return { state: "current", sourceHeadRevision, latestRelevantRevision: deployedRevision };
+    return { state: "current", sourceHeadRevision };
   }
   const comparison = await loadComparison();
   if (comparison === undefined) return { state: "unknown", sourceHeadRevision, unknownReason: "comparison_unavailable" };
-  const result = resolveComponentFreshnessFromCompare(component, comparison, sourceHeadRevision);
-  return result.state === "current" ? { ...result, latestRelevantRevision: deployedRevision } : result;
+  return resolveComponentFreshnessFromCompare(component, comparison, sourceHeadRevision);
 }

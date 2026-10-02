@@ -8,7 +8,6 @@ export type InfrastructureComponentFreshness = {
   state: InfrastructureComponentFreshnessState;
   deployedRevision?: string;
   sourceHeadRevision?: string;
-  latestRelevantRevision?: string;
   unknownReason?: InfrastructureFreshnessUnknownReason;
 };
 
@@ -64,14 +63,12 @@ function parseComponent(value: unknown): InfrastructureComponentFreshness | unde
   if (!componentStates.has(item.state as InfrastructureComponentFreshnessState)) return undefined;
   if (item.deployedRevision !== undefined && (typeof item.deployedRevision !== "string" || !fullSha.test(item.deployedRevision))) return undefined;
   if (item.sourceHeadRevision !== undefined && (typeof item.sourceHeadRevision !== "string" || !fullSha.test(item.sourceHeadRevision))) return undefined;
-  if (item.latestRelevantRevision !== undefined && (typeof item.latestRelevantRevision !== "string" || !fullSha.test(item.latestRelevantRevision))) return undefined;
   if (item.unknownReason !== undefined && (item.state !== "unknown" || typeof item.unknownReason !== "string" || !unknownReasons.has(item.unknownReason))) return undefined;
-  if (Object.keys(item).some((key) => !["state", "deployedRevision", "sourceHeadRevision", "latestRelevantRevision", "unknownReason"].includes(key))) return undefined;
+  if (Object.keys(item).some((key) => !["state", "deployedRevision", "sourceHeadRevision", "unknownReason"].includes(key))) return undefined;
   return {
     state: item.state as InfrastructureComponentFreshnessState,
     ...(typeof item.deployedRevision === "string" ? { deployedRevision: item.deployedRevision.toLowerCase() } : {}),
     ...(typeof item.sourceHeadRevision === "string" ? { sourceHeadRevision: item.sourceHeadRevision.toLowerCase() } : {}),
-    ...(typeof item.latestRelevantRevision === "string" ? { latestRelevantRevision: item.latestRelevantRevision.toLowerCase() } : {}),
     ...(typeof item.unknownReason === "string" ? { unknownReason: item.unknownReason as InfrastructureFreshnessUnknownReason } : {}),
   };
 }
@@ -109,8 +106,7 @@ export function infrastructureRevisionLabel(snapshot: InfrastructureFreshnessSna
   return (["runtime", "runner"] as const)
     .flatMap((component) => {
       const revision = snapshot.components[component].deployedRevision;
-      const target = snapshot.components[component].state === "superseded" ? snapshot.components[component].latestRelevantRevision : undefined;
-      return revision ? [`${component === "runtime" ? "Runtime" : "Runner"} ${shortRevision(revision)}${target ? ` → ${shortRevision(target)}` : ""}`] : [];
+      return revision ? [`${component === "runtime" ? "Runtime" : "Runner"} ${shortRevision(revision)}`] : [];
     })
     .join(" · ");
 }

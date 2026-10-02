@@ -44,12 +44,10 @@ async function componentFreshness(
     const resolved = await resolveRevisionFreshness(component, deployedRevision, signal);
     if (signal.aborted) return { state: "unknown", deployedRevision, unknownReason: "comparison_timeout" };
     const sourceHeadRevision = normalizedRevision(resolved.sourceHeadRevision);
-    const latestRelevantRevision = normalizedRevision(resolved.latestRelevantRevision);
     return {
       ...resolved,
       deployedRevision,
       ...(sourceHeadRevision ? { sourceHeadRevision } : {}),
-      ...(latestRelevantRevision ? { latestRelevantRevision } : {}),
     };
   } catch {
     return { state: "unknown", unknownReason: "github_access_unavailable" };
@@ -65,12 +63,10 @@ async function observedComponentFreshness(
     if (signal.aborted) return { state: "unknown" };
     const deployedRevision = normalizedRevision(observed.deployedRevision);
     const sourceHeadRevision = normalizedRevision(observed.sourceHeadRevision);
-    const latestRelevantRevision = normalizedRevision(observed.latestRelevantRevision);
     return {
       state: observed.state,
       ...(deployedRevision ? { deployedRevision } : {}),
       ...(sourceHeadRevision ? { sourceHeadRevision } : {}),
-      ...(latestRelevantRevision ? { latestRelevantRevision } : {}),
       ...(observed.state === "unknown" && observed.unknownReason ? { unknownReason: observed.unknownReason } : {}),
     };
   } catch {

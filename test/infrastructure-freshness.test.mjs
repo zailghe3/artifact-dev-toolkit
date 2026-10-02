@@ -38,7 +38,7 @@ test('infrastructure freshness parser accepts only internally consistent bounded
   assert.equal(parseInfrastructureFreshnessSnapshot({ ...value, extra: true }), undefined);
   assert.equal(parseInfrastructureFreshnessSnapshot({ ...value, components: { ...value.components, runtime: { ...value.components.runtime, deployedRevision: 'not-a-sha' } } }), undefined);
   assert.equal(parseInfrastructureFreshnessSnapshot({ ...value, components: { ...value.components, runtime: { ...value.components.runtime, sourceHeadRevision: 'not-a-sha' } } }), undefined);
-  assert.equal(parseInfrastructureFreshnessSnapshot({ ...value, components: { ...value.components, runtime: { ...value.components.runtime, latestRelevantRevision: 'not-a-sha' } } }), undefined);
+  assert.equal(parseInfrastructureFreshnessSnapshot({ ...value, components: { ...value.components, runtime: { ...value.components.runtime, latestRelevantRevision: '3'.repeat(40) } } }), undefined);
   assert.equal(parseInfrastructureFreshnessSnapshot({ ...value, components: { ...value.components, runtime: { ...value.components.runtime, state: 'current', unknownReason: 'comparison_timeout' } } }), undefined);
 });
 
@@ -194,7 +194,7 @@ test('Runtime-only freshness resolves current, superseded, and unknown with the 
  const {resolveObservedComponentFreshness}=await import('../lib/live-component-freshness.ts'),deployed='1'.repeat(40),head='2'.repeat(40),signal=new AbortController().signal;
  let heads=0,comparisons=0,runnerProbes=0;
  const run=(revision,files,available=true)=>resolveObservedComponentFreshness('runtime',revision,signal,async()=>{heads++;return available?head:undefined},async()=>{comparisons++;return available?{status:'ahead',head_commit:{sha:head},files:files.map(filename=>({filename}))}:undefined});
- assert.deepEqual(await resolveObservedComponentFreshness('runtime',head,signal,async()=>{heads++;return head},async()=>{comparisons++;throw Error('comparison unnecessary')}),{state:'current',deployedRevision:head,sourceHeadRevision:head,latestRelevantRevision:head});
+ assert.deepEqual(await resolveObservedComponentFreshness('runtime',head,signal,async()=>{heads++;return head},async()=>{comparisons++;throw Error('comparison unnecessary')}),{state:'current',deployedRevision:head,sourceHeadRevision:head});
  assert.equal((await run(deployed,['components/AppHeader.tsx'])).state,'current');
  assert.equal((await run(deployed,['adt-runtime/src/server.ts'])).state,'superseded');
  assert.equal((await run(deployed,[],false)).state,'unknown');

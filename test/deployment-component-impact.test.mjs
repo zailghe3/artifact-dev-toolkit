@@ -52,7 +52,7 @@ test('compare resolution is component-aware rather than exact-SHA-only', () => {
 test('matching deployed head is current without an unnecessary comparison', async () => {
   const head = 'a'.repeat(40);
   let comparisons = 0;
-  assert.deepEqual(await resolveComponentFreshness('worker', head, head, async () => { comparisons++; }), { state: 'current', sourceHeadRevision: head, latestRelevantRevision: head });
+  assert.deepEqual(await resolveComponentFreshness('worker', head, head, async () => { comparisons++; }), { state: 'current', sourceHeadRevision: head });
   assert.equal(comparisons, 0);
 });
 
@@ -71,7 +71,7 @@ test('a later Runtime image change makes an older Runtime superseded', async () 
   assert.equal((await resolveComponentFreshness('runtime', deployed, head, async () => comparison)).state, 'superseded');
 });
 
-test('historical production Runtime regression resolves its exact required revision', async () => {
+test('historical production Runtime regression proves the deployed Runtime is superseded', async () => {
   const deployed = '593841394bbdabfa17586df984b70b3fb03b94e1';
   const head = 'bdaf073a053350942790f7d66209f6ec4eb01999';
   const files = [
@@ -86,7 +86,7 @@ test('historical production Runtime regression resolves its exact required revis
 test('different Runtime and source SHAs remain current without intervening Runtime inputs', async () => {
   const deployed = '1'.repeat(40), head = '2'.repeat(40);
   const result = await resolveComponentFreshness('runtime', deployed, head, async () => ({ status: 'ahead', head_commit: { sha: head }, files: [{ filename: 'components/AppHeader.tsx' }, { filename: 'docs/operations.md' }, { filename: 'specs/000-current-application-spec.md' }] }));
-  assert.deepEqual(result, { state: 'current', sourceHeadRevision: head, latestRelevantRevision: deployed });
+  assert.deepEqual(result, { state: 'current', sourceHeadRevision: head });
 });
 
 test('compare resolution fails closed when the deployment classifier cannot classify a path', () => {
