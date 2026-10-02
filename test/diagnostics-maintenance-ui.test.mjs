@@ -33,11 +33,11 @@ test("control-plane diagnostics uses the canonical bounded freshness parser and 
 
 test("Maintenance due includes only confirmed component-aware supersession", () => {
   const { infrastructureMaintenanceItem } = require("../components/DiagnosticsMaintenance.tsx");
-  const components = { worker: { state: "current", deployedRevision: "a".repeat(40), sourceHeadRevision: "a".repeat(40) }, runtime: { state: "current" }, runner: { state: "current" } };
+  const components = { worker: { state: "current", deployedRevision: "a".repeat(40) }, runtime: { state: "current" }, runner: { state: "current" } };
   assert.equal(infrastructureMaintenanceItem(), undefined);
   assert.equal(infrastructureMaintenanceItem({ state: "current", checkedAt: "2026-09-22T00:00:00.000Z", components }), undefined);
   assert.equal(infrastructureMaintenanceItem({ state: "unknown", checkedAt: "2026-09-22T00:00:00.000Z", components: { ...components, runtime: { state: "unknown" } } }), undefined);
-  const item = infrastructureMaintenanceItem({ state: "superseded", checkedAt: "2026-09-22T00:00:00.000Z", components: { ...components, worker: { state: "superseded", deployedRevision: "a".repeat(40), sourceHeadRevision: "b".repeat(40) }, runtime: { state: "unknown" } } });
+  const item = infrastructureMaintenanceItem({ state: "superseded", checkedAt: "2026-09-22T00:00:00.000Z", components: { ...components, worker: { state: "superseded", deployedRevision: "a".repeat(40) }, runtime: { state: "unknown" } } });
   assert.equal(item.href, "#application-control-plane");
   assert.equal(item.message, "App update available");
 });
@@ -54,8 +54,8 @@ test("freshness re-query clears stale snapshot, revisions, copy data, and mainte
   const React = require("react"), renderer = require("react-test-renderer");
   const { ApplicationControlPlaneDiagnostics } = require("../components/ApplicationControlPlaneDiagnostics.tsx");
   const { DiagnosticsMaintenanceProvider, MaintenanceDuePanel } = require("../components/DiagnosticsMaintenance.tsx");
-  const current = { state: "current", checkedAt: "2026-09-22T00:00:00.000Z", components: { worker: { state: "current", deployedRevision: "a".repeat(40), sourceHeadRevision: "a".repeat(40) }, runtime: { state: "current" }, runner: { state: "current" } } };
-  const superseded = { state: "superseded", checkedAt: "2026-09-22T00:01:00.000Z", components: { ...current.components, worker: { state: "superseded", deployedRevision: "b".repeat(40), sourceHeadRevision: "c".repeat(40) } } };
+  const current = { state: "current", checkedAt: "2026-09-22T00:00:00.000Z", components: { worker: { state: "current", deployedRevision: "a".repeat(40) }, runtime: { state: "current" }, runner: { state: "current" } } };
+  const superseded = { state: "superseded", checkedAt: "2026-09-22T00:01:00.000Z", components: { ...current.components, worker: { state: "superseded", deployedRevision: "b".repeat(40) } } };
   const results = [{ status: "loaded", snapshot: current }, { status: "loaded", snapshot: superseded }, { status: "unavailable" }, { status: "loaded", snapshot: superseded }, { status: "loaded", snapshot: current }];
   const queryFreshness = async () => results.shift();
   global.IS_REACT_ACT_ENVIRONMENT = true;

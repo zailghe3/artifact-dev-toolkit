@@ -76,3 +76,10 @@ The execution-path diagnostic is non-mutating: it does not create Workflow/check
 Passive readiness, execution-path readiness, provider connection readiness, and real provider execution are separate conditions and should remain separately diagnosable.
 
 Runtime logs are structured safe events. Use bounded stage/result/status/correlation/duration fields; do not log or compare secret values, provider payloads, prompts, callback bodies, or raw exception text.
+
+## Release identity
+
+- `/runtime/REVISION` is the immutable image/source Git SHA used for operator identity.
+- `release.json` is the source-controlled monotonic Runtime release generation shared with the Worker.
+- Readiness reports both facts. The Worker compares release generations for freshness and never infers freshness from Git history, SHA equality, GitHub, or Docker Hub.
+- Runtime image-input changes must increment `releaseRevision` in the same pull request; CI validates this policy.

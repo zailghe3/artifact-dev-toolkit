@@ -14,7 +14,7 @@ test('trusted Runtime publication is reusable and targets Docker Hub only', () =
   assert.match(workflow, /image=poulti\/adt-runtime/);
   assert.match(workflow, /"\$image:\$\{TARGET_SHA\}"/);
   assert.match(workflow, /"\$image:latest"/);
-  assert.equal((workflow.match(/docker tag adt-runtime:verified/g) ?? []).length, 2);
+  assert.equal((workflow.match(/docker tag adt-runtime:verified/g) ?? []).length, 3);
   assert.doesNotMatch(workflow, /ghcr\.io|packages: write|self-hosted|portainer|shepherd/i);
   assert.match(workflow, /docker manifest inspect/);
 });
