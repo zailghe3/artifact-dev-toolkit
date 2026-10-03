@@ -45,7 +45,7 @@
     "@types/react-test-renderer": "^19.1.0",
     "eslint": "^9.39.5",
     "eslint-config-next": "^16.3.8",
-    "miniflare": "^5.20260921.1-alpha",
+    "miniflare": "^5.20261001.0-alpha",
     "postcss": "^8.5.18",
     "react-test-renderer": "^19.3.0",
     "tailwindcss": "^4.3.2",
