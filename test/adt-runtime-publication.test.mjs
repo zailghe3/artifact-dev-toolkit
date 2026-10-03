@@ -15,6 +15,11 @@ test('trusted Runtime publication is reusable and targets Docker Hub only', () =
   assert.match(workflow, /"\$image:\$\{TARGET_SHA\}"/);
   assert.match(workflow, /"\$image:latest"/);
   assert.equal((workflow.match(/docker tag adt-runtime:verified/g) ?? []).length, 3);
+  assert.match(workflow, /release_tag="r\$\{release_revision\}"/);
+  assert.match(workflow, /docker manifest inspect "\$image:\$\{release_tag\}"[\s\S]*refusing overwrite/);
+  assert.match(workflow, /docker tag adt-runtime:verified "\$image:\$\{release_tag\}"/);
+  assert.match(workflow, /docker push "\$image:\$\{release_tag\}"/);
+  assert.match(workflow, /release_digest=.*"\$image:\$\{release_tag\}"[\s\S]*test "\$sha_digest" = "\$release_digest"/);
   assert.doesNotMatch(workflow, /ghcr\.io|packages: write|self-hosted|portainer|shepherd/i);
   assert.match(workflow, /docker manifest inspect/);
 });

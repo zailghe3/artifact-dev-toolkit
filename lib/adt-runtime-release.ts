@@ -15,6 +15,6 @@ export function adtRuntimeReleaseFreshness(installed:{runtimeRevision?:unknown;r
  const deployedRevision=typeof installed?.runtimeRevision==="string"&&/^[0-9a-f]{40}$/i.test(installed.runtimeRevision)?installed.runtimeRevision.toLowerCase():undefined;
  const deployedReleaseRevision=Number.isInteger(installed?.runtimeReleaseRevision)&&Number(installed?.runtimeReleaseRevision)>=1&&Number(installed?.runtimeReleaseRevision)<=MAX_ADT_RUNTIME_RELEASE_INTEGER?Number(installed?.runtimeReleaseRevision):undefined;
  const expectedReleaseRevision=expected.releaseRevision;
- const state=deployedReleaseRevision===undefined?"unknown":deployedReleaseRevision===expectedReleaseRevision?"current":deployedReleaseRevision<expectedReleaseRevision?"superseded":"unknown";
- return{state,...(deployedRevision?{deployedRevision}:{}),...(deployedReleaseRevision===undefined?{}:{deployedReleaseRevision}),expectedReleaseRevision,...(state==="unknown"?{unknownReason:deployedReleaseRevision===undefined?"release_revision_unavailable" as const:"release_revision_newer" as const}: {})} as const;
+ const state=deployedReleaseRevision===undefined?(deployedRevision?"superseded":"unknown"):deployedReleaseRevision===expectedReleaseRevision?"current":deployedReleaseRevision<expectedReleaseRevision?"superseded":"unknown";
+ return{state,...(deployedRevision?{deployedRevision}:{}),...(deployedReleaseRevision===undefined?{}:{deployedReleaseRevision}),expectedReleaseRevision,...(state==="unknown"?{unknownReason:deployedReleaseRevision===undefined?"revision_unavailable" as const:"release_revision_newer" as const}: {})} as const;
 }

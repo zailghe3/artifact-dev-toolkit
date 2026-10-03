@@ -141,7 +141,7 @@
 - Status information combines text with visual treatment.
 - Operational warnings remain concise and do not dominate healthy workflows.
 - Deployment identity may expose safe source and deployment metadata without exposing private configuration.
-- The shared deployment footer may report safe ADT Runtime and Codex Runner build identities plus component-aware infrastructure freshness; confirmed maintenance is described as a component update being available, while unrelated uncertainty does not obscure it. Different component revisions remain healthy when deployed release generations equal the generations expected by the Worker. Git SHAs remain exact build identities rather than freshness signals. Runtime and Runner freshness use authoritative release-compatibility evidence, while missing, malformed, or newer-than-Worker evidence remains unknown.
+- The shared deployment footer may report safe ADT Runtime and Codex Runner build identities plus component-aware infrastructure freshness; confirmed maintenance is described as a component update being available, while unrelated uncertainty does not obscure it. Different component revisions remain healthy when deployed release generations equal the generations expected by the Worker. Git SHAs remain exact build identities rather than freshness signals. Runtime and Runner freshness use authoritative release-compatibility evidence. A valid Runtime build identity without a release generation is a legacy Runtime that requires update; unusable observations and newer-than-Worker generations remain unknown.
 - Footer freshness loads independently of normal page rendering and navigation, and an unavailable result never blocks application use.
 
 ## 10. Agent Workflows

@@ -1,7 +1,7 @@
 export type InfrastructureComponent="worker"|"runtime"|"runner";
 export type InfrastructureComponentFreshnessState="current"|"superseded"|"unknown";
 export type InfrastructureFreshnessState=InfrastructureComponentFreshnessState;
-export const infrastructureFreshnessUnknownReasons=["revision_unavailable","release_revision_unavailable","release_revision_newer","observation_timeout","observation_unavailable"] as const;
+export const infrastructureFreshnessUnknownReasons=["revision_unavailable","release_revision_newer","observation_timeout","observation_unavailable"] as const;
 export type InfrastructureFreshnessUnknownReason=typeof infrastructureFreshnessUnknownReasons[number];
 export type InfrastructureComponentFreshness={state:InfrastructureComponentFreshnessState;deployedRevision?:string;deployedReleaseRevision?:number;expectedReleaseRevision?:number;unknownReason?:InfrastructureFreshnessUnknownReason};
 export type InfrastructureFreshnessSnapshot={state:InfrastructureFreshnessState;checkedAt:string;components:Record<InfrastructureComponent,InfrastructureComponentFreshness>};
