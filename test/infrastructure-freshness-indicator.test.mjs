@@ -42,14 +42,13 @@ test('footer freshness renders first, refreshes after expiry, and never polls wh
     addEventListener(type, callback) { documentListeners.set(type, callback); },
     removeEventListener(type, callback) { if (documentListeners.get(type) === callback) documentListeners.delete(type); },
   };
-  const sourceHeadRevision = '4'.repeat(40);
   const snapshot = {
     state: 'current',
     checkedAt: '2026-09-15T20:00:00.000Z',
     components: {
-      worker: { state: 'current', deployedRevision: '1'.repeat(40), sourceHeadRevision },
-      runtime: { state: 'current', deployedRevision: '2'.repeat(40), sourceHeadRevision },
-      runner: { state: 'current', deployedRevision: '3'.repeat(40), sourceHeadRevision },
+      worker: { state: 'current', deployedRevision: '1'.repeat(40) },
+      runtime: { state: 'current', deployedRevision: '2'.repeat(40) },
+      runner: { state: 'current', deployedRevision: '3'.repeat(40) },
     },
   };
   const uncertainUpdate = {

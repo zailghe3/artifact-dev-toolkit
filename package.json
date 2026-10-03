@@ -23,7 +23,8 @@
     "maintenance:report": "node scripts/maintenance-report.mjs",
     "secrets:validate": "node scripts/validate-secrets.mjs",
     "runner-revision:validate": "node scripts/validate-runner-revision.mjs",
-    "test:workflow-runtime-integration": "npm --prefix adt-runtime run build && node --test test/integration/workflow-runtime-integration.test.mjs"
+    "test:workflow-runtime-integration": "npm --prefix adt-runtime run build && node --test test/integration/workflow-runtime-integration.test.mjs",
+    "runtime-revision:validate": "node scripts/validate-runtime-revision.mjs"
   },
   "dependencies": {
     "@xyflow/react": "^12.11.5",

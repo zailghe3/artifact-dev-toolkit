@@ -94,6 +94,12 @@ jobs:
         if: inputs.verify_root
         run: npm test
 
+      - name: Validate ADT Runtime revision policy
+        if: inputs.verify_runtime && github.base_ref != ''
+        run: |
+          git fetch --no-tags origin "+refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
+          npm run runtime-revision:validate -- "origin/${{ github.base_ref }}"
+
       - name: Validate Runner revision policy
         if: inputs.verify_runner && github.base_ref != ''
         run: |
@@ -146,7 +152,7 @@ jobs:
         if: inputs.smoke_runtime_image
         run: |
           docker build --build-arg ADT_RUNTIME_REVISION="${{ inputs.ref }}" -t adt-runtime:pr-verified adt-runtime
-          adt-runtime/scripts/smoke-image.sh adt-runtime:pr-verified "${{ inputs.ref }}"
+          adt-runtime/scripts/smoke-image.sh adt-runtime:pr-verified "${{ inputs.ref }}" "$(node -p 'require("./adt-runtime/release.json").releaseRevision')"
 
       - name: Summarize selected verification
         if: always()
