@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { Miniflare } from 'miniflare';
+import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import {agentDefinitionSchema,compileWorkflowV2ExecutionPlan,workflowDefinitionV2Schema} from '../lib/workflow-definitions.ts';
 import { resolveConnection, safeConnectionSnapshot } from '../lib/workflow-connections.ts';
 import { D1WorkflowRunStorage } from '../lib/workflow-d1-storage.ts';
@@ -9,7 +9,7 @@ import { getWorkflowRunDetail } from '../lib/workflow-run-detail.ts';
 import {newLangGraphWorkflowRun,WORKFLOW_LAUNCH_STALE_MS} from '../lib/workflow-storage.ts';
 
 async function database() {
-  const mf = new Miniflare({ modules: true, script: 'export default {fetch(){return new Response("ok")}}', d1Databases: { DB: 'run-detail-test' } });
+  const mf = new Miniflare(convertV4MiniflareOptions({ modules: true, script: 'export default {fetch(){return new Response("ok")}}', d1Databases: { DB: 'run-detail-test' } }));
   const db = await mf.getD1Database('DB');
   for (const migration of ['0003_create_workflow_runs.sql', '0007_add_provider_transport_diagnostics.sql','0008_add_provider_transport_reason.sql','0010_add_workflow_run_repository_context.sql','0012_add_graph_activation_identity.sql','0014_add_workflow_composition_snapshot.sql','0015_add_workflow_orchestration_diagnostics.sql','0017_add_managed_code_repository_contexts.sql','0018_add_workflow_conversation_lineage.sql','0020_add_workflow_run_mcp_snapshots.sql','0021_add_security_profile_authority.sql']) {
     const sql = await readFile(new URL(`../migrations/${migration}`, import.meta.url), 'utf8');

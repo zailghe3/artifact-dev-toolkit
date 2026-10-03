@@ -72,6 +72,7 @@ export class AdrianRuntimeIntegration implements ModelTurnInstrumentation,ToolSe
  async modelTurnFailed({turnId}:{turnId:string;model:string;error:unknown}){await this.handler.handleLLMError(safeError("model"),turnId)}
  async authorize(input:ToolSecurityContext){
   const runId=`tool:${input.callId??crypto.randomUUID()}`;this.toolRuns.set(input,runId);await this.handler.handleToolStart({name:input.name},safeText(input.arguments),runId,undefined,{tool_call_id:input.callId});
+  if(!input.callId){const blocked=new AdrianToolDeniedError();try{await this.handler.handleToolError(safeError("tool"),runId)}catch{}this.toolRuns.delete(input);throw blocked}
   const verdict=await gateToolCallIds(input.callId?[input.callId]:[],adrian.getWebSocketClient(),this.verdictTimeoutSeconds);
   if(verdict.action==="block"){const blocked=new AdrianToolDeniedError();try{await this.handler.handleToolError(safeError("tool"),runId)}catch{}this.toolRuns.delete(input);throw blocked}
  }

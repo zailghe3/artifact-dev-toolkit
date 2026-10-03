@@ -123,7 +123,7 @@ export function validateDeviceAuthSchemas(input:unknown[]){
  return true;
 }
 
-/** Build-time guard for the narrow Codex 0.153.4 health-turn wire contract. */
+/** Build-time guard for the narrow Codex 0.159.3 health-turn wire contract. */
 export function validateCodexTestSchemas(input:unknown[]){
  const documents=normalize(input),client=documentWithTitle(documents,"ClientRequest"),notifications=documentWithTitle(documents,"ServerNotification");
  if(!client||!notifications)throw new Error("codex_test_schema_missing_routes");

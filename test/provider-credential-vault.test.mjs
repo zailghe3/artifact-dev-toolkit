@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {Miniflare} from 'miniflare';
+import {Miniflare,convertV4MiniflareOptions} from 'miniflare';
 import {
   MAX_PROVIDER_CREDENTIAL_LENGTH,
   ProviderCredentialVaultError,
@@ -22,7 +22,7 @@ const credential='unit-test-vault-provider-credential-4ef8';
 const code=expected=>error=>error?.code===expected;
 
 async function fixture(options={}){
- const mf=new Miniflare({modules:true,script:'export default {fetch(){return new Response("ok")}}',d1Databases:{DB:crypto.randomUUID()}}),db=await mf.getD1Database('DB');
+ const mf=new Miniflare(convertV4MiniflareOptions({modules:true,script:'export default {fetch(){return new Response("ok")}}',d1Databases:{DB:crypto.randomUUID()}})),db=await mf.getD1Database('DB');
  const sql=await readFile(new URL('../migrations/0009_create_provider_credential_vault.sql',import.meta.url),'utf8');
  await db.batch(sql.split(';').map(value=>value.trim()).filter(Boolean).map(statement=>db.prepare(statement)));
  return{mf,db,vault:new D1ProviderCredentialVault(db,options.resolveKey??providerCredentialVaultV1KeyResolver(keyA),options.activeVersion??1,options.generateId)};
