@@ -18,6 +18,7 @@ ADT Runtime is the independently deployed compute and provider-execution boundar
 
 - Deploy `poulti/adt-runtime:latest` using [`docker-stack.example.yml`](docker-stack.example.yml) or pin an immutable `poulti/adt-runtime:<git-sha>` image for explicit rollout/rollback.
 - Run the container as the non-root `node` user with no persistent application volume or Docker socket.
+- Adrian 1.1.0 installs a JSONL handler during SDK initialization. Runtime routes that output to an isolated container temporary directory and removes it after each Adrian lifecycle; `/runtime` remains non-writable to the runtime user. This local JSONL output is neither retained nor used as ADT's authoritative security evidence.
 - Keep ingress HTTPS and operator-owned. The unauthenticated `/healthz` endpoint discloses only process health.
 - Do not provision provider API keys, Cloudflare credentials, GitHub App credentials, artifact-repository credentials, Codex credentials, Portainer credentials, or tunnel credentials to Runtime.
 - Trusted CI publishes immutable Git-SHA tags plus `latest`; deployment remains operator-owned.
