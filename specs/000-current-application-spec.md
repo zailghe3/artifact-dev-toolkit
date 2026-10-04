@@ -143,6 +143,9 @@
 - Deployment identity may expose safe source and deployment metadata without exposing private configuration.
 - The shared deployment footer may report safe ADT Runtime and Codex Runner build identities plus component-aware infrastructure freshness; confirmed maintenance is described as a component update being available, while unrelated uncertainty does not obscure it. Different component revisions remain healthy when deployed release generations equal the generations expected by the Worker. Git SHAs remain exact build identities rather than freshness signals. Runtime and Runner freshness use authoritative release-compatibility evidence. A valid Runtime build identity without a release generation is a legacy Runtime that requires update; unusable observations and newer-than-Worker generations remain unknown.
 - Footer freshness loads independently of normal page rendering and navigation, and an unavailable result never blocks application use.
+- A confirmed Runtime or Runner update is an independently actionable footer button for a currently repository-authorised user when Runtime reports that target's redeploy configuration as available. App updates and unconfigured redeploy targets remain informational.
+- The server rechecks superseded status before relaying a fixed component target over the authenticated Runtime boundary. An accepted request reports only that deployment was requested; normal freshness observation determines whether rollout converged.
+- Redeploy failures and uncertain outcomes remain bounded and do not trigger automatic retries. An accepted or uncertain target stays locked while bounded freshness polling checks convergence; other stale targets remain independently actionable. Older or unconfigured Runtime deployments require a manual Runtime bootstrap rather than exposing private infrastructure to the application or browser.
 
 ## 10. Agent Workflows
 

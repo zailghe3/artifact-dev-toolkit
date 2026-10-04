@@ -39,6 +39,7 @@ Next.js -> OpenNext -> Cloudflare Worker
     |       - LangGraph Workflow sequencing
     |       - execution-heavy provider SDKs
     |       - bounded remote MCP Streamable HTTP client execution
+    |       - fixed Runtime/Runner redeploy webhooks for authorised maintenance
     |       - no durable ADT state or broad control-plane authority
     |
     +--> independently deployed Codex Runner
@@ -147,6 +148,7 @@ The product invariants are in [`specs/agent-workflows.md`](specs/agent-workflows
 - Invocation-scoped external-tool credentials follow the same encrypted Runtime boundary and are neither persisted nor exposed by Runtime.
 - Runtime and application revisions may roll independently through explicit protocol and capability compatibility.
 - Execution-heavy AI/provider libraries that do not need broad control-plane authority belong here.
+- Runtime may hold only four operator-provisioned, narrowly scoped Portainer webhook URLs for Runtime and split Runner redeployment. Portainer remains private; these URLs never enter Cloudflare or browser state, and Runtime receives no Portainer API credential or Docker socket.
 
 Operational detail belongs in [`adt-runtime/README.md`](adt-runtime/README.md).
 
@@ -197,7 +199,7 @@ Operational detail belongs in [`codex-runner/README.md`](codex-runner/README.md)
 - **Application -> GitHub:** validate exact repository targets, revisions, permissions, and mutation intent; use short-lived operation-scoped authority.
 - **Application -> D1/KV/Workflows:** durable transitions must remain deterministic and safe under retries, interruption, and stale observations.
 - **Application -> provider APIs:** provider work may be billable or side-effecting; ambiguous outcomes must not cause blind duplicate work.
-- **Application -> ADT Runtime:** authenticate protocol operations, keep durable state and broad credentials out of Runtime, and fail closed on replay, incompatibility, missing capability, or ambiguous provider outcomes.
+- **Application -> ADT Runtime:** authenticate protocol operations, keep durable state and broad credentials out of Runtime, and fail closed on replay, incompatibility, missing capability, or ambiguous outcomes. Authorised maintenance sends only a fixed Runtime/Runner target; Runtime alone dispatches its private scoped webhooks.
 - **Application -> Codex Runner:** expose bounded configuration and diagnostics; never transfer the Runner's Codex credential to ADT.
 - **Runner Controller -> Executor/Repository Manager:** Controller alone holds internal signing authority; execution and Git roles receive verifier material only.
 - **Executor -> workspace/Internet:** model-directed access is constrained by the container, mounts, isolated overlays, and restricted executor egress.

@@ -1,0 +1,18 @@
+version: "3.8"
+services:
+  adt-runtime:
+    environment:
+      ADT_RUNTIME_REDEPLOY_WEBHOOK_FILE: /run/secrets/adt_runtime_redeploy_webhook
+      CODEX_RUNNER_CONTROLLER_REDEPLOY_WEBHOOK_FILE: /run/secrets/codex_runner_controller_redeploy_webhook
+      CODEX_RUNNER_EXECUTOR_REDEPLOY_WEBHOOK_FILE: /run/secrets/codex_runner_executor_redeploy_webhook
+      CODEX_RUNNER_REPOSITORY_MANAGER_REDEPLOY_WEBHOOK_FILE: /run/secrets/codex_runner_repository_manager_redeploy_webhook
+    secrets:
+      - adt_runtime_redeploy_webhook
+      - codex_runner_controller_redeploy_webhook
+      - codex_runner_executor_redeploy_webhook
+      - codex_runner_repository_manager_redeploy_webhook
+secrets:
+  adt_runtime_redeploy_webhook: {external: true, name: ADT_Runtime_Redeploy_Webhook}
+  codex_runner_controller_redeploy_webhook: {external: true, name: Codex_Runner_Controller_Redeploy_Webhook}
+  codex_runner_executor_redeploy_webhook: {external: true, name: Codex_Runner_Executor_Redeploy_Webhook}
+  codex_runner_repository_manager_redeploy_webhook: {external: true, name: Codex_Runner_Repository_Manager_Redeploy_Webhook}
