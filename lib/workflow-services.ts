@@ -9,7 +9,7 @@ import {createWorkflowAdapterRegistry} from "./agent-runtime.ts";
 import {GitHubWorkflowConnectionDefinitionRepository} from "./workflow-connection-definition-repository.ts";
 import {GitAuthoritativeWorkflowProviderConnectionStore} from "./git-workflow-provider-connection-store.ts";
 import {providerModelService} from "./provider-model-service.ts";
-import {RemoteOpenAIAgentsRuntime,type ADTRuntimeConfiguration} from "./adt-runtime-client.ts";
+import {RemoteOpenAIAgentsRuntime,requestRuntimeRedeploy,type ADTRuntimeConfiguration} from "./adt-runtime-client.ts";
 import {D1ProviderCredentialVault,type ProviderCredentialVaultDatabase} from "./provider-credential-vault.ts";
 import {providerCredentialVaultV1KeyResolver} from "./provider-credential-vault-crypto.ts";
 import {GitHubWorkflowLayoutRepository} from "./workflow-layout-repository.ts";
@@ -38,6 +38,7 @@ export function getWorkflowAdapterRegistry(){return createWorkflowAdapterRegistr
 export function adtRuntimeConfiguration(env:Record<string,unknown>):ADTRuntimeConfiguration{return{baseUrl:typeof env.ADT_RUNTIME_BASE_URL==="string"?env.ADT_RUNTIME_BASE_URL:undefined,authSecret:typeof env.ADT_RUNTIME_AUTH_SECRET==="string"?env.ADT_RUNTIME_AUTH_SECRET:undefined,wrappingPublicKey:typeof env.ADT_RUNTIME_WRAPPING_PUBLIC_KEY==="string"?env.ADT_RUNTIME_WRAPPING_PUBLIC_KEY:undefined}}
 export async function diagnoseADTRuntime(){const env=await getWorkflowEnvironment();return new RemoteOpenAIAgentsRuntime(adtRuntimeConfiguration(env as unknown as Record<string,unknown>)).diagnose()}
 export async function diagnoseADTRuntimeExecutionPath(){const env=await getWorkflowEnvironment(),values=env as unknown as Record<string,string|undefined>,secret=values.ADT_INTERNAL_AUTHORITY_SECRET??"";return new RemoteOpenAIAgentsRuntime({...adtRuntimeConfiguration(values),diagnosticTargets:{checkpoint:values.ADT_CHECKPOINT_GATEWAY_URL,"graph-node":values.ADT_GRAPH_NODE_GATEWAY_URL,"artifact-search":values.ADT_TOOL_GATEWAY_URL},diagnosticAuthority:target=>issueRuntimeDiagnosticAuthority(target,secret)}).diagnoseExecutionPath()}
+export async function redeployInfrastructure(target:"runtime"|"runner"){const env=await getWorkflowEnvironment();return requestRuntimeRedeploy(adtRuntimeConfiguration(env as unknown as Record<string,unknown>),target)}
 
 export type CodexRunnerSnapshot={configured:boolean;reachable:boolean;capabilitiesAvailable:boolean;codexAvailable:boolean;jobExecution:boolean;environmentCatalogAvailable:boolean;authenticated:boolean;authStatusAvailable:boolean;modelCatalogAvailable:boolean;available:boolean;environments:RunnerEnvironmentDescriptor[];models:RunnerModelDescriptor[]};
 export async function readCodexRunnerCatalog():Promise<CodexRunnerSnapshot>{

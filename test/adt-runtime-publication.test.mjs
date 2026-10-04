@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 const workflow = readFileSync(new URL('../.github/workflows/publish-adt-runtime.yml', import.meta.url), 'utf8');
 const main = readFileSync(new URL('../.github/workflows/main-orchestrator.yml', import.meta.url), 'utf8');
 const stack = readFileSync(new URL('../adt-runtime/docker-stack.example.yml', import.meta.url), 'utf8');
+const maintenanceStack = readFileSync(new URL('../adt-runtime/docker-stack.maintenance.example.yml', import.meta.url), 'utf8');
 const dockerfile = readFileSync(new URL('../adt-runtime/Dockerfile', import.meta.url), 'utf8');
 
 test('trusted Runtime publication is reusable and targets Docker Hub only', () => {
@@ -74,5 +75,13 @@ test('image revision is build-owned and Runtime key identity needs no separately
   assert.doesNotMatch(dockerfile, /ENV ADT_RUNTIME_REVISION/);
   assert.doesNotMatch(stack, /ADT_RUNTIME_REVISION|ADT_RUNTIME_KEY_ID|adt_runtime_key_id/);
   assert.equal((stack.match(/external: true/g) ?? []).length, 3);
+  assert.doesNotMatch(stack, /REDEPLOY_WEBHOOK|redeploy_webhook/i);
   assert.match(workflow, /smoke-image\.sh adt-runtime:verified "\$\{TARGET_SHA\}"/);
+});
+
+test('optional maintenance overlay mounts all fixed external webhook secrets without changing the base stack', () => {
+  assert.doesNotMatch(maintenanceStack, /image:|ADT_RUNTIME_AUTH_SECRET|ADT_RUNTIME_PRIVATE_KEY|docker\.sock/);
+  assert.equal((maintenanceStack.match(/_REDEPLOY_WEBHOOK_FILE:/g) ?? []).length, 4);
+  assert.equal((maintenanceStack.match(/external: true/g) ?? []).length, 4);
+  for (const name of ['ADT_Runtime_Redeploy_Webhook', 'Codex_Runner_Controller_Redeploy_Webhook', 'Codex_Runner_Executor_Redeploy_Webhook', 'Codex_Runner_Repository_Manager_Redeploy_Webhook']) assert.match(maintenanceStack, new RegExp(`name: ${name}`));
 });

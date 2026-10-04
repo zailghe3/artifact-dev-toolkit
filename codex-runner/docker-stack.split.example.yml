@@ -131,7 +131,7 @@ services:
 secrets:
   runner_shared_secret: {external: true}
   executor_signing_private_key: {external: true}
-  executor_redeploy_webhook: {external: true}
+  executor_redeploy_webhook: {external: true, name: Codex_Runner_Executor_Redeploy_Webhook}
 configs:
   codex_environments: {file: ./environments.json}
   executor_verifying_public_key: {file: ./executor-verifying-public-key.pem}

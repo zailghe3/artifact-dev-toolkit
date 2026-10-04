@@ -15,6 +15,7 @@ export async function GET(request: Request) {
       {
         state: "unknown",
         checkedAt: new Date().toISOString(),
+        redeployTargets: [],
         components: {
           worker: { state: "unknown", unknownReason: "github_access_unavailable" },
           runtime: { state: "unknown", unknownReason: "github_access_unavailable" },

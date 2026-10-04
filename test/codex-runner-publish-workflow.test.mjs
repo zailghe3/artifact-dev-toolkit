@@ -7,7 +7,13 @@ const verify = read('.github/workflows/reusable-verify.yml');
 const main = read('.github/workflows/main-orchestrator.yml');
 const publish = read('.github/workflows/publish-codex-runner.yml');
 const smoke = read('codex-runner/scripts/smoke-image.sh');
+const splitStack = read('codex-runner/docker-stack.split.example.yml');
 const invocation = /codex-runner\/scripts\/smoke-image\.sh adt-codex-runner:(?:pr|validated)/g;
+
+test('split Controller keeps its local emergency webhook mount while reusing the operator Executor secret', () => {
+  assert.match(splitStack, /CODEX_RUNNER_EXECUTOR_REDEPLOY_WEBHOOK_FILE: \/run\/secrets\/executor_redeploy_webhook/);
+  assert.match(splitStack, /executor_redeploy_webhook: \{external: true, name: Codex_Runner_Executor_Redeploy_Webhook\}/);
+});
 
 test('trusted Runner publication is reusable, exact-commit, installs cross-boundary root dependencies, and avoids duplicate TypeScript compilation', () => {
   assert.match(publish, /workflow_call:[\s\S]*commit_sha:[\s\S]*required: true/);
