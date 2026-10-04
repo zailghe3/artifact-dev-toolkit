@@ -4,9 +4,9 @@ ADT Runtime is the independently deployed compute and provider-execution boundar
 
 ## Design boundary
 
-- Runtime has no durable application state, D1 binding, Docker socket, or infrastructure-control credential.
+- Runtime has no durable application state, D1 binding, Docker socket, or broad infrastructure-control credential. It may hold only the four operator-provisioned, service-scoped Portainer redeploy webhook URLs described below.
 - LangGraph sequencing runs in Runtime, but durable checkpoints remain behind a control-plane gateway and executable Agent-node admission remains a separate control-plane authority.
-- Runtime does not own broad repository, Cloudflare, GitHub App, Codex, Portainer, or artifact-repository credentials.
+- Runtime does not own broad repository, Cloudflare, GitHub App, Codex, Portainer API, or artifact-repository credentials.
 - Provider credentials are resolved in the control plane and encrypted to Runtime only for the exact invocation that needs them. Runtime does not persist them.
 - Runtime may keep bounded ephemeral process state needed for protocol safety, such as replay protection, but replacement requires no local durable application volume.
 - Execution-heavy AI/provider libraries that do not require broad control-plane authority belong here; control-plane-only policy and privileged mutation do not.
@@ -16,19 +16,38 @@ ADT Runtime is the independently deployed compute and provider-execution boundar
 
 ## Operator contract
 
-- Deploy `poulti/adt-runtime:latest` using [`docker-stack.example.yml`](docker-stack.example.yml) or pin an immutable `poulti/adt-runtime:<git-sha>` image for explicit rollout/rollback.
+- Deploy `poulti/adt-runtime:latest` using the base [`docker-stack.example.yml`](docker-stack.example.yml) or pin an immutable `poulti/adt-runtime:<git-sha>` image for explicit rollout/rollback. The base stack requires no redeploy webhook secrets.
 - Run the container as the non-root `node` user with no persistent application volume or Docker socket.
 - Adrian 1.1.0 installs a JSONL handler during SDK initialization. Runtime routes that output to an isolated container temporary directory and removes it after each Adrian lifecycle; `/runtime` remains non-writable to the runtime user. This local JSONL output is neither retained nor used as ADT's authoritative security evidence.
 - Keep ingress HTTPS and operator-owned. The unauthenticated `/healthz` endpoint discloses only process health.
-- Do not provision provider API keys, Cloudflare credentials, GitHub App credentials, artifact-repository credentials, Codex credentials, Portainer credentials, or tunnel credentials to Runtime.
+- Do not provision provider API keys, Cloudflare credentials, GitHub App credentials, artifact-repository credentials, Codex credentials, Portainer API credentials, Docker access, or tunnel credentials to Runtime.
 - Trusted CI publishes immutable Git-SHA tags plus `latest`; deployment remains operator-owned.
 
-Create two external Docker secrets:
+Create the two required external Docker secrets:
 
 | Secret | Content |
 | --- | --- |
 | `adt_runtime_auth` | Dedicated high-entropy request-authentication secret shared only with the Cloudflare application. |
 | `adt_runtime_private_key` | PKCS#8 RSA private key used to unwrap per-invocation credential keys. |
+
+Footer maintenance uses four additional optional external Docker secrets. Opt in by combining the base stack with [`docker-stack.maintenance.example.yml`](docker-stack.maintenance.example.yml); the maintenance overlay maps them to stable Runtime secret files. Each value is the full operator-owned private webhook URL:
+
+- `ADT_Runtime_Redeploy_Webhook`
+- `Codex_Runner_Controller_Redeploy_Webhook`
+- `Codex_Runner_Executor_Redeploy_Webhook`
+- `Codex_Runner_Repository_Manager_Redeploy_Webhook`
+
+Runtime updates are available only with the Runtime webhook. Runner updates require all three Runner webhooks. Missing or invalid optional values do not prevent Runtime startup or unrelated operations. Runtime calls these fixed endpoints directly with bounded, non-redirecting requests; the application sends only the fixed `runtime` or `runner` target. Webhook URLs never enter Cloudflare, browser state, readiness, diagnostics, responses, or logs. The existing independently mounted Executor secret in the Runner Controller remains the emergency hard-restart path.
+
+Deploy the maintenance-enabled configuration only after all four external secrets exist:
+
+```sh
+docker stack deploy -c docker-stack.example.yml -c docker-stack.maintenance.example.yml adt-runtime
+```
+
+The Runtime and split Runner stacks independently mount the same external `Codex_Runner_Executor_Redeploy_Webhook`. Runner Controller uses its local `executor_redeploy_webhook` alias only for emergency hard restart; Runtime uses its own mount only as the Executor step of the fixed Runner maintenance action. No duplicate credential or copied secret value is required.
+
+The first rollout requires an operator to deploy the new Runtime image and mount all four secrets manually. An older Runtime advertises no redeploy capability, so the application fails safely with manual-update guidance rather than falling back to Portainer access. Portainer remains private and must not be added to the Cloudflare tunnel.
 
 The Runtime derives the public-key fingerprint from the loaded private key. The matching public SPKI key is configured in the Cloudflare application; the private key never enters Cloudflare.
 

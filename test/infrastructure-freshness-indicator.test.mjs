@@ -129,3 +129,27 @@ test('footer freshness renders first, refreshes after expiry, and never polls wh
     if (previousDocument === undefined) delete globalThis.document; else globalThis.document = previousDocument;
   }
 });
+
+test('separate stale component actions preserve App information and lock accepted rollout independently',async()=>{
+  const previousWindow=globalThis.window,previousDocument=globalThis.document,previousFetch=globalThis.fetch;
+  const timers=new Map();let timerId=0,resolveAction,actionCalls=0,freshnessCalls=0;
+  globalThis.window={setTimeout(callback,milliseconds){const id=++timerId;timers.set(id,{callback,milliseconds});return id},clearTimeout(id){timers.delete(id)},addEventListener(){},removeEventListener(){}};
+  globalThis.document={visibilityState:'visible',addEventListener(){},removeEventListener(){}};
+  const stale={state:'superseded',checkedAt:'2026-10-04T00:00:00.000Z',components:{worker:{state:'superseded',deployedRevision:'1'.repeat(40)},runtime:{state:'superseded',deployedRevision:'2'.repeat(40)},runner:{state:'superseded',deployedRevision:'3'.repeat(40)}}};
+  globalThis.fetch=async(url)=>{if(String(url).includes('infrastructure-redeploy')){actionCalls++;return new Promise(resolve=>{resolveAction=resolve})}freshnessCalls++;return Response.json(stale)};
+  const {clearInfrastructureFreshnessClientCacheForTests}=requireTsx('../components/InfrastructureFreshnessIndicator.tsx');clearInfrastructureFreshnessClientCacheForTests();let view;
+  try{
+    await act(async()=>{view=create(React.createElement(InfrastructureFreshnessIndicator))});const initial=[...timers.entries()].find(([,value])=>value.milliseconds===0);timers.delete(initial[0]);await act(async()=>{initial[1].callback();await Promise.resolve()});
+    assert.match(text(view.root),/App update available/);const buttons=()=>view.root.findAllByType('button');assert.equal(buttons().length,2);assert.equal(buttons()[0].children.join(''),'Runtime update available');assert.equal(buttons()[1].children.join(''),'Runner update available');
+    await act(async()=>{void buttons()[0].props.onClick();await Promise.resolve()});assert.equal(actionCalls,1);assert.equal(buttons()[0].props.disabled,true);assert.equal(buttons()[1].props.disabled,false,'Runner remains independently actionable');assert.match(text(view.root),/Requesting runtime update/);
+    await act(async()=>{resolveAction(Response.json({state:'accepted',message:'Runtime update requested'},{status:202}));await Promise.resolve();await Promise.resolve()});assert.equal(actionCalls,1);assert.equal(buttons()[0].props.disabled,true,'accepted Runtime stays locked while freshness is superseded');assert.equal(buttons()[1].props.disabled,false);assert.ok(freshnessCalls>=2,'accepted action re-queries normal freshness');assert.match(text(view.root),/Runtime update requested/);assert.doesNotMatch(text(view.root),/Infra current/);
+    await act(async()=>view.unmount());
+  }finally{globalThis.fetch=previousFetch;if(previousWindow===undefined)delete globalThis.window;else globalThis.window=previousWindow;if(previousDocument===undefined)delete globalThis.document;else globalThis.document=previousDocument}
+});
+
+test('ambiguous action feedback is bounded and keeps retry locked while freshness remains superseded',async()=>{
+ const previousWindow=globalThis.window,previousDocument=globalThis.document,previousFetch=globalThis.fetch;const timers=new Map();let id=0,actions=0;
+ globalThis.window={setTimeout(callback,milliseconds){const value=++id;timers.set(value,{callback,milliseconds});return value},clearTimeout(value){timers.delete(value)},addEventListener(){},removeEventListener(){}};globalThis.document={visibilityState:'visible',addEventListener(){},removeEventListener(){}};
+ const stale={state:'superseded',checkedAt:'2026-10-04T00:00:00.000Z',components:{worker:{state:'current'},runtime:{state:'superseded'},runner:{state:'current'}}};globalThis.fetch=async url=>String(url).includes('infrastructure-redeploy')?(actions++,Response.json({state:'ambiguous',message:'Redeploy request outcome is uncertain. Check freshness before trying again.'},{status:502})):Response.json(stale);
+ const {clearInfrastructureFreshnessClientCacheForTests}=requireTsx('../components/InfrastructureFreshnessIndicator.tsx');clearInfrastructureFreshnessClientCacheForTests();let view;try{await act(async()=>{view=create(React.createElement(InfrastructureFreshnessIndicator))});const load=[...timers.entries()].find(([,value])=>value.milliseconds===0);timers.delete(load[0]);await act(async()=>{load[1].callback();await Promise.resolve()});await act(async()=>{await view.root.findByType('button').props.onClick();await Promise.resolve()});assert.equal(actions,1);assert.equal(view.root.findByType('button').props.disabled,true);assert.match(text(view.root),/outcome is uncertain/);assert.doesNotMatch(text(view.root),/private|Portainer|https?:/i);await act(async()=>view.unmount())}finally{globalThis.fetch=previousFetch;if(previousWindow===undefined)delete globalThis.window;else globalThis.window=previousWindow;if(previousDocument===undefined)delete globalThis.document;else globalThis.document=previousDocument}
+});

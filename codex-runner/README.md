@@ -60,6 +60,7 @@ The Controller owns the persistent emergency-stop latch.
 
 - Emergency stop rejects new admission before attempting interruption/recovery of active work.
 - A configured hard-restart webhook is best-effort infrastructure recovery; failure never clears the latch or reports success.
+- The split-stack local `executor_redeploy_webhook` mount maps to the external `Codex_Runner_Executor_Redeploy_Webhook`. ADT Runtime may independently mount that same external secret for footer maintenance; Controller continues to use it only for emergency hard restart.
 - Safe resume requires the recovery conditions enforced by the current Controller/Executor generation contract.
 - Normal cancellation remains cooperative, but uncertain side-effecting Codex work is never recreated merely because observation failed.
 - Executor replacement makes prior-generation execution terminal rather than replaying it.
