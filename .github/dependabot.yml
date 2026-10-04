@@ -77,3 +77,77 @@ updates:
     labels:
       - dependencies
       - npm
+
+  - package-ecosystem: npm
+    directory: /adt-runtime
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 8
+    versioning-strategy: increase-if-necessary
+    groups:
+      openai-provider-minor-patch:
+        patterns:
+          - "@openai/agents"
+          - openai
+        update-types:
+          - minor
+          - patch
+      langgraph-minor-patch:
+        patterns:
+          - "@langchain/langgraph"
+          - "@langchain/langgraph-checkpoint"
+        update-types:
+          - minor
+          - patch
+      mcp-minor-patch:
+        patterns:
+          - "@modelcontextprotocol/sdk"
+        update-types:
+          - minor
+          - patch
+      runtime-support-minor-patch:
+        patterns:
+          - zod
+          - ws
+          - undici
+          - "@types/ws"
+          - "@types/node"
+          - typescript
+        update-types:
+          - minor
+          - patch
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-major
+    commit-message:
+      prefix: deps
+    labels:
+      - dependencies
+      - npm
+
+  # This entry maintains only codex-runner/package.json and its npm lockfile.
+  # Packaged Codex upgrades in codex-runner/release.json remain manual.
+  - package-ecosystem: npm
+    directory: /codex-runner
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 8
+    versioning-strategy: increase-if-necessary
+    groups:
+      runner-tooling-minor-patch:
+        patterns:
+          - "@types/node"
+          - typescript
+        update-types:
+          - minor
+          - patch
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-major
+    commit-message:
+      prefix: deps
+    labels:
+      - dependencies
+      - npm

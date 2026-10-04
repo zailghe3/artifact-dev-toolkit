@@ -22,11 +22,17 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
-          cache-dependency-path: package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            adt-runtime/package-lock.json
+            codex-runner/package-lock.json
       - name: Install canonical npm
         run: npm install -g "$(node -p 'require("./package.json").packageManager')"
       - name: Install dependencies
-        run: npm ci
+        run: |
+          npm ci
+          npm --prefix adt-runtime ci
+          npm --prefix codex-runner ci
       - name: Generate deterministic maintenance report
         run: |
           npm run maintenance:report | tee maintenance-report.md
