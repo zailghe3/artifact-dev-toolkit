@@ -10,14 +10,23 @@ const read = (path) => readFileSync(resolve(repoRoot, path), 'utf8');
 const json = (path) => JSON.parse(read(path));
 const packageJson = json('package.json');
 const lock = json('package-lock.json');
+const packageRoots = [
+  { directory: '/', path: '.' },
+  { directory: '/adt-runtime', path: 'adt-runtime' },
+  { directory: '/codex-runner', path: 'codex-runner' },
+].map((root) => {
+  const manifest = json(`${root.path}/package.json`);
+  return {
+    ...root,
+    directDependencies: {
+      ...manifest.dependencies,
+      ...manifest.devDependencies,
+    },
+  };
+});
 const packageManager = packageJson.packageManager ?? '';
 const npmVersion = packageManager.match(/^npm@(.+)$/)?.[1] ?? '';
 const nodeVersion = read('.nvmrc').trim();
-const directDependencies = {
-  ...packageJson.dependencies,
-  ...packageJson.devDependencies,
-};
-
 const failures = [];
 const warnings = [];
 const report = [];
@@ -25,12 +34,15 @@ function fail(message) { failures.push(message); }
 function warn(message) { warnings.push(message); }
 function section(title) { report.push(`\n## ${title}`); }
 function bullet(message) { report.push(`- ${message}`); }
-function runNpm(args) {
+function runNpm(args, cwd = repoRoot) {
   try {
-    return { ok: true, text: execFileSync('npm', args, { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }) };
+    return { ok: true, text: execFileSync('npm', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }), errorText: '' };
   } catch (error) {
-    const output = `${error.stdout ?? ''}${error.stderr ?? ''}`.trim();
-    return { ok: false, text: output };
+    return {
+      ok: false,
+      text: `${error.stdout ?? ''}`.trim(),
+      errorText: `${error.stderr ?? ''}`.trim(),
+    };
   }
 }
 
@@ -62,32 +74,41 @@ try {
 }
 
 section('Direct dependency currency');
-const outdatedResult = runNpm(['outdated', '--json', '--long']);
-let outdated = {};
-if (outdatedResult.text) {
-  try {
-    const parsed = JSON.parse(outdatedResult.text);
-    if (parsed.error) warn(`npm outdated could not query the registry: ${parsed.error.summary ?? parsed.error.code}`);
-    else outdated = parsed;
+for (const root of packageRoots) {
+  const outdatedResult = runNpm(['outdated', '--json', '--long'], resolve(repoRoot, root.path));
+  let outdated = {};
+  if (outdatedResult.text) {
+    try {
+      const parsed = JSON.parse(outdatedResult.text);
+      if (parsed.error) warn(`${root.directory}: npm outdated could not query the registry: ${parsed.error.summary ?? parsed.error.code}`);
+      else outdated = parsed;
+    }
+    catch { warn(`${root.directory}: could not parse npm outdated output: ${outdatedResult.text.slice(0, 200)}`); }
   }
-  catch { warn(`Could not parse npm outdated output: ${outdatedResult.text.slice(0, 200)}`); }
+  else if (!outdatedResult.ok) {
+    warn(`${root.directory}: npm outdated failed: ${outdatedResult.errorText.slice(0, 200)}`);
+  }
+  const directOutdated = Object.entries(outdated).filter(([name]) => root.directDependencies[name]);
+  if (directOutdated.length === 0) bullet(`${root.directory}: no outdated direct dependencies reported by npm outdated.`);
+  else for (const [name, info] of directOutdated) {
+    bullet(`${root.directory}: ${name}: current ${info.current}, wanted ${info.wanted}, latest ${info.latest}.`);
+  }
 }
-const directOutdated = Object.entries(outdated).filter(([name]) => directDependencies[name]);
-if (directOutdated.length === 0) bullet('No outdated direct dependencies reported by npm outdated.');
-else for (const [name, info] of directOutdated) bullet(`${name}: current ${info.current}, wanted ${info.wanted}, latest ${info.latest}.`);
 
 section('Direct dependency deprecations');
 let deprecatedCount = 0;
-for (const name of Object.keys(directDependencies).sort()) {
-  const result = runNpm(['view', name, 'deprecated', '--json']);
-  const value = result.text.trim();
-  if (!result.ok) {
-    warn(`npm view could not query ${name}: ${value.slice(0, 200)}`);
-    continue;
+for (const root of packageRoots) {
+  for (const name of Object.keys(root.directDependencies).sort()) {
+    const result = runNpm(['view', name, 'deprecated', '--json'], resolve(repoRoot, root.path));
+    const value = result.text.trim();
+    if (!result.ok) {
+      warn(`${root.directory}: npm view could not query ${name}: ${(value || result.errorText).slice(0, 200)}`);
+      continue;
+    }
+    if (!value || value === 'null' || value === 'undefined') continue;
+    deprecatedCount += 1;
+    bullet(`${root.directory}: ${name}: ${value.replace(/^"|"$/g, '')}`);
   }
-  if (!value || value === 'null' || value === 'undefined') continue;
-  deprecatedCount += 1;
-  bullet(`${name}: ${value.replace(/^"|"$/g, '')}`);
 }
 if (deprecatedCount === 0) bullet('No deprecated direct packages reported by npm view.');
 
