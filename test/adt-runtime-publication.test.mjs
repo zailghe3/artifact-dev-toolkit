@@ -73,6 +73,7 @@ test('image revision is build-owned and Runtime key identity needs no separately
   assert.match(dockerfile, /printf '%s' "\$ADT_RUNTIME_REVISION" > \/runtime\/REVISION/);
   assert.doesNotMatch(dockerfile, /ENV ADT_RUNTIME_REVISION/);
   assert.doesNotMatch(stack, /ADT_RUNTIME_REVISION|ADT_RUNTIME_KEY_ID|adt_runtime_key_id/);
-  assert.equal((stack.match(/external: true/g) ?? []).length, 3);
+  assert.equal((stack.match(/external: true/g) ?? []).length, 7);
+  for (const name of ['ADT_Runtime_Redeploy_Webhook', 'Codex_Runner_Controller_Redeploy_Webhook', 'Codex_Runner_Executor_Redeploy_Webhook', 'Codex_Runner_Repository_Manager_Redeploy_Webhook']) assert.match(stack, new RegExp(`name: ${name}`));
   assert.match(workflow, /smoke-image\.sh adt-runtime:verified "\$\{TARGET_SHA\}"/);
 });
