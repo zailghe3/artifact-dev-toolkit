@@ -31,8 +31,10 @@ jobs:
       verify_app: ${{ needs.classify.outputs.verify_app == 'true' }}
       verify_runtime: ${{ needs.classify.outputs.verify_runtime == 'true' }}
       verify_runner: ${{ needs.classify.outputs.verify_runner == 'true' }}
+      verify_adrian: ${{ needs.classify.outputs.verify_adrian == 'true' }}
       verify_integration: ${{ needs.classify.outputs.verify_integration == 'true' }}
       smoke_runtime_image: ${{ needs.classify.outputs.smoke_runtime_image == 'true' }}
+      smoke_adrian_image: ${{ needs.classify.outputs.smoke_adrian_image == 'true' }}
       smoke_runner_image: ${{ needs.classify.outputs.smoke_runner_image == 'true' }}
       smoke_runner_proxy_policy: ${{ needs.classify.outputs.smoke_runner_proxy_policy == 'true' }}
 

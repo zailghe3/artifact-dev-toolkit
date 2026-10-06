@@ -1,0 +1,325 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 SecureAgentics
+
+syntax = "proto3";
+
+package adrian.core_api.v1;
+option go_package = "github.com/secureagentics/Adrian/backend/internal/proto;proto";
+
+
+// PairType identifies what an event pair represents.
+enum PairType {
+  PAIR_TYPE_UNSPECIFIED = 0;
+  // LLM pair: chat_model_start + llm_end folded together.
+  PAIR_TYPE_LLM = 1;
+  // Tool pair: tool_start + tool_end folded together.
+  PAIR_TYPE_TOOL = 2;
+}
+
+// ChatMessage represents a conversation message with a string role.
+message ChatMessage {
+  // Role of this message (e.g. "system", "human", "ai", "tool").
+  string role = 1;
+  // Text content of the message.
+  string content = 2;
+}
+
+// ToolCall represents a tool invocation the model decided to make.
+message ToolCall {
+  // Tool name.
+  string name = 1;
+  // JSON-encoded arguments object.
+  string args = 2;
+  // Provider-assigned tool call ID (may be empty for non-LLM-originated tools).
+  string id = 3;
+}
+
+// TokenUsage holds token consumption counters.
+message TokenUsage {
+  // Number of tokens in the prompt.
+  int32 prompt_tokens = 1;
+  // Number of tokens in the completion.
+  int32 completion_tokens = 2;
+  // Total tokens consumed.
+  int32 total_tokens = 3;
+}
+
+// AgentContext carries the identity and prompts for an agent at a given
+// point in the call stack.  An empty agent_id signals "no agent" and is
+// used as the parent sentinel for top-level events.
+message AgentContext {
+  // Opaque agent identifier derived from the framework's checkpoint
+  // namespace (e.g. "tools|reason").
+  string agent_id = 1;
+  // System prompt the agent is running under.
+  string system_prompt = 2;
+  // User instruction driving the current invocation.
+  string user_instruction = 3;
+}
+
+// LlmPairData is the payload for PAIR_TYPE_LLM events: one chat_model_start
+// folded with its matching llm_end.
+message LlmPairData {
+  // Model class name (e.g. "ChatAnthropic", "ChatOpenAI").
+  string model = 1;
+  // Ordered conversation messages sent to the model.
+  repeated ChatMessage messages = 2;
+  // The model's text response.
+  string output = 3;
+  // Tool calls the model decided to make.
+  repeated ToolCall tool_calls = 4;
+  // Token usage counters.
+  TokenUsage usage = 5;
+  // The model's reasoning / chain of thought.
+  string reasoning = 6;
+}
+
+// ToolPairData is the payload for PAIR_TYPE_TOOL events: one tool_start
+// folded with its matching tool_end.
+message ToolPairData {
+  // Name of the tool that was invoked.
+  string tool_name = 1;
+  // ID linking this invocation to the model's tool call.  May be empty
+  // for tools invoked outside an LLM flow.
+  string tool_call_id = 2;
+  // JSON-encoded input passed to the tool.
+  string input = 3;
+  // Tool execution output.
+  string output = 4;
+}
+
+// PairedEvent is a completed event pair with agent context attached.
+message PairedEvent {
+  // Unique event identifier.
+  string event_id = 1;
+  // Groups all events for one user-prompted invocation of the top-level graph.
+  string invocation_id = 2;
+  // Session identifier.
+  string session_id = 3;
+  // Framework run ID for this pair (LLM run_id for LLM pairs, tool run_id for tool pairs).
+  string run_id = 4;
+  // Parent run ID.  For tool pairs this points at the producing LLM's run_id
+  // and is the key used for block-mode verdict correlation.
+  string parent_run_id = 5;
+  // ISO 8601 timestamp of the pair's completion (end event).
+  string timestamp = 6;
+  // Whether this is an LLM pair or a tool pair.
+  PairType pair_type = 7;
+
+  // The agent that produced this pair.
+  AgentContext agent = 8;
+  // The agent that delegated to this one.  agent_id == "" means top-level.
+  AgentContext parent = 9;
+
+  // Type-specific pair payload.
+  oneof data {
+    // Payload for PAIR_TYPE_LLM.
+    LlmPairData llm = 10;
+    // Payload for PAIR_TYPE_TOOL.
+    ToolPairData tool = 11;
+  }
+
+  // Per-connection routing id (mirrors SessionLogin.connection_id). When set,
+  // the server routes this connection's verdict on connection_id instead of
+  // session_id, so concurrent connections sharing one session_id (parallel
+  // Claude Code tool-call hooks) do not evict each other.
+  string connection_id = 12;
+
+  // Escape hatch for framework metadata not modelled as first-class fields
+  // (e.g. LangGraph checkpoint_ns, arbitrary tags).
+  bytes metadata_json = 20;
+  string source = 21;
+}
+
+// PairedEventBatch wraps multiple paired events for batched WebSocket frames.
+message PairedEventBatch {
+  repeated PairedEvent events = 1;
+}
+
+// McpServer is one MCP server the SDK observed at startup. Mirrors the
+// SDK-side McpServer dataclass.
+message McpServer {
+  // Server identifier. Adapter-layer captures use the connection key
+  // from MultiServerMCPClient.connections; raw-transport captures
+  // synthesise "<transport>:<endpoint>".
+  string name = 1;
+  // One of "stdio", "sse", "streamable_http", "websocket", or "unknown".
+  string transport = 2;
+  // URL for SSE/HTTP/WebSocket transports, or the joined command line
+  // for stdio. Empty string when neither is available.
+  string endpoint = 3;
+}
+
+// McpInventory is the SDK's one-shot dump of its connected MCP servers.
+// Sent once per WS session right after the SDK login. The server replaces
+// the session's entire MCP-server list on receipt, no diff/merge.
+message McpInventory {
+  repeated McpServer servers = 1;
+}
+
+// LLMStack identifies the LLM provider and model for a session.
+message LLMStack {
+  // Provider name (e.g. "anthropic", "openai").
+  string provider = 1;
+  // Model identifier (e.g. "claude-sonnet-4-20250514").
+  string model = 2;
+}
+
+// SessionLogin is sent as the first frame after WebSocket upgrade.
+message SessionLogin {
+  // Session identifier.
+  string session_id = 1;
+  // LLM stack information for this session.
+  LLMStack llm_stack = 2;
+  // Field 3 previously held `bool block_mode [deprecated]`, a per-SDK
+  // boolean toggling whether tool execution should pause for verdicts.
+  // Replaced by server-driven `Mode` (alert / hitl / block) delivered to
+  // the SDK via PolicySnapshot on LoginAck. Reserved so the slot stays
+  // immune to future re-use; old SDKs that may still set it deserialize
+  // harmlessly under proto3 forward-compat.
+  reserved 3;
+  reserved "block_mode";
+  // Wire schema version the client is speaking.  Server rejects unknown values.
+  uint32 schema_version = 4;
+  // SDK / integration that produced this session (e.g. "claude-code"); the
+  // server branches HITL behavior on it. Empty for legacy SDKs.
+  string source = 5;
+  // Optional per-connection routing id, unique per live WebSocket connection.
+  // When set, the server routes this connection's verdicts on connection_id
+  // instead of session_id (and keys the single-owner guard on it), so multiple
+  // concurrent connections sharing one session_id (parallel Claude Code
+  // tool-call hooks) no longer evict each other.
+  string connection_id = 6;
+}
+
+// ClientFrame is the top-level envelope for all client WebSocket messages.
+message ClientFrame {
+  // Field 2 previously held EventBatch (old per-event format, removed).
+  reserved 2;
+  reserved "batch";
+
+  oneof frame {
+    // Session login (must be first frame).
+    SessionLogin login = 1;
+    // Paired event batch (requires prior login).
+    PairedEventBatch paired_batch = 3;
+    // One-shot MCP-server inventory dump from the SDK after login.
+    McpInventory mcp_inventory = 4;
+  }
+}
+
+// Mode of execution governs how the server handles verdicts for a session.
+// Set via policies.mode and delivered to the SDK via PolicySnapshot
+// on every Verdict.
+enum Mode {
+  MODE_UNSPECIFIED = 0;
+  // Verdicts are dashboard-only, the server never pushes them to the SDK.
+  MODE_ALERT = 1;
+  // Server holds in-policy-scope verdicts pending dashboard approve/reject.
+  // Out-of-scope verdicts are forwarded immediately so the SDK doesn't stall.
+  MODE_HITL = 2;
+  // Server forwards every verdict; the SDK enforces per the policy snapshot.
+  MODE_BLOCK = 3;
+}
+
+// VerdictStatus says whether a Verdict came from a completed classifier
+// decision or represents a classifier failure. ERROR verdicts carry no
+// classifier-produced MAD code; policy decides whether they fail open
+// or fail closed.
+enum VerdictStatus {
+  VERDICT_STATUS_UNSPECIFIED = 0;
+  VERDICT_STATUS_OK = 1;
+  VERDICT_STATUS_ERROR = 2;
+}
+
+// PolicySnapshot is the org's effective execution-mode policy at the moment
+// a verdict was decided. Attached by the server to every Verdict it sends
+// so the SDK can apply user-configured behaviour (halt vs continue,
+// review-pending vs proceed) without an extra round-trip to fetch policy.
+//
+// Per-MAD-code booleans say whether the active mode's behaviour fires on
+// that code. False means "treat this code as silent regardless of mode".
+// fail_closed_on_classifier_error controls ERROR verdicts and BLOCK-mode
+// SDK verdict timeouts. The default false value preserves fail-open
+// availability when talking to older backends.
+message PolicySnapshot {
+  Mode mode = 1;
+  bool policy_m0 = 2;
+  bool policy_m2 = 3;
+  bool policy_m3 = 4;
+  bool policy_m4 = 5;
+  bool fail_closed_on_classifier_error = 6;
+}
+
+// HitlResponse rides on a Verdict that has been resolved through the
+// human-in-the-loop review queue. Absent on regular (non-HITL or
+// out-of-scope) verdicts.
+message HitlResponse {
+  // True if the reviewer approved (agent should continue), false if rejected.
+  bool continue_execution = 1;
+}
+
+// LoginAck is the server's first frame after a successful SessionLogin.
+// Carries the org's effective policy so the SDK can apply correct mode +
+// timeout behaviour from the very first event, before any verdict round-trip.
+//
+// Policy snapshot is captured at WS login time. Mid-session policy changes
+// do NOT propagate to existing sessions, reconnect for new policy to take
+// effect.
+message LoginAck {
+  PolicySnapshot policy = 1;
+}
+
+// ServerFrame is the top-level envelope for all server→SDK WebSocket
+// messages. Multiplexes login-ack, verdicts, and any future server-pushed
+// frame types over the same WebSocket without ambiguity.
+message ServerFrame {
+  oneof frame {
+    // Sent exactly once, immediately after a successful SessionLogin.
+    LoginAck login_ack = 1;
+    // Sent for every classified event the server forwards to the SDK
+    // (subject to mode/policy gates).
+    Verdict verdict = 2;
+  }
+}
+
+// Verdict is the classification result for a PairedEvent.
+message Verdict {
+  // The event_id of the PairedEvent being classified.
+  string event_id = 1;
+  // Session identifier for routing.
+  string session_id = 2;
+  // Field 3 previously held `Classification classification`, a wire
+  // enum (NOTIFY / BLOCK / UNSPECIFIED) the SDK never read for halt
+  // logic and which downstream consumers (storage-writer, dashboard,
+  // notification dispatchers) sourced from the engine's NATS JSON
+  // string field, not from the proto. Removed because nothing read it
+  // off the wire. Reserved so the slot can't be reused.
+  reserved 3;
+  reserved "classification";
+  // MAD code the classifier returned (e.g. "M0", "M2_C", "M4_a").
+  // Empty string means no MAD code was produced, such as for a
+  // VerdictStatus.ERROR classifier failure. Benign classifier success
+  // is represented by status OK with mad_code "M0".
+  string mad_code = 4;
+  // Field 5 previously held `bool escalate`, a verdict-level flag the
+  // engine derived from the classifier reasoning string. Removed because
+  // it drove no decision logic anywhere; SDK + dashboard only ever
+  // surfaced it as metadata. Reserved so the slot can't be reused with a
+  // different semantic without tripping every old SDK that still has the
+  // field number compiled in.
+  reserved 5;
+  reserved "escalate";
+  // Org's effective execution-mode policy at the time of this verdict.
+  // Always populated by the server; SDK reads this to decide whether to
+  // halt, pause, or continue.
+  PolicySnapshot policy = 6;
+  // Present only when this verdict represents a human-in-the-loop review
+  // resolution (approve or reject from the dashboard). Absent on auto-
+  // classified verdicts and on out-of-scope verdicts forwarded immediately.
+  HitlResponse hitl = 7;
+  // Status of the classifier result. OK means mad_code carries a normal
+  // classifier decision. ERROR means classification did not complete and
+  // mad_code is empty; fail-open/fail-closed behaviour comes from policy.
+  VerdictStatus status = 8;
+}

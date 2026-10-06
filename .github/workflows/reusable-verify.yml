@@ -22,11 +22,19 @@ on:
         required: false
         type: boolean
         default: false
+      verify_adrian:
+        required: false
+        type: boolean
+        default: false
       verify_integration:
         required: false
         type: boolean
         default: false
       smoke_runtime_image:
+        required: false
+        type: boolean
+        default: false
+      smoke_adrian_image:
         required: false
         type: boolean
         default: false
@@ -128,6 +136,22 @@ jobs:
         working-directory: codex-runner
         run: npm test
 
+      - name: Verify vendored Adrian provenance
+        if: inputs.verify_adrian
+        run: scripts/verify-adrian-provenance.sh
+
+      - name: Test vendored Adrian backend
+        if: inputs.verify_adrian
+        run: docker run --rm -v "$PWD/third_party/adrian/backend:/src:ro" -w /src golang:1.25.8-bookworm go test ./...
+
+      - name: Build Adrian backend image
+        if: inputs.smoke_adrian_image
+        run: docker build --progress=plain -f adrian/Dockerfile -t adrian-backend:pr-verified .
+
+      - name: Smoke-test Adrian backend image
+        if: inputs.smoke_adrian_image
+        run: adrian/scripts/smoke-image.sh adrian-backend:pr-verified
+
       - name: Build Codex Runner image
         if: inputs.smoke_runner_image
         run: docker build --progress=plain --build-arg CODEX_RUNNER_VERSION="${{ inputs.ref }}" -t adt-codex-runner:pr-verified codex-runner
@@ -163,6 +187,8 @@ jobs:
             echo '- App build: `${{ inputs.verify_app }}`'
             echo '- ADT Runtime: `${{ inputs.verify_runtime }}`'
             echo '- Codex Runner: `${{ inputs.verify_runner }}`'
+            echo '- Adrian provenance and tests: `${{ inputs.verify_adrian }}`'
+            echo '- Adrian image smoke: `${{ inputs.smoke_adrian_image }}`'
             echo '- Cross-boundary integration: `${{ inputs.verify_integration }}`'
             echo '- Runtime image smoke: `${{ inputs.smoke_runtime_image }}`'
             echo '- Runner image smoke: `${{ inputs.smoke_runner_image }}`'

@@ -14,6 +14,7 @@ const verify = read('.github/workflows/reusable-verify.yml');
 const pr = read('.github/workflows/pr-orchestrator.yml');
 const runtimePublish = read('.github/workflows/publish-adt-runtime.yml');
 const runnerPublish = read('.github/workflows/publish-codex-runner.yml');
+const adrianPublish = read('.github/workflows/publish-adrian.yml');
 const freshnessPolicy = read('scripts/evaluate-deployment-freshness.mjs');
 
 test('modified lifecycle workflows remain valid YAML', () => {
@@ -25,6 +26,7 @@ test('modified lifecycle workflows remain valid YAML', () => {
     '.github/workflows/reusable-deploy-cloudflare.yml',
     '.github/workflows/publish-adt-runtime.yml',
     '.github/workflows/publish-codex-runner.yml',
+    '.github/workflows/publish-adrian.yml',
   ]) assert.doesNotThrow(() => parse(read(path)), path);
 });
 
@@ -138,6 +140,28 @@ test('mixed control-plane and Runtime changes share integration before either pr
   assert.match(runtimePublish, /if: inputs\.integration_already_verified != true[\s\S]*node --test test\/integration\/workflow-runtime-integration\.test\.mjs/);
 });
 
+test('mixed Cloudflare and Adrian changes share main verification while Adrian-only publication stays independent', () => {
+  const mixed = classifyChanges([
+    { filename: 'app/page.tsx' },
+    { filename: 'third_party/adrian/backend/go.mod' },
+  ]);
+  assert.equal(mixed.deploy_cloudflare, true);
+  assert.equal(mixed.publish_adrian, true);
+  assert.match(main, /publish-adrian:[\s\S]*needs: \[resolve-context, classify, verify-main\]/);
+  assert.match(main, /publish-adrian:[\s\S]*deploy_cloudflare != 'true' \|\| needs\.verify-main\.result == 'success'/);
+
+  const adrianOnly = classifyChanges([{ filename: 'third_party/adrian/backend/go.mod' }]);
+  assert.equal(adrianOnly.publish_adrian, true);
+  assert.equal(adrianOnly.deploy_cloudflare, false);
+});
+
+test('main lifecycle always calls Adrian with source publication semantics, including manual main reprocessing', () => {
+  assert.match(main, /workflow_dispatch:/);
+  assert.match(main, /publish-adrian:[\s\S]*publication_mode: source/);
+  assert.match(adrianPublish, /publication_mode:[\s\S]*required: true/);
+  assert.doesNotMatch(adrianPublish, /github\.event_name/);
+});
+
 test('migration-only Cloudflare operation skips Worker metadata, build, and publish', () => {
   const result = classifyChanges([{ filename: 'migrations/0018_example.sql' }]);
   assert.equal(result.deploy_worker, false);
@@ -173,6 +197,7 @@ test('all automatic freshness paths call the one shared range/freshness implemen
     ['Cloudflare', reusableDeploy, 'cloudflare'],
     ['Runtime', runtimePublish, 'runtime'],
     ['Runner', runnerPublish, 'runner'],
+    ['Adrian', adrianPublish, 'adrian'],
   ]) {
     assert.match(source, new RegExp(`node scripts/evaluate-deployment-freshness\\.mjs ${operation}`), name);
     assert.doesNotMatch(source, /node --input-type=module <<'NODE' > classification\.txt/, name);
