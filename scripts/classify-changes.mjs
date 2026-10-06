@@ -9,6 +9,7 @@ import {
 } from './change-policy.mjs';
 import {
   isAppBuildPath,
+  isAdrianImagePath,
   isKnownDeploymentClassificationPath,
   isRuntimeImagePath,
   isRunnerImagePath,
@@ -75,6 +76,19 @@ function isRunnerProxyPolicySmokePath(path) {
     || p === 'codex-runner/scripts/smoke-proxy-policy.sh';
 }
 
+function isAdrianPath(path) {
+  const p = normalize(path);
+  return p.startsWith('third_party/adrian/')
+    || p === 'third_party/adrian-upstream.json'
+    || p.startsWith('adrian/')
+    || p === 'scripts/verify-adrian-provenance.sh';
+}
+
+function isAdrianImageSmokePath(path) {
+  const p = normalize(path);
+  return isAdrianImagePath(p) || p === 'adrian/scripts/smoke-image.sh';
+}
+
 function isRootVerificationPath(path) {
   const p = normalize(path);
   return rootVerificationExtras.has(p)
@@ -122,15 +136,18 @@ export function classifyChanges(files) {
   const verifyApp = allPaths.some(isAppBuildPath);
   const verifyRuntime = allPaths.some(isRuntimePath);
   const verifyRunner = allPaths.some(isRunnerPath);
+  const verifyAdrian = allPaths.some(isAdrianPath);
   const verifyIntegration = allPaths.some(isIntegrationPath);
   const smokeRuntimeImage = allPaths.some(isRuntimeImageSmokePath);
   const smokeRunnerImage = allPaths.some(isRunnerImageSmokePath);
   const smokeRunnerProxyPolicy = allPaths.some(isRunnerProxyPolicySmokePath);
+  const smokeAdrianImage = allPaths.some(isAdrianImageSmokePath);
   const deployWorker = allPaths.some(isWorkerDeployPath);
   const applyMigrations = deployWorker || allPaths.some(isMigrationPath);
   const deployCloudflare = deployWorker || applyMigrations;
   const publishRuntime = allPaths.some(isRuntimeImagePath);
   const publishRunner = allPaths.some(isRunnerImagePath);
+  const publishAdrian = allPaths.some(isAdrianImagePath);
   const runnerReleaseBarrier = allPaths.includes('codex-runner/release.json');
 
   return {
@@ -147,15 +164,18 @@ export function classifyChanges(files) {
     verify_app: verifyApp,
     verify_runtime: verifyRuntime,
     verify_runner: verifyRunner,
+    verify_adrian: verifyAdrian,
     verify_integration: verifyIntegration,
     smoke_runtime_image: smokeRuntimeImage,
     smoke_runner_image: smokeRunnerImage,
     smoke_runner_proxy_policy: smokeRunnerProxyPolicy,
+    smoke_adrian_image: smokeAdrianImage,
     deploy_worker: deployWorker,
     apply_migrations: applyMigrations,
     deploy_cloudflare: deployCloudflare,
     publish_runtime: publishRuntime,
     publish_runner: publishRunner,
+    publish_adrian: publishAdrian,
     runner_release_barrier: runnerReleaseBarrier,
     unclassified_files: unclassifiedFiles.join('\n'),
     has_unclassified_changes: unclassifiedFiles.length > 0,

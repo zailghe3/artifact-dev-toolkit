@@ -125,3 +125,10 @@ test('invalid Cloudflare freshness contracts fail instead of silently weakening 
     /requires a Worker deployment/,
   );
 });
+
+test('Adrian freshness is invalidated only by newer Adrian image inputs', () => {
+  assert.equal(evaluateOperationFreshness({ operation: 'adrian', interveningImpact: impact('third_party/adrian/backend/go.mod') }).current, false);
+  for (const filename of ['app/page.tsx', 'adt-runtime/src/server.ts', 'codex-runner/src/server.ts', 'README.md']) {
+    assert.equal(evaluateOperationFreshness({ operation: 'adrian', interveningImpact: impact(filename) }).current, true, filename);
+  }
+});

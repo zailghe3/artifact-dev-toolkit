@@ -42,6 +42,10 @@ Next.js -> OpenNext -> Cloudflare Worker
     |       - fixed Runtime/Runner redeploy webhooks for authorised maintenance
     |       - no durable ADT state or broad control-plane authority
     |
+    +--> independently published Adrian backend
+    |       - vendored, provenance-verified upstream backend image
+    |       - independently operated runtime data, models, and configuration
+    |
     +--> independently deployed Codex Runner
             - Controller: ADT-facing admission and durable job/control state
             - Executor: isolated Codex execution and Codex identity
@@ -211,7 +215,7 @@ Operational detail belongs in [`codex-runner/README.md`](codex-runner/README.md)
 - One fail-closed change-impact policy determines which verification and production operations a change requires.
 - Pull-request workflows verify with read-only repository authority; production mutation occurs only from trusted `main` workflows or an explicit operator recovery path.
 - Production Worker and container artifacts are built from immutable merged source; PR-built artifacts are verification evidence and are not promoted.
-- Cloudflare Worker deployment, D1 migrations, ADT Runtime publication, and Codex Runner publication are independently gated operations.
+- Cloudflare Worker deployment, D1 migrations, ADT Runtime publication, Codex Runner publication, and Adrian backend publication are independently gated operations.
 - Unknown or newly introduced paths fail closed until the impact policy classifies them.
 - Publication freshness is component-aware: an older immutable target may proceed only when later commits do not supersede the same production component.
 
@@ -229,6 +233,7 @@ Exact path classification, job selection, permissions, freshness rules, release 
 - Dependency/toolchain policy: `docs/dependency-toolchain-maintenance.md`.
 - ADT Runtime operations: `adt-runtime/README.md`.
 - Codex Runner operations: `codex-runner/README.md`.
+- Adrian backend vendoring and publication: `adrian/README.md`.
 - Exact internal behaviour: source, tests, schemas, migrations, configuration, scripts, and workflows.
 
 ## Keeping this map current
