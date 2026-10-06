@@ -1,0 +1,130 @@
+name: Publish Adrian backend
+
+on:
+  workflow_call:
+    inputs:
+      commit_sha:
+        required: true
+        type: string
+    secrets:
+      DOCKERHUB_TOKEN:
+        required: true
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-adrian-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  freshness:
+    name: verify-current-adrian-source
+    runs-on: ubuntu-latest
+    outputs:
+      current: ${{ steps.main.outputs.current }}
+    steps:
+      - name: Check out trusted current main with complete history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout@v7.0.1
+        with:
+          ref: refs/heads/main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require trusted current Adrian image input
+        id: main
+        env:
+          TARGET_SHA: ${{ inputs.commit_sha || github.sha }}
+        run: |
+          set -euo pipefail
+          current_main="$(git rev-parse HEAD)"
+          [[ "${TARGET_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          if [[ "${TARGET_SHA}" == "${current_main}" ]]; then echo 'current=true' >> "$GITHUB_OUTPUT"; exit 0; fi
+          if ! git cat-file -e "${TARGET_SHA}^{commit}" || ! git merge-base --is-ancestor "${TARGET_SHA}" "${current_main}"; then
+            echo 'current=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          FRESHNESS_TARGET_LABEL="Adrian target ${TARGET_SHA}" node scripts/evaluate-deployment-freshness.mjs adrian "${TARGET_SHA}" "${current_main}"
+
+  publish:
+    needs: freshness
+    if: github.ref == 'refs/heads/main' && needs.freshness.outputs.current == 'true'
+    runs-on: ubuntu-latest
+    env:
+      TARGET_SHA: ${{ inputs.commit_sha || github.sha }}
+      IMAGE: poulti/adrian-backend
+    steps:
+      - name: Check out exact trusted source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout@v7.0.1
+        with:
+          ref: ${{ inputs.commit_sha || github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify exact publication commit and provenance
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${TARGET_SHA}"
+          scripts/verify-adrian-provenance.sh
+      - name: Test vendored backend
+        run: docker run --rm -v "$PWD/third_party/adrian/backend:/src:ro" -w /src golang:1.25.8-bookworm go test ./...
+      - name: Build image once
+        run: docker build --progress=plain -f adrian/Dockerfile -t adrian-backend:validated .
+      - name: Smoke-test built image
+        run: adrian/scripts/smoke-image.sh adrian-backend:validated
+      - name: Authenticate to Docker Hub
+        env:
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: printf '%s' "$DOCKERHUB_TOKEN" | docker login --username "$DOCKERHUB_USERNAME" --password-stdin
+      - name: Publish verified tags without overwriting immutable identities
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          upstream_sha="$(jq -r .commit third_party/adrian-upstream.json)"
+          tag_exists() {
+            local output
+            if output="$(docker manifest inspect "$1" 2>&1)"; then return 0; fi
+            if grep -Eqi 'manifest unknown|no such manifest' <<<"$output"; then return 1; fi
+            printf '%s\n' "$output" >&2
+            return 2
+          }
+          require_absent() {
+            if tag_exists "$1"; then echo "Refusing to overwrite $1." >&2; exit 1; else
+              local status=$?; [[ "$status" -eq 1 ]] || exit "$status"
+            fi
+          }
+          upstream_created=false
+          if [[ "${EVENT_NAME}" == workflow_dispatch ]]; then
+            immutable="rebuild-${RUN_ID}-${RUN_ATTEMPT}"
+            require_absent "${IMAGE}:${immutable}"
+            docker tag adrian-backend:validated "${IMAGE}:${immutable}"
+            docker push "${IMAGE}:${immutable}"
+          else
+            immutable="${TARGET_SHA}"
+            require_absent "${IMAGE}:${immutable}"
+            docker tag adrian-backend:validated "${IMAGE}:${immutable}"
+            docker push "${IMAGE}:${immutable}"
+            upstream_tag="upstream-${upstream_sha}"
+            if tag_exists "${IMAGE}:${upstream_tag}"; then
+              echo "Immutable ${upstream_tag} already exists; leaving it unchanged."
+            else
+              status=$?; [[ "$status" -eq 1 ]] || exit "$status"
+              docker tag adrian-backend:validated "${IMAGE}:${upstream_tag}"
+              docker push "${IMAGE}:${upstream_tag}"
+              upstream_created=true
+            fi
+          fi
+          docker tag adrian-backend:validated "${IMAGE}:latest"
+          docker push "${IMAGE}:latest"
+          local_digest="$(docker image inspect --format '{{index .RepoDigests 0}}' "${IMAGE}:${immutable}" | cut -d@ -f2)"
+          remote_digest="$(docker buildx imagetools inspect --format '{{json .Manifest.Digest}}' "${IMAGE}:${immutable}" | tr -d '"')"
+          test -n "$local_digest" && test "$local_digest" = "$remote_digest"
+          latest_digest="$(docker buildx imagetools inspect --format '{{json .Manifest.Digest}}' "${IMAGE}:latest" | tr -d '"')"
+          test "$latest_digest" = "$remote_digest"
+          if [[ "$upstream_created" == true ]]; then
+            upstream_digest="$(docker buildx imagetools inspect --format '{{json .Manifest.Digest}}' "${IMAGE}:${upstream_tag}" | tr -d '"')"
+            test "$upstream_digest" = "$remote_digest"
+          fi

@@ -44,6 +44,8 @@ export function isCiCdGuardrailTestPath(path) {
     'test/deployment-workflow.test.mjs',
     'test/adt-runtime-publication.test.mjs',
     'test/codex-runner-publish-workflow.test.mjs',
+    'test/adrian-provenance.test.mjs',
+    'test/adrian-publication-workflow.test.mjs',
     'test/integration/workflow-runtime-integration.test.mjs',
   ]).has(p);
 }

@@ -171,10 +171,20 @@ jobs:
     secrets:
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
+  publish-adrian:
+    name: publish-adrian
+    needs: [resolve-context, classify]
+    if: needs.classify.result == 'success' && needs.classify.outputs.publish_adrian == 'true'
+    uses: ./.github/workflows/publish-adrian.yml
+    with:
+      commit_sha: ${{ needs.resolve-context.outputs.target_sha }}
+    secrets:
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
   summary:
     name: lifecycle-summary
     runs-on: ubuntu-latest
-    needs: [resolve-context, classify, verify-main, create-feature-issues, deploy, publish-runtime, publish-runner]
+    needs: [resolve-context, classify, verify-main, create-feature-issues, deploy, publish-runtime, publish-runner, publish-adrian]
     if: always()
     permissions:
       contents: read
@@ -188,6 +198,7 @@ jobs:
             echo '- Deploy Worker: `${{ needs.classify.outputs.deploy_worker }}`'
             echo '- Apply migrations: `${{ needs.classify.outputs.apply_migrations }}`'
             echo '- Publish Runtime: `${{ needs.classify.outputs.publish_runtime }}`'
+            echo '- Publish Adrian: `${{ needs.classify.outputs.publish_adrian }}`'
             echo '- Publish Runner: `${{ needs.classify.outputs.publish_runner }}`'
             echo '- Shared Runner release barrier: `${{ needs.classify.outputs.runner_release_barrier }}`'
             echo '- Worker actually deployed by this lifecycle: `${{ needs.deploy.outputs.worker_deployed }}`'
@@ -202,6 +213,11 @@ jobs:
               echo '- ADT Runtime publication: skipped — image inputs unchanged'
             else
               echo '- ADT Runtime publication: `${{ needs.publish-runtime.result }}`'
+            fi
+            if [[ '${{ needs.classify.outputs.publish_adrian }}' != true ]]; then
+              echo '- Adrian publication: skipped — image inputs unchanged'
+            else
+              echo '- Adrian publication: `${{ needs.publish-adrian.result }}`'
             fi
             if [[ '${{ needs.classify.outputs.publish_runner }}' != true ]]; then
               echo '- Codex Runner publication: skipped — image inputs unchanged'

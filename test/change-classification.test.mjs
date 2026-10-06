@@ -225,3 +225,41 @@ test('deployable_changes remains a compatibility alias for aggregate Cloudflare 
   assert.equal(classifyChanges([{ filename: 'codex-runner/src/server.ts' }]).deployable_changes, false);
   assert.equal(classifyChanges([{ filename: 'README.md' }]).deployable_changes, false);
 });
+
+test('Adrian source inputs independently verify, smoke, and publish without Cloudflare', () => {
+  for (const filename of ['third_party/adrian/backend/cmd/adrian/main.go', 'third_party/adrian/LICENSE', 'third_party/adrian-upstream.json', 'adrian/Dockerfile']) {
+    const result = classifyChanges([{ filename }]);
+    assert.equal(result.has_unclassified_changes, false, filename);
+    assert.equal(result.verify_adrian, true, filename);
+    assert.equal(result.smoke_adrian_image, true, filename);
+    assert.equal(result.publish_adrian, true, filename);
+    assert.equal(result.deploy_worker, false, filename);
+    assert.equal(result.apply_migrations, false, filename);
+    assert.equal(result.deploy_cloudflare, false, filename);
+    assert.equal(result.publish_runtime, false, filename);
+    assert.equal(result.publish_runner, false, filename);
+  }
+});
+
+test('Adrian verification support stays non-publishing and renames inspect both paths', () => {
+  for (const filename of ['scripts/verify-adrian-provenance.sh', 'adrian/scripts/smoke-image.sh']) {
+    const result = classifyChanges([{ filename }]);
+    assert.equal(result.verify_adrian, true, filename);
+    assert.equal(result.publish_adrian, false, filename);
+  }
+  const renamed = classifyChanges([{ filename: 'docs/retired.md', previous_filename: 'third_party/adrian/backend/old.go', status: 'renamed' }]);
+  assert.equal(renamed.publish_adrian, true);
+  assert.equal(renamed.smoke_adrian_image, true);
+});
+
+test('all three independently published container components can be selected together', () => {
+  const result = classifyChanges([
+    { filename: 'adt-runtime/src/server.ts' },
+    { filename: 'codex-runner/src/server.ts' },
+    { filename: 'third_party/adrian/backend/cmd/adrian/main.go' },
+  ]);
+  assert.equal(result.publish_runtime, true);
+  assert.equal(result.publish_runner, true);
+  assert.equal(result.publish_adrian, true);
+  assert.equal(result.deploy_cloudflare, false);
+});

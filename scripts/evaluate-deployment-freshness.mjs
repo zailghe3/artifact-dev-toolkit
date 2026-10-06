@@ -45,6 +45,12 @@ export function evaluateOperationFreshness({
       : { current: true, reason: 'intervening commits do not change Runtime image inputs' };
   }
 
+  if (operation === 'adrian') {
+    return interveningImpact.publish_adrian
+      ? { current: false, reason: 'a newer Adrian image input exists' }
+      : { current: true, reason: 'intervening commits do not change Adrian image inputs' };
+  }
+
   if (operation === 'runner') {
     return interveningImpact.publish_runner
       ? { current: false, reason: 'a newer Runner image input exists' }
@@ -91,7 +97,7 @@ function writeWorkflowOutput(name, value) {
 if (process.argv[1] === new URL(import.meta.url).pathname) {
   const [operation, baseRef, headRef] = process.argv.slice(2);
   if (!operation || !baseRef || !headRef) {
-    throw new Error('Usage: node scripts/evaluate-deployment-freshness.mjs <cloudflare|runtime|runner> <base-ref> <head-ref>');
+    throw new Error('Usage: node scripts/evaluate-deployment-freshness.mjs <cloudflare|runtime|runner|adrian> <base-ref> <head-ref>');
   }
 
   const interveningImpact = classifyGitRange({ baseRef, headRef });
