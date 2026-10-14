@@ -216,6 +216,7 @@ Operational detail belongs in [`codex-runner/README.md`](codex-runner/README.md)
 - Pull-request workflows verify with read-only repository authority; production mutation occurs only from trusted `main` workflows or an explicit operator recovery path.
 - Production Worker and container artifacts are built from immutable merged source; PR-built artifacts are verification evidence and are not promoted.
 - Cloudflare Worker deployment, D1 migrations, ADT Runtime publication, Codex Runner publication, and Adrian backend publication are independently gated operations.
+- When one automatic main release changes both Cloudflare and ADT Runtime, the required migration and Worker deployment must succeed before Runtime publication; Runtime-only releases retain independent publication.
 - Unknown or newly introduced paths fail closed until the impact policy classifies them.
 - Publication freshness is component-aware: an older immutable target may proceed only when later commits do not supersede the same production component.
 

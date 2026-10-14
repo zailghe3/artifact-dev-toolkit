@@ -1,6 +1,35 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {readFile} from 'node:fs/promises';import {Miniflare,convertV4MiniflareOptions} from 'miniflare';import {D1LangGraphCheckpointStore,issueCheckpointAuthority,verifyCheckpointAuthority} from '../lib/langgraph-checkpoints.ts';
-async function fixture(t){const mf=new Miniflare(convertV4MiniflareOptions({modules:true,script:'export default {fetch(){return new Response("ok")}}',d1Databases:{DB:crypto.randomUUID()}})),db=await mf.getD1Database('DB');t.after(()=>mf.dispose());for(const name of ['0003_create_workflow_runs.sql','0011_add_langgraph_workflow_runs.sql']){const sql=await readFile(new URL(`../migrations/${name}`,import.meta.url),'utf8');await db.batch(sql.split(';').map(v=>v.trim()).filter(Boolean).map(v=>db.prepare(v)))}for(const id of ['run-a','run-b'])await db.prepare(`INSERT INTO workflow_runs(id,engine_version,workflow_id,workflow_revision,workflow_snapshot_json,agent_snapshots_json,agent_revisions_json,connection_snapshots_json,initial_input,status,transition_count,state_version,workflow_generation,workflow_launch_state,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,'queued',0,0,1,'unclaimed',?,?)`).bind(id,'2','flow','sha','{}','{}','{}','{}','input',new Date().toISOString(),new Date().toISOString()).run();return db}
+async function fixture(t){const mf=new Miniflare(convertV4MiniflareOptions({modules:true,script:'export default {fetch(){return new Response("ok")}}',d1Databases:{DB:crypto.randomUUID()}})),db=await mf.getD1Database('DB');t.after(()=>mf.dispose());for(const name of ['0003_create_workflow_runs.sql','0011_add_langgraph_workflow_runs.sql','0022_add_checkpoint_write_task_paths.sql']){const sql=await readFile(new URL(`../migrations/${name}`,import.meta.url),'utf8');await db.batch(sql.split(';').map(v=>v.trim()).filter(Boolean).map(v=>db.prepare(v)))}for(const id of ['run-a','run-b'])await db.prepare(`INSERT INTO workflow_runs(id,engine_version,workflow_id,workflow_revision,workflow_snapshot_json,agent_snapshots_json,agent_revisions_json,connection_snapshots_json,initial_input,status,transition_count,state_version,workflow_generation,workflow_launch_state,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,'queued',0,0,1,'unclaimed',?,?)`).bind(id,'2','flow','sha','{}','{}','{}','{}','input',new Date().toISOString(),new Date().toISOString()).run();return db}
 const config=id=>({configurable:{thread_id:'run-a',checkpoint_ns:'',...(id?{checkpoint_id:id}:{})}}),checkpoint=id=>({v:4,id,ts:new Date().toISOString(),channel_values:{output:'safe'},channel_versions:{output:1},versions_seen:{}}),metadata={source:'loop',step:0,parents:{}};
+test('checkpoint writes replay by task path while pre-upgrade rows stay readable and old writers still work',async t=>{
+ const db=await fixture(t),store=new D1LangGraphCheckpointStore(db),cp=checkpoint('ordered');
+ await store.execute('run-a',{operation:'put',threadId:'run-a',payload:{config:config(),checkpoint:cp,metadata,newVersions:{}}});
+ // The old writer uses a positional insert and has no task-path companion row.
+ const legacyHash=Buffer.from(await crypto.subtle.digest('SHA-256',new TextEncoder().encode('output\n'+JSON.stringify('legacy')))).toString('base64url');
+ await db.prepare('INSERT INTO langgraph_checkpoint_writes VALUES (?,?,?,?,?,?,?,?,?)').bind('run-a','','ordered','legacy',0,'output',JSON.stringify('legacy'),legacyHash,new Date().toISOString()).run();
+ const write=(taskId,taskPath,writes)=>store.execute('run-a',{operation:'putWrites',threadId:'run-a',payload:{config:config('ordered'),taskId,taskPath,writes}});
+ await write('a-task','~z',[['output','last']]);
+ await write('z-task','~a',[['output','first'],['other','second']]);
+ await write('legacy','~new-runtime-path',[['output','legacy']]);
+ await write('legacy','~new-runtime-path',[['output','legacy']]);
+ await write('astral','~\u{10000}',[['output','astral']]);
+ await write('bmp','~\ue000',[['output','bmp']]);
+ const expected=['legacy','first','second','last','bmp','astral'];
+ for(const operation of ['get','list']){
+  const result=await store.execute('run-a',{operation,threadId:'run-a',payload:{config:config('ordered')}}),tuple=operation==='list'?result[0]:result;
+  assert.deepEqual(tuple.pendingWrites.map(write=>write[2]),expected);
+  assert.deepEqual(tuple.checkpoint,cp);
+ }
+ await write('z-task','~a',[['output','first'],['other','second']]);
+ await assert.rejects(write('z-task','~changed',[['output','first']]),/checkpoint_state_conflicting/);
+ await assert.rejects(write('z-task','~a',[['output','changed']]),/checkpoint_state_conflicting/);
+ for(const taskPath of [null,42,'x'.repeat(8193)])await assert.rejects(write('invalid',taskPath,[]),/checkpoint_state_invalid/);
+ await assert.rejects(write('invalid','~path',[['output','valid'],['invalid']]),/checkpoint_state_invalid/);
+ assert.equal(await db.prepare('SELECT task_path FROM langgraph_checkpoint_write_task_paths WHERE task_id=?').bind('invalid').first(),null);
+ assert.deepEqual((await store.execute('run-a',{operation:'get',threadId:'run-a',payload:{config:config('ordered')}})).pendingWrites.map(write=>write[2]),expected);
+ await store.execute('run-a',{operation:'deleteThread',threadId:'run-a'});
+ assert.equal((await db.prepare('SELECT COUNT(*) AS count FROM langgraph_checkpoint_write_task_paths WHERE run_id=?').bind('run-a').first()).count,0);
+});
 test('D1 saver gateway operations are durable, listable, idempotent, and conflict closed',async t=>{const db=await fixture(t),store=new D1LangGraphCheckpointStore(db,()=>new Date().toISOString()),cp=checkpoint('cp-1'),put=await store.execute('run-a',{operation:'put',threadId:'run-a',payload:{config:config(),checkpoint:cp,metadata,newVersions:{output:1}}});assert.equal(put.configurable.checkpoint_id,'cp-1');await store.execute('run-a',{operation:'putWrites',threadId:'run-a',payload:{config:config('cp-1'),taskId:'task',writes:[['output','exact']]}});assert.equal((await store.execute('run-a',{operation:'get',threadId:'run-a',payload:{config:config('cp-1')}})).pendingWrites[0][2],'exact');assert.equal((await store.execute('run-a',{operation:'list',threadId:'run-a',payload:{config:config(),options:{limit:10}}})).length,1);await store.execute('run-a',{operation:'put',threadId:'run-a',payload:{config:config(),checkpoint:cp,metadata,newVersions:{}}});await assert.rejects(store.execute('run-a',{operation:'put',threadId:'run-a',payload:{config:config(),checkpoint:{...checkpoint('cp-1'),channel_values:{output:'different'}},metadata,newVersions:{}}}),/conflicting/);await assert.rejects(store.execute('run-a',{operation:'get',threadId:'run-b',payload:{config:config()}}),/authority/)});
 test('run-scoped authority cannot be used for another run',async()=>{const secret='s'.repeat(32),token=await issueCheckpointAuthority('run-a',secret);assert.equal(await verifyCheckpointAuthority(token,'run-a',secret),true);assert.equal(await verifyCheckpointAuthority(token,'run-b',secret),false);assert.equal(await verifyCheckpointAuthority(`${token}x`,'run-a',secret),false)});
 

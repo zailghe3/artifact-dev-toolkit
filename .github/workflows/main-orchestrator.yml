@@ -140,12 +140,20 @@ jobs:
 
   publish-runtime:
     name: publish-runtime
-    needs: [resolve-context, classify, verify-main]
+    needs: [resolve-context, classify, verify-main, deploy]
     if: >-
       always() &&
       needs.classify.result == 'success' &&
       needs.classify.outputs.publish_runtime == 'true' &&
-      (needs.classify.outputs.deploy_cloudflare != 'true' || needs.verify-main.result == 'success')
+      (
+        needs.classify.outputs.deploy_cloudflare != 'true' ||
+        (
+          needs.verify-main.result == 'success' &&
+          needs.deploy.result == 'success' &&
+          (needs.classify.outputs.deploy_worker != 'true' || needs.deploy.outputs.worker_deployed == 'true') &&
+          (needs.classify.outputs.apply_migrations != 'true' || needs.deploy.outputs.migrations_applied == 'true')
+        )
+      )
     uses: ./.github/workflows/publish-adt-runtime.yml
     with:
       commit_sha: ${{ needs.resolve-context.outputs.target_sha }}

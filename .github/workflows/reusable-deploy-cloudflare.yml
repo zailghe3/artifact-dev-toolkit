@@ -30,6 +30,9 @@ on:
       worker_deployed:
         description: Whether this invocation actually deployed the requested Worker commit.
         value: ${{ jobs.deploy.outputs.worker_deployed }}
+      migrations_applied:
+        description: Whether this invocation completed the requested D1 migrations.
+        value: ${{ jobs.deploy.outputs.migrations_applied }}
     secrets:
       CLOUDFLARE_API_TOKEN:
         required: true
@@ -99,6 +102,7 @@ jobs:
     environment: production
     outputs:
       worker_deployed: ${{ steps.outcome.outputs.worker_deployed }}
+      migrations_applied: ${{ steps.outcome.outputs.migrations_applied }}
     steps:
       - name: Require at least one Cloudflare operation
         run: |
@@ -182,7 +186,9 @@ jobs:
 
       - name: Record deployment outcome
         id: outcome
-        run: echo 'worker_deployed=${{ inputs.deploy_worker }}' >> "$GITHUB_OUTPUT"
+        run: |
+          echo 'worker_deployed=${{ inputs.deploy_worker }}' >> "$GITHUB_OUTPUT"
+          echo 'migrations_applied=${{ inputs.apply_migrations }}' >> "$GITHUB_OUTPUT"
 
       - name: Smoke test production OAuth initiation
         run: node scripts/smoke-test-oauth-start.mjs

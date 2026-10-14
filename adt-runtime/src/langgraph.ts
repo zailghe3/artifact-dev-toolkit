@@ -24,7 +24,7 @@ export class RemoteCheckpointSaver extends BaseCheckpointSaver {
  async getTuple(config:RunnableConfig){this.exact(config);return (await this.request<CheckpointTuple|null>("get",{config}))??undefined}
  async *list(config:RunnableConfig,options?:CheckpointListOptions){this.exact(config);for(const item of await this.request<CheckpointTuple[]>("list",{config,options}))yield item}
  async put(config:RunnableConfig,checkpoint:Checkpoint,metadata:CheckpointMetadata,newVersions:ChannelVersions){this.exact(config);return this.request<RunnableConfig>("put",{config,checkpoint,metadata,newVersions})}
- async putWrites(config:RunnableConfig,writes:PendingWrite[],taskId:string){this.exact(config);await this.request("putWrites",{config,writes,taskId})}
+ async putWrites(config:RunnableConfig,writes:PendingWrite[],taskId:string,taskPath?:string){this.exact(config);await this.request("putWrites",{config,writes,taskId,...(taskPath===undefined?{}:{taskPath})})}
  async deleteThread(threadId:string){if(threadId!==this.threadId)throw new Error("checkpoint_authority_invalid");await this.request("deleteThread")}
 }
 
