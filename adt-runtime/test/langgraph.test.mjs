@@ -2,6 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {MemorySaver} from '@langchain/langgraph';
 import {advanceGenericGraph,compileGenericStateGraph,evaluateCondition,RemoteCheckpointSaver} from '../dist/langgraph.js';
+test('remote saver preserves task paths and legacy writes without broadening thread authority',async()=>{
+ const requests=[],saver=new RemoteCheckpointSaver('https://adt.example/checkpoints','authority','run-a',async(_url,init)=>{requests.push(JSON.parse(init.body));return Response.json({ok:true,result:null})}),config={configurable:{thread_id:'run-a',checkpoint_id:'cp'}};
+ await saver.putWrites(config,[['output','new']],'task-new','~node-z');
+ await saver.putWrites(config,[['output','legacy']],'task-old');
+ assert.deepEqual(requests.map(request=>request.payload),[{config,writes:[['output','new']],taskId:'task-new',taskPath:'~node-z'},{config,writes:[['output','legacy']],taskId:'task-old'}]);
+ await assert.rejects(saver.putWrites({configurable:{thread_id:'run-b'}},[],'task','~path'),/checkpoint_authority_invalid/);
+ assert.equal(requests.length,2);
+});
 test('remote saver rejects cross-thread access before a request',async()=>{let calls=0;const saver=new RemoteCheckpointSaver('https://adt.example/checkpoints','authority','run-a',async()=>{calls++;return Response.json({ok:true,result:null})});await assert.rejects(saver.getTuple({configurable:{thread_id:'run-b'}}),/checkpoint_authority_invalid/);assert.equal(calls,0)});
 
 test('checkpoint callback distinguishes timeout, network, and received HTTP evidence',async()=>{for(const [error,outcome] of [[new DOMException('timed out','TimeoutError'),'timeout'],[new TypeError('offline'),'network_error']]){const saver=new RemoteCheckpointSaver('https://adt.example/checkpoints','authority','run-a',async()=>{throw error});await assert.rejects(saver.getTuple({configurable:{thread_id:'run-a'}}),value=>{assert.equal(value.orchestration.stage,'checkpoint_gateway');assert.equal(value.orchestration.transportOutcome,outcome);assert.equal(value.orchestration.httpStatus,undefined);return true})}const saver=new RemoteCheckpointSaver('https://adt.example/checkpoints','authority','run-a',async()=>Response.json({ok:false},{status:401}));await assert.rejects(saver.getTuple({configurable:{thread_id:'run-a'}}),value=>{assert.deepEqual(value.orchestration,{stage:'checkpoint_gateway',code:'checkpoint_authority_invalid',httpStatus:401,transportOutcome:'response_received'});return true})});
