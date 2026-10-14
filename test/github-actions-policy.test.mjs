@@ -4,18 +4,18 @@ import test from 'node:test';
 import { parseApprovedActionsManifest, validateWorkflowActionPolicy } from '../scripts/github-actions-policy.mjs';
 
 const checkoutSha = '3d3c42e5aac5ba805825da76410c181273ba90b1';
-const setupNodeSha = '48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e';
+const setupNodeSha = '949feb2413d6458794dcd2491c4babbbce0c15c1';
 const approvals = parseApprovedActionsManifest(readFileSync('.github/approved-actions.json', 'utf8'));
 const workflow = (uses) => ({ '.github/workflows/test.yml': `steps:\n  - uses: ${uses}\n` });
 
 test('the current checkout and setup-node releases are approved', () => {
   assert.deepEqual(approvals.get('actions/checkout'), { sha: checkoutSha, tag: 'v7.0.1' });
-  assert.deepEqual(approvals.get('actions/setup-node'), { sha: setupNodeSha, tag: 'v6.4.0' });
+  assert.deepEqual(approvals.get('actions/setup-node'), { sha: setupNodeSha, tag: 'v7.1.0' });
 });
 
 test('an approved SHA and release comment pair succeeds', () => {
   const workflows = workflow(`actions/checkout@${checkoutSha} # actions/checkout@v7.0.1`);
-  workflows['.github/workflows/setup.yml'] = `steps:\n  - uses: actions/setup-node@${setupNodeSha} # actions/setup-node@v6.4.0\n`;
+  workflows['.github/workflows/setup.yml'] = `steps:\n  - uses: actions/setup-node@${setupNodeSha} # actions/setup-node@v7.1.0\n`;
   assert.deepEqual(validateWorkflowActionPolicy(workflows, approvals), []);
 });
 
