@@ -106,6 +106,7 @@ Runtime logs are structured safe events. Use bounded stage/result/status/correla
 
 ### Checkpoint compatibility for release 5
 
-- Apply migration `0022_add_checkpoint_write_task_paths.sql` and deploy the updated Worker before Runtime release 5.
+- The automatic main lifecycle completes required D1 migrations and Worker deployment before publishing a mixed Cloudflare/Runtime release, and blocks publication if either prerequisite fails or is skipped as stale.
+- For explicit/manual Runtime publication, ensure migration `0022_add_checkpoint_write_task_paths.sql` and the updated Worker are live before publishing Runtime release 5.
 - LangGraph 1.5 checkpoint writes carry an optional task path. The Worker stores it separately so older Worker writers remain compatible during rollout; existing writes retain their empty-path ordering.
 - ADT uses ordinary annotation channels, not DeltaChannels or functional tasks under Send/error-handler nodes. Upstream's requirement to drain those affected threads does not apply to ADT's frozen plans.

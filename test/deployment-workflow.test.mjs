@@ -132,12 +132,64 @@ test('mixed control-plane and Runtime changes share integration before either pr
   assert.equal(result.deploy_worker, true);
   assert.equal(result.publish_runtime, true);
   assert.equal(result.verify_integration, true);
-  assert.match(main, /publish-runtime:[\s\S]*needs: \[resolve-context, classify, verify-main\]/);
-  assert.match(main, /publish-runtime:[\s\S]*deploy_cloudflare != 'true' \|\| needs\.verify-main\.result == 'success'/);
+  assert.deepEqual(parse(main).jobs['publish-runtime'].needs, ['resolve-context', 'classify', 'verify-main', 'deploy']);
   assert.match(main, /integration_already_verified: \$\{\{ needs\.classify\.outputs\.deploy_cloudflare == 'true' && needs\.classify\.outputs\.verify_integration == 'true' && needs\.verify-main\.result == 'success' \}\}/);
   assert.match(main, /deploy:[\s\S]*needs\.verify-main\.result == 'success'/);
   assert.match(runtimePublish, /integration_already_verified:[\s\S]*default: false/);
   assert.match(runtimePublish, /if: inputs\.integration_already_verified != true[\s\S]*node --test test\/integration\/workflow-runtime-integration\.test\.mjs/);
+});
+
+// This workflow condition uses only GitHub's boolean/string expression subset,
+// which can be evaluated directly to test publication decisions across outcomes.
+function runtimePublicationAllowed(impact, { verification = 'success', deployment = 'success', worker = '', migrations = '', classification = 'success' } = {}) {
+  const expression = parse(main).jobs['publish-runtime'].if.replace(/\bneeds\.([\w-]+)/g, 'needs["$1"]');
+  const needs = {
+    classify: { result: classification, outputs: Object.fromEntries(Object.entries(impact).map(([key, value]) => [key, String(value)])) },
+    'verify-main': { result: verification },
+    deploy: { result: deployment, outputs: { worker_deployed: worker, migrations_applied: migrations } },
+  };
+  return Function('needs', 'always', `return (${expression});`)(needs, () => true);
+}
+
+test('Runtime publication waits for every required Cloudflare operation and rejects skipped or stale outcomes', () => {
+  const runtimeFile = { filename: 'adt-runtime/src/server.ts' };
+  for (const files of [
+    [{ filename: 'app/page.tsx' }, runtimeFile],
+    [{ filename: 'migrations/0022_add_checkpoint_write_task_paths.sql' }, runtimeFile],
+    [{ filename: 'app/page.tsx' }, { filename: 'migrations/0022_add_checkpoint_write_task_paths.sql' }, runtimeFile],
+  ]) {
+    const impact = classifyChanges(files);
+    assert.equal(impact.deploy_cloudflare, true);
+    const completed = { worker: String(impact.deploy_worker), migrations: String(impact.apply_migrations) };
+    assert.equal(runtimePublicationAllowed(impact, completed), true);
+    for (const deployment of ['failure', 'cancelled', 'skipped']) assert.equal(runtimePublicationAllowed(impact, { ...completed, deployment }), false);
+    for (const verification of ['failure', 'cancelled', 'skipped']) assert.equal(runtimePublicationAllowed(impact, { ...completed, verification }), false);
+    // A reusable workflow can report success after freshness skips its actual job.
+    assert.equal(runtimePublicationAllowed(impact), false);
+    if (impact.deploy_worker) for (const worker of ['', 'false']) assert.equal(runtimePublicationAllowed(impact, { ...completed, worker }), false);
+    if (impact.apply_migrations) for (const migrations of ['', 'false']) assert.equal(runtimePublicationAllowed(impact, { ...completed, migrations }), false);
+    assert.equal(runtimePublicationAllowed(impact, { ...completed, classification: 'failure' }), false);
+  }
+});
+
+test('Runtime-only publication remains available when Cloudflare and its shared gate are skipped', () => {
+  const impact = classifyChanges([{ filename: 'adt-runtime/src/server.ts' }]);
+  assert.equal(impact.deploy_cloudflare, false);
+  assert.equal(runtimePublicationAllowed(impact, { verification: 'skipped', deployment: 'skipped' }), true);
+  assert.equal(runtimePublicationAllowed({ ...impact, publish_runtime: false }), false);
+});
+
+test('migration completion is exposed only after successful migrations and any required Worker deployment', () => {
+  const workflow = parse(reusableDeploy), job = workflow.jobs.deploy;
+  assert.equal(workflow.on.workflow_call.outputs.migrations_applied.value, '${{ jobs.deploy.outputs.migrations_applied }}');
+  assert.equal(job.outputs.migrations_applied, '${{ steps.outcome.outputs.migrations_applied }}');
+  const index = (command) => job.steps.findIndex(step => step.run?.includes(command));
+  const outcome = job.steps.findIndex(step => step.id === 'outcome');
+  assert.ok(outcome > index('wrangler d1 migrations apply'));
+  assert.ok(outcome > index('wrangler deploy'));
+  assert.equal(job.steps[outcome].if, undefined);
+  assert.match(job.steps[outcome].run, /migrations_applied=\$\{\{ inputs\.apply_migrations \}\}/);
+  assert.match(job.if, /needs\.freshness\.outputs\.current == 'true'/);
 });
 
 test('mixed Cloudflare and Adrian changes share main verification while Adrian-only publication stays independent', () => {
