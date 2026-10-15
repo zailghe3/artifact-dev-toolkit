@@ -83,4 +83,12 @@ If a maintenance report, audit, or relevant canonical check cannot be completed 
 - The repair uses Next and eslint-config-next 16.4.1, OpenNext Cloudflare 1.20.12, and unchanged Wrangler 4.151.0. OpenNext's published peer constraint requires Next >=16.4.1; the [14 October Next security update](https://nextjs.org/blog/nextjs-security-update-october-14-2026) independently requires that patch. This supersedes a Next downgrade or compatibility hold.
 - Root lock generation uses npm 11.4.2 on Node 24. Changes outside the adapter/framework closure must retain their previous versions. The updated Next closure includes its fixed Sharp dependency; no blanket override or Dependabot ignore is needed.
 - `npm run test:worker-runtime` runs the actual custom OpenNext Worker entrypoint through local Wrangler after `build:worker`. PR application verification always runs it, including root dependency and Worker configuration changes. It validates the ADT configuration redirect and dynamic sign-in HTML, with isolated environment/configuration, bounded startup and requests, and process-group cleanup. Production OAuth smoke remains required.
-- Local version comparisons and final verification results are recorded in the recovery PR. Local runtime evidence does not establish production recovery; the merged Worker must pass the retained production smoke.
+- Observed local comparison, using fresh npm installs and unchanged Wrangler 4.151.0:
+
+  | Next / eslint-config-next | OpenNext Cloudflare | OpenNext build | Local Worker smoke |
+  | --- | --- | --- | --- |
+  | 16.4.0 | 1.20.11 | Passed | HTTP 500, `preview-props.json` error |
+  | 16.4.1 | 1.20.11 | Passed | HTTP 500, same manifest error |
+  | 16.4.1 | 1.20.12 | Passed | ADT OAuth configuration redirect and dynamic sign-in HTML passed |
+
+- The same-framework comparison isolates the official adapter fix from the security patch. Helper/deployment/publication regression tests and the root suite also passed locally; exact final-head checks and audit findings are recorded in the recovery PR. Local runtime evidence does not establish production recovery; the merged Worker must pass the retained production smoke.
