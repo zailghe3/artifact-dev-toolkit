@@ -12,17 +12,9 @@ test('trusted Runtime publication is reusable and targets Docker Hub only', () =
   assert.match(workflow, /workflow_call:[\s\S]*commit_sha:[\s\S]*required: true/);
   assert.match(workflow, /workflow_dispatch:/);
   assert.doesNotMatch(workflow, /\n  push:/);
-  assert.match(workflow, /image=poulti\/adt-runtime/);
-  assert.match(workflow, /"\$image:\$\{TARGET_SHA\}"/);
-  assert.match(workflow, /"\$image:latest"/);
-  assert.equal((workflow.match(/docker tag adt-runtime:verified/g) ?? []).length, 3);
-  assert.match(workflow, /release_tag="r\$\{release_revision\}"/);
-  assert.match(workflow, /docker manifest inspect "\$image:\$\{release_tag\}"[\s\S]*refusing overwrite/);
-  assert.match(workflow, /docker tag adt-runtime:verified "\$image:\$\{release_tag\}"/);
-  assert.match(workflow, /docker push "\$image:\$\{release_tag\}"/);
-  assert.match(workflow, /release_digest=.*"\$image:\$\{release_tag\}"[\s\S]*test "\$sha_digest" = "\$release_digest"/);
+  assert.match(workflow, /node scripts\/reconcile-runtime-publication\.mjs/);
   assert.doesNotMatch(workflow, /ghcr\.io|packages: write|self-hosted|portainer|shepherd/i);
-  assert.match(workflow, /docker manifest inspect/);
+
 });
 
 test('Main publishes Runtime only from canonical component impact and immutable target SHA', () => {
@@ -38,7 +30,7 @@ test('Runtime publisher verifies exact source before testing or publishing', () 
   assert.match(workflow, /TARGET_SHA: \$\{\{ inputs\.commit_sha \|\| github\.sha \}\}/);
   assert.match(workflow, /ref: \$\{\{ inputs\.commit_sha \|\| github\.sha \}\}/);
   assert.match(workflow, /test "\$\(git rev-parse HEAD\)" = "\$\{TARGET_SHA\}"/);
-  assert.match(workflow, /ADT_RUNTIME_REVISION="\$\{TARGET_SHA\}"/);
+  assert.match(workflow, /ADT_RUNTIME_REVISION="\$\{\{ steps\.source\.outputs\.source_sha \}\}"/);
   assert.doesNotMatch(workflow, /ADT_RUNTIME_REVISION="\$GITHUB_SHA"/);
 });
 
@@ -49,7 +41,7 @@ test('publication reuses same-job Runtime build and only skips integration after
   const integrationTest = workflow.indexOf('Test control-plane and ADT Runtime integration using tested Runtime build');
   const imageBuild = workflow.indexOf('Build and smoke-test exact image');
   const login = workflow.indexOf('Authenticate to Docker Hub');
-  const push = workflow.indexOf('Publish the same verified image under immutable and moving tags');
+  const push = workflow.indexOf('Reconcile current Runtime publication under immutable and moving tags');
   assert.ok(runtimeInstall >= 0 && runtimeInstall < runtimeTest);
   assert.ok(runtimeTest < rootInstall && rootInstall < integrationTest);
   assert.ok(integrationTest < imageBuild && imageBuild < login && login < push);
@@ -76,7 +68,7 @@ test('image revision is build-owned and Runtime key identity needs no separately
   assert.doesNotMatch(stack, /ADT_RUNTIME_REVISION|ADT_RUNTIME_KEY_ID|adt_runtime_key_id/);
   assert.equal((stack.match(/external: true/g) ?? []).length, 3);
   assert.doesNotMatch(stack, /REDEPLOY_WEBHOOK|redeploy_webhook/i);
-  assert.match(workflow, /smoke-image\.sh adt-runtime:verified "\$\{TARGET_SHA\}"/);
+  assert.match(workflow, /smoke-image\.sh adt-runtime:verified "\$\{\{ steps\.source\.outputs\.source_sha \}\}"/);
 });
 
 test('optional maintenance overlay mounts all fixed external webhook secrets without changing the base stack', () => {

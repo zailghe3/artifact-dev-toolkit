@@ -144,7 +144,7 @@ jobs:
     if: >-
       always() &&
       needs.classify.result == 'success' &&
-      needs.classify.outputs.publish_runtime == 'true' &&
+      (needs.classify.outputs.publish_runtime == 'true' || needs.classify.outputs.deploy_cloudflare == 'true') &&
       (
         needs.classify.outputs.deploy_cloudflare != 'true' ||
         (
@@ -222,8 +222,8 @@ jobs:
             else
               echo '- Cloudflare operation: `${{ needs.deploy.result }}`'
             fi
-            if [[ '${{ needs.classify.outputs.publish_runtime }}' != true ]]; then
-              echo '- ADT Runtime publication: skipped — image inputs unchanged'
+            if [[ '${{ needs.classify.outputs.publish_runtime }}' != true && '${{ needs.classify.outputs.deploy_cloudflare }}' != true ]]; then
+              echo '- ADT Runtime publication: skipped — no image changes or Cloudflare reconciliation'
             else
               echo '- ADT Runtime publication: `${{ needs.publish-runtime.result }}`'
             fi

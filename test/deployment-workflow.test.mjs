@@ -314,3 +314,21 @@ test('main summary reports each production operation independently', () => {
   assert.match(main, /Worker actually deployed by this lifecycle:/);
   assert.match(main, /Cloudflare operation: skipped — Worker and migration inputs unchanged/);
 });
+
+
+test('application-only repair reconciles blocked Runtime only after successful current Cloudflare deployment', () => {
+  const impact = classifyChanges([{ filename: 'package-lock.json' }]);
+  assert.equal(impact.publish_runtime, false);
+  const completed = { worker: 'true', migrations: 'true' };
+  assert.equal(runtimePublicationAllowed(impact, completed), true);
+  for (const deployment of ['failure', 'cancelled', 'skipped']) assert.equal(runtimePublicationAllowed(impact, { ...completed, deployment }), false);
+  assert.equal(runtimePublicationAllowed(impact), false);
+  assert.equal(runtimePublicationAllowed(impact, { ...completed, migrations: '' }), false);
+});
+test('build dependencies and Worker configuration always exercise the local runtime smoke',()=>{
+  const steps=parse(verify).jobs.verify.steps;
+  const build=steps.findIndex(step=>step.run==='npm run build:worker');
+  const smoke=steps.findIndex(step=>step.run==='npm run test:worker-runtime');
+  assert.ok(smoke>build);assert.equal(steps[smoke].if,'inputs.verify_app');
+  for(const filename of ['package.json','package-lock.json','wrangler.jsonc','cloudflare-worker.ts','open-next.config.ts','scripts/smoke-test-worker.mjs'])assert.equal(classifyChanges([{filename}]).verify_app,true,filename);
+});

@@ -133,7 +133,7 @@ export function classifyChanges(files) {
 
   const documentationRequestOnly = allPaths.length > 0 && allPaths.every(isDocumentationOrRequestPath);
   const verifyRoot = allPaths.some(isRootVerificationPath);
-  const verifyApp = allPaths.some(isAppBuildPath);
+  const verifyApp = allPaths.some(path => isAppBuildPath(path) || path === 'scripts/smoke-test-worker.mjs');
   const verifyRuntime = allPaths.some(isRuntimePath);
   const verifyRunner = allPaths.some(isRunnerPath);
   const verifyAdrian = allPaths.some(isAdrianPath);

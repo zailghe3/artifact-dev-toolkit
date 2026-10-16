@@ -126,6 +126,10 @@ jobs:
         if: inputs.verify_app
         run: npm run build:worker
 
+      - name: Smoke-test local OpenNext Worker runtime
+        if: inputs.verify_app
+        run: npm run test:worker-runtime
+
       - name: Install Codex Runner dependencies
         if: inputs.verify_runner
         working-directory: codex-runner
