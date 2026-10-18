@@ -16,7 +16,7 @@
     "@openai/agents": "0.20.0",
     "@secureagentics/adrian": "1.1.0",
     "openai": "7.33.0",
-    "undici": "8.11.2",
+    "undici": "8.12.1",
     "ws": "^8.22.0",
     "zod": "^4.6.5"
   },
