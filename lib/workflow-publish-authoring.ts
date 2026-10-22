@@ -1,4 +1,9 @@
-export type WorkflowEditorAgent={id:string;name:string;publishEligible?:boolean;connectionKey?:string;adapter?:string;environmentKey?:string;managedGit?:boolean;agentContinueFrom?:boolean};
+export type WorkflowEditorAgent={id:string;name:string;description?:string;publishEligible?:boolean;connectionKey?:string;adapter?:string;environmentKey?:string;managedGit?:boolean;agentContinueFrom?:boolean};
+
+/** The editor's authoring policy; this does not assert live Runner readiness. */
+export function canContinueWorkflowConversation(source:WorkflowEditorAgent|undefined,target:WorkflowEditorAgent|undefined){
+ return Boolean(source&&target&&source.adapter==="codex-runner"&&target.adapter==="codex-runner"&&!target.agentContinueFrom&&source.connectionKey===target.connectionKey&&source.environmentKey===target.environmentKey&&Boolean(source.managedGit)===Boolean(target.managedGit));
+}
 export type WorkflowEditorNode={id:string;type?:string;position:{x:number;y:number};data:Record<string,unknown>};
 
 export type PublishAvailability=

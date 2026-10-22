@@ -43,6 +43,11 @@
 - A Workflow execution limit is an integer of at least one; an empty authoring draft normalises to one when saved.
 - Definitions and layouts use revision-aware Git mutations so stale or ambiguous writes fail safely.
 - Current executable definitions are discovered and mutated only in the canonical root-level definition namespaces.
+- Authorised users can explicitly copy safe Workflow-authoring context for external authoring tools. It contains available Agent and reusable Workflow references, authoring capabilities, and block guidance, but no prompts, credentials, or unnecessary connection internals.
+- A versioned Workflow transfer can be explicitly loaded into New Workflow as an unsaved, normally editable draft. Replacing meaningful unsaved work requires confirmation.
+- Unresolved external references and known incompatible Agent capabilities must be repaired before creation. An existing Workflow ID must be changed; import cannot overwrite a saved Workflow.
+- Import never persists or bypasses normal server-side Workflow validation and revision-aware persistence. Semantics and optional layout remain distinct even when transferred together.
+- Clipboard formats and external authoring guidance are described in [Workflow text authoring](../docs/workflow-text-authoring.md).
 
 ## 4. Run snapshots and handoff
 
