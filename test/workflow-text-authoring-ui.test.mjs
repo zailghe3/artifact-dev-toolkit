@@ -18,6 +18,7 @@ const transfer=(id='imported',agentId='available',workflowId='reusable')=>({form
 const text=node=>node.findAll(item=>typeof item.type==='string').flatMap(item=>item.children).filter(item=>typeof item==='string').join(' ');
 const button=(view,label)=>view.root.findAllByType('button').find(item=>text(item)===label);
 const input=(view,name)=>view.root.findByProps({name});
+const graphNode=(view,id)=>view.root.findByType('mock-flow').props.nodes.find(node=>node.id===id);
 const pasteField=view=>view.root.findAllByType('textarea').find(item=>!item.props.name&&!item.props.readOnly);
 async function mount(extra={}){let view;await act(async()=>{view=create(React.createElement(WorkflowDefinitionEditor,{agents,reusableWorkflows,authoringContext:'{"safe":true}',...extra}))});return view}
 async function paste(view,value){await act(async()=>pasteField(view).props.onChange({target:{value:JSON.stringify(value)}}))}
@@ -48,11 +49,27 @@ test('meaningful manual work needs explicit replacement; cancellation and invali
 test('missing references and collision remain visible, disable creation, and are repairable',async()=>{
  const prior=globalThis.fetch;let calls=0;globalThis.fetch=async()=>{calls++;return Response.json({fileSha:'unused'})};const view=await mount({existingWorkflowIds:['imported']});try{
   await load(view,transfer('imported','unknown-agent','unknown-workflow'));assert.equal(button(view,'Create workflow').props.disabled,true);for(const fragment of ['Missing Agent: unknown-agent','Missing reusable Workflow: unknown-workflow','already exists'])assert.match(text(view.root),new RegExp(fragment));
+  assert.equal(graphNode(view,'call').data.missing,true);
   await act(async()=>view.root.findByType('form').props.onSubmit({preventDefault(){}}));assert.equal(calls,0);
   for(const select of view.root.findAllByType('select').filter(item=>item.props.value==='unknown-agent'))await act(async()=>select.props.onChange({target:{value:'available'}}));
+  assert.equal(graphNode(view,'call').data.missing,true);
   const missing=view.root.findAllByType('select').find(item=>item.props.value==='unknown-workflow');await act(async()=>missing.props.onChange({target:{value:'reusable'}}));
+  assert.equal(graphNode(view,'call').data.missing,false);assert.equal(graphNode(view,'call').data.label,'Reusable');assert.doesNotMatch(text(view.root),/Missing reusable Workflow: unknown-workflow/);
   assert.equal(button(view,'Create workflow').props.disabled,true);await change(view,'id','unique');assert.equal(button(view,'Create workflow').props.disabled,false);assert.equal(calls,0);
  }finally{globalThis.fetch=prior;await act(async()=>view.unmount())}
+});
+
+test('persisted Workflow repair updates reusable node presentation and retains missing state for unresolved selections',async()=>{
+ const view=await mount({initial:transfer('saved','available','unknown-workflow').definition,fileSha:'saved-sha'});
+ try{
+  assert.equal(graphNode(view,'call').data.missing,true);assert.match(graphNode(view,'call').data.label,/unknown-workflow/);assert.equal(button(view,'Save all changes').props.disabled,true);
+  const select=()=>view.root.findAllByType('select').find(item=>item.props.value===graphNode(view,'call').data.workflowId);
+  // Retaining the unavailable option must never clear the missing treatment.
+  await act(async()=>select().props.onChange({target:{value:'unknown-workflow'}}));
+  assert.equal(graphNode(view,'call').data.missing,true);assert.match(text(view.root),/Missing reusable Workflow: unknown-workflow/);
+  await act(async()=>select().props.onChange({target:{value:'reusable'}}));
+  assert.equal(graphNode(view,'call').data.missing,false);assert.equal(graphNode(view,'call').data.label,'Reusable');assert.doesNotMatch(text(view.root),/Missing reusable Workflow: unknown-workflow/);assert.equal(button(view,'Save all changes').props.disabled,false);
+ }finally{await act(async()=>view.unmount())}
 });
 
 test('clipboard copy is explicit and failure offers manual context selection; persisted editor excludes text import',async()=>{
