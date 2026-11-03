@@ -5,8 +5,9 @@ import {classifyTransportException,isLocalRuntimeTransportRejection} from "./saf
 import {normalizeProviderSafeConfiguration,requireProviderConnectionType} from "./provider-connection-types.ts";
 
 export const ANTHROPIC_CONNECTION_TEST_TIMEOUT_MS=10_000;
-const MIN_EXECUTION_TIMEOUT_MS=600_000,MAX_EXECUTION_TIMEOUT_MS=900_000,TEST_MAX_TOKENS=8;
-export function anthropicMessagesTimeoutMs(maxOutputTokens:number){const bounded=Math.max(1,Math.min(32768,maxOutputTokens));return Math.min(MAX_EXECUTION_TIMEOUT_MS,MIN_EXECUTION_TIMEOUT_MS+bounded*10)}
+import {anthropicMessagesTimeoutMs} from "./provider-execution-timeouts.ts";
+export {anthropicMessagesTimeoutMs} from "./provider-execution-timeouts.ts";
+const TEST_MAX_TOKENS=8;
 type Fetcher=(input:string|URL,init?:RequestInit)=>Promise<Response>;
 type ProviderFailure=Error&{category:FailureCategory;transportDiagnostics?:ProviderTransportDiagnostics};
 const failure=(category:FailureCategory,transportDiagnostics?:ProviderTransportDiagnostics):ProviderFailure=>Object.assign(new Error(category),{category,transportDiagnostics});

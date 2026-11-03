@@ -7,8 +7,8 @@ import {callMcpTool,McpFailure} from "./mcp.js";
 import {InstrumentedModelProvider,type ModelTurnInstrumentation} from "./model-instrumentation.js";
 
 export const MAX_TURNS=6, MAX_TOOL_CALLS=4, DEFAULT_MODEL_TIMEOUT_MS=30_000,MODEL_TIMEOUT_MS=DEFAULT_MODEL_TIMEOUT_MS, MAX_OUTPUT_BYTES=262_144,MAX_TOOL_RESULT_BYTES=128_000;
-export type SafeFailure={category:string;safeMessage:string;retryable:false};
-export class RuntimeFailure extends Error implements SafeFailure{readonly retryable=false as const;constructor(readonly category:string,readonly safeMessage:string){super(category)}}
+import {RuntimeFailure} from "./provider-execution.js";
+export {RuntimeFailure,type SafeFailure} from "./provider-execution.js";
 const fail=(category:string,safeMessage:string)=>new RuntimeFailure(category,safeMessage);
 function classify(error:unknown){
  if(error&&typeof error==="object"&&"category" in error&&["security_denied","security_timeout","security_unavailable"].includes(String(error.category))&&"safeMessage" in error&&typeof error.safeMessage==="string")return fail(String(error.category),error.safeMessage);

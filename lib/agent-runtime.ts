@@ -4,8 +4,10 @@ import { CodexRunnerAdapter } from "./codex-runner-adapter.ts";
 import { OpenAIResponsesAdapter } from "./openai-responses-adapter.ts";
 import { AnthropicMessagesAdapter } from "./anthropic-messages-adapter.ts";
 import { WorkIqRestAdapter } from "./work-iq-rest-adapter.ts";
-import { RemoteOpenAIAgentsRuntime } from "./adt-runtime-client.ts";
+import { RemoteOpenAIAgentsRuntime,RemoteProviderRuntime,type RuntimeProviderKind } from "./adt-runtime-client.ts";
 import { DeterministicTestAdapter, type AdapterInvocation, type AdapterResult, type AgentProviderAdapter } from "./workflow-adapter.ts";
+
+import {getProviderConnectionType,providerConnectionTypes} from "./provider-connection-types.ts";
 
 export interface AgentRuntime {
   readonly kind: string;
@@ -63,6 +65,8 @@ export function createWorkflowAdapterRegistry(fetcher?: ConstructorParameters<ty
 }
 
 export function createAgentRuntimeRegistry(fetcher?: ConstructorParameters<typeof OpenAIResponsesAdapter>[0], runtimeConfiguration:ConstructorParameters<typeof RemoteOpenAIAgentsRuntime>[0]={}, runtimeFetcher?:ConstructorParameters<typeof RemoteOpenAIAgentsRuntime>[1]): AgentRuntimeRegistry {
-  const adapters=Array.from(createWorkflowAdapterRegistry(fetcher).entries()).filter(([kind,adapter])=>kind===adapter.kind).map(([,adapter])=>adapter);
-  return new AgentRuntimeRegistry([...adapters.map(adapter=>new AdapterBackedAgentRuntime(adapter)),new RemoteOpenAIAgentsRuntime(runtimeConfiguration,runtimeFetcher)]);
+  const adapters=createWorkflowAdapterRegistry(fetcher);
+  const direct=Array.from(adapters.entries()).filter(([kind,adapter])=>kind===adapter.kind&&getProviderConnectionType(kind)?.execution!=="adt-runtime").map(([,adapter])=>new AdapterBackedAgentRuntime(adapter));
+  const remote=providerConnectionTypes.filter(policy=>policy.execution==="adt-runtime").map(policy=>policy.id==="openai-agents"?new RemoteOpenAIAgentsRuntime(runtimeConfiguration,runtimeFetcher):new RemoteProviderRuntime(runtimeConfiguration,runtimeFetcher,policy.id as RuntimeProviderKind,adapters.get(policy.id)));
+  return new AgentRuntimeRegistry([...direct,...remote]);
 }

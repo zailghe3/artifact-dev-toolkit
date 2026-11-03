@@ -29,15 +29,10 @@ Next.js -> OpenNext -> Cloudflare Worker
     +--> OpenAI
     |       - direct Responses execution path
     |
-    +--> Anthropic
-    |       - direct Messages execution path
-    |
-    +--> Microsoft Work IQ
-    |       - direct REST execution path
-    |
     +--> authenticated ADT Runtime
     |       - LangGraph Workflow sequencing
-    |       - execution-heavy provider SDKs
+    |       - OpenAI Agents, Anthropic Messages, Microsoft Work IQ execution
+    |       - extensible ordinary AI provider execution and provider SDKs
     |       - bounded remote MCP Streamable HTTP client execution
     |       - fixed Runtime/Runner redeploy webhooks for authorised maintenance
     |       - no durable ADT state or broad control-plane authority
@@ -116,8 +111,9 @@ The product invariants are in [`specs/agent-workflows.md`](specs/agent-workflows
 - Git-managed provider connection types centrally define their safe configuration, authentication family, model policy, Agent option family, execution path, and capabilities; unsupported types and authentication lifecycles fail closed.
 - Git definitions under `connections/` are authoritative for validated non-secret connection configuration; only explicitly execution-safe provider fields may enter run snapshots.
 - Provider credential values live in the permanent encrypted ADT vault and are never stored in Agent or Workflow definitions.
-- Microsoft delegated OAuth occurs in the control plane. Work IQ client secrets and refresh tokens remain in the encrypted provider vault; access tokens are transient and never enter Git, ADT Runtime, or Codex Runner.
-- Work IQ executes directly from the control-plane Worker and does not use ADT Runtime or Codex Runner.
+- Microsoft delegated OAuth occurs in the control plane. Work IQ client secrets and refresh tokens remain in the encrypted provider vault. Short-lived access tokens may enter ADT Runtime only as invocation-scoped encrypted credentials and are never persisted or supplied to Codex Runner.
+- OpenAI Agents, Anthropic Messages, and Work IQ Workflow Agents execute through ADT Runtime. OpenAI Responses retains its direct asynchronous control-plane path; Codex Runner remains separate.
+- Provider/model commissioning and delegated OAuth remain control-plane concerns, independent of Runtime readiness.
 - Historical provider rows or retired credential sources may remain physically present but are not current execution inputs.
 - Live provider readiness is distinct from saved configuration.
 - Provider creation, polling, retry, cancellation, and ambiguous outcomes are trust and billing boundaries.
@@ -150,7 +146,7 @@ The product invariants are in [`specs/agent-workflows.md`](specs/agent-workflows
 - The Worker retains Workflow admission, durable state, credential authority, outer recovery, and repository/tool authority.
 - Provider credentials are resolved in the control plane and supplied only for the exact invocation that needs them.
 - Invocation-scoped external-tool credentials follow the same encrypted Runtime boundary and are neither persisted nor exposed by Runtime.
-- Runtime and application revisions may roll independently through explicit protocol and capability compatibility.
+- Runtime and application revisions may roll independently through explicit protocol and capability compatibility. Authenticated readiness from an older compatible Runtime permits the temporary direct Anthropic/Work IQ bridge; generic execution selection never falls back after failure.
 - Execution-heavy AI/provider libraries that do not need broad control-plane authority belong here.
 - Runtime may hold only four operator-provisioned, narrowly scoped Portainer webhook URLs for Runtime and split Runner redeployment. Portainer remains private; these URLs never enter Cloudflare or browser state, and Runtime receives no Portainer API credential or Docker socket.
 
@@ -181,7 +177,7 @@ Operational detail belongs in [`codex-runner/README.md`](codex-runner/README.md)
 | Application sessions, encrypted provider credential vault, and durable Workflow state | D1 schema, migrations, and source |
 | Catalogue acceleration | KV cache; GitHub remains authoritative |
 | Durable Workflow orchestration | Cloudflare Workflows outer lifecycle; LangGraph sequencing in ADT Runtime; checkpoints persisted behind the control plane in D1 |
-| OpenAI Agents SDK provider execution | independently deployed ADT Runtime |
+| Ordinary AI provider execution (OpenAI Agents, Anthropic Messages, Work IQ) | independently deployed ADT Runtime; direct OpenAI Responses remains a supported exception |
 | Codex authentication and model-directed command execution | Codex Runner Executor |
 | Managed Git authority | Codex Runner Repository Manager |
 | Runner jobs, idempotency, and emergency latch | Codex Runner Controller |

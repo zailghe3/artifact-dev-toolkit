@@ -1,6 +1,6 @@
 # Microsoft Work IQ operator setup
 
-Microsoft Work IQ is a direct, delegated REST provider. Complete Microsoft tenant setup before creating the ADT connection.
+Microsoft Work IQ is a delegated REST provider executed through ADT Runtime. OAuth and explicit provider commissioning remain in the ADT control plane. Complete Microsoft tenant setup before creating the ADT connection.
 
 ## Tenant and application prerequisites
 
@@ -22,6 +22,7 @@ Microsoft documents Work IQ as delegated authentication for work or school accou
 3. Save the configured connection.
 4. Select **Connect Microsoft 365 account** and sign in with one work or school account.
 5. Run **Test connection** explicitly when a capacity-consuming live test is appropriate.
+6. Separately commission [ADT Runtime](../adt-runtime/README.md#diagnostics-and-commissioning) before running Work IQ Workflow Agents. The client secret and refresh token remain vault-only; Runtime receives only an encrypted invocation-scoped access token.
 
 All Agents sharing the connection act with the connected account's Microsoft 365 permissions. Reconnecting may replace that account and changes the permissions/context used by all those Agents; already-snapshotted runs remain pinned to their prior authorization context and fail rather than switching identity.
 

@@ -156,9 +156,9 @@
 - Model-facing MCP names use a bounded `mcp_<sanitised remote-name prefix>_<server-ID-and-remote-name digest>` alias. The remote tool name is unchanged on the MCP call.
 - Retired provider rows and legacy Codex Cloud configuration may remain readable as historical data but are not current execution inputs.
 
-## 11. OpenAI execution connections and ADT Runtime
+## 11. Provider execution connections and ADT Runtime
 
-- Artifact Toolkit supports the direct `openai-responses` execution path and the independently deployed `openai-agents` path.
+- ADT Runtime is the extensible ordinary AI provider execution plane for OpenAI Agents, Anthropic Messages, and Microsoft Work IQ. OpenAI Responses retains its direct control-plane execution path; Codex Runner remains a separate boundary.
 - Current OpenAI execution uses Git-defined connections backed by the encrypted ADT vault.
 - The resolved Agent prompt is supplied as provider instructions and Workflow input is supplied as Agent input without framework summarisation.
 - Only bounded textual Agent output becomes Workflow output; provider reasoning and raw provider responses are not exposed as Workflow output.
@@ -174,14 +174,15 @@
 - Runtime readiness, protocol compatibility, capability availability, execution-path readiness, provider connection readiness, and provider execution failure are distinct conditions.
 - Authorised users may explicitly test the Runtime callback path without creating Workflow state, resolving provider credentials, invoking an Agent/provider, searching Artifact content, or accessing GitHub.
 - Application and Runtime may roll independently; compatibility is determined by their explicit protocol/capability contract rather than matching revisions.
+- Successful authenticated readiness from an older compatible Runtime permits legacy OpenAI execution and the temporary direct Anthropic/Work IQ bridge. Unreachable, rejected, incompatible, or malformed readiness never authorizes direct execution. Once generic provider execution is advertised, failures remain failures without a second direct call.
 - Model availability is validated against the authenticated provider rather than assumed from a hard-coded application list.
 
 ### Anthropic Messages execution
 
-- Anthropic Messages uses the normal Git-managed API-key connection lifecycle and encrypted ADT vault rather than a separate credential or Agent architecture. An optional non-secret Anthropic Workspace ID may be stored in Git and frozen with the safe execution context; API credentials remain vault-only.
+- Anthropic Messages uses the normal Git-managed API-key connection lifecycle and encrypted ADT vault rather than a separate credential or Agent architecture. An optional non-secret Anthropic Workspace ID may be stored in Git and frozen with the safe execution context; API credentials remain vault-owned and cross to Runtime only through the encrypted invocation boundary.
 - A connection selects a provider-discovered Claude model before an Agent can use it.
 - The resolved Agent prompt is the Anthropic system prompt; the Workflow handoff is one user message. Neither value is implicitly transformed.
-- Execution is one synchronous direct Messages request with no provider task or cancellation identity.
+- Workflow Agent execution is one synchronous Messages request through ADT Runtime, with no provider task or cancellation identity. Credential/model commissioning remains in the control plane.
 - Only bounded ordered text blocks become Workflow output. Tools, thinking, streaming, provider sessions, and non-text response data are not supported.
 - An ambiguous synchronous start is not blindly retried because the request may already have produced billable provider work.
 
@@ -189,11 +190,12 @@
 
 - Microsoft Work IQ is a normal Git-managed provider connection that reuses the provider-neutral connection, safe-configuration, vault, Agent, and run-snapshot contracts.
 - One connection represents one Entra application and one delegated Microsoft 365 work or school account. Every Agent sharing it acts with that connected account's Microsoft 365 permissions.
-- Tenant and client IDs are safe Git configuration. Client secrets and refresh/access tokens remain server-only; ADT never selects or stores a Work IQ model.
+- Tenant and client IDs are safe Git OAuth configuration and are not Runtime execution inputs. Client secrets and refresh tokens remain control-plane/vault-only; ADT never selects or stores a Work IQ model.
+- The control plane validates the snapshotted delegated authorization context, resolves the vault bundle, redeems and revision-safely rotates refresh tokens, and revalidates the context before execution. Only the resulting short-lived access token may cross the authenticated encrypted Runtime boundary for that invocation; Runtime never persists it.
 - A Work IQ Agent stores one explicit IANA time zone and whether web grounding is allowed. The saved time zone does not change with the browser's later location.
 - ADT frames the resolved Agent prompt and Workflow input, unchanged, into one Work IQ user message. It does not represent the Agent prompt as a provider system message or grounding context.
-- Each invocation creates a fresh conversation and performs one synchronous chat. There is no durable provider task, provider conversation continuation, or cancellation identity.
-- Uncertain conversation creation or chat submission is not blindly repeated.
+- Each Workflow Agent invocation executes through ADT Runtime, creates a fresh conversation, and performs one synchronous chat. There is no durable provider task, provider conversation continuation, or cancellation identity.
+- Uncertain conversation creation or chat submission is not blindly repeated. Work IQ remains tool-free and has no Security Profile support.
 - Connecting or reconnecting creates a new opaque delegated authorization context; disconnecting removes it. A snapshotted run executes only with its frozen authorization context and cannot silently switch to a newly connected Microsoft identity.
 - Creating a run verifies delegated authorization from local encrypted state only. Microsoft access tokens are acquired only for an actual provider invocation or an explicit connection test.
 

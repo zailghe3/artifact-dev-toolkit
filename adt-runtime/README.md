@@ -8,6 +8,7 @@ ADT Runtime is the independently deployed compute and provider-execution boundar
 - LangGraph sequencing runs in Runtime, but durable checkpoints remain behind a control-plane gateway and executable Agent-node admission remains a separate control-plane authority.
 - Runtime does not own broad repository, Cloudflare, GitHub App, Codex, Portainer API, or artifact-repository credentials.
 - Provider credentials are resolved in the control plane and encrypted to Runtime only for the exact invocation that needs them. Runtime does not persist them.
+- Work IQ OAuth remains control-plane-owned: the client secret and refresh token never enter Runtime. Only the short-lived access token enters as an encrypted invocation credential; tenant/client IDs and the vault bundle are not execution inputs.
 - Runtime may keep bounded ephemeral process state needed for protocol safety, such as replay protection, but replacement requires no local durable application volume.
 - Execution-heavy AI/provider libraries that do not require broad control-plane authority belong here; control-plane-only policy and privileged mutation do not.
 - Application and Runtime revisions may roll independently through an explicit protocol/capability contract.
@@ -74,7 +75,11 @@ Current provider credentials resolve only from the ADT vault in the control plan
 - MCP discovery exposes bounded catalogue metadata. MCP calls consume a caller-selected frozen schema, map remote failures to safe errors, and are never automatically retried after dispatch.
 - One LangGraph advance reconstructs the frozen ADT plan, resumes through the remote checkpoint boundary, admits a bounded executable frontier through the control plane, checkpoints, and returns control to the outer Cloudflare Workflow.
 - Checkpoint and Agent-node callbacks carry only narrowly scoped authority for the exact run/action being performed. Runtime never receives the Worker-only authority secret itself.
-- `openai-agents` executes one bounded synchronous provider invocation. Agent-configured execution timeout is the only user-facing timeout; transport and HTTP-server ceilings are derived/internal safety bounds.
+- One provider-neutral execution operation dispatches strict OpenAI Agents, Anthropic Messages, and Work IQ contracts. Generic provider execution and each supported provider kind are advertised independently, alongside the existing tool, LangGraph, and Adrian capabilities.
+- The legacy OpenAI Agents operation remains an alias to the same executor for older Workers. A new Worker uses generic execution only after authenticated readiness advertises both generic execution and the exact provider. Successful readiness from an older compatible Runtime permits legacy OpenAI execution or the temporary direct Anthropic/Work IQ bridge. No readiness or execution failure authorizes direct fallback.
+- Each provider preserves its bounded synchronous execution semantics. OpenAI Agents retains Artifact Search/MCP/Adrian support; Anthropic and Work IQ remain tool-free without Security Profile support. OpenAI Responses remains direct in the Worker, and Codex Runner stays separate.
+- Agent/provider execution deadlines remain distinct from internal Worker transport and HTTP-server allowances. Anthropic retains its longer synchronous deadline; Work IQ retains a separate deadline for each conversation/chat mutation. The enclosing graph callback, checkpoint authority, and reconciliation window cover admitted synchronous work. No new infrastructure timeout setting is exposed to users.
+- Cloudflare documents unlimited Workflow step wall time for network I/O and no hard HTTP Worker duration limit while its caller remains connected; CPU limits are separate. See [Workflow limits](https://developers.cloudflare.com/workflows/reference/limits/) and [Worker duration](https://developers.cloudflare.com/workers/platform/limits/#duration). Operator-owned ingress must support the bounded synchronous response lifetime.
 - Graph progression is designed to be recoverable through durable checkpoints and idempotent control-plane admission.
 - A synchronous provider invocation whose outcome becomes ambiguous after provider entry is not blindly replayed because there is no durable provider task identity to reconcile.
 - Runtime and callback failures use bounded, validated, non-sensitive evidence so the application can distinguish Runtime transport from checkpoint/graph-node boundary failures without persisting raw upstream data.
@@ -88,7 +93,7 @@ Commission Runtime without trial-running a provider invocation:
 1. Confirm the container healthcheck is healthy.
 2. Use **Test ADT Runtime** to confirm reachability, request authentication, protocol compatibility, required capabilities, and wrapping-key compatibility.
 3. On the unified Diagnostics page, explicitly run **Test execution path** when Workflow execution is being commissioned. It verifies Runtime-to-gateway reachability with narrow diagnostic authority and performs no provider work or Workflow mutation.
-4. Run the separate provider **Test connection** for the credential/model.
+4. Run the separate provider **Test connection** for the credential/model. Provider commissioning and model discovery remain direct control-plane checks and do not establish Runtime health.
 5. Only after the applicable checks pass, run a real Workflow.
 
 The execution-path diagnostic is non-mutating: it does not create Workflow/checkpoint state, resolve provider credentials, invoke an Agent/provider, search Artifact contents, or access GitHub.
