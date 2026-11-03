@@ -4,7 +4,7 @@ import type { AgentRuntimeResolver } from "./agent-runtime.ts";
 import type { ResolvedConnection } from "./workflow-connections.ts";
 import type { RunDetail, StepAttempt, WorkflowRunStorage } from "./workflow-storage.ts";
 
-export type DurableStepConfig={retries:{limit:number;delay:number|string}};
+export type DurableStepConfig={retries:{limit:number;delay:number|string};timeout?:number|string};
 export type DurableStep={do<T>(name:string,callback:()=>Promise<T>):Promise<T>;do<T>(name:string,config:DurableStepConfig,callback:()=>Promise<T>):Promise<T>;sleep(name:string,duration:number|string):Promise<void>};
 /** Side-effecting external creation/publication must explicitly opt out of platform replay. */
 export const NO_PLATFORM_RETRY={retries:{limit:0,delay:0}} as const;

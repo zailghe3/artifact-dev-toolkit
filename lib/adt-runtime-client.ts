@@ -131,7 +131,7 @@ export class RemoteProviderRuntime implements AgentRuntime{
   const wrapped=credential===undefined?undefined:await envelope(credential,wrapping.key,wrapping.keyId,`${ADT_RUNTIME_PROTOCOL}:${this.kind}:${invocation.idempotencyKey}`);
   const body=JSON.stringify({protocolVersion:ADT_RUNTIME_PROTOCOL,capability:this.kind,requestId,idempotencyKey:invocation.idempotencyKey,agentName:invocation.agentName,instructions:invocation.masterPrompt,input:invocation.inputText,...providerFields,...(wrapped?{credential:wrapped}:{})});
   if(encoder.encode(body).byteLength>1_100_000)throw failure("configuration_invalid","Runtime request exceeds the permitted size.");
-  const headers=await signedHeaders(this.config.authSecret!,"POST",path,body,nonce()),started=Date.now();let response:Response,value:unknown;
+  const headers=await signedHeaders(this.config.authSecret!,"POST",path,body,requestId),started=Date.now();let response:Response,value:unknown;
   try{response=await this.fetcher()(this.base()+path,{method:"POST",headers,body,signal:AbortSignal.timeout(timeoutMs+ADT_RUNTIME_TRANSPORT_ALLOWANCE_MS)})}
   catch(error){throw failure("provider_start_ambiguous","ADT Runtime execution outcome is unknown.",{clientRequestId:requestId,elapsedMs:Date.now()-started,...transportError(error)})}
   const diagnostics={clientRequestId:requestId,httpStatus:response.status,elapsedMs:Date.now()-started,outcome:"response_received" as const};

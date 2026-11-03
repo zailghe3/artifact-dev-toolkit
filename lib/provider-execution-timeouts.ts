@@ -5,6 +5,7 @@ export function anthropicMessagesTimeoutMs(maxOutputTokens:number){const bounded
 export const PROVIDER_TRANSPORT_ALLOWANCE_MS=6_000,MAX_PROVIDER_EXECUTION_TIMEOUT_MS=900_000;
 export const PROVIDER_GRAPH_NODE_TIMEOUT_MS=MAX_PROVIDER_EXECUTION_TIMEOUT_MS+30_000;
 export const PROVIDER_GRAPH_TRANSPORT_TIMEOUT_MS=PROVIDER_GRAPH_NODE_TIMEOUT_MS+10_000;
+export const PROVIDER_GRAPH_STEP_TIMEOUT_MS=PROVIDER_GRAPH_TRANSPORT_TIMEOUT_MS+10_000;
 /** Work IQ has two sequential mutations, each retaining its existing deadline. */
 export function providerExecutionTimeoutMs(kind:string,options:unknown){
  switch(kind){
