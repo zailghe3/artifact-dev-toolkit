@@ -1,13 +1,14 @@
-export const PROVIDER_CONNECTION_TYPE_IDS=["openai-responses","openai-agents","anthropic-messages","work-iq-rest"] as const;
+import {parseOllamaConfiguration} from "../adt-runtime/src/ollama-configuration.ts";
+export const PROVIDER_CONNECTION_TYPE_IDS=["openai-responses","openai-agents","anthropic-messages","work-iq-rest","ollama-chat"] as const;
 export type ProviderConnectionTypeId=typeof PROVIDER_CONNECTION_TYPE_IDS[number];
-export type ProviderAuthenticationKind="api-key"|"delegated-oauth";
+export type ProviderAuthenticationKind="api-key"|"delegated-oauth"|"optional-api-key";
 export type ProviderExecutionPath="direct"|"adt-runtime";
-export type ProviderAgentSettingsFamily="none"|"openai-model"|"anthropic-messages"|"work-iq-rest";
+export type ProviderAgentSettingsFamily="none"|"openai-model"|"anthropic-messages"|"work-iq-rest"|"ollama-chat";
 export type ProviderSafeConfiguration=Readonly<Record<string,string>>;
 export type ProviderSafeConfigurationPolicy={forExecution:boolean;parse(value:unknown):ProviderSafeConfiguration|undefined};
 export type ProviderConnectionTypePolicy={
  id:string;provider:string;label:string;catalogueLabel:string;endpoint?:string;
- authentication:ProviderAuthenticationKind;model:{required:boolean;discovery:boolean;discoveryGuidance?:string};
+ authentication:ProviderAuthenticationKind;model:{required:boolean;discovery:boolean;location?:"control-plane"|"adt-runtime";discoveryGuidance?:string};
  capabilities:{asynchronous:boolean;cancellation:boolean;agentTools?:boolean;runtimeSecurity?:boolean};execution:ProviderExecutionPath;
  agentSettings:ProviderAgentSettingsFamily;safeConfiguration:ProviderSafeConfigurationPolicy;
 };
@@ -23,11 +24,13 @@ const anthropicConfigurationBase=createStringSafeConfigurationPolicy({workspaceI
 const anthropicSafeConfiguration:ProviderSafeConfigurationPolicy={forExecution:true,parse(value){if(value===undefined)return undefined;const parsed=anthropicConfigurationBase.parse(value)!;return Object.keys(parsed).length?parsed:undefined}};
 const guid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const workIqSafeConfiguration=createStringSafeConfigurationPolicy({tenantId:{required:true,maxLength:36,pattern:guid},clientId:{required:true,maxLength:36,pattern:guid}});
+const ollamaSafeConfiguration:ProviderSafeConfigurationPolicy={forExecution:true,parse:parseOllamaConfiguration};
 const types:Record<ProviderConnectionTypeId,ProviderConnectionType>={
  "openai-responses":{id:"openai-responses",provider:"openai",label:"OpenAI Responses",catalogueLabel:"OpenAI Responses",endpoint:"https://api.openai.com/v1",authentication:"api-key",model:openAIModel,capabilities:{asynchronous:true,cancellation:true},execution:"direct",agentSettings:"openai-model",safeConfiguration:noSafeConfiguration},
  "openai-agents":{id:"openai-agents",provider:"openai",label:"OpenAI Agents (ADT Runtime)",catalogueLabel:"OpenAI Agents / ADT Runtime",endpoint:"https://api.openai.com/v1",authentication:"api-key",model:openAIModel,capabilities:{asynchronous:false,cancellation:false,agentTools:true,runtimeSecurity:true},execution:"adt-runtime",agentSettings:"openai-model",safeConfiguration:noSafeConfiguration},
  "anthropic-messages":{id:"anthropic-messages",provider:"anthropic",label:"Anthropic",catalogueLabel:"Anthropic",endpoint:"https://api.anthropic.com",authentication:"api-key",model:anthropicModel,capabilities:{asynchronous:false,cancellation:false},execution:"adt-runtime",agentSettings:"anthropic-messages",safeConfiguration:anthropicSafeConfiguration},
  "work-iq-rest":{id:"work-iq-rest",provider:"microsoft-work-iq",label:"Microsoft Work IQ",catalogueLabel:"Microsoft Work IQ",endpoint:"https://workiq.svc.cloud.microsoft",authentication:"delegated-oauth",model:{required:false,discovery:false},capabilities:{asynchronous:false,cancellation:false},execution:"adt-runtime",agentSettings:"work-iq-rest",safeConfiguration:workIqSafeConfiguration},
+ "ollama-chat":{id:"ollama-chat",provider:"ollama",label:"Ollama (ADT Runtime)",catalogueLabel:"Ollama (ADT Runtime)",authentication:"optional-api-key",model:{required:true,discovery:true,location:"adt-runtime",discoveryGuidance:"Load models through ADT Runtime from the operator-approved Ollama endpoint."},capabilities:{asynchronous:false,cancellation:false,agentTools:false,runtimeSecurity:false},execution:"adt-runtime",agentSettings:"ollama-chat",safeConfiguration:ollamaSafeConfiguration},
 };
 
 export function getProviderConnectionType(value:string):ProviderConnectionType|undefined{return types[value as ProviderConnectionTypeId]}
@@ -40,3 +43,7 @@ export function usesWorkIqAgentSettings(policy:Pick<ProviderConnectionTypePolicy
 export function supportsAgentTools(policy:Pick<ProviderConnectionTypePolicy,"capabilities">|undefined){return policy?.capabilities.agentTools===true}
 export function normalizeConnectionModel(policy:Pick<ProviderConnectionTypePolicy,"model">,model?:string){const value=model?.trim();if(policy.model.required&&!value)throw new Error("model_required");return policy.model.required&&value?{model:value}:{};}
 export function connectionRequestModel(policy:Pick<ProviderConnectionTypePolicy,"model">,model:string){return normalizeConnectionModel(policy,model)}
+
+export function providerRequiresCredential(policy:ProviderConnectionTypePolicy,configuration?:unknown){return policy.authentication!=="optional-api-key"||parseOllamaConfiguration(configuration).authMode==="bearer"}
+export function assertProviderCredentialContract(policy:ProviderConnectionTypePolicy,configuration:unknown,credential:unknown){const required=providerRequiresCredential(policy,configuration);if(required&&!credential)throw new Error("credential_required");if(!required&&credential!==undefined)throw new Error("credential_source_invalid")}
+export function assertProviderConfigurationMutable(policy:ProviderConnectionTypePolicy,current:unknown,next:unknown){if(policy.authentication==="optional-api-key"&&JSON.stringify(parseOllamaConfiguration(current))!==JSON.stringify(parseOllamaConfiguration(next)))throw new Error("connection_configuration_immutable")}

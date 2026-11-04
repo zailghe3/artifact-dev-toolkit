@@ -12,6 +12,8 @@ const failureMessages: Record<string, string> = {
   provider_unavailable: 'Provider temporarily unavailable.',
   provider_timeout: 'Connection test timed out.',
   malformed_response: 'Provider returned an invalid response.',
+  configuration_invalid: 'Connection configuration or Runtime endpoint approval is invalid.',
+  output_too_large: 'Provider response exceeded the permitted size.',
   internal_error: 'Connection test could not be completed.',
 };
 

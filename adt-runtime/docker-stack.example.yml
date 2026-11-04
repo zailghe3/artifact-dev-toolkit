@@ -5,6 +5,8 @@ services:
     environment:
       ADT_RUNTIME_AUTH_SECRET_FILE: /run/secrets/adt_runtime_auth
       ADT_RUNTIME_PRIVATE_KEY_FILE: /run/secrets/adt_runtime_private_key
+      # Optional exact operator-approved Ollama origins, e.g. http://ollama:11434
+      ADT_RUNTIME_OLLAMA_ALLOWED_BASE_URLS: ""
     secrets:
       - adt_runtime_auth
       - adt_runtime_private_key

@@ -67,6 +67,6 @@ export function createWorkflowAdapterRegistry(fetcher?: ConstructorParameters<ty
 export function createAgentRuntimeRegistry(fetcher?: ConstructorParameters<typeof OpenAIResponsesAdapter>[0], runtimeConfiguration:ConstructorParameters<typeof RemoteOpenAIAgentsRuntime>[0]={}, runtimeFetcher?:ConstructorParameters<typeof RemoteOpenAIAgentsRuntime>[1]): AgentRuntimeRegistry {
   const adapters=createWorkflowAdapterRegistry(fetcher);
   const direct=Array.from(adapters.entries()).filter(([kind,adapter])=>kind===adapter.kind&&getProviderConnectionType(kind)?.execution!=="adt-runtime").map(([,adapter])=>new AdapterBackedAgentRuntime(adapter));
-  const remote=providerConnectionTypes.filter(policy=>policy.execution==="adt-runtime").map(policy=>policy.id==="openai-agents"?new RemoteOpenAIAgentsRuntime(runtimeConfiguration,runtimeFetcher):new RemoteProviderRuntime(runtimeConfiguration,runtimeFetcher,policy.id as RuntimeProviderKind,adapters.get(policy.id)));
+  const remote=providerConnectionTypes.filter(policy=>policy.execution==="adt-runtime").map(policy=>policy.id==="openai-agents"?new RemoteOpenAIAgentsRuntime(runtimeConfiguration,runtimeFetcher):new RemoteProviderRuntime(runtimeConfiguration,runtimeFetcher,policy.id as RuntimeProviderKind,(["anthropic-messages","work-iq-rest"].includes(policy.id)?adapters.get(policy.id):undefined)));
   return new AgentRuntimeRegistry([...direct,...remote]);
 }

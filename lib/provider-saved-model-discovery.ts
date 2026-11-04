@@ -1,5 +1,6 @@
+import {providerConnectionDescriptor} from "./git-workflow-provider-connection-store.ts";
 import {assertCompatibleConnectionTypeChange} from "./provider-authentication-lifecycle.ts";
-import {normalizeProviderSafeConfiguration,requireProviderConnectionType} from "./provider-connection-types.ts";
+import {assertProviderConfigurationMutable,providerRequiresCredential,normalizeProviderSafeConfiguration,requireProviderConnectionType} from "./provider-connection-types.ts";
 import type {ProviderModelService} from "./provider-model-service.ts";
 import type {WorkflowConnectionDefinitionRepository} from "./workflow-connection-definition-repository.ts";
 import type {WorkflowProviderConnectionStore} from "./workflow-provider-connection-store.ts";
@@ -8,6 +9,6 @@ import type {WorkflowProviderConnectionStore} from "./workflow-provider-connecti
 export async function listSavedProviderModels(connectionKey:string,connectionType:string,configuration:unknown,repository:Pick<WorkflowConnectionDefinitionRepository,"getConnection">,store:Pick<WorkflowProviderConnectionStore,"resolveForExecution">,models:Pick<ProviderModelService,"listForPolicy">){
  const current=await repository.getConnection(connectionKey);if(!current)throw new Error("connection_unavailable");
  const currentType=requireProviderConnectionType(current.definition.runtime),targetType=requireProviderConnectionType(connectionType);assertCompatibleConnectionTypeChange(currentType,targetType);
- const safeConfiguration=normalizeProviderSafeConfiguration(targetType,configuration),resolved=await store.resolveForExecution(connectionKey);if(!resolved.credential)throw new Error("vault_secret_unavailable");
+ const safeConfiguration=normalizeProviderSafeConfiguration(targetType,configuration===undefined&&targetType.authentication==="optional-api-key"?current.definition.configuration:configuration);assertProviderConfigurationMutable(targetType,current.definition.configuration,safeConfiguration);const resolved=await store.resolveForExecution(connectionKey,targetType.model.location==="adt-runtime"?providerConnectionDescriptor(current,true):undefined);if(providerRequiresCredential(targetType,safeConfiguration)&&!resolved.credential)throw new Error("vault_secret_unavailable");
  return models.listForPolicy(targetType,resolved.credential,safeConfiguration);
 }

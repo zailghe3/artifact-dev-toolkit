@@ -31,7 +31,7 @@ Next.js -> OpenNext -> Cloudflare Worker
     |
     +--> authenticated ADT Runtime
     |       - LangGraph Workflow sequencing
-    |       - OpenAI Agents, Anthropic Messages, Microsoft Work IQ execution
+    |       - OpenAI Agents, Anthropic Messages, Microsoft Work IQ, and Ollama execution
     |       - extensible ordinary AI provider execution and provider SDKs
     |       - bounded remote MCP Streamable HTTP client execution
     |       - fixed Runtime/Runner redeploy webhooks for authorised maintenance
@@ -107,13 +107,15 @@ The product invariants are in [`specs/agent-workflows.md`](specs/agent-workflows
 
 ### Provider connections
 
-- OpenAI Responses, OpenAI Agents SDK, Anthropic Messages, and Microsoft Work IQ REST are supported server-side execution providers.
+- OpenAI Responses, OpenAI Agents SDK, Anthropic Messages, Microsoft Work IQ REST, and Ollama Chat are supported server-side execution providers.
 - Git-managed provider connection types centrally define their safe configuration, authentication family, model policy, Agent option family, execution path, and capabilities; unsupported types and authentication lifecycles fail closed.
 - Git definitions under `connections/` are authoritative for validated non-secret connection configuration; only explicitly execution-safe provider fields may enter run snapshots.
 - Provider credential values live in the permanent encrypted ADT vault and are never stored in Agent or Workflow definitions.
 - Microsoft delegated OAuth occurs in the control plane. Work IQ client secrets and refresh tokens remain in the encrypted provider vault. Short-lived access tokens may enter ADT Runtime only as invocation-scoped encrypted credentials and are never persisted or supplied to Codex Runner.
-- OpenAI Agents, Anthropic Messages, and Work IQ Workflow Agents execute through ADT Runtime. OpenAI Responses retains its direct asynchronous control-plane path; Codex Runner remains separate.
-- Provider/model commissioning and delegated OAuth remain control-plane concerns, independent of Runtime readiness.
+- OpenAI Agents, Anthropic Messages, Work IQ, and Ollama Workflow Agents execute through ADT Runtime. OpenAI Responses retains its direct asynchronous control-plane path; Codex Runner remains separate.
+- OpenAI/Anthropic model commissioning and delegated OAuth remain control-plane concerns. Ollama model commissioning runs through authenticated ADT Runtime because its endpoint may exist only on the Runtime Docker/LAN network.
+- Ollama follows Cloudflare → ADT Runtime → exact operator-approved endpoint. Its safe base URL and explicit authentication mode are immutable connection identity and frozen with each run. Runtime rejects endpoints outside its operator allowlist before network access and never follows redirects.
+- Unauthenticated Ollama connections have no vault identity. Optional bearer credentials remain ADT-vault-owned and enter Runtime only in an encrypted invocation envelope; Runtime never persists them. Ollama has no direct compatibility fallback.
 - Historical provider rows or retired credential sources may remain physically present but are not current execution inputs.
 - Live provider readiness is distinct from saved configuration.
 - Provider creation, polling, retry, cancellation, and ambiguous outcomes are trust and billing boundaries.
@@ -134,7 +136,7 @@ The product invariants are in [`specs/agent-workflows.md`](specs/agent-workflows
 - Agents may optionally reference a Security Profile only when their provider connection advertises Runtime security support. Absence preserves unsecured execution behavior.
 - Adrian is an additional restriction after ADT authorization, frozen tool authority, and the global tool-call budget; it cannot grant tools or expand an MCP contract.
 - New runs freeze each secured Agent's profile identity, endpoint, decision timeout, and repository-scoped credential generation. Execution resolves only that generation, so same-endpoint key rotation remains live while endpoint changes and deletion revoke historical authority.
-- OpenAI execution remains direct through ADT's OpenAI Agents provider. The Adrian SDK remains Runtime-only and is not an OpenAI proxy.
+- OpenAI Agents execution runs through ADT Runtime. The Adrian SDK remains Runtime-only and is not an OpenAI proxy.
 - Runtime security decisions are `allow`, `deny`, `timeout`, or `unavailable`. Only positive, exact-call allow evidence permits external tool execution; every other or ambiguous state fails closed.
 - Adrian's process-global lifecycle requires one exclusive protected execution per Runtime process. Contending protected executions fail closed without queueing; unsecured executions do not acquire the lease.
 - Adrian policy and remit remain managed by Adrian. Human Review and HITL are not part of the automated V1 enforcement contract.
@@ -177,7 +179,7 @@ Operational detail belongs in [`codex-runner/README.md`](codex-runner/README.md)
 | Application sessions, encrypted provider credential vault, and durable Workflow state | D1 schema, migrations, and source |
 | Catalogue acceleration | KV cache; GitHub remains authoritative |
 | Durable Workflow orchestration | Cloudflare Workflows outer lifecycle; LangGraph sequencing in ADT Runtime; checkpoints persisted behind the control plane in D1 |
-| Ordinary AI provider execution (OpenAI Agents, Anthropic Messages, Work IQ) | independently deployed ADT Runtime; direct OpenAI Responses remains a supported exception |
+| Ordinary AI provider execution (OpenAI Agents, Anthropic Messages, Work IQ, Ollama) | independently deployed ADT Runtime; direct OpenAI Responses remains a supported exception |
 | Codex authentication and model-directed command execution | Codex Runner Executor |
 | Managed Git authority | Codex Runner Repository Manager |
 | Runner jobs, idempotency, and emergency latch | Codex Runner Controller |
