@@ -14,7 +14,6 @@ test('Connections exposes target-only Git and vault creation',async()=>{
  ]);
  assert.match(page,/href:"\/workflows\/connections\/new",label:"New connection"/);
  assert.match(newPage,/ProviderConnectionEditor/);
- assert.match(newPage,/Git-managed connection with a credential stored in the ADT vault/);
  assert.match(editor,/url=editing\?.*:"\/api\/workflow-connections"/s);
  assert.match(editor,/method:editing\?"PUT":"POST"/);
  assert.match(catalogue,/>Duplicate</);

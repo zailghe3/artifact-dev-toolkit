@@ -1,7 +1,7 @@
 import {RuntimeFailure} from "./provider-execution.js";
 import {Agent,fetch as nodeFetch} from "undici";
 
-export type ProviderHttpDependencies={fetcher?:typeof fetch;timeoutMs?:number;onProviderEntry?:()=>void};
+export type ProviderHttpDependencies={fetcher?:typeof fetch;timeoutMs?:number;onProviderEntry?:()=>void;uncertainBodyFailure?:boolean};
 export const record=(value:unknown):value is Record<string,unknown>=>!!value&&typeof value==="object"&&!Array.isArray(value);
 const fail=(category:string)=>new RuntimeFailure(category,"Provider execution failed safely.");
 export function providerHttpFailure(status:number){
@@ -19,13 +19,14 @@ export async function providerPost(url:string,headers:Record<string,string>,body
    const init={method:"POST",headers,body:JSON.stringify(body),signal:controller.signal,redirect:"error" as const};
    try{response=dependencies.fetcher?await dependencies.fetcher(url,init):await nodeFetch(url,{...init,dispatcher})}
    catch{throw fail("provider_start_ambiguous")}
-   if(!response.ok)throw providerHttpFailure(response.status);
+   if(!response.ok){await response.body?.cancel();throw providerHttpFailure(response.status)}
    if(expectedStatus!==undefined&&response.status!==expectedStatus)throw fail("malformed_response");
    // Bound upstream memory as well as the final textual output.
+   if(Number(response.headers.get("content-length"))>1_100_000){await response.body?.cancel();throw fail("output_too_large")}
    const reader=response.body?.getReader();if(!reader)throw fail("malformed_response");
    const chunks:Uint8Array[]=[];let bytes=0;
    try{for(;;){const {done,value}=await reader.read();if(done)break;bytes+=value.byteLength;if(bytes>1_100_000){await reader.cancel();throw fail("output_too_large")}chunks.push(value)}}
-   catch(error){if(error instanceof RuntimeFailure)throw error;throw fail("malformed_response")}
+   catch(error){if(error instanceof RuntimeFailure)throw error;throw fail(dependencies.uncertainBodyFailure?"provider_start_ambiguous":"malformed_response")}
    try{return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown}catch{throw fail("malformed_response")}
   })(),new Promise<never>((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(fail("provider_start_ambiguous"))},dependencies.timeoutMs??timeoutMs)})]);
  }finally{clearTimeout(timer);await dispatcher?.destroy().catch(()=>undefined)}

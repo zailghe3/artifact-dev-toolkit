@@ -20,7 +20,7 @@
 - Security Profiles are distinct from provider Connections and tool grants. They can only further restrict tool authority already granted by ADT.
 - Security Profile readiness testing runs from ADT Runtime, reports bounded WebSocket upgrade status, Adrian login, policy-mode, and SDK-readiness evidence without exposing credentials or upstream error content, and performs no provider or tool work. Authentication rejection is distinguished from hosted-service access denial. Only an authenticated Block policy is enforcement-ready; Alert is diagnostic-only and Human Review remains unsupported.
 - A secured run freezes its Security Profile trust target and credential generation. Profile edits do not rewrite an existing run, and unavailable or ambiguous security evidence prevents external tool execution.
-- Provider model discovery contacts the selected provider directly from the control plane. It does not depend on ADT Runtime, Adrian, or a Security Profile, and reports only bounded provider diagnostics.
+- OpenAI and Anthropic model discovery contact the provider directly from the control plane. Ollama model discovery runs through authenticated ADT Runtime. Discovery reports bounded diagnostics and does not perform inference or require a Security Profile.
 - An Agent prompt is either custom text or a reference to an Artifact Library prompt.
 - A **Workflow** is a v2 semantic graph of versioned blocks and edges.
 - Supported backend-executable blocks are Agent references, deterministic text Conditions, Join barriers, resumable human Approval gates, reusable Workflow composites, and the explicit managed GitHub publication block.
@@ -158,7 +158,7 @@
 
 ## 11. Provider execution connections and ADT Runtime
 
-- ADT Runtime is the extensible ordinary AI provider execution plane for OpenAI Agents, Anthropic Messages, and Microsoft Work IQ. OpenAI Responses retains its direct control-plane execution path; Codex Runner remains a separate boundary.
+- ADT Runtime is the extensible ordinary AI provider execution plane for OpenAI Agents, Anthropic Messages, Microsoft Work IQ, and Ollama. OpenAI Responses retains its direct control-plane execution path; Codex Runner remains a separate boundary.
 - Current OpenAI execution uses Git-defined connections backed by the encrypted ADT vault.
 - The resolved Agent prompt is supplied as provider instructions and Workflow input is supplied as Agent input without framework summarisation.
 - Only bounded textual Agent output becomes Workflow output; provider reasoning and raw provider responses are not exposed as Workflow output.
@@ -185,6 +185,19 @@
 - Workflow Agent execution is one synchronous Messages request through ADT Runtime, with no provider task or cancellation identity. Credential/model commissioning remains in the control plane.
 - Only bounded ordered text blocks become Workflow output. Tools, thinking, streaming, provider sessions, and non-text response data are not supported.
 - An ambiguous synchronous start is not blindly retried because the request may already have produced billable provider work.
+
+### Ollama execution
+
+- One `ollama-chat` connection supports a local/self-hosted endpoint or an authenticated endpoint such as Ollama Cloud through the native Ollama Chat API.
+- Agent execution and model commissioning run only through ADT Runtime. A private/Docker/LAN endpoint must exactly match the Runtime operator's endpoint allowlist; ADT never calls it directly from Cloudflare or falls back to direct execution.
+- Connections require an explicitly discovered selected model. Refresh, creation, editing, and provider testing validate model availability without generating text or pulling a model.
+- The endpoint and authentication mode are immutable after creation. Name and model may change, and a bearer credential may be rotated or recovered. Changing the endpoint or authentication mode requires a new connection identity.
+- Authentication is explicitly None or Bearer API key. The official direct-cloud origin `https://ollama.com` requires Bearer; custom HTTP/HTTPS endpoints support either mode. None creates no vault entry or credential reference and sends no Authorization header. Bearer requires an encrypted vault credential, resolved only for commissioning or exact execution and encrypted in transit to Runtime.
+- Runs freeze the selected model, validated base URL, authentication mode, credential reference when required, and Ollama Agent settings. Later connection changes cannot replace a historical endpoint or credential identity. Revoked bearer credentials fail closed.
+- Each invocation sends the resolved Agent prompt unchanged as a system message and the Workflow handoff unchanged as one user message, including an empty handoff. Only textual message content becomes Workflow output; thinking and timing metadata are not retained.
+- Agent controls expose only a positive maximum output-token count and execution timeout. Defaults are 4096 tokens and 300 seconds; supported ranges are 1–32768 tokens and 5–900 seconds.
+- Ollama executes one bounded synchronous request with no streaming, images, embeddings, tools, Security Profiles, or persistent provider conversation. An uncertain chat submission is not blindly retried.
+- A Runtime without Ollama execution/model-discovery capabilities reports the provider unavailable until upgraded. Generic Runtime diagnostics, Ollama model commissioning, and actual Agent execution remain distinct checks.
 
 ### Microsoft Work IQ execution
 

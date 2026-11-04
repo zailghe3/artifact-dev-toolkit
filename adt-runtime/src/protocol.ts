@@ -1,6 +1,7 @@
 import { createHash, createHmac, createPrivateKey, createPublicKey, timingSafeEqual, webcrypto } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { z } from "zod";
+import {parseOllamaConfiguration} from "./ollama-configuration.js";
 
 export const PROTOCOL_VERSION = "adt-runtime-v1";
 export const PROVIDER_EXECUTE_PATH="/v1/executions/provider",PROVIDER_EXECUTION_CAPABILITY="provider-execution";
@@ -40,7 +41,14 @@ export type ExecutionRequest = z.infer<typeof executionSchema>;
 const providerIdentity={protocolVersion:z.literal(PROTOCOL_VERSION),requestId:bounded(128),idempotencyKey:bounded(256),agentName:bounded(160),instructions:bounded(262_144),input:z.string().max(262_144)};
 export const anthropicExecutionSchema=z.object({...providerIdentity,capability:z.literal("anthropic-messages"),model:bounded(120),options:z.object({maxOutputTokens:z.number().int().min(1).max(32768).optional()}).strict(),configuration:z.object({workspaceId:bounded(128).regex(/^wrkspc_[A-Za-z0-9_-]+$/).optional()}).strict().optional(),credential:envelopeSchema}).strict();
 export const workIqExecutionSchema=z.object({...providerIdentity,capability:z.literal("work-iq-rest"),options:z.object({timeZone:bounded(255).refine(value=>{try{new Intl.DateTimeFormat("en-US",{timeZone:value});return true}catch{return false}},"Invalid IANA time zone."),webGroundingEnabled:z.boolean().optional()}).strict(),credential:envelopeSchema}).strict();
-export const providerExecutionSchema=z.discriminatedUnion("capability",[executionSchema,anthropicExecutionSchema,workIqExecutionSchema]);
+export const PROVIDER_MODELS_PATH="/v1/providers/models",PROVIDER_MODELS_CAPABILITY="provider-model-discovery";
+const ollamaConfiguration=z.unknown().transform((value,context)=>{try{return parseOllamaConfiguration(value)}catch{context.addIssue({code:"custom",message:"Ollama configuration is invalid."});return z.NEVER}});
+const ollamaCredential={configuration:ollamaConfiguration,credential:envelopeSchema.optional()};
+const checkOllamaCredential=(value:{configuration:{authMode:"none"|"bearer"};credential?:unknown},context:z.RefinementCtx)=>{if(value.configuration.authMode==="bearer"?!value.credential:value.credential!==undefined)context.addIssue({code:"custom",message:"Credential does not match authentication mode.",path:["credential"]})};
+export const ollamaExecutionSchema=z.object({...providerIdentity,capability:z.literal("ollama-chat"),model:bounded(120),...ollamaCredential,options:z.object({maxOutputTokens:z.number().int().min(1).max(32768).default(4096),executionTimeoutSeconds:z.number().int().min(5).max(900).default(300)}).strict()}).strict().superRefine(checkOllamaCredential);
+export const providerModelsSchema=z.object({protocolVersion:z.literal(PROTOCOL_VERSION),capability:z.literal(PROVIDER_MODELS_CAPABILITY),provider:z.literal("ollama-chat"),requestId:bounded(128),...ollamaCredential}).strict().superRefine(checkOllamaCredential);
+export type OllamaExecutionRequest=z.infer<typeof ollamaExecutionSchema>;
+export const providerExecutionSchema=z.discriminatedUnion("capability",[executionSchema,anthropicExecutionSchema,workIqExecutionSchema,ollamaExecutionSchema]);
 export type AnthropicExecutionRequest=z.infer<typeof anthropicExecutionSchema>;
 export type WorkIqExecutionRequest=z.infer<typeof workIqExecutionSchema>;
 export type ProviderExecutionRequest=z.infer<typeof providerExecutionSchema>;

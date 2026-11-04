@@ -75,7 +75,7 @@ Current provider credentials resolve only from the ADT vault in the control plan
 - MCP discovery exposes bounded catalogue metadata. MCP calls consume a caller-selected frozen schema, map remote failures to safe errors, and are never automatically retried after dispatch.
 - One LangGraph advance reconstructs the frozen ADT plan, resumes through the remote checkpoint boundary, admits a bounded executable frontier through the control plane, checkpoints, and returns control to the outer Cloudflare Workflow.
 - Checkpoint and Agent-node callbacks carry only narrowly scoped authority for the exact run/action being performed. Runtime never receives the Worker-only authority secret itself.
-- One provider-neutral execution operation dispatches strict OpenAI Agents, Anthropic Messages, and Work IQ contracts. Generic provider execution and each supported provider kind are advertised independently, alongside the existing tool, LangGraph, and Adrian capabilities.
+- One provider-neutral execution operation dispatches strict OpenAI Agents, Anthropic Messages, Work IQ, and Ollama contracts. Generic provider execution and each supported provider kind are advertised independently, alongside the existing tool, LangGraph, and Adrian capabilities.
 - The legacy OpenAI Agents operation remains an alias to the same executor for older Workers. A new Worker uses generic execution only after authenticated readiness advertises both generic execution and the exact provider. Successful readiness from an older compatible Runtime permits legacy OpenAI execution or the temporary direct Anthropic/Work IQ bridge. No readiness or execution failure authorizes direct fallback.
 - Each provider preserves its bounded synchronous execution semantics. OpenAI Agents retains Artifact Search/MCP/Adrian support; Anthropic and Work IQ remain tool-free without Security Profile support. OpenAI Responses remains direct in the Worker, and Codex Runner stays separate.
 - Agent/provider execution deadlines remain distinct from internal Worker transport and HTTP-server allowances. Anthropic retains its longer synchronous deadline; Work IQ retains a separate deadline for each conversation/chat mutation. The enclosing graph callback, explicit Cloudflare step deadline, checkpoint authority, and reconciliation window cover admitted synchronous work. No new infrastructure timeout setting is exposed to users.
@@ -93,7 +93,7 @@ Commission Runtime without trial-running a provider invocation:
 1. Confirm the container healthcheck is healthy.
 2. Use **Test ADT Runtime** to confirm reachability, request authentication, protocol compatibility, required capabilities, and wrapping-key compatibility.
 3. On the unified Diagnostics page, explicitly run **Test execution path** when Workflow execution is being commissioned. It verifies Runtime-to-gateway reachability with narrow diagnostic authority and performs no provider work or Workflow mutation.
-4. Run the separate provider **Test connection** for the credential/model. Provider commissioning and model discovery remain direct control-plane checks and do not establish Runtime health.
+4. Run the separate provider **Test connection** for the credential/model. OpenAI/Anthropic commissioning remains direct in the control plane; Ollama commissioning uses Runtime. Neither proves actual Agent inference.
 5. Only after the applicable checks pass, run a real Workflow.
 
 The execution-path diagnostic is non-mutating: it does not create Workflow/checkpoint state, resolve provider credentials, invoke an Agent/provider, search Artifact contents, or access GitHub.
@@ -101,6 +101,19 @@ The execution-path diagnostic is non-mutating: it does not create Workflow/check
 Passive readiness, execution-path readiness, provider connection readiness, and real provider execution are separate conditions and should remain separately diagnosable.
 
 Runtime logs are structured safe events. Use bounded stage/result/status/correlation/duration fields; do not log or compare secret values, provider payloads, prompts, callback bodies, or raw exception text.
+
+## Ollama endpoints and model commissioning
+
+- Configure `ADT_RUNTIME_OLLAMA_ALLOWED_BASE_URLS` with up to 32 comma-separated origin URLs, for example `http://ollama:11434,https://ollama.com`. The default empty list permits no Ollama endpoint.
+- The Worker and Runtime share strict base-URL normalization: HTTP/HTTPS only, no embedded credentials, query, fragment, or non-root path. Trailing `/` is removed. Malformed operator configuration prevents startup; endpoint lists are never logged or exposed by readiness.
+- Every discovery and execution checks an exact normalized allowlist match before network access. Scheme, host, and port must match. Private network access is intentional only for operator-approved endpoints; MCP's public-internet-only policy does not apply.
+- Runtime appends only `/api/tags` for read-only model discovery and `/api/chat` for one non-streaming chat. Redirects are disabled, responses are bounded, and requests are never automatically retried. No model pull/create/delete operation is exposed.
+- Localhost refers to Runtime's own process/container. Use the appropriate Docker service name, host gateway, LAN address, or routed hostname, and provide network connectivity separately. This feature does not deploy Ollama.
+- Select None for an ordinary unauthenticated local server. The official direct-cloud origin `https://ollama.com` requires Bearer API key authentication; None is rejected before discovery, saving, or execution. Custom endpoints may use None or Bearer, including custom HTTPS endpoints. Select Bearer for an authenticated reverse proxy. Runtime receives bearer values only as encrypted call-scoped credentials from the ADT vault; do not provision an Ollama API key as a Runtime environment variable.
+- Authenticated `POST /v1/providers/models` uses the additive `provider-model-discovery` capability and a strict `ollama-chat` branch. It carries only correlation identity, safe connection configuration, and an optional encrypted credential. It never receives a prompt, Workflow state, tools, or repository authority.
+- Readiness advertises `ollama-chat`, generic provider execution, and provider model discovery independently of allowlist contents. Missing capability and rejected endpoint configuration are distinct failures; an empty allowlist does not hide protocol support.
+- Deploy Runtime release 8 or later and configure the allowlist before commissioning Ollama. In the application, create an Ollama connection, load available models, select an advertised model, and save. Use **Test connection** to recheck that model through Runtime without inference. Use **Test ADT Runtime** separately for the Runtime boundary.
+- Old Workers retain existing execution endpoints and capabilities, including the legacy OpenAI alias. New Workers fail closed for Ollama on an older Runtime, with no direct Cloudflare fallback. Existing Anthropic/Work IQ rollout compatibility remains unchanged.
 
 ## Release identity
 
