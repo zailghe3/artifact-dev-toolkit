@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { z } from "zod";
 
 export const PROTOCOL_VERSION = "adt-runtime-v1";
+export const PROVIDER_EXECUTE_PATH="/v1/executions/provider",PROVIDER_EXECUTION_CAPABILITY="provider-execution";
 export const EXECUTE_PATH = "/v1/executions/openai-agents";
 export const READINESS_PATH = "/v1/readiness";
 export const MCP_DISCOVER_PATH="/v1/tools/mcp/discover",MCP_CALL_PATH="/v1/tools/mcp/call";
@@ -35,6 +36,15 @@ export const executionSchema = z.object({
   credential: envelopeSchema,
 }).strict().superRefine((value,context)=>{if(value.tools.length&&!value.toolGateway)context.addIssue({code:"custom",message:"Tool gateway is required.",path:["toolGateway"]});if(new Set(value.mcpTools.map(x=>x.alias)).size!==value.mcpTools.length)context.addIssue({code:"custom",message:"MCP aliases must be unique.",path:["mcpTools"]});});
 export type ExecutionRequest = z.infer<typeof executionSchema>;
+// Common identity deliberately excludes model, options, tools and credentials.
+const providerIdentity={protocolVersion:z.literal(PROTOCOL_VERSION),requestId:bounded(128),idempotencyKey:bounded(256),agentName:bounded(160),instructions:bounded(262_144),input:z.string().max(262_144)};
+export const anthropicExecutionSchema=z.object({...providerIdentity,capability:z.literal("anthropic-messages"),model:bounded(120),options:z.object({maxOutputTokens:z.number().int().min(1).max(32768).optional()}).strict(),configuration:z.object({workspaceId:bounded(128).regex(/^wrkspc_[A-Za-z0-9_-]+$/).optional()}).strict().optional(),credential:envelopeSchema}).strict();
+export const workIqExecutionSchema=z.object({...providerIdentity,capability:z.literal("work-iq-rest"),options:z.object({timeZone:bounded(255).refine(value=>{try{new Intl.DateTimeFormat("en-US",{timeZone:value});return true}catch{return false}},"Invalid IANA time zone."),webGroundingEnabled:z.boolean().optional()}).strict(),credential:envelopeSchema}).strict();
+export const providerExecutionSchema=z.discriminatedUnion("capability",[executionSchema,anthropicExecutionSchema,workIqExecutionSchema]);
+export type AnthropicExecutionRequest=z.infer<typeof anthropicExecutionSchema>;
+export type WorkIqExecutionRequest=z.infer<typeof workIqExecutionSchema>;
+export type ProviderExecutionRequest=z.infer<typeof providerExecutionSchema>;
+
 export const securityTestSchema=z.object({protocolVersion:z.literal(PROTOCOL_VERSION),capability:z.literal("security:adrian:test"),requestId:bounded(128),profileId:bounded(80).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),endpointUrl:z.string().url().max(2048).refine(value=>{const url=new URL(value);return url.protocol==="wss:"&&!url.username&&!url.password&&!url.search}),decisionTimeoutMs:z.number().int().min(250).max(30_000),credential:envelopeSchema}).strict();
 const mcpBase={protocolVersion:z.literal(PROTOCOL_VERSION),requestId:bounded(128),server:mcpConfig,credential:envelopeSchema.optional()};
 export const mcpDiscoverySchema=z.object({...mcpBase,capability:z.literal("mcp:streamable-http:discover")}).strict();

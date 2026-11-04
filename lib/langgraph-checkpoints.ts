@@ -1,3 +1,4 @@
+import {PROVIDER_GRAPH_TRANSPORT_TIMEOUT_MS} from "./provider-execution-timeouts.ts";
 import type {WorkflowD1Database} from "./workflow-d1-storage.ts";
 
 const MAX_OPERATION_BYTES=1_000_000,MAX_LIST=100,encoder=new TextEncoder(),specialWriteIndexes:Record<string,number>={__error__:-1,__scheduled__:-2,__interrupt__:-3,__resume__:-4};
@@ -11,7 +12,7 @@ async function hmac(secret:string,value:string){const key=await crypto.subtle.im
 async function digest(value:string){return b64(await crypto.subtle.digest("SHA-256",encoder.encode(value)))}
 async function issueAuthority(aud:"checkpoint"|"graph-node"|"runtime-diagnostic",runId:string,secret:string,expiresAt:number,scope?:Record<string,unknown>){if(secret.length<32)throw new Error(`${aud}_authority_unavailable`);const payload=b64(encoder.encode(JSON.stringify({v:1,aud,runId,expiresAt,nonce:crypto.randomUUID(),...scope})).buffer);return`${payload}.${await hmac(secret,payload)}`}
 async function authorityPayload(aud:"checkpoint"|"graph-node"|"runtime-diagnostic",token:string,runId:string,secret:string){const [payload,signature,...rest]=token.split(".");if(rest.length||!payload||!signature||secret.length<32)return undefined;const expected=await hmac(secret,payload);if(expected.length!==signature.length)return undefined;let mismatch=0;for(let i=0;i<expected.length;i++)mismatch|=expected.charCodeAt(i)^signature.charCodeAt(i);if(mismatch)return undefined;try{const value=JSON.parse(new TextDecoder().decode(decode(payload)));return value.v===1&&value.aud===aud&&value.runId===runId&&Number.isInteger(value.expiresAt)&&value.expiresAt>=Date.now()&&typeof value.nonce==="string"?value as Record<string,unknown>:undefined}catch{return undefined}}
-export const issueCheckpointAuthority=(runId:string,secret:string,expiresAt=Date.now()+5*60_000)=>issueAuthority("checkpoint",runId,secret,expiresAt);
+export const issueCheckpointAuthority=(runId:string,secret:string,expiresAt=Date.now()+PROVIDER_GRAPH_TRANSPORT_TIMEOUT_MS+10_000)=>issueAuthority("checkpoint",runId,secret,expiresAt);
 export const verifyCheckpointAuthority=async(token:string,runId:string,secret:string)=>Boolean(await authorityPayload("checkpoint",token,runId,secret));
 export type GraphNodeAuthorityScope={runId:string;nodeId:string;activationId?:string;workflowGeneration:number;iteration:number;attempt:number};
 export const issueGraphNodeAuthority=(scope:GraphNodeAuthorityScope,secret:string,expiresAt=Date.now()+5*60_000)=>issueAuthority("graph-node",scope.runId,secret,expiresAt,{nodeId:scope.nodeId,...(scope.activationId?{activationId:scope.activationId}:{}),workflowGeneration:scope.workflowGeneration,iteration:scope.iteration,attempt:scope.attempt});

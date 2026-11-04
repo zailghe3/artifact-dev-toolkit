@@ -1,5 +1,7 @@
 import {workIqRestOptionsSchema,type AdapterInvocation,type AdapterResult,type AgentProviderAdapter,type ConnectionTestResult,type FailureCategory} from "./workflow-adapter.ts";import type {ConnectionDescriptor,ResolvedConnection} from "./workflow-connections.ts";import {classifyTransportException,isLocalRuntimeTransportRejection} from "./safe-transport-exception.ts";
-export const WORK_IQ_ENDPOINT="https://workiq.svc.cloud.microsoft",WORK_IQ_EXECUTION_TIMEOUT_MS=120_000,WORK_IQ_TEST_TIMEOUT_MS=30_000;
+import {WORK_IQ_EXECUTION_TIMEOUT_MS} from "./provider-execution-timeouts.ts";
+export {WORK_IQ_EXECUTION_TIMEOUT_MS} from "./provider-execution-timeouts.ts";
+export const WORK_IQ_ENDPOINT="https://workiq.svc.cloud.microsoft",WORK_IQ_TEST_TIMEOUT_MS=30_000;
 const MAX_OUTPUT=262144,object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==="object"&&!Array.isArray(v),failure=(category:FailureCategory)=>Object.assign(new Error(category),{category});type Fetcher=(input:string|URL,init?:RequestInit)=>Promise<Response>;
 export function frameWorkIqMessage(instructions:string,input:string){return `Instructions:\n${instructions}\n\nWorkflow input:\n${input}`}
 export function extractWorkIqResponse(value:unknown,submitted:string){if(!object(value))throw failure("malformed_response");if(value.state==="disengagedForRai")throw failure("provider_rejected");if(!Array.isArray(value.messages))throw failure("malformed_response");const texts=value.messages.flatMap(message=>object(message)&&typeof message.text==="string"?[message.text]:[]);const answer=[...texts].reverse().find(text=>text!==submitted);if(!answer)throw failure("malformed_response");if(answer.length>MAX_OUTPUT)throw failure("output_too_large");return answer}

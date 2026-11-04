@@ -5,7 +5,8 @@ import {z} from "zod";
 
 export const MAX_CHECKPOINT_RESPONSE_BYTES=1_100_000;
 export const LANGGRAPH_EXECUTE_PATH="/v1/executions/langgraph-linear";
-export const GRAPH_NODE_GATEWAY_TIMEOUT_MS=45_000;
+import {GRAPH_NODE_PROVIDER_TIMEOUT_MS} from "./provider-timeouts.js";
+export const GRAPH_NODE_GATEWAY_TIMEOUT_MS=GRAPH_NODE_PROVIDER_TIMEOUT_MS;
 const bounded=z.string().min(1).max(256);
 
 class NodePending extends Error{readonly state:"pending"|"failed"|"cancelled";readonly safeMessage?:string;readonly retryAfterMs?:number;constructor(state:"pending"|"failed"|"cancelled",safeMessage?:string,retryAfterMs?:number){super("langgraph_node_pending");this.state=state;this.safeMessage=safeMessage;this.retryAfterMs=retryAfterMs}}
