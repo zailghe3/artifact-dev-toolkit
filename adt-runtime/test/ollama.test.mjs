@@ -107,3 +107,13 @@ test('explicitly approved LAN HTTP and authenticated HTTPS origins work for both
   assert.deepEqual(await discoverOllamaModels(safe,credential,endpoints,dependencies),['model:tag']);assert.equal(await executeOllama({...identity,configuration:safe},credential,endpoints,dependencies),'output');assert.deepEqual(calls,[baseUrl+'/api/tags',baseUrl+'/api/chat']);
  }
 });
+
+test('official Cloud no-auth is denied by both Runtime branches before entry even when allowlisted',async()=>{
+ let calls=0;const configuration={baseUrl:'HTTPS://OLLAMA.COM:443/',authMode:'none'},allowed=new Set(['https://ollama.com']),dependencies={fetcher:async()=>{calls++;throw Error('must not connect')}};
+ assert.equal(providerExecutionSchema.safeParse({...identity,configuration}).success,false);
+ assert.equal(providerModelsSchema.safeParse({protocolVersion:PROTOCOL_VERSION,capability:'provider-model-discovery',provider:'ollama-chat',requestId:'cloud',configuration}).success,false);
+ await assert.rejects(executeOllama({...identity,configuration},'',allowed,dependencies),error=>error.category==='configuration_invalid');
+ await assert.rejects(discoverOllamaModels(configuration,'',allowed,dependencies),error=>error.category==='configuration_invalid');assert.equal(calls,0);
+ const bearer={baseUrl:'https://ollama.com',authMode:'bearer'};
+ await assert.rejects(discoverOllamaModels(bearer,'key',new Set(),dependencies),error=>error.category==='configuration_invalid');assert.equal(calls,0);
+});

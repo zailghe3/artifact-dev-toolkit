@@ -16,8 +16,8 @@ Module._load=function(request,...rest){
  if(request==='@/lib/workflow-services')return services;
  return originalLoad.call(this,request,...rest);
 };
-let create,update,credential;
-try{create=require('../app/api/workflow-connections/route.ts');update=require('../app/api/workflow-connections/[connectionKey]/route.ts');credential=require('../app/api/workflow-connections/[connectionKey]/credential/route.ts')}finally{Module._load=originalLoad}
+let create,update,credential,discover;
+try{create=require('../app/api/workflow-connections/route.ts');update=require('../app/api/workflow-connections/[connectionKey]/route.ts');credential=require('../app/api/workflow-connections/[connectionKey]/credential/route.ts');discover=require('../app/api/workflow-connections/models/route.ts')}finally{Module._load=originalLoad}
 const configuration={baseUrl:'http://ollama:11434',authMode:'none'},secretRef=`sec_${'a'.repeat(43)}`,params={params:Promise.resolve({connectionKey:'ollama'})};
 const request=(body,method='POST',origin='https://adt.example')=>new Request('https://adt.example/api/workflow-connections',{method,headers:{origin,'content-type':'application/json'},body:JSON.stringify(body)});
 function fixture(){
@@ -35,5 +35,14 @@ test('actual Ollama creation and update routes enforce auth, immutable endpoint 
   f.calls.length=0;const missing=await update.PUT(request({displayName:'Name',model:'missing',repositoryRevision:'sha'},'PUT'),params);assert.equal(missing.status,422);assert.equal(f.calls.some(call=>call[0]==='git-update'),false);
   f.calls.length=0;assert.equal((await update.PUT(request({displayName:'Changed',model:'second',repositoryRevision:'sha'},'PUT'),params)).status,200);assert.equal(f.saved.value.name,'Changed');assert.equal(f.saved.value.model,'second');assert.deepEqual(f.saved.value.configuration,{...configuration,authMode});assert.equal(f.calls[0][0],'resolve');assert.equal(f.calls[0][1].credentialSecretRef,authMode==='bearer'?secretRef:undefined);
   f.calls.length=0;const rotation=await credential.PUT(request({credential:'rotated-key',repositoryRevision:'sha'},'PUT'),params);assert.equal(rotation.status,authMode==='bearer'?200:422);assert.deepEqual(f.calls,authMode==='bearer'?[['replace',secretRef,'rotated-key']]:[]);
+ }
+});
+
+test('unsaved direct-cloud discovery and creation reject no-auth before commissioning or persistence',async()=>{
+ for(const baseUrl of ['https://ollama.com','HTTPS://OLLAMA.COM:443/']){
+  const f=fixture(),configuration={baseUrl,authMode:'none'};
+  assert.equal((await discover.POST(request({connectionType:'ollama-chat',configuration}))).status,422);
+  assert.equal((await create.POST(request({connectionKey:'ollama',displayName:'Cloud',adapter:'ollama-chat',model:'first',configuration}))).status,422);
+  assert.deepEqual(f.calls,[]);assert.equal(f.saved.value,undefined);
  }
 });

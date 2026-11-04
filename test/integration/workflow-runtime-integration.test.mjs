@@ -116,3 +116,11 @@ test('Ollama workflows commission and execute through Runtime to a real allowlis
   if(ambiguous){assert.equal(detail.attempts.length,1);assert.equal(detail.attempts[0].failureCategory,'provider_start_ambiguous');assert.equal(detail.attempts[0].retryable,false);await h.execute();assert.equal(calls.filter(call=>call.path==='/api/chat').length,1)}else{assert.equal(detail.attempts[0].outputText,'persisted Ollama output');assert.equal(detail.attempts[1].status,'succeeded');assert.match(detail.run.finalOutput,/persisted Ollama output/)}
  });
 });
+
+test('persisted Ollama run decoding fails closed for official Cloud without Bearer',async t=>{
+ const db=await database(t),storage=new D1WorkflowRunStorage(db),one={...agent('cloud-contract'),connectionKey:'ollama'},workflow=workflowDefinitionV2Schema.parse({schemaVersion:2,id:'cloud-contract',name:'Cloud contract',description:'',status:'draft',nodes:[{id:'cloud',blockType:'agent',blockVersion:1,config:{agentId:one.id}}],edges:[],limits:{maxStepExecutions:1}}),connection={key:'ollama',name:'Local',adapter:'ollama-chat',defaultModel:'model:tag',providerConfiguration:{baseUrl:'http://ollama:11434',authMode:'none'},management:'git',repositoryRevision:'sha',enabled:true,capabilities:{asynchronous:false,cancellation:false}},run=newLangGraphWorkflowRun({id:crypto.randomUUID(),workflow,executionPlan:compileWorkflowV2ExecutionPlan(workflow,[one]),agents:[one],connections:[connection],revision:'sha',initialInput:''});
+ await storage.createRun(run);assert.equal((await storage.getRun(run.id)).run.connectionSnapshots.ollama.providerConfiguration.authMode,'none');
+ connection.providerConfiguration={baseUrl:'https://ollama.com',authMode:'none'};
+ await db.prepare('UPDATE workflow_runs SET connection_snapshots_json = ? WHERE id = ?').bind(JSON.stringify({ollama:connection}),run.id).run();
+ await assert.rejects(storage.getRun(run.id),/ollama_configuration_invalid/);
+});

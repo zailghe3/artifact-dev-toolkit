@@ -104,3 +104,19 @@ test('saved Ollama discovery resolves the same saved credential identity even if
  const store={resolveForExecution:async(key,snapshot)=>{assert.equal(key,'ollama');observed.push(snapshot);assert.equal(snapshot.credentialSecretRef,secretRef);assert.equal(snapshot.repositoryRevision,'frozen');assert.deepEqual(snapshot.providerConfiguration,current.definition.configuration);return{...snapshot,credential:'exact-frozen-key'}}},models=new ProviderModelService({listRuntimeModels:async(safe,key)=>{assert.equal(key,'exact-frozen-key');assert.deepEqual(safe,definition('bearer').configuration);return['model:tag']}});
  assert.deepEqual(await listSavedProviderModels('ollama','ollama-chat',undefined,{getConnection:async()=>current},store,models),['model:tag']);assert.equal(observed.length,1);
 });
+
+test('official Cloud requires explicit Bearer in canonical configuration and saved definitions while custom origins keep both modes',()=>{
+ for(const baseUrl of ['https://ollama.com','HTTPS://OLLAMA.COM:443/']){
+  assert.throws(()=>policy.safeConfiguration.parse({baseUrl,authMode:'none'}));
+  assert.equal(connectionDefinitionSchema.safeParse({...definition(),configuration:{baseUrl,authMode:'none'}}).success,false);
+  assert.equal(policy.safeConfiguration.parse({baseUrl,authMode:'bearer'}).baseUrl,'https://ollama.com');
+  assert.equal(connectionDefinitionSchema.safeParse({...definition('bearer'),configuration:{baseUrl,authMode:'bearer'}}).success,true);
+ }
+ for(const baseUrl of ['http://ollama:11434','https://custom.example','http://ollama.com','https://ollama.com:8443'])for(const authMode of ['none','bearer'])assert.deepEqual(policy.safeConfiguration.parse({baseUrl,authMode}),{baseUrl,authMode});
+});
+
+test('invalid direct-cloud snapshots fail admission without resolving a credential or contacting a provider',async()=>{
+ const {resolveWorkflowRunConnectionSnapshot}=await import('../lib/workflow-run-connection-snapshots.ts'),f=fixture(),snapshot=await f.store.getSafeDescriptor('ollama');
+ await assert.rejects(resolveWorkflowRunConnectionSnapshot({...snapshot,providerConfiguration:{baseUrl:'https://ollama.com',authMode:'none'}},f.store),/ollama_configuration_invalid/);
+ assert.deepEqual(f.calls,[]);
+});

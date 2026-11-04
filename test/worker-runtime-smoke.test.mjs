@@ -1,6 +1,32 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { smokeWorker } from '../scripts/smoke-test-worker.mjs';
+import { readFile } from 'node:fs/promises';
+import { setTimeout as delay } from 'node:timers/promises';
+
+// SIGKILL delivery is asynchronous: observe eventual quiescence, with a strict bound.
+async function waitForDescendantTermination(pid, {readStat=()=>readFile(`/proc/${pid}/stat`,'utf8'),timeoutMs=1000,intervalMs=10}={}) {
+  const deadline=performance.now()+timeoutMs;
+  for (;;) {
+    try {
+      const stat=await readStat();
+      if(stat.slice(stat.lastIndexOf(')')+2).split(' ')[0]==='Z')return;
+    } catch(error) {if(error.code==='ENOENT')return;throw error;}
+    assert.ok(performance.now()<deadline, 'Descendant remained live after the cleanup settlement deadline');
+    await delay(intervalMs);
+  }
+}
+
+test('descendant settlement accepts transient live states followed by zombie or disappearance',async()=>{
+  for(const terminal of ['Z','ENOENT']){
+    const states=['R','S',terminal];
+    await waitForDescendantTermination(123,{readStat:async()=>{const state=states.shift();if(state==='ENOENT')throw Object.assign(new Error('gone'),{code:'ENOENT'});return `123 (worker child) ${state} 1`}});
+    assert.equal(states.length,0);
+  }
+});
+test('descendant settlement fails when a process genuinely remains live past its deadline',async()=>{
+  await assert.rejects(waitForDescendantTermination(123,{readStat:async()=>'123 (worker child) R 1',timeoutMs:20,intervalMs:5}),/Descendant remained live/);
+});
 
 const fixture = mode => port => [process.execPath, '--input-type=module', '-e', `
   import {createServer} from 'node:http';
@@ -44,19 +70,19 @@ test('Wrangler localhost canonicalization is accepted only on the same loopback 
   for(const origin of ['https://evil.example','http://localhost:9999','http://user:password@localhost:1234'])assert.equal(validateProbe(path,response(`${origin}/sign-in?error=configuration&returnTo=%2Fsmoke`),'','http://127.0.0.1:1234'),false);
 });
 test('cleanup terminates a stubborn descendant process as well as Wrangler',async()=>{
-  const {mkdtemp,readFile,rm}=await import('node:fs/promises');
+  const {mkdtemp,rm}=await import('node:fs/promises');
   const {tmpdir}=await import('node:os');
   const {join}=await import('node:path');
   const directory=await mkdtemp(join(tmpdir(),'adt-smoke-child-test-')),pidFile=join(directory,'pid');
   try {
     await smokeWorker({startupMs:5000,command:port=>[process.execPath,'--input-type=module','-e',`
       import {spawn} from 'node:child_process';import {writeFileSync} from 'node:fs';
-      const child=spawn(process.execPath,['-e',"process.on('SIGTERM',()=>{});setInterval(()=>{},1000)"],{stdio:'ignore'});
+      const child=spawn(process.execPath,['-e',"process.on('SIGTERM',()=>{});process.stdout.write('ready');setInterval(()=>{},1000)"],{stdio:['ignore','pipe','ignore']});
+      await new Promise(resolve=>child.stdout.once('data',resolve));
       writeFileSync(${JSON.stringify(pidFile)},String(child.pid));
       ${fixture('ok')(port)[3]}
     `]});
     const pid=Number(await readFile(pidFile,'utf8'));
-    try {const stat=await readFile(`/proc/${pid}/stat`,'utf8');assert.equal(stat.split(' ')[2],'Z');}
-    catch(error){if(error.code!=='ENOENT')throw error;}
+    await waitForDescendantTermination(pid);
   } finally {await rm(directory,{recursive:true,force:true});}
 });

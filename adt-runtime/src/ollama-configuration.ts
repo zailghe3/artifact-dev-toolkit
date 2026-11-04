@@ -11,7 +11,9 @@ export function parseOllamaConfiguration(value:unknown):OllamaConfiguration{
  if(!value||typeof value!=="object"||Array.isArray(value))throw new Error("ollama_configuration_invalid");
  const v=value as Record<string,unknown>;
  if(Object.keys(v).some(key=>key!=="baseUrl"&&key!=="authMode")||(v.authMode!=="none"&&v.authMode!=="bearer"))throw new Error("ollama_configuration_invalid");
- return{baseUrl:normalizeOllamaBaseUrl(v.baseUrl),authMode:v.authMode};
+ const baseUrl=normalizeOllamaBaseUrl(v.baseUrl);
+ if(baseUrl==="https://ollama.com"&&v.authMode!=="bearer")throw new Error("ollama_configuration_invalid");
+ return{baseUrl,authMode:v.authMode};
 }
 export function parseOllamaAllowedBaseUrls(value:string|undefined):ReadonlySet<string>{
  if(value===undefined||value==="")return new Set();
