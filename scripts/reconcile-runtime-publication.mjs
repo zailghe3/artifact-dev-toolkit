@@ -49,9 +49,14 @@ function docker(args) {
   return execFileSync('docker', args, { encoding: 'utf8', timeout: 120000, maxBuffer: 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 }
 export function isMissingManifest(error, reference) {
-  // Only Docker's explicit registry MANIFEST_UNKNOWN response establishes absence.
+  // Accept only complete known absence responses for this Runtime reference.
+  // Docker Hub may expand its shorthand to docker.io; no other alias is trusted.
+  const expected = reference.startsWith('docker.io/') ? reference.slice('docker.io/'.length) : reference;
+  if (!expected.startsWith(`${image}:`) || !/^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/.test(expected.slice(image.length + 1))) return false;
   const message = String(error.stderr || '').trim();
-  return message === `Error response from daemon: manifest for ${reference} not found: manifest unknown: manifest unknown`;
+  return [expected, `docker.io/${expected}`].some(ref =>
+    message === `Error response from daemon: manifest for ${ref} not found: manifest unknown: manifest unknown`
+    || message === `Error response from daemon: failed to resolve reference "${ref}": ${ref}: not found`);
 }
 function inspect(tag, currentMain) {
   const reference = `${image}:${tag}`;
