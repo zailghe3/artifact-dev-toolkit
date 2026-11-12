@@ -78,7 +78,7 @@ async function connected<T>(config:McpServerConfig,credential:string|undefined,o
  let initialized=false;
  try{await client.connect(transport,{timeout:MCP_LIMITS.durationMs});initialized=true;return await operation(client)}
  catch(error){
-  if(error instanceof McpFailure){if(call&&callDispatched&&error.category==="connection_unavailable")throw new McpFailure("connection_unavailable","MCP tool outcome is unknown.",true);throw error}
+  if(error instanceof McpFailure){if(call&&callDispatched)throw new McpFailure(error.category,"MCP tool outcome is unknown.",true);throw error}
   const ambiguous=call&&callDispatched;
   throw new McpFailure(initialized?operationFailure:"connection_unavailable",ambiguous?"MCP tool outcome is unknown.":initialized?"MCP server returned an invalid response.":"MCP server request failed safely.",ambiguous);
  }finally{await transport.close().catch(()=>undefined);await Promise.all(dispatchers.map(dispatcher=>dispatcher.close().catch(()=>undefined)))}

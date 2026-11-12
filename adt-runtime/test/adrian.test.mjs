@@ -7,7 +7,7 @@ import {WebSocketServer} from 'ws';
 import protobuf from 'protobufjs';
 import {Agent,Runner} from '@openai/agents';
 import {ScriptedModel,assistantMessage,functionCall} from '@openai/agents/testing';
-import {gateToolCallIds,protoSource} from '@secureagentics/adrian';
+import {adrian,gateToolCallIds,protoSource} from '@secureagentics/adrian';
 import {AdrianRuntimeIntegration} from '../dist/adrian.js';
 import {executeOpenAIAgents} from '../dist/openai-agents.js';
 
@@ -39,16 +39,19 @@ test('Adrian core captures model and tool pairs through ADT-owned public extensi
  const payload=JSON.stringify(seen.events);assert.match(payload,/ordinary system content|ordinary proposed argument|ordinary failing argument/);assert.doesNotMatch(payload,/provider-secret|worker-authority|argument-secret|nested-secret|vault-id-secret|internal-authority-secret|cipher-secret|result-secret|input-secret|nested-input-secret|proposed-secret|nested-proposed-secret|model-error-secret|nested-model-error-secret|tool-error-secret|nested-tool-error-secret/);
 });
 
-function backend(t,{verdict='allow',delayMs=0,disconnect=false}={}){
+function backend({verdict='allow',delayMs=0,disconnect=false}={}){
  const root=protobuf.parse(protoSource,{keepCase:true}).root,Client=root.lookupType('adrian.core_api.v1.ClientFrame'),Server=root.lookupType('adrian.core_api.v1.ServerFrame');
  const server=new WebSocketServer({host:'127.0.0.1',port:0});const frames=[];
- server.on('connection',socket=>socket.on('message',raw=>{const frame=Client.toObject(Client.decode(raw),{defaults:true});frames.push(frame);if(frame.login){socket.send(Server.encode(Server.create({login_ack:{policy:{mode:3,policy_m0:true,policy_m2:true,policy_m3:true,policy_m4:true}}})).finish());return}const event=frame.paired_batch?.events?.find(value=>value.llm?.tool_calls?.length);if(!event)return;if(disconnect){socket.close();return}if(verdict==='none')return;setTimeout(()=>socket.send(Server.encode(Server.create({verdict:{event_id:event.event_id,session_id:event.session_id,mad_code:verdict==='deny'?'M3.1':'M1.0',policy:{mode:3,policy_m0:true,policy_m2:true,policy_m3:true,policy_m4:true}}})).finish()),delayMs)}));
- t.after(()=>new Promise(resolve=>{for(const client of server.clients)client.terminate();server.close(resolve)}));return new Promise(resolve=>server.on('listening',()=>{const address=server.address();resolve({url:`ws://127.0.0.1:${address.port}`,frames})}));
+ server.on('connection',socket=>socket.on('error',()=>{}).on('message',raw=>{const frame=Client.toObject(Client.decode(raw),{defaults:true});frames.push(frame);if(frame.login){socket.send(Server.encode(Server.create({login_ack:{policy:{mode:3,policy_m0:true,policy_m2:true,policy_m3:true,policy_m4:true}}})).finish());return}const event=frame.paired_batch?.events?.find(value=>value.llm?.tool_calls?.length);if(!event)return;if(disconnect){socket.close();return}if(verdict==='none')return;setTimeout(()=>socket.send(Server.encode(Server.create({verdict:{event_id:event.event_id,session_id:event.session_id,mad_code:verdict==='deny'?'M3.1':'M1.0',policy:{mode:3,policy_m0:true,policy_m2:true,policy_m3:true,policy_m4:true}}})).finish()),delayMs)}));
+ return new Promise(resolve=>server.on('listening',()=>{const address=server.address();resolve({url:`ws://127.0.0.1:${address.port}`,frames,close:()=>new Promise(done=>{for(const client of server.clients)client.terminate();server.close(done)})})}));
 }
 
 async function executeWithBackend(t,behavior,{mcp=false,breakBlockReporting=false,breakCompletionReporting=false}={}){
- const remote=await backend(t,behavior),dir=await mkdtemp(join(tmpdir(),'adt-adrian-'));t.after(()=>rm(dir,{recursive:true,force:true}));
- const integration=await AdrianRuntimeIntegration.create({apiKey:'fixture-key',wsUrl:remote.url,sessionId:`session-${crypto.randomUUID()}`,logFile:join(dir,'events.jsonl'),blockTimeout:.04,verdictTimeoutSeconds:.04});t.after(()=>integration.shutdown());if(breakBlockReporting)integration.handler.handleToolError=async()=>{throw new Error('block reporting unavailable')};if(breakCompletionReporting)integration.handler.handleToolEnd=async()=>{throw new Error('completion reporting unavailable')};
+ const remote=await backend(behavior),dir=await mkdtemp(join(tmpdir(),'adt-adrian-'));let integration;t.after(async()=>{await integration?.shutdown();await remote.close();await rm(dir,{recursive:true,force:true})});
+ integration=await AdrianRuntimeIntegration.create({apiKey:'fixture-key',wsUrl:remote.url,sessionId:`session-${crypto.randomUUID()}`,logFile:join(dir,'events.jsonl'),blockTimeout:.04,verdictTimeoutSeconds:.04});
+ // Known verdict scenarios wait for actual wire evidence instead of assuming a 40 ms scheduling window.
+ if(!behavior.disconnect&&behavior.verdict!=='none'){const completed=integration.modelTurnCompleted.bind(integration);integration.modelTurnCompleted=async context=>{await completed(context);if(context.response.output.some(item=>item.type==='function_call'))assert.ok(await adrian.getWebSocketClient().waitForToolCallVerdict('call-verdict',5))}}
+ if(breakBlockReporting)integration.handler.handleToolError=async()=>{throw new Error('block reporting unavailable')};if(breakCompletionReporting)integration.handler.handleToolEnd=async()=>{throw new Error('completion reporting unavailable')};
  let executions=0;const toolName=mcp?'mcp_docs_search':'artifact_search',model=new ScriptedModel([[functionCall(toolName,mcp?{text:'design',authorization:'mcp-argument-secret',credential:{token:'nested-mcp-argument-secret'}}:{query:'design'},{callId:'call-verdict'})],[assistantMessage('finished')]]),executionRequest=mcp?{...request,tools:[],toolGateway:undefined,mcpTools:[{alias:toolName,serverId:'docs',server:{url:'http://localhost/mcp',transport:'streamable-http',allowLocalhost:true},tool:{name:'search',inputSchema:{type:'object'}}}]}:request;
  const fetcher=async(_url,init)=>{if(!mcp){executions++;return Response.json({results:[]})}const message=JSON.parse(init.body);if(message.method==='initialize')return Response.json({jsonrpc:'2.0',id:message.id,result:{protocolVersion:'2025-06-18',capabilities:{tools:{}},serverInfo:{name:'fixture',version:'1'}}});if(message.method==='notifications/initialized')return new Response(null,{status:202});if(message.method==='tools/call'){executions++;return Response.json({jsonrpc:'2.0',id:message.id,result:{content:[{type:'text',text:'committed once'}]}})}throw new Error('unexpected MCP request')};
  const output=await executeOpenAIAgents(executionRequest,'provider-secret',{provider:()=>({getModel:async()=>model}),runner:c=>new Runner(c),agent:c=>new Agent(c),securityGate:integration,modelInstrumentation:integration,mcpCredentials:new Map([[toolName,'mcp-private-token']]),fetcher});

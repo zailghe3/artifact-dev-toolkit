@@ -98,7 +98,7 @@ Current product behaviour is defined by [`specs/agent-workflows.md`](specs/agent
 - Runs snapshot the definitions used for one execution, including resolved reusable Workflow composition.
 - Cloudflare Workflows owns the durable outer lifecycle; LangGraph sequencing runs in ADT Runtime; checkpoints are persisted behind the control plane in D1.
 - New runs freeze an ADT-owned versioned graph execution plan.
-- A provider-neutral AgentRuntime boundary delegates individual Agent work to the selected provider implementation.
+- A provider-neutral AgentRuntime boundary delegates model work to the selected provider implementation. Tool-enabled OpenAI, Anthropic and Ollama Agents progress through an application-owned D1 conversation and tool journal.
 - D1 persists durable run, attempt, approval, retry, cancellation, provider-safety, and reconciliation state.
 - Successful output is persisted before later work depends on it.
 - Ambiguous external work is reconciled rather than blindly recreated.
@@ -129,6 +129,9 @@ The product invariants are in [`specs/agent-workflows.md`](specs/agent-workflows
 - ADT Runtime alone owns the MCP client. It exposes authorised tools through collision-safe aliases derived from server ID and remote name, applies the shared tool security gate and call budget, and calls the unchanged remote name.
 - Normal Agent execution never discovers or refreshes an MCP catalogue. Agent-tool eligibility follows provider capability policy.
 
+- The Worker journals complete tool proposals before policy, approval or execution. Models receive schemas without tool credentials. Each Runtime tool request contains one admitted invocation and scoped credentials.
+- Unknown external outcomes suspend Agent progression for operator reconciliation; timers never retry admitted uncertain calls. See [Agent tools and recovery](docs/agent-tools-and-recovery.md) for policies, continuation and cutover.
+
 ### Security Profiles
 
 - Security Profiles are a first-class domain, separate from Connections, Tools, Agents, and Workflows.
@@ -136,9 +139,9 @@ The product invariants are in [`specs/agent-workflows.md`](specs/agent-workflows
 - Agents may optionally reference a Security Profile only when their provider connection advertises Runtime security support. Absence preserves unsecured execution behavior.
 - Adrian is an additional restriction after ADT authorization, frozen tool authority, and the global tool-call budget; it cannot grant tools or expand an MCP contract.
 - New runs freeze each secured Agent's profile identity, endpoint, decision timeout, and repository-scoped credential generation. Execution resolves only that generation, so same-endpoint key rotation remains live while endpoint changes and deletion revoke historical authority.
-- OpenAI Agents execution runs through ADT Runtime. The Adrian SDK remains Runtime-only and is not an OpenAI proxy.
+- Tool-enabled OpenAI, Anthropic and supported Ollama execution uses the same Runtime Adrian exact-call evaluation. The Adrian SDK remains Runtime-only.
 - Runtime security decisions are `allow`, `deny`, `timeout`, or `unavailable`. Only positive, exact-call allow evidence permits external tool execution; every other or ambiguous state fails closed.
-- Adrian's process-global lifecycle requires one exclusive protected execution per Runtime process. Contending protected executions fail closed without queueing; unsecured executions do not acquire the lease.
+- Adrian's process-global lifecycle requires one exclusive security evaluation per Runtime process. Contending evaluations fail closed without queueing. No lease survives a human wait.
 - Adrian policy and remit remain managed by Adrian. Human Review and HITL are not part of the automated V1 enforcement contract.
 
 ### ADT Runtime

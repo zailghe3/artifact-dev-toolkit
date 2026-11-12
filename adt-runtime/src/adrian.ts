@@ -1,4 +1,4 @@
-import {adrian,gateToolCallIds,shouldHalt,type EventHandler,type InitOptions,type LlmEndData,type ToolCallRecord,type TokenUsage,type WebSocketClient} from "@secureagentics/adrian";
+import {adrian,Mode,gateToolCallIds,shouldHalt,type EventHandler,type InitOptions,type LlmEndData,type ToolCallRecord,type TokenUsage,type WebSocketClient} from "@secureagentics/adrian";
 import type {AgentInputItem,AgentOutputItem,ModelRequest,ModelResponse} from "@openai/agents";
 import type {ModelTurnInstrumentation} from "./model-instrumentation.js";
 import type {SecurityDecision,ToolSecurityContext,ToolSecurityGate} from "./tools.js";
@@ -11,7 +11,16 @@ export function acquireAdrianExecutionLease(){if(leaseHeld)throw new AdrianExecu
 export async function withAdrianExecutionLease<T>(operation:()=>Promise<T>,shutdown:()=>Promise<void>=()=>adrian.shutdown()){const release=acquireAdrianExecutionLease();try{return await operation()}finally{try{await shutdown()}catch{/* Shutdown is best-effort and cannot replace an established outcome. */}release()}}
 
 /** Uses only exact-call lower-level verdict evidence. The SDK's fail-open gate is intentionally not consulted. */
-export async function evaluateAdrianToolCall(client:Pick<WebSocketClient,"loginAcked"|"policyActive"|"waitForToolCallVerdict">|null,callId:string|undefined,timeoutMs:number):Promise<SecurityDecision>{const started=Date.now();if(!client||!callId||!client.loginAcked()||!client.policyActive())return{outcome:"unavailable",elapsedMs:Date.now()-started};try{const verdict=await client.waitForToolCallVerdict(callId,timeoutMs/1000);const elapsedMs=Date.now()-started;if(verdict)return{outcome:shouldHalt(verdict)?"deny":"allow",elapsedMs};return{outcome:"unavailable",elapsedMs}}catch{return{outcome:"unavailable",elapsedMs:Date.now()-started}}}
+export async function evaluateAdrianToolCall(client:Pick<WebSocketClient,"loginAcked"|"policyActive"|"waitForToolCallVerdict">|null,callId:string|undefined,timeoutMs:number):Promise<SecurityDecision>{
+ const started=Date.now();if(!client||!callId||!client.loginAcked()||!client.policyActive())return{outcome:"unavailable",elapsedMs:Date.now()-started};
+ let timer:ReturnType<typeof setTimeout>|undefined;
+ try{
+  const verdict=await Promise.race([client.waitForToolCallVerdict(callId,timeoutMs/1000),new Promise<"timeout">(resolve=>{timer=setTimeout(()=>resolve("timeout"),timeoutMs)})]);
+  const elapsedMs=Date.now()-started;if(verdict==="timeout")return{outcome:"timeout",elapsedMs};
+  if(!verdict||typeof verdict!=="object"||typeof verdict.madCode!=="string"||!verdict.policy||verdict.policy.mode!==Mode.MODE_BLOCK)return{outcome:"unavailable",elapsedMs};
+  return{outcome:shouldHalt(verdict)?"deny":"allow",elapsedMs};
+ }catch{return{outcome:"unavailable",elapsedMs:Date.now()-started}}finally{clearTimeout(timer)}
+}
 
 export class ProductionAdrianSecurityGate implements ToolSecurityGate,ModelTurnInstrumentation{
  private readonly toolRuns=new WeakMap<ToolSecurityContext,string>();
@@ -82,3 +91,14 @@ export class AdrianRuntimeIntegration implements ModelTurnInstrumentation,ToolSe
 }
 
 export type {EventHandler};
+
+/** Rebuilds an invocation-local enforcement context from ADT's durable journal. */
+export async function authorizeJournaledTool(handler:NonNullable<ReturnType<typeof adrian.getHandler>>,client:WebSocketClient,context:{model:string;instructions:string;conversation:import("./agent-contract.js").Conversation;call:import("./agent-contract.js").ToolProposal;id:string},timeoutMs:number){
+ const turnId=`adt:${context.id}`;
+ if(!client.loginAcked()||!client.policyActive()||client.blockTimeout(timeoutMs/1000)!==timeoutMs/1000)throw new AdrianExecutionLeaseUnavailableError();
+ try{
+  await handler.handleChatModelStart({name:context.model},[[{role:"system",content:safeText(context.instructions)},...context.conversation.map(turn=>({role:turn.role,content:safeText(turn)}))]],turnId);
+  await handler.handleLLMEnd({output:"",toolCalls:[{id:context.call.id,name:context.call.name,args:safeValue(context.call.arguments) as ToolCallRecord["args"]}],usage:{promptTokens:0,completionTokens:0,totalTokens:0}},turnId);
+ }catch{throw new AdrianExecutionLeaseUnavailableError()}
+ const gate=new ProductionAdrianSecurityGate(handler,client,timeoutMs);await gate.authorize({name:context.call.name,arguments:context.call.arguments,callId:context.call.id});return{outcome:"allow" as const};
+}

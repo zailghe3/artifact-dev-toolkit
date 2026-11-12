@@ -1,3 +1,4 @@
+import {approvalPolicySchema} from "../adt-runtime/src/agent-contract.ts";
 import {mcpCatalogueToolSchema,mcpServerDefinitionSchema,safeMcpServer,type McpServerDefinition} from "./tool-definitions.ts";
 import type {ToolDefinitionRepository} from "./tool-definition-repository.ts";
 import type {D1ProviderCredentialVault} from "./provider-credential-vault.ts";
@@ -5,12 +6,12 @@ import type {RemoteOpenAIAgentsRuntime} from "./adt-runtime-client.ts";
 import {z} from "zod";
 
 type Vault=Pick<D1ProviderCredentialVault,"create"|"resolve"|"delete"|"ensureMcpServerCredentialBinding"|"rotateMcpServerCredential"|"replaceMcpServerCredentialBinding"|"restoreMcpServerCredentialBinding"|"revokeMcpServerCredentialBinding">;
-export const mcpServerInputSchema=z.object({id:z.string(),name:z.string(),endpointUrl:z.string(),authenticationMode:z.enum(["none","bearer"]),bearerToken:z.string().max(8192).optional()}).strict();
+export const mcpServerInputSchema=z.object({id:z.string(),name:z.string(),endpointUrl:z.string(),authenticationMode:z.enum(["none","bearer"]),bearerToken:z.string().max(8192).optional(),toolPolicies:z.record(z.string(),approvalPolicySchema).optional()}).strict();
 const cleanupSecret=async(vault:Vault,secretId:string|undefined)=>{if(secretId)await vault.delete(secretId).catch(()=>undefined)};
 
 export async function createMcpServer(repositoryId:number,input:z.infer<typeof mcpServerInputSchema>,repo:ToolDefinitionRepository,vault:Vault){
  const value=mcpServerInputSchema.parse(input);let ref:string|undefined;if(value.authenticationMode==="bearer"){if(!value.bearerToken?.trim())throw new Error("credential_required");ref=await vault.create(value.bearerToken)}
- const definition=mcpServerDefinitionSchema.parse({schemaVersion:1,id:value.id,name:value.name,type:"mcp",transport:"streamable-http",endpointUrl:value.endpointUrl,authentication:value.authenticationMode==="bearer"?{mode:"bearer",credentialSecretRef:ref}:{mode:"none"}});let created:Awaited<ReturnType<ToolDefinitionRepository["create"]>>;
+ const definition=mcpServerDefinitionSchema.parse({schemaVersion:1,id:value.id,name:value.name,type:"mcp",transport:"streamable-http",endpointUrl:value.endpointUrl,...(value.toolPolicies?{toolPolicies:value.toolPolicies}:{}),authentication:value.authenticationMode==="bearer"?{mode:"bearer",credentialSecretRef:ref}:{mode:"none"}});let created:Awaited<ReturnType<ToolDefinitionRepository["create"]>>;
  try{created=await repo.create(definition)}catch(error){await cleanupSecret(vault,ref);throw error}if(!ref)return created;
  let bindingId:string|undefined;try{bindingId=await vault.ensureMcpServerCredentialBinding(repositoryId,value.id,value.endpointUrl,ref);return created}catch(error){if(bindingId)await vault.revokeMcpServerCredentialBinding(repositoryId,value.id,bindingId).catch(()=>undefined);await repo.delete(value.id,created.fileSha).catch(()=>undefined);await cleanupSecret(vault,ref);throw error}
 }
@@ -18,7 +19,7 @@ export async function createMcpServer(repositoryId:number,input:z.infer<typeof m
 export async function updateMcpServer(repositoryId:number,input:z.infer<typeof mcpServerInputSchema>&{fileSha:string},repo:ToolDefinitionRepository,vault:Vault){
  const old=await repo.get(input.id);if(!old)throw new Error("tool_not_found");const oldAuth=old.definition.authentication,oldBindingId=oldAuth.mode==="bearer"?await vault.ensureMcpServerCredentialBinding(repositoryId,input.id,old.definition.endpointUrl,oldAuth.credentialSecretRef):undefined,endpointChanged=old.definition.endpointUrl!==input.endpointUrl;
  let authentication:McpServerDefinition["authentication"],candidate:string|undefined,obsolete:string|undefined;if(input.authenticationMode==="none")authentication={mode:"none"};else if(oldAuth.mode==="bearer"){authentication=oldAuth;if(input.bearerToken?.trim()){candidate=await vault.create(input.bearerToken);obsolete=oldAuth.credentialSecretRef;authentication={mode:"bearer",credentialSecretRef:candidate}}}else{if(!input.bearerToken?.trim())throw new Error("credential_required");candidate=await vault.create(input.bearerToken);authentication={mode:"bearer",credentialSecretRef:candidate}}
- if(input.authenticationMode==="none"&&oldAuth.mode==="bearer")obsolete=oldAuth.credentialSecretRef;let saved:Awaited<ReturnType<ToolDefinitionRepository["update"]>>;try{saved=await repo.update({...old.definition,name:input.name,endpointUrl:input.endpointUrl,authentication},input.fileSha)}catch(error){await cleanupSecret(vault,candidate);throw error}
+ if(input.authenticationMode==="none"&&oldAuth.mode==="bearer")obsolete=oldAuth.credentialSecretRef;let saved:Awaited<ReturnType<ToolDefinitionRepository["update"]>>;try{saved=await repo.update({...old.definition,name:input.name,endpointUrl:input.endpointUrl,authentication,...(endpointChanged||oldAuth.mode!==authentication.mode?{toolPolicies:input.toolPolicies}:input.toolPolicies!==undefined?{toolPolicies:input.toolPolicies}:{})},input.fileSha)}catch(error){await cleanupSecret(vault,candidate);throw error}
  let newBindingId:string|undefined;try{
   if(oldAuth.mode==="bearer"&&authentication.mode==="bearer"){if(endpointChanged)newBindingId=await vault.replaceMcpServerCredentialBinding(repositoryId,input.id,oldBindingId!,old.definition.endpointUrl,input.endpointUrl,authentication.credentialSecretRef);else{newBindingId=oldBindingId;if(authentication.credentialSecretRef!==oldAuth.credentialSecretRef)await vault.rotateMcpServerCredential(repositoryId,input.id,oldBindingId!,input.endpointUrl,authentication.credentialSecretRef,oldAuth.credentialSecretRef)}}
   else if(oldAuth.mode==="bearer")await vault.revokeMcpServerCredentialBinding(repositoryId,input.id,oldBindingId!);

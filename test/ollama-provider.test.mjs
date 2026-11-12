@@ -25,8 +25,8 @@ function fixture(authMode='none'){
  return{calls,current,repository,vault,store};
 }
 
-test('Ollama policy requires a discoverable model, Runtime-only execution and its own tool-free settings',()=>{
- assert.equal(policy.execution,'adt-runtime');assert.equal(policy.authentication,'optional-api-key');assert.equal(policy.model.location,'adt-runtime');assert.equal(policy.model.required,true);assert.equal(policy.model.discovery,true);assert.equal(policy.capabilities.agentTools,false);assert.equal(policy.capabilities.runtimeSecurity,false);assert.equal(policy.agentSettings,'ollama-chat');
+test('Ollama policy requires a discoverable model, Runtime-only execution and tool capability negotiation',()=>{
+ assert.equal(policy.execution,'adt-runtime');assert.equal(policy.authentication,'optional-api-key');assert.equal(policy.model.location,'adt-runtime');assert.equal(policy.model.required,true);assert.equal(policy.model.discovery,true);assert.equal(policy.capabilities.agentTools,true);assert.equal(policy.capabilities.runtimeSecurity,true);assert.equal(policy.agentSettings,'ollama-chat');
  assert.equal(providerRequiresCredential(policy,configuration),false);assert.equal(providerRequiresCredential(policy,{...configuration,authMode:'bearer'}),true);
  for(const invalid of [undefined,{}, {...configuration,authMode:'auto'},{...configuration,apiKey:'secret'}])assert.throws(()=>policy.safeConfiguration.parse(invalid));
 });
@@ -88,7 +88,7 @@ test('Ollama connection and Agent editors show explicit auth and only supported 
  assert.match(html,/Base URL/);assert.match(html,/Authentication/);assert.match(html,/readOnly/);assert.doesNotMatch(html,/id="credential-heading"/);
  const one={schemaVersion:2,id:'agent',name:'Agent',description:'',status:'draft',connectionKey:'ollama',prompt:{source:'custom',text:'Prompt'},adapterOptions:{}};
  const agentHtml=render(React.createElement(WorkflowAgentEditor,{initial:one,connections:[{key:'ollama',name:'Ollama',adapter:'ollama-chat',enabled:true,defaultModel:'model:tag',capabilities:policy.capabilities}]}));
- assert.match(agentHtml,/Maximum output tokens/);assert.match(agentHtml,/Execution timeout/);assert.doesNotMatch(agentHtml,/Reasoning effort|Verbosity|Artifact search|MCP tools|Time zone/);
+ assert.match(agentHtml,/Maximum output tokens/);assert.match(agentHtml,/Execution timeout/);assert.match(agentHtml,/Artifact search/);assert.match(agentHtml,/MCP tools/);assert.doesNotMatch(agentHtml,/Reasoning effort|Verbosity|Time zone/);
 });
 
 test('an admitted long Ollama execution outlasts transport before recovery and is never blindly resubmitted',async()=>{

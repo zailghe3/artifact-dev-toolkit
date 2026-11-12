@@ -156,6 +156,20 @@
 - Model-facing MCP names use a bounded `mcp_<sanitised remote-name prefix>_<server-ID-and-remote-name digest>` alias. The remote tool name is unchanged on the MCP call.
 - Retired provider rows and legacy Codex Cloud configuration may remain readable as historical data but are not current execution inputs.
 
+### Tool policy, interruption and reconciliation
+
+- Agent grants remain the maximum authority. A Workflow Agent block may inherit, restrict or explicitly disable tools, strengthen approval and lower execution limits.
+- Trusted read-only tools execute automatically after mandatory checks. Unknown, mutating and sensitive tools require approval unless an authorised policy administrator explicitly configures permitted automatic execution.
+- Frozen and mandatory live restrictions both apply. Security denial wins; any required human approval wins over automatic execution.
+- Human approval identifies one exact frozen invocation. Reviewers cannot replace arguments, and approval cannot override security.
+- Tool approval pauses inside the Agent and survives Runtime replacement. Rejection is a correlated denial that allows continued reasoning within remaining budgets.
+- Tool calls within an Agent execute serially; unresolved approval blocks later calls in that response. Parallel Workflow branches remain supported.
+- An unknown external execution outcome pauses the Agent for an authorised operator. Reconciliation requires an explicit evidenced decision; uncertain work is never automatically repeated.
+- Conversation state, identities, budgets, results and audit events are durable. Approval and reconciliation waiting do not consume active Agent execution duration.
+- Tool activity, approval decisions and operator reconciliation are visible in the run inspector with sensitive content redacted.
+- Historical tool contracts require explicit cutover for new execution; completed history remains readable and recorded results are reused.
+- Operational contracts and provider/schema limits are documented in [Agent tools and recovery](../docs/agent-tools-and-recovery.md).
+
 ## 11. Provider execution connections and ADT Runtime
 
 - ADT Runtime is the extensible ordinary AI provider execution plane for OpenAI Agents, Anthropic Messages, Microsoft Work IQ, and Ollama. OpenAI Responses retains its direct control-plane execution path; Codex Runner remains a separate boundary.
@@ -163,7 +177,7 @@
 - The resolved Agent prompt is supplied as provider instructions and Workflow input is supplied as Agent input without framework summarisation.
 - Only bounded textual Agent output becomes Workflow output; provider reasoning and raw provider responses are not exposed as Workflow output.
 - `openai-responses` may retain a durable provider task identity for polling and cancellation.
-- `openai-agents` is one bounded synchronous invocation with no framework-enabled SDK handoffs, persistent SDK conversation/session, tracing, asynchronous provider task, or provider cancellation identity.
+- Tool-free `openai-agents` retains bounded synchronous execution. Tool-enabled Agents use bounded model turns and an ADT-owned durable conversation; SDK handoffs, external tracing and provider-owned sessions are not enabled.
 - An OpenAI Agents Agent may configure one bounded execution timeout; runs use the snapshotted Agent setting. Transport and infrastructure allowances are derived/internal rather than additional user settings.
 - Agents are tool-free by default. An Agent may explicitly enable `artifact_search`, which returns bounded content and safe metadata only from the authorised snapshotted Artifact Library context.
 - Tool authority is limited to the exact active run attempt and repository snapshot and is not available as broad repository authority inside Runtime.
@@ -182,7 +196,7 @@
 - Anthropic Messages uses the normal Git-managed API-key connection lifecycle and encrypted ADT vault rather than a separate credential or Agent architecture. An optional non-secret Anthropic Workspace ID may be stored in Git and frozen with the safe execution context; API credentials remain vault-owned and cross to Runtime only through the encrypted invocation boundary.
 - A connection selects a provider-discovered Claude model before an Agent can use it.
 - The resolved Agent prompt is the Anthropic system prompt; the Workflow handoff is one user message. Neither value is implicitly transformed.
-- Workflow Agent execution is one synchronous Messages request through ADT Runtime, with no provider task or cancellation identity. Credential/model commissioning remains in the control plane.
+- Tool-free Anthropic execution uses one bounded Messages request. Tool-enabled Agents use ordered native tool calls and results through the common ADT lifecycle. Neither path has a provider task or cancellation identity.
 - Only bounded ordered text blocks become Workflow output. Tools, thinking, streaming, provider sessions, and non-text response data are not supported.
 - An ambiguous synchronous start is not blindly retried because the request may already have produced billable provider work.
 
@@ -196,7 +210,7 @@
 - Runs freeze the selected model, validated base URL, authentication mode, credential reference when required, and Ollama Agent settings. Later connection changes cannot replace a historical endpoint or credential identity. Revoked bearer credentials fail closed.
 - Each invocation sends the resolved Agent prompt unchanged as a system message and the Workflow handoff unchanged as one user message, including an empty handoff. Only textual message content becomes Workflow output; thinking and timing metadata are not retained.
 - Agent controls expose only a positive maximum output-token count and execution timeout. Defaults are 4096 tokens and 300 seconds; supported ranges are 1–32768 tokens and 5–900 seconds.
-- Ollama executes one bounded synchronous request with no streaming, images, embeddings, tools, Security Profiles, or persistent provider conversation. An uncertain chat submission is not blindly retried.
+- Tool-free Ollama execution uses one bounded chat request. Models advertising tool capability may use the common ADT tool, approval and Security Profile lifecycle with an ADT-owned conversation. Streaming, images and embeddings remain unsupported. Uncertain submissions are not blindly retried.
 - A Runtime without Ollama execution/model-discovery capabilities reports the provider unavailable until upgraded. Generic Runtime diagnostics, Ollama model commissioning, and actual Agent execution remain distinct checks.
 
 ### Microsoft Work IQ execution
