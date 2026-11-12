@@ -1,6 +1,8 @@
 import {z} from "zod";
 
 export const AGENT_PROGRESS_CAPABILITY="agent:progress-v1",AGENT_PROGRESS_PATH="/v1/agents/progress",AGENT_TOOL_PATH="/v1/agents/tool",AGENT_SECURITY_PATH="/v1/agents/security";
+// A dispatch grant expires absolutely; recovery adds transport/persistence grace.
+export const AGENT_TOOL_EXECUTION_MS=30_000,AGENT_TOOL_RECOVERY_GRACE_MS=15_000;
 const text=z.string().max(262144),identity=z.string().min(1).max(256);
 export const toolProposalSchema=z.object({id:identity,name:z.string().min(1).max(64),arguments:z.record(z.string(),z.unknown())}).strict();
 export const conversationTurnSchema=z.discriminatedUnion("role",[

@@ -26,3 +26,30 @@ test('catalogue failures are non-ambiguous while missing tool results preserve u
 test('a tools/call transport failure after dispatch is ambiguous and is not retried',async()=>{let calls=0;const fetcher=async(_url,init)=>{const message=JSON.parse(init.body);if(message.method==='initialize')return Response.json({jsonrpc:'2.0',id:message.id,result:{protocolVersion:'2025-06-18',capabilities:{tools:{}},serverInfo:{name:'fake',version:'1'}}});if(message.method==='notifications/initialized')return new Response(null,{status:202});calls++;throw new Error('private remote failure')};await assert.rejects(callMcpTool(config('http://localhost/mcp'),{name:'echo',inputSchema:{type:'object'}},{},undefined,{fetch:fetcher}),error=>error.category==='connection_unavailable'&&error.ambiguous===true&&!error.safeMessage.includes('private'));assert.equal(calls,1)});
 
 test('model aliases are deterministic, bounded, and collision-safe across servers and built-ins',async()=>{const {mcpToolAlias}=await import('../dist/mcp-alias.js'),a=mcpToolAlias('server-one','artifact_search'),again=mcpToolAlias('server-one','artifact_search'),b=mcpToolAlias('server-two','artifact_search');assert.equal(a,again);assert.notEqual(a,b);assert.notEqual(a,'artifact_search');assert.match(a,/^[A-Za-z_][A-Za-z0-9_-]{0,63}$/)});
+
+const deferred=()=>{let resolve;const promise=new Promise(yes=>{resolve=yes});return{promise,resolve}};
+const echo={name:'echo',inputSchema:{type:'object'}};
+function initialise(message){return Response.json({jsonrpc:'2.0',id:message.id,result:{protocolVersion:'2025-06-18',capabilities:{tools:{}},serverInfo:{name:'fake',version:'1'}}})}
+
+test('an expired absolute dispatch grant performs no DNS or MCP requests',async()=>{
+ let requests=0;await assert.rejects(callMcpTool({url:'https://tools.example/mcp',transport:'streamable-http'},echo,{},undefined,{deadlineAt:Date.now()-1,resolve:async()=>{requests++;return[]},fetch:async()=>{requests++;throw Error('unexpected')}}),error=>error instanceof McpFailure&&!error.ambiguous);assert.equal(requests,0);
+});
+
+test('the operation deadline bounds stalled DNS and late resolution cannot dispatch a call',async()=>{
+ const dns=deferred();let requests=0;
+ await assert.rejects(callMcpTool({url:'https://tools.example/mcp',transport:'streamable-http'},echo,{},undefined,{deadlineAt:Date.now()+30,resolve:()=>dns.promise,fetch:async()=>{requests++;throw Error('unexpected')}}),error=>error instanceof McpFailure&&!error.ambiguous);
+ dns.resolve([{address:'8.8.8.8',family:4}]);await new Promise(resolve=>setImmediate(resolve));assert.equal(requests,0);
+});
+
+test('aborting during initialization prevents a late initialization response from dispatching tools/call',async()=>{
+ const entered=deferred(),response=deferred(),controller=new AbortController();let calls=0;
+ const running=callMcpTool(config('http://localhost/mcp'),echo,{},undefined,{signal:controller.signal,fetch:async(_url,init)=>{const message=JSON.parse(init.body);if(message.method==='initialize'){entered.resolve(message);return response.promise}if(message.method==='tools/call')calls++;return new Response(null,{status:202})}});
+ const message=await entered.promise;controller.abort();await assert.rejects(running,error=>error instanceof McpFailure&&!error.ambiguous);response.resolve(initialise(message));await new Promise(resolve=>setImmediate(resolve));assert.equal(calls,0);
+});
+
+test('aborting after tools/call dispatch is ambiguous; a late response never causes redispatch',async()=>{
+ const entered=deferred(),response=deferred(),controller=new AbortController();let calls=0,callSignal;
+ const running=callMcpTool(config('http://localhost/mcp'),echo,{},undefined,{signal:controller.signal,fetch:async(_url,init)=>{const message=JSON.parse(init.body);if(message.method==='initialize')return initialise(message);if(message.method==='notifications/initialized')return new Response(null,{status:202});calls++;callSignal=init.signal;entered.resolve(message);return response.promise}});
+ const message=await entered.promise;controller.abort();await assert.rejects(running,error=>error instanceof McpFailure&&error.ambiguous===true);assert.equal(callSignal.aborted,true);
+ response.resolve(Response.json({jsonrpc:'2.0',id:message.id,result:{content:[{type:'text',text:'late success'}]}}));await new Promise(resolve=>setImmediate(resolve));assert.equal(calls,1);
+});

@@ -12,3 +12,16 @@ test('approval UI submits opaque identities, keeps the decision identity after n
  const approve=()=>tree.root.findAllByType('button').find(button=>button.children.join('')==='Approve exact call');assert.ok(approve());assert.match(JSON.stringify(tree.toJSON()),/original-call/);assert.match(JSON.stringify(tree.toJSON()),/server \/ change/);
  await act(async()=>{await approve().props.onClick()});await act(async()=>{await approve().props.onClick()});assert.equal(sent.length,2);assert.equal(sent[0].decisionId,sent[1].decisionId);assert.deepEqual(Object.keys(sent[0]).sort(),['action','approvalId','decision','decisionId']);assert.equal(sent[0].approvalId,approvalId);assert.equal(sent[0].decision,'approved');
 });
+
+test('operator UI binds reconciliation and retry identity to the displayed admission',async t=>{
+ const previous={fetch:globalThis.fetch,FormData:globalThis.FormData,act:globalThis.IS_REACT_ACT_ENVIRONMENT};globalThis.IS_REACT_ACT_ENVIRONMENT=true;
+ const sent=[],first=crypto.randomUUID(),second=crypto.randomUUID(),view={operator:true,tools:[{id:'invocation',admissionId:first,nodeId:'agent',tool:'probe',target:'https://tools.example',state:'unknown',agentState:'reconciliation',arguments:{nonce:'safe'},createdAt:Date.now()}]};let tree;
+ globalThis.FormData=function(){return{get:key=>({decision:'success',basis:'Target audit verified',result:'verified'})[key]}};
+ globalThis.fetch=async(_url,init)=>{if(init?.method==='POST'){sent.push(JSON.parse(init.body));if(sent.length===1)throw Error('lost decision response');return Response.json({recorded:true})}return Response.json(view)};
+ t.after(async()=>{await act(async()=>tree?.unmount());globalThis.fetch=previous.fetch;globalThis.FormData=previous.FormData;globalThis.IS_REACT_ACT_ENVIRONMENT=previous.act});
+ await act(async()=>{tree=create(React.createElement(AppRouterContext.Provider,{value:{refresh(){}}},React.createElement(AgentToolInspector,{runId:crypto.randomUUID()})))});
+ const submit=()=>tree.root.findByType('form').props.onSubmit({preventDefault(){},currentTarget:{}});
+ await act(async()=>submit());await act(async()=>submit());assert.equal(sent[0].admissionId,first);assert.equal(sent[0].decisionId,sent[1].decisionId);
+ view.tools[0].admissionId=second;await act(async()=>submit());await act(async()=>submit());assert.equal(sent.at(-1).admissionId,second);assert.notEqual(sent.at(-1).decisionId,sent[0].decisionId);
+ assert.equal(sent[0].result,'verified');assert.equal('arguments' in sent[0],false);
+});

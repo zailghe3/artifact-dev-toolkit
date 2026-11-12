@@ -136,4 +136,5 @@ Runtime logs are structured safe events. Use bounded stage/result/status/correla
 - OpenAI uses the pinned SDK public model API with a no-op trace and Chat Completions. Anthropic and Ollama retain native protocol adapters. No provider executes a tool through an SDK Runner.
 - The Worker persists proposals, approvals, budget counters, results and conversations. Runtime requires no local state for replacement while waiting.
 - MCP uncertainty crosses the wire explicitly. Missing results are not interpreted as non-execution.
+- Admitted tool requests carry an absolute execution deadline. MCP bounds the complete operation, preserves transport cancellation and rejects expired dispatch grants before network access.
 - See [Agent tools and recovery](../docs/agent-tools-and-recovery.md) for the complete state machine, provider/schema limits, roles, journal inspection, reconciliation and required coordinated cutover. Apply migration 0023 and drain/cancel incompatible tool-enabled runs before deploying this contract.

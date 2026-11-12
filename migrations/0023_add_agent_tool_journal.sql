@@ -6,9 +6,9 @@ CREATE TABLE agent_continuations (
  revision INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL CHECK(state IN ('ready','model_running','tools','waiting','reconciliation','completed','failed','cancelled')),
  provider TEXT NOT NULL, model TEXT NOT NULL, conversation_json TEXT NOT NULL,
  model_turns INTEGER NOT NULL DEFAULT 0, tool_proposals INTEGER NOT NULL DEFAULT 0,
- tool_executions INTEGER NOT NULL DEFAULT 0, tokens_used INTEGER NOT NULL DEFAULT 0, active_ms INTEGER NOT NULL DEFAULT 0,
+ tool_executions INTEGER NOT NULL DEFAULT 0, tool_result_bytes INTEGER NOT NULL DEFAULT 0, tool_result_limit INTEGER NOT NULL DEFAULT 128000, tokens_used INTEGER NOT NULL DEFAULT 0, active_ms INTEGER NOT NULL DEFAULT 0,
  suspended_ms INTEGER NOT NULL DEFAULT 0, waiting_started_at INTEGER,
- operation_started_at INTEGER, updated_at INTEGER NOT NULL,
+ operation_started_at INTEGER, response_token TEXT, updated_at INTEGER NOT NULL,
  UNIQUE(run_id,generation,node_id,activation_id,iteration,attempt)
 );
 CREATE TABLE agent_tool_invocations (
@@ -17,7 +17,7 @@ CREATE TABLE agent_tool_invocations (
  tool_key TEXT NOT NULL, alias TEXT NOT NULL, frozen_json TEXT NOT NULL, arguments_json TEXT NOT NULL,
  target TEXT NOT NULL, fingerprint TEXT NOT NULL,
  state TEXT NOT NULL CHECK(state IN ('proposed','validated','waiting','eligible','admitted','completed','denied','unknown','cancelled')),
- security_json TEXT, result_json TEXT, admission_id TEXT, admitted_at INTEGER, completed_at INTEGER,
+ revision INTEGER NOT NULL DEFAULT 0, security_json TEXT, result_json TEXT, result_bytes INTEGER NOT NULL DEFAULT 0, completion_token TEXT, admission_id TEXT, admitted_at INTEGER, execution_deadline_at INTEGER, completed_at INTEGER,
  created_at INTEGER NOT NULL, UNIQUE(continuation_id,turn,ordinal), UNIQUE(continuation_id,turn,provider_call_id)
 );
 CREATE TABLE agent_tool_approvals (
@@ -33,6 +33,6 @@ CREATE TABLE agent_execution_events (
 CREATE INDEX agent_waiting_runs ON agent_continuations(run_id,state);
 CREATE TABLE agent_reconciliation_decisions (
  id TEXT PRIMARY KEY, invocation_id TEXT NOT NULL REFERENCES agent_tool_invocations(id), actor TEXT NOT NULL,
- decision TEXT NOT NULL CHECK(decision IN ('success','not_executed','unresolved','terminate')),
+ admission_id TEXT NOT NULL, write_token TEXT NOT NULL UNIQUE, decision TEXT NOT NULL CHECK(decision IN ('success','not_executed','unresolved','terminate')),
  basis TEXT NOT NULL, result_json TEXT, created_at INTEGER NOT NULL
 );

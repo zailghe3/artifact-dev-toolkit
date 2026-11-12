@@ -106,10 +106,13 @@ stateDiagram-v2
     tools --> ready: Persist all correlated results
 ```
 
-- Model turns, proposals, admissions, result bytes, active time and reported token usage are durably bounded. Approval and reconciliation waits do not consume Agent active time.
+- Model turns, proposals, admissions, aggregate result bytes, active time and reported token usage are durably bounded. Approval and reconciliation waits do not consume Agent active time.
 - Provider token reporting is accounted when available. Input billing can exceed a remaining token allowance before usage is reported; further work then stops. This is not an exact monetary spending guarantee.
 - A model request whose outcome is uncertain is not replayed automatically. Failed journaled Agent activations cannot use generic step retry, which could repeat completed tools or reset budgets. Inspect recorded outcomes and explicitly launch a new run if a new execution is intended.
 - Tool admission identities and conditional transitions prevent duplicate admission. A timer never reassigns an admitted call.
+- Each admission persists an absolute 30-second dispatch/execution deadline. Runtime bounds DNS, initialization, redirects, requests and result waiting by that deadline, preserves SDK cancellation, and destroys active sockets during cleanup. Existing individual MCP request timeouts remain 10 seconds. After the deadline plus 15 seconds for transport/persistence, recovery may mark the admission unknown; elapsed time never proves the remote side effect stopped.
+- An unknown admission still accepts its matching late result until an authoritative operator decision wins. Result, accounting and audit writes are atomic. Operator decisions bind both invocation and admission IDs. Unresolved decisions retain that admission; confirmed non-execution fences it before another admission is possible. Stale successes and failures cannot settle the replacement.
+- `toolResultBytes` is one aggregate budget for the entire activation, not a per-result allowance. D1 counts UTF-8 bytes of serialized ADT result envelopes, including denials, definite failures and operator-supplied results, once per authoritative outcome across all model turns and Runtime replacements. If a returned result exceeds the remaining allowance, record its outcome and byte count, omit its payload, and fail the activation. Do not invent an unknown side effect or send a fabricated result to the model. The observed byte count may exceed the allowance on that final result; further execution and continuation stop.
 - Missing tool results, transport uncertainty and failures persisting a returned result require operator reconciliation. No success or failure is invented for the model.
 - Recorded results are reused. Runtime replacement never requires completed tools to run again.
 - D1 is authoritative; Cloudflare events only wake the Workflow. Bounded event waits re-read D1 after lost or duplicate delivery.
@@ -124,7 +127,7 @@ Use the run inspector's **Agent tool activity** panel. Only `ADT_TOOL_OPERATORS`
 3. Choose confirmed success with a verified result, confirmed non-execution, still unresolved, or terminate without asserting an outcome.
 4. Record supporting evidence or an explicit basis. Decisions are immutable, audited and idempotent by decision ID.
 
-Before confirming non-execution, ensure the previous executor cannot dispatch later, and verify the exact action did not occur. Re-admission rechecks policy, credentials, approval expiry and execution budgets. Never infer non-execution from a timeout. Generic MCP IDs provide no exactly-once side-effect guarantee.
+Before confirming non-execution, ensure the previous executor cannot dispatch later, and verify the exact action did not occur. ADT rejects non-execution reconciliation until its dispatch deadline has expired; that expiry alone does not establish non-execution. Re-admission rechecks policy, credentials, approval expiry and execution budgets. Never infer non-execution from a timeout. Generic MCP IDs provide no exactly-once side-effect guarantee. If a late result won first, refresh the inspector: the stale reconciliation is rejected. Retrying the same decision ID and content is idempotent; changing the admission, decision or evidence requires a new decision ID.
 
 ## Provider and schema limits
 
@@ -136,11 +139,37 @@ Before confirming non-execution, ensure the previous executor cannot dispatch la
 - Schema, argument, result, conversation and batch size limits are enforced independently. Oversized conversations fail rather than being silently summarised.
 - Adrian Block enforcement is required for configured profiles. Alert remains diagnostic-only; Adrian Human Review is unsupported. ADT approval is separate. A fresh invocation-local Adrian context uses the frozen journal and a unique security session; unsupported or missing enforcement fails closed.
 
+## Provider validation evidence and live smoke procedure
+
+Coverage below describes this PR, not a certification of every model or endpoint. No live OpenAI/Anthropic credentials, Ollama endpoint, or deployed ADT Runtime endpoint were configured in the review environment; live model inference was **not run** for any provider.
+
+| Provider | Executed automated coverage | Real model inference |
+| --- | --- | --- |
+| OpenAI | Pinned Agents SDK public model API with fixture Chat Completions responses; tool schemas, proposals, correlated results/denials, continuation and malformed-response checks; signed Runtime/D1/MCP approval-resume integration | Not run |
+| Anthropic | Native Messages request/response fixtures; tool-use IDs, result/denial ordering, multi-turn continuation and invalid identities; signed Runtime/D1/MCP approval-resume integration | Not run |
+| Ollama | Fixture `/api/show` capability discovery and `/api/chat`; allowlist and unverified-model refusal, generated IDs, repeated-name correlation, result/denial continuation; signed Runtime/D1/MCP approval-resume integration | Not run |
+
+The security tests exercise real Adrian SDK/protobuf WebSocket handling against a controlled backend. Cross-provider integration also reconstructs fresh Adrian context using a controlled verdict service. Neither test claims validation of a production Adrian deployment or of a model's willingness to call a tool. Concurrency/recovery tests use real D1 emulation and controlled executors. The container smoke tests health/readiness and packaging, without provider inference.
+
+Run the following against a non-production deployment for **each** provider/model/endpoint combination before commissioning it:
+
+1. Apply the final migration and coordinated Worker/Runtime cutover. Configure your GitHub login as policy administrator and operator; give the reviewer repository access. Store provider credentials through Connections, never in prompts or Git. Record source/runtime revisions and the exact provider/model/endpoint identity.
+2. Register an operator-controlled HTTPS MCP server with an independent invocation audit. Supply a client tool named `read_probe` with schema `{"type":"object","properties":{"nonce":{"type":"string","minLength":1,"maxLength":64}},"required":["nonce"],"additionalProperties":false}`. Have it record each call and return `probe:<nonce>`. Use harmless test data and a fresh nonce per run. Discover and freeze the catalogue, then explicitly grant only this tool to the Agent.
+3. Select `openai-agents` with an account-accessible supported Chat Completions model (for example `gpt-4.1` if available); select an available Claude Messages model for `anthropic-messages`. For `ollama-chat`, configure the endpoint/authentication and exact `ADT_RUNTIME_OLLAMA_ALLOWED_BASE_URLS` entry, and select an installed model whose `/api/show` reports `tools`. Run connection and execution-path checks from the application. These checks alone do not prove tool calling.
+4. As policy administrator, classify `read_probe` as trusted `read_only`. Set the Agent prompt to: “Call the granted read_probe tool exactly once with nonce <fresh nonce>. After receiving its result, reply with the exact returned marker. Do not infer or invent the marker.” Launch a one-Agent Workflow. Require a journaled native model proposal, one MCP audit entry, a correlated result and final text containing that marker. A plausible final answer without a recorded tool call fails this smoke test.
+5. Require ADT approval for the tool and use another nonce. While the inspector is waiting, verify zero MCP calls and restart/replace Runtime. Approve the exact call. Require the same activation/provider-call identity, one external call and a final result. Repeat with rejection; require zero external calls and a persisted correlated denial accepted by the next real model request. The model may finish or propose again; any repeated proposal must require a fresh approval.
+6. Ask for two serial probes with different nonces, and repeat once with the same tool name in two proposals if the real model emits a batch. Verify provider-order results, no later sibling execution while an earlier approval is unresolved, and complete result correlation before the next model turn. Record “not observed” for a model that does not emit a batch; fixture coverage does not turn that case into live evidence.
+7. Attach the actual Adrian Block profile. Repeat the approved flow with a known allowed policy, then with a known blocking policy. Require fresh enforcement after the wait, and zero MCP effects for denied/unavailable enforcement. Record the deployed Adrian version and policy identity without recording credentials.
+8. To check recovery, configure the probe to record the call but withhold its response. Require unknown/reconciliation, no new model turn and no automatic retry. Check the independent server audit before recording verified success. Separately test confirmed non-execution only after stopping the prior executor and proving no call occurred. Verify the inspector rejects a stale admission decision and that late callbacks do not replace the winning result.
+9. For Ollama, also select an installed model without advertised `tools`; require actionable refusal before `/api/chat`. For all providers, record request/run IDs, native call IDs (or generated Ollama identities), approval/reconciliation IDs, external call counts, exact model/server versions, timestamp, outcome and any unobserved cases. Keep secrets and private reasoning out of the evidence.
+
+A passing result applies only to the recorded model/account/server configuration. Hosted tools, thinking blocks, images, arbitrary provider metadata and unsupported schema assertions remain outside this path.
+
 ## Migration and cutover
 
 1. Stop launching tool-enabled runs. Drain or cancel existing tool-enabled/Security Profile runs and reconcile any uncertain external work before replacement. Keep completed history.
 2. Back up D1 and the vault key using existing operator procedures.
-3. Apply migration `0023_add_agent_tool_journal.sql` with the normal migration runner. It adds tables and does not rewrite historical grants or results.
+3. Apply the final, unmerged migration `0023_add_agent_tool_journal.sql` with the normal migration runner. This PR revises that migration in place; disposable preview databases that already applied its earlier PR version must be recreated before validation. Do not reuse an earlier preview schema. It adds tables and does not rewrite historical grants or results.
 4. Deploy the Worker and Runtime release 10 as one coordinated cutover; provision the optional policy-administrator/operator login lists.
 5. Test Runtime readiness, provider connections, the execution path, a read-only call and an approved call before reopening launches.
 

@@ -165,6 +165,8 @@
 - Tool approval pauses inside the Agent and survives Runtime replacement. Rejection is a correlated denial that allows continued reasoning within remaining budgets.
 - Tool calls within an Agent execute serially; unresolved approval blocks later calls in that response. Parallel Workflow branches remain supported.
 - An unknown external execution outcome pauses the Agent for an authorised operator. Reconciliation requires an explicit evidenced decision; uncertain work is never automatically repeated.
+- Tool-result bytes form one aggregate activation budget, including denials and operator-supplied results. An over-budget result stops progression without fabricating an external outcome.
+- Late execution results and operator reconciliation compete for one authoritative outcome. Confirmed non-execution fences the old admission; unresolved reconciliation preserves it. Cancellation never resumes new work through a late callback.
 - Conversation state, identities, budgets, results and audit events are durable. Approval and reconciliation waiting do not consume active Agent execution duration.
 - Tool activity, approval decisions and operator reconciliation are visible in the run inspector with sensitive content redacted.
 - Historical tool contracts require explicit cutover for new execution; completed history remains readable and recorded results are reused.
