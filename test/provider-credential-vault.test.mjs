@@ -115,3 +115,11 @@ test('Security Profile recovery atomically replaces a stale trust-target binding
  const before=(await db.prepare('SELECT COUNT(*) AS count FROM provider_credential_vault').first()).count;await db.prepare("CREATE TRIGGER reject_security_recovery BEFORE UPDATE ON security_profile_credentials WHEN OLD.security_profile_id='production' BEGIN SELECT RAISE(ABORT,'injected'); END").run();
  await assert.rejects(()=>vault.recoverSecurityProfileCredentialBinding(101,'production',endpointA,'candidate-key'),code('vault_persistence_failed'));assert.equal((await db.prepare('SELECT COUNT(*) AS count FROM provider_credential_vault').first()).count,before);assert.equal((await vault.currentSecurityProfileCredentialBinding(101,'production',endpointB)).bindingId,g2);assert.equal(await vault.resolveSecurityProfileCredential(101,g2,endpointB),'key-B');
 });
+
+test('MCP policy identity reads never initialize bindings and reject substituted repository, endpoint or credential references',async t=>{
+ const{mf,db,vault}=await fixture();t.after(()=>mf.dispose());await db.prepare('CREATE TABLE workflow_runs(id TEXT)').run();const migration=await readFile(new URL('../migrations/0020_add_workflow_run_mcp_snapshots.sql',import.meta.url),'utf8');await db.batch(migration.split(';').map(value=>value.trim()).filter(Boolean).map(statement=>db.prepare(statement)));
+ const secret=await vault.create('approved-credential'),other=await vault.create('other-credential'),generation=await vault.ensureMcpServerCredentialBinding(101,'docs','https://tools.example/mcp',secret),before=(await db.prepare('SELECT * FROM mcp_server_credentials').all()).results;
+ assert.equal(await vault.currentMcpServerCredentialBinding(101,'docs','https://tools.example/mcp',secret),generation);
+ for(const args of [[202,'docs','https://tools.example/mcp',secret],[101,'other','https://tools.example/mcp',secret],[101,'docs','https://replacement.example/mcp',secret],[101,'docs','https://tools.example/mcp',other]])await assert.rejects(vault.currentMcpServerCredentialBinding(...args),code('vault_secret_unavailable'));
+ assert.deepEqual((await db.prepare('SELECT * FROM mcp_server_credentials').all()).results,before);
+});

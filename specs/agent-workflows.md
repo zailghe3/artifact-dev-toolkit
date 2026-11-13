@@ -159,8 +159,11 @@
 ### Tool policy, interruption and reconciliation
 
 - Agent grants remain the maximum authority. A Workflow Agent block may inherit, restrict or explicitly disable tools, strengthen approval and lower execution limits.
+- Repository write access cannot create or weaken trusted tool-policy authority. Policies require independent administrator authorization bound to the repository, tool, target and authentication identity; unverified direct Git modifications fail closed at execution boundaries.
+- An explicit automatic-execution condition must match even for a trusted read-only tool. A mismatch requires approval; mandatory denials and stricter Agent/Workflow requirements still win.
 - Trusted read-only tools execute automatically after mandatory checks. Unknown, mutating and sensitive tools require approval unless an authorised policy administrator explicitly configures permitted automatic execution.
 - Frozen and mandatory live restrictions both apply. Security denial wins; any required human approval wins over automatic execution.
+- Human tool approval and rejection require current, explicitly delegated approver authority plus repository access. Per-tool reviewer lists only narrow that authority; operators and policy administrators do not implicitly become approvers. Unauthorised viewers may inspect status without actionable approval controls.
 - Human approval identifies one exact frozen invocation. Reviewers cannot replace arguments, and approval cannot override security.
 - Tool approval pauses inside the Agent and survives Runtime replacement. Rejection is a correlated denial that allows continued reasoning within remaining budgets.
 - Tool calls within an Agent execute serially; unresolved approval blocks later calls in that response. Parallel Workflow branches remain supported.

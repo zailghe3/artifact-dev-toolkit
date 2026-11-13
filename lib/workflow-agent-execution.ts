@@ -1,3 +1,4 @@
+import {D1McpPolicyAuthority,type McpAdmissionAuthority} from "./mcp-policy-authority.ts";
 import {AgentJournal,agentDigest} from "./agent-journal.ts";
 import {progressDurableAgent,builtinSearchTool,defaultToolPolicy,type AgentTool} from "./agent-execution.ts";
 import {RemoteOpenAIAgentsRuntime,type ADTRuntimeConfiguration} from "./adt-runtime-client.ts";
@@ -17,7 +18,7 @@ import type {RepositoryAccessContext} from "./repository-authorization.ts";
 import {blockToolsSchema,grantKey,type ModelProgress} from "../adt-runtime/src/agent-contract.ts";
 
 export async function executeJournaledWorkflowAgent(input:{env:CloudflareEnv;scope:GraphNodeAuthorityScope;inputText:string;detail:RunDetail;attempt:StepAttempt;agent:AgentDefinitionV1;restrictions?:unknown;storage:WorkflowRunStorage;configuration:ADTRuntimeConfiguration;toolRepository?:Pick<import("./tool-definition-repository.ts").ToolDefinitionRepository,"get">;runtime?:Pick<RemoteOpenAIAgentsRuntime,"agentOperation">;resolveConnection:(key:string,snapshot?:ConnectionDescriptor)=>Promise<ResolvedConnection>}){
- const {env,scope,storage,agent}=input,values=env as unknown as Record<string,string>,database=env.AUTH_SESSIONS_DB as unknown as WorkflowD1Database,journal=new AgentJournal(database),detail=input.detail;
+ const {env,scope,storage,agent}=input,values=env as unknown as Record<string,string>,database=env.AUTH_SESSIONS_DB as unknown as WorkflowD1Database,journal=new AgentJournal(database,undefined,values),detail=input.detail;
  if(detail.run.cancelRequestedAt||["cancelled","cancelling"].includes(detail.run.status))return{state:"cancelled" as const};
  if(input.attempt.status==="succeeded")return{state:"completed" as const,outputText:input.attempt.outputText??""};
  if(!detail.run.executionPlan||!("agentExecutionContract" in detail.run.executionPlan)||detail.run.executionPlan.agentExecutionContract!==1){await storage.recordGraphFailure(scope.runId,"configuration_invalid","This historical tool execution contract requires cutover. Cancel the old run and launch a new frozen run.");return{state:"failed" as const,safeMessage:"Historical tool execution requires explicit cutover."}}
@@ -45,21 +46,23 @@ export async function executeJournaledWorkflowAgent(input:{env:CloudflareEnv;sco
   const tools:AgentTool[]=[...(hasArtifactSearchGrant(agent.tools)?[builtinSearchTool]:[]),...frozen.map(tool=>({key:`mcp:${tool.serverId}:${tool.tool.name}`,alias:tool.alias,description:tool.tool.description??tool.tool.name,schema:tool.tool.inputSchema,target:tool.server.url,policy:tool.policy??defaultToolPolicy(),frozen:tool}))];
   if(restrictions.allowlist?.some(key=>!grantKeys.includes(key)))throw Error("workflow_tool_expansion");
   const access=():RepositoryAccessContext=>{if(!repository)throw Error("repository_missing");return{ok:true,owner:repository.owner,repo:repository.repository,login:"agent-tool",githubId:0,repositoryId:repository.repositoryId,installationId:repository.installationId,checkedAt:Date.now(),installationCredentialProvider:async capability=>mintInstallationToken(repository.installationId,repository.repositoryId,await createGitHubAppJwt(values.GITHUB_APP_ID,values.GITHUB_APP_PRIVATE_KEY),capability)}};
+  const policyAuthority=new D1McpPolicyAuthority(database),admissionAuthorities=new Map<string,McpAdmissionAuthority>();
+  const {GitHubToolDefinitionRepository}=await import("./tool-definition-repository.ts");
+  const toolRepository=input.toolRepository??new GitHubToolDefinitionRepository(async(path,init)=>{const credential=await access().installationCredentialProvider("read"),url=new URL(`https://api.github.com/repos/${repository!.owner}/${repository!.repository}${path}`);url.searchParams.set("ref",repository!.branch);return fetch(url,{...init,headers:{accept:"application/vnd.github+json",authorization:`Bearer ${credential.token}`,"user-agent":"artifact-dev-toolkit"}})});
   const outcome=await progressDurableAgent({journal,id,runId:scope.runId,generation:scope.workflowGeneration,nodeId:scope.nodeId,activationId:scope.activationId??scope.nodeId,iteration:scope.iteration,attempt:scope.attempt,agent,provider:connection.adapter as ModelProgress["provider"],model:connection.defaultModel!,input:attempt.inputText??input.inputText,configuration:connection.providerConfiguration,timeoutMs:providerExecutionTimeoutMs(connection.adapter,agent.adapterOptions)??30000,restrictions,tools,initialize,
+   admissionAuthority:tool=>{if(tool.key==="artifact_search")return undefined;const proof=admissionAuthorities.get(tool.alias);if(!proof)throw Error("mcp_policy_unverified");return proof},
    progress:request=>remote.agentOperation("/v1/agents/progress",{request},connection.credential),
    authorize:async(tool)=>{
     const current=await storage.getRun(scope.runId);if(!current||current.run.workflowGeneration!==scope.workflowGeneration||current.run.cancelRequestedAt||current.run.failureCode||["succeeded","failed","cancelled","cancelling"].includes(current.run.status))throw Error("run_not_active");
     // Read authority again after a human wait. Git edits never expand frozen grants.
     if(tool.key==="artifact_search"){await access().installationCredentialProvider("read");return[]}
-    const selected=frozen.find(value=>value.alias===tool.alias)!;
-    const {GitHubToolDefinitionRepository}=await import("./tool-definition-repository.ts");const live=await (input.toolRepository??new GitHubToolDefinitionRepository(async(path,init)=>{const credential=await access().installationCredentialProvider("read"),url=new URL(`https://api.github.com/repos/${repository!.owner}/${repository!.repository}${path}`);url.searchParams.set("ref",repository!.branch);return fetch(url,{...init,headers:{accept:"application/vnd.github+json",authorization:`Bearer ${credential.token}`,"user-agent":"artifact-dev-toolkit"}})})).get(selected.serverId);if(!live||live.definition.endpointUrl!==selected.server.url||live.definition.authentication.mode!==selected.authenticationMode)throw Error("tool_revoked");
-    await resolveFrozenMcpTools(repository!.repositoryId,agent,detail.run.mcpToolSnapshots,vault);
-    return[live.definition.toolPolicies?.[selected.tool.name]??defaultToolPolicy()];
+    const selected=(await resolveFrozenMcpTools(repository!.repositoryId,agent,detail.run.mcpToolSnapshots,vault,{repository:toolRepository,policies:policyAuthority})).find(value=>value.alias===tool.alias);if(!selected)throw Error("tool_revoked");
+    admissionAuthorities.set(tool.alias,selected.authorityGuard);return[selected.livePolicy];
    },
    security:async(conversation,call,identity)=>{const security=await resolveFrozenSecurityProfile(repository!.repositoryId,agent,detail.run.securityProfileSnapshots,vault);if(!security)return{outcome:"not_configured"};return remote.agentOperation("/v1/agents/security",{profile:{profileId:security.profileId,endpointUrl:security.endpointUrl,decisionTimeoutMs:security.decisionTimeoutMs},context:{id:identity,model:connection.defaultModel,instructions:agent.masterPrompt,conversation,call}},security.credential)},
    execute:async(tool,call,admissionId)=>{
     if(tool.key==="artifact_search"){const {getArtifactsForRepositoryContext}=await import("./artifacts.ts");const artifacts=await getArtifactsForRepositoryContext(access(),repository!);if(Date.now()>=call.execution_deadline_at!)throw Error("tool_dispatch_deadline");return boundedArtifactSearch(artifacts,JSON.parse(call.arguments_json))}
-    const grants=await resolveFrozenMcpTools(repository!.repositoryId,agent,detail.run.mcpToolSnapshots,vault),grant=grants.find(value=>value.alias===tool.alias);if(!grant)throw Error("tool_revoked");
+    const grants=await resolveFrozenMcpTools(repository!.repositoryId,agent,detail.run.mcpToolSnapshots,vault,{repository:toolRepository,policies:policyAuthority}),grant=grants.find(value=>value.alias===tool.alias);if(!grant||JSON.stringify(grant.authorityGuard)!==JSON.stringify(admissionAuthorities.get(tool.alias)))throw Error("tool_revoked");
     return remote.agentOperation("/v1/agents/tool",{admissionId,executionDeadlineAt:call.execution_deadline_at,invocationId:call.id,fingerprint:call.fingerprint,server:grant.server,tool:grant.tool,arguments:JSON.parse(call.arguments_json)},grant.credential);
    }
   });

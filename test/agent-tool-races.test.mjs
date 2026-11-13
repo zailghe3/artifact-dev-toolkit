@@ -110,7 +110,7 @@ test('aggregate UTF-8 result bytes survive replacement and stop on overflow with
  const payload={text:'é'.repeat(300)};let executions=0;
  const f=await fixture(t,{agent:{executionLimits:{toolResultBytes:1024}},policy:{classification:'read_only'},options:{progress:async()=>({version:1,text:'',calls:[{id:'first',name:'change',arguments:{repo:'safe'}},{id:'second',name:'change',arguments:{repo:'safe'}}]}),execute:async()=>{executions++;return payload}}});
  await f.step();await f.step();const expected=resultBytes({ok:true,result:payload});assert.equal((await f.journal.get(f.options.id)).tool_result_bytes,expected);
- f.options.journal=new AgentJournal(f.db,f.journal.now);await f.step();const c=await f.journal.get(f.options.id),calls=await f.journal.calls(c.id);
+ f.options.journal=new AgentJournal(f.db,f.journal.now,f.environment);await f.step();const c=await f.journal.get(f.options.id),calls=await f.journal.calls(c.id);
  assert.equal(c.tool_result_bytes,expected*2);assert.equal(c.state,'failed');assert.equal(calls[1].state,'completed');assert.equal(calls[1].result_json,null);
  assert.equal(executions,2);assert.equal(f.models,0);assert.equal((await events(f,'execution_unknown')).length,0);assert.ok((await events(f,'failure')).some(e=>JSON.parse(e.evidence_json).reason==='tool_result_budget_exceeded'));
  assert.equal((await f.step()).state,'failed');

@@ -36,3 +36,15 @@ CREATE TABLE agent_reconciliation_decisions (
  admission_id TEXT NOT NULL, write_token TEXT NOT NULL UNIQUE, decision TEXT NOT NULL CHECK(decision IN ('success','not_executed','unresolved','terminate')),
  basis TEXT NOT NULL, result_json TEXT, created_at INTEGER NOT NULL
 );
+
+-- Policy attestations are control-plane authority, never inferred from Git authorship.
+CREATE TABLE mcp_policy_attestations (
+ id TEXT PRIMARY KEY, repository_id INTEGER NOT NULL, server_id TEXT NOT NULL,
+ scope_json TEXT NOT NULL, policies_digest TEXT NOT NULL, tool_digests_json TEXT NOT NULL,
+ administrator INTEGER NOT NULL CHECK(administrator IN (0,1)), actor TEXT NOT NULL, created_at INTEGER NOT NULL
+);
+CREATE TABLE mcp_policy_heads (
+ repository_id INTEGER NOT NULL, server_id TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0,
+ state TEXT NOT NULL CHECK(state IN ('ready','updating','blocked')), authority_id TEXT,
+ mutation_id TEXT, PRIMARY KEY(repository_id,server_id)
+);

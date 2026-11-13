@@ -5,7 +5,7 @@ import {create,act} from 'react-test-renderer';
 import {installTsxHook} from './render-tsx.mjs';
 const require=installTsxHook(),{AgentToolInspector}=require('../components/AgentToolInspector.tsx'),{AppRouterContext}=require('next/dist/shared/lib/app-router-context.shared-runtime');
 test('approval UI submits opaque identities, keeps the decision identity after network loss, and displays exact call context',async t=>{
- const previous=globalThis.fetch,previousAct=globalThis.IS_REACT_ACT_ENVIRONMENT;globalThis.IS_REACT_ACT_ENVIRONMENT=true;let tree,posts=0;const sent=[],runId=crypto.randomUUID(),approvalId=crypto.randomUUID(),view={operator:false,tools:[{id:'invocation',nodeId:'agent-node',providerCallId:'original-call',iteration:2,attempt:1,tool:'server / change',target:'https://tools.example',state:'waiting',agentState:'waiting',arguments:{repository:'safe'},createdAt:Date.now(),approval:{id:approvalId,status:'pending',expiresAt:Date.now()+60000}}]};
+ const previous=globalThis.fetch,previousAct=globalThis.IS_REACT_ACT_ENVIRONMENT;globalThis.IS_REACT_ACT_ENVIRONMENT=true;let tree,posts=0;const sent=[],runId=crypto.randomUUID(),approvalId=crypto.randomUUID(),view={operator:false,tools:[{id:'invocation',nodeId:'agent-node',providerCallId:'original-call',iteration:2,attempt:1,tool:'server / change',target:'https://tools.example',state:'waiting',agentState:'waiting',arguments:{repository:'safe'},createdAt:Date.now(),approval:{canDecide:true,id:approvalId,status:'pending',expiresAt:Date.now()+60000}}]};
  globalThis.fetch=async(_url,init)=>{if(init?.method==='POST'){sent.push(JSON.parse(init.body));if(++posts===1)throw Error('lost response');return Response.json({recorded:true})}return Response.json(view)};
  t.after(async()=>{await act(async()=>tree?.unmount());globalThis.fetch=previous;globalThis.IS_REACT_ACT_ENVIRONMENT=previousAct});
  await act(async()=>{tree=create(React.createElement(AppRouterContext.Provider,{value:{refresh(){},push(){},replace(){},prefetch(){},back(){},forward(){}}},React.createElement(AgentToolInspector,{runId})))});
@@ -24,4 +24,11 @@ test('operator UI binds reconciliation and retry identity to the displayed admis
  await act(async()=>submit());await act(async()=>submit());assert.equal(sent[0].admissionId,first);assert.equal(sent[0].decisionId,sent[1].decisionId);
  view.tools[0].admissionId=second;await act(async()=>submit());await act(async()=>submit());assert.equal(sent.at(-1).admissionId,second);assert.notEqual(sent.at(-1).decisionId,sent[0].decisionId);
  assert.equal(sent[0].result,'verified');assert.equal('arguments' in sent[0],false);
+});
+
+test('repository viewers can inspect pending approval without receiving actionable approval controls',async t=>{
+ const previous=globalThis.fetch,previousAct=globalThis.IS_REACT_ACT_ENVIRONMENT;globalThis.IS_REACT_ACT_ENVIRONMENT=true;let tree;
+ globalThis.fetch=async()=>Response.json({operator:false,tools:[{id:'invocation',nodeId:'agent',tool:'probe',target:'https://tools.example',state:'waiting',agentState:'waiting',arguments:{nonce:'safe'},createdAt:Date.now(),approval:{id:crypto.randomUUID(),status:'pending',canDecide:false,expiresAt:Date.now()+60000}}]});
+ t.after(async()=>{await act(async()=>tree?.unmount());globalThis.fetch=previous;globalThis.IS_REACT_ACT_ENVIRONMENT=previousAct});await act(async()=>{tree=create(React.createElement(AppRouterContext.Provider,{value:{refresh(){}}},React.createElement(AgentToolInspector,{runId:crypto.randomUUID()})))});
+ assert.match(JSON.stringify(tree.toJSON()),/pending/);assert.equal(tree.root.findAllByType('button').length,0);
 });

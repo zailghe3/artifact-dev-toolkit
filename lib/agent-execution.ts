@@ -1,9 +1,11 @@
+import type {McpAdmissionAuthority} from "./mcp-policy-authority.ts";
+import {hasToolRole} from "./agent-tool-roles.ts";
 import {RemoteRuntimeFailure} from "./adt-runtime-client.ts";
 import {AgentJournal,agentDigest,type ToolInvocation} from "./agent-journal.ts";
 import {approvalPolicySchema,blockToolsSchema,conversationSchema,evaluateToolPolicy,modelProgressResultSchema,narrowLimits,validateToolArguments,type ApprovalPolicy,type Conversation,type ModelProgress,type ToolProposal} from "../adt-runtime/src/agent-contract.ts";
 import type {AgentDefinitionV1} from "./workflow-definitions.ts";
 export type AgentTool={key:string;alias:string;description:string;schema:Record<string,unknown>;target:string;policy:ApprovalPolicy;frozen:unknown};
-export type AgentExecutionDependencies={journal:AgentJournal;id:string;runId:string;generation:number;nodeId:string;activationId:string;iteration:number;attempt:number;agent:AgentDefinitionV1;provider:ModelProgress["provider"];model:string;input:string;configuration?:Record<string,string>;timeoutMs:number;restrictions?:unknown;tools:AgentTool[];initialize:boolean;progress:(request:ModelProgress)=>Promise<unknown>;authorize:(tool:AgentTool,call:ToolProposal)=>Promise<ApprovalPolicy[]>;security:(conversation:Conversation,call:ToolProposal,identity:string)=>Promise<unknown>;execute:(tool:AgentTool,call:ToolInvocation,admissionId:string)=>Promise<unknown>};
+export type AgentExecutionDependencies={journal:AgentJournal;id:string;runId:string;generation:number;nodeId:string;activationId:string;iteration:number;attempt:number;agent:AgentDefinitionV1;provider:ModelProgress["provider"];model:string;input:string;configuration?:Record<string,string>;timeoutMs:number;restrictions?:unknown;tools:AgentTool[];initialize:boolean;admissionAuthority?:(tool:AgentTool)=>McpAdmissionAuthority|undefined;progress:(request:ModelProgress)=>Promise<unknown>;authorize:(tool:AgentTool,call:ToolProposal)=>Promise<ApprovalPolicy[]>;security:(conversation:Conversation,call:ToolProposal,identity:string)=>Promise<unknown>;execute:(tool:AgentTool,call:ToolInvocation,admissionId:string)=>Promise<unknown>};
 export type AgentProgressOutcome={state:"pending"|"completed"|"failed";outputText?:string;safeMessage?:string;category?:"provider_start_ambiguous"|"provider_rejected";waiting?:boolean};
 const denial=(reason:string)=>({ok:false,denied:true,code:reason});
 export async function progressDurableAgent(input:AgentExecutionDependencies):Promise<AgentProgressOutcome>{
@@ -69,6 +71,7 @@ export async function progressDurableAgent(input:AgentExecutionDependencies):Pro
    await journal.requireApproval(c,call,reviewers,Math.min(...policies.map(p=>p.expirySeconds)),limits.pendingApprovals);return pending(true)
   }
   if(approval&&(approval.expires_at<=journal.now()||approval.created_at+Math.min(...policies.map(policy=>policy.expirySeconds))*1000<=journal.now()))return deny("approval_expired");
+  if(approval?.status==="approved"&&!hasToolRole(approval.decided_by??"","approver",journal.environment))return deny("approver_authority_revoked");
   if(approval?.status==="approved"&&policies.some(policy=>policy.reviewers?.length&&!policy.reviewers.includes(approval.decided_by??"")))return deny("reviewer_authority_revoked");
   if(!["validated","eligible"].includes(call.state))return pending();
   if(!await journal.setCall(call,call.state,"eligible",undefined,evidence))return pending();call=(await journal.call(call.id))!;
@@ -77,7 +80,7 @@ export async function progressDurableAgent(input:AgentExecutionDependencies):Pro
   if(c.active_ms+journal.now()-decisionStarted>=limits.activeMs)return fail("The Agent active execution budget was reached.");
   if(c.tool_result_bytes>=c.tool_result_limit)return fail("The Agent aggregate tool-result byte budget was reached.");
   const approvalDeadline=approval?Math.min(approval.expires_at,approval.created_at+Math.min(...policies.map(policy=>policy.expirySeconds))*1000):undefined;
-  const admissionId=await journal.admit(c,call,limits.toolExecutions,approvalDeadline);if(!admissionId)return pending();await journal.event(id,"execution_admitted",call.id,{admissionId});call=(await journal.call(call.id))!;if(call.state!=="admitted"||call.admission_id!==admissionId)return pending();
+  const admissionId=await journal.admit(c,call,limits.toolExecutions,approvalDeadline,input.admissionAuthority?.(tool));if(!admissionId)return pending();await journal.event(id,"execution_admitted",call.id,{admissionId});call=(await journal.call(call.id))!;if(call.state!=="admitted"||call.admission_id!==admissionId)return pending();
   let externalReturned=false;
   try{const result=await input.execute(tool,call,admissionId);externalReturned=true;await journal.finish(call,admissionId,{ok:true,result})}
   catch(error){

@@ -16,7 +16,7 @@ flowchart TD
     T -->|bounded outcome| W
 ```
 
-- Git owns Agents, Workflows, tool definitions, frozen catalogues and non-secret policies.
+- Git owns Agents, Workflows, tool definitions, frozen catalogues and declarative non-secret policies. Protected D1 attestations independently establish which exact policies have administrator authority.
 - D1 owns versioned conversations, call identities, budgets, decisions, execution results and reconciliation evidence.
 - Runtime has no durable execution state. Model envelopes contain schemas and model credentials, never MCP credentials or tool execution authority.
 - The existing explicit `approval@1` block remains a separate graph-level gate.
@@ -31,9 +31,17 @@ flowchart TD
 
 ## Trusted policies
 
-Configure comma-separated GitHub logins in Worker `ADT_TOOL_POLICY_ADMINS` and `ADT_TOOL_OPERATORS`. Both roles default to nobody. Ordinary repository access is required in addition to either role. Reviewers require current repository access and any configured reviewer restrictions.
+Configure comma-separated GitHub logins in Worker `ADT_TOOL_POLICY_ADMINS`, `ADT_TOOL_APPROVERS` and `ADT_TOOL_OPERATORS`. All three roles default to nobody and remain independent. Current repository access is required in addition to a role. A per-tool reviewer list narrows the explicitly delegated approvers; it never grants approval authority itself. The inspector exposes approval/rejection controls only to currently eligible users. Both decisions require current delegation and applicable frozen/live reviewer restrictions; expiry and authority are rechecked before admission. Existing operator reconciliation and explicit Workflow `approval@1` remain separate permission contracts.
 
-Policy administrators may edit `toolPolicies` in the MCP editor. Keys are exact remote tool names. Remote discovery cannot assign trusted classifications. Endpoint or authentication changes clear trusted policies unless a policy administrator explicitly supplies replacements.
+For a personal deployment, explicitly put your GitHub login in `ADT_TOOL_APPROVERS`. Also configure it in `ADT_TOOL_POLICY_ADMINS` to classify tools or authorize policies, and in `ADT_TOOL_OPERATORS` to reconcile uncertain execution. None of these lists implies another role.
+
+Policy administrators edit `toolPolicies` in the MCP editor after discovering the relevant tool identities. Keys are exact remote tool names. Ordinary users may make metadata updates that preserve effective trusted policy. Adding, changing, removing or indirectly invalidating a policy requires administrator authority before Git or credential mutation. A target/authentication change or bearer replacement with existing policies is rejected for non-admins. Administrators must explicitly authorize the displayed rules for the new identity; otherwise the old rules are cleared. Remote discovery never assigns trusted classifications, and cannot silently replace the schema of a policy-bearing tool; an administrator must clear/review its policy first.
+
+Git policy text is not proof of administrator authorization. Immutable D1 attestations bind the repository ID, MCP server, exact policy digests, tool names and input schemas, endpoint, authentication mode and credential generation. Policy-bearing bearer identities also bind the credential reference digest; replacing that credential requires administrator review and revokes the old policy-bearing proof. Policy-free same-generation credential rotation remains supported through the application. No secret values enter an attestation or frozen run.
+
+Both run freezing and every live authority resolution require a matching, ready attestation. Historical snapshots without a proof ID remain readable, but cannot authorize new execution; no proof is inferred or backfilled from Git. New frozen snapshots retain the original proof ID and maximum policy; current verified policies add restrictions. Execution admission and human decisions pin the verified D1 head revision. Direct Git edits to classifications, automatic exceptions, denials, reviewers, schema or target therefore cannot grant authority: missing, stale, conflicting or mismatched proof fails closed. Git commit authorship and repository write permission are never administrator proof. Name/description edits and unclassified catalogue changes may preserve a valid proof, but do not create trusted classifications or global roles.
+
+A save marks the D1 authority head unavailable before Git/credential writes. Publication verifies the exact saved definition and binding; compensation restores an earlier head only after checking coherent old state. An interrupted or ambiguous save remains unavailable, without an automatic lease takeover. A policy administrator must inspect the Git definition and credential binding, repair inconsistent state using trusted operator procedures if needed, then explicitly review and save the rules to reauthorize. Deleted servers retain a blocked authority record so recreation cannot silently discard an old denial. D1 and Worker configuration are trusted control-plane state and must be backed up/protected independently of the artifact Git repository.
 
 Example policy:
 
@@ -53,7 +61,7 @@ Example policy:
 
 - Trusted `read_only` defaults to automatic execution after mandatory security checks.
 - Unknown, mutating and sensitive tools default to approval. Names, descriptions and MCP annotations do not establish read-only status.
-- Explicit automatic execution for mutations requires a trusted administrator policy. `automaticWhen` must match when supplied.
+- Explicit automatic execution for mutations requires an administrator-authorized policy. Whenever `automaticWhen` is supplied, its conditions must match for automatic execution, including trusted read-only defaults; a mismatch requires approval. Another mandatory approval or denial still wins.
 - `minimum: approval` or `deny` strengthens the default. Conditional rules can require approval or deny; they cannot grant authority.
 - Resource restrictions require an exact allowed value at the configured argument path. Tools needing finer resource enforcement must not receive broader automatic policies.
 - Frozen and current tool policies both apply. Agent and block requirements strengthen them. Any denial wins, then any approval requirement wins.
@@ -153,7 +161,7 @@ The security tests exercise real Adrian SDK/protobuf WebSocket handling against 
 
 Run the following against a non-production deployment for **each** provider/model/endpoint combination before commissioning it:
 
-1. Apply the final migration and coordinated Worker/Runtime cutover. Configure your GitHub login as policy administrator and operator; give the reviewer repository access. Store provider credentials through Connections, never in prompts or Git. Record source/runtime revisions and the exact provider/model/endpoint identity.
+1. Apply the final migration and coordinated Worker/Runtime cutover. Configure your GitHub login as policy administrator and operator; give the reviewer repository access and explicit `ADT_TOOL_APPROVERS` delegation. Store provider credentials through Connections, never in prompts or Git. Record source/runtime revisions and the exact provider/model/endpoint identity.
 2. Register an operator-controlled HTTPS MCP server with an independent invocation audit. Supply a client tool named `read_probe` with schema `{"type":"object","properties":{"nonce":{"type":"string","minLength":1,"maxLength":64}},"required":["nonce"],"additionalProperties":false}`. Have it record each call and return `probe:<nonce>`. Use harmless test data and a fresh nonce per run. Discover and freeze the catalogue, then explicitly grant only this tool to the Agent.
 3. Select `openai-agents` with an account-accessible supported Chat Completions model (for example `gpt-4.1` if available); select an available Claude Messages model for `anthropic-messages`. For `ollama-chat`, configure the endpoint/authentication and exact `ADT_RUNTIME_OLLAMA_ALLOWED_BASE_URLS` entry, and select an installed model whose `/api/show` reports `tools`. Run connection and execution-path checks from the application. These checks alone do not prove tool calling.
 4. As policy administrator, classify `read_probe` as trusted `read_only`. Set the Agent prompt to: “Call the granted read_probe tool exactly once with nonce <fresh nonce>. After receiving its result, reply with the exact returned marker. Do not infer or invent the marker.” Launch a one-Agent Workflow. Require a journaled native model proposal, one MCP audit entry, a correlated result and final text containing that marker. A plausible final answer without a recorded tool call fails this smoke test.
@@ -171,7 +179,8 @@ A passing result applies only to the recorded model/account/server configuration
 2. Back up D1 and the vault key using existing operator procedures.
 3. Apply the final, unmerged migration `0023_add_agent_tool_journal.sql` with the normal migration runner. This PR revises that migration in place; disposable preview databases that already applied its earlier PR version must be recreated before validation. Do not reuse an earlier preview schema. It adds tables and does not rewrite historical grants or results.
 4. Deploy the Worker and Runtime release 10 as one coordinated cutover; provision the optional policy-administrator/operator login lists.
-5. Test Runtime readiness, provider connections, the execution path, a read-only call and an approved call before reopening launches.
+5. Reauthorize existing Git-managed MCP definitions through the editor as a policy administrator, including definitions with no explicit rules. Do not seed trusted attestations from Git authorship or import Git policies automatically. Verify attestation status before launching runs.
+6. Test Runtime readiness, provider connections, the execution path, a read-only call and an approved call before reopening launches.
 
 New plans freeze `agentExecutionContract: 1`. Historical snapshots remain readable. Historical completed Agent results are reused; historical tool-enabled activations without that contract cannot be restarted under the new rules. Launch a new run rather than editing or upgrading the old snapshot.
 
