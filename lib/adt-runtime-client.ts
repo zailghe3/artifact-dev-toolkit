@@ -107,6 +107,18 @@ export class RemoteProviderRuntime implements AgentRuntime{
   const safe=parseSafeError(value);if(safe)throw failure(safe.category,safe.safeMessage,undefined,safe.code);
   throw failure("malformed_response","Runtime model discovery returned an invalid response.");
  }
+ async agentOperation(path:string,payload:Record<string,unknown>,credential?:string):Promise<unknown>{
+  if(!["/v1/agents/progress","/v1/agents/tool","/v1/agents/security"].includes(path))throw Error("agent_operation_invalid");
+  const wrapping=await publicKey(this.config.wrappingPublicKey??""),ready=await this.readiness(wrapping.keyId,nonce(),{requireAgentCapability:false});
+  if(!(record(ready.value).capabilities as string[]).includes("agent:progress-v1"))throw failure("configuration_invalid","Runtime Agent progression capability is unavailable.");
+  const requestId=crypto.randomUUID(),capability="agent:progress-v1",body=JSON.stringify({protocolVersion:ADT_RUNTIME_PROTOCOL,capability,requestId,...payload,...(credential?{credential:await envelope(credential,wrapping.key,wrapping.keyId,`${ADT_RUNTIME_PROTOCOL}:${capability}:${requestId}`)}:{})});
+  if(encoder.encode(body).byteLength>1100000)throw failure("configuration_invalid","Agent request exceeds its bound.");
+  const headers=await signedHeaders(this.config.authSecret!,"POST",path,body,nonce());let response:Response;
+  try{response=await this.fetcher()(this.base()+path,{method:"POST",headers,body,redirect:"error",signal:AbortSignal.timeout(path==="/v1/agents/progress"?Math.min(930000,Number(record(payload.request).timeoutMs)+30000):path==="/v1/agents/security"?65000:30000)})}catch{throw Object.assign(failure("provider_start_ambiguous","Agent operation outcome is uncertain."),{ambiguous:true})}
+  let wire:Record<string,unknown>;try{wire=record(await boundedJson(response))}catch{throw Object.assign(failure("malformed_response","Agent operation returned an invalid outcome."),{ambiguous:true})}
+  if(response.ok&&wire.protocolVersion===ADT_RUNTIME_PROTOCOL&&wire.ok===true)return wire.result;
+  const error=record(wire.error),safe=parseSafeError(wire),trusted=wire.protocolVersion===ADT_RUNTIME_PROTOCOL&&wire.ok===false&&safe!==undefined;const ambiguous=trusted&&typeof error.ambiguous==="boolean"?error.ambiguous:trusted&&["credential_invalid","runtime_authentication_failed","invalid_request","unsupported_operation","protocol_incompatible"].includes(String(error.code))?false:true;throw Object.assign(failure(safe?.category??"internal_error",safe?.safeMessage??"Agent operation failed safely."),{ambiguous});
+ }
  async start(invocation:AdapterInvocation):Promise<AdapterResult>{
   const policy=requireProviderConnectionType(this.kind),connection=invocation.connection;
   if(connection.adapter!==this.kind||!connection.enabled||(policy.endpoint!==undefined&&connection.endpoint!==policy.endpoint)||(policy.model.required&&!connection.defaultModel?.trim()))throw failure("configuration_invalid","The Runtime provider connection is invalid.");

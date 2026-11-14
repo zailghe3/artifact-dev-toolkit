@@ -17,3 +17,10 @@
 - Transfers accept no revisions, Git SHAs, source paths, run history, checkpoint state, Runtime/Runner state, or credentials. Workflow text fields remain ordinary user-authored text.
 
 The owning contracts are [transfer validation](../lib/workflow-transfer.ts), [context projection](../lib/workflow-authoring-context.ts), the [Block Registry](../lib/workflow-block-registry.ts), [Workflow definitions](../lib/workflow-definitions.ts), and [layout validation](../lib/workflow-layout.ts). Existing authenticated save APIs remain authoritative after loading.
+
+## Agent tool restrictions
+
+- Agent block version 4 supports optional `toolRestrictions.allowlist`, `requireApproval` and lower `limits`, alongside existing context and conversation settings.
+- An absent allowlist inherits; an empty list disables all tools. Use only grant identities already held by the referenced Agent. Approval settings can only strengthen inherited requirements.
+- The visual editor previews effective grants. Text transfer and ordinary save validation enforce the same semantic contract.
+- See [Agent tool policy and recovery](agent-tools-and-recovery.md) for policies, provider support and operator procedures.

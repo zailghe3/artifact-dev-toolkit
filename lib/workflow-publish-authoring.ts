@@ -1,4 +1,4 @@
-export type WorkflowEditorAgent={id:string;name:string;description?:string;publishEligible?:boolean;connectionKey?:string;adapter?:string;environmentKey?:string;managedGit?:boolean;agentContinueFrom?:boolean};
+export type WorkflowEditorAgent={id:string;name:string;description?:string;toolKeys?:string[];publishEligible?:boolean;connectionKey?:string;adapter?:string;environmentKey?:string;managedGit?:boolean;agentContinueFrom?:boolean};
 
 /** The editor's authoring policy; this does not assert live Runner readiness. */
 export function canContinueWorkflowConversation(source:WorkflowEditorAgent|undefined,target:WorkflowEditorAgent|undefined){

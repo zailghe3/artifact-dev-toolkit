@@ -1,3 +1,4 @@
+import {D1McpPolicyAuthority,type McpPolicyContext} from "./mcp-policy-authority.ts";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import type { RepositoryAccessContext } from "./repository-authorization.ts";
 import { GitHubWorkflowDefinitionRepository } from "./workflow-definition-repository.ts";
@@ -58,3 +59,7 @@ export async function listWorkflowConnectionDescriptors(snapshot:CodexRunnerSnap
 /** Durable connection identities for definition authoring. This never contacts Codex Runner. */
 export async function listWorkflowConnectionIdentityDescriptors(access:RepositoryAccessContext){const providers=await getWorkflowProviderConnectionStore(access).then(store=>store.listSafeDescriptors());return assertUniqueConnectionDescriptors([...listConnectionDescriptors(),...providers]);}
 export async function validateCodexRunnerAgentOptions(options:unknown){const {validateCodexRunnerOptionsAgainstSnapshot}=await import("./codex-runner-agent-options.ts");return validateCodexRunnerOptionsAgainstSnapshot(options,await readCodexRunnerCatalog())}
+
+export async function getMcpPolicyAuthority(){const env=await getWorkflowEnvironment();return new D1McpPolicyAuthority(env.AUTH_SESSIONS_DB as unknown as WorkflowD1Database)}
+export async function getMcpPolicyContext(actor:string):Promise<McpPolicyContext>{const env=await getWorkflowEnvironment();return{authority:new D1McpPolicyAuthority(env.AUTH_SESSIONS_DB as unknown as WorkflowD1Database),actor,environment:env as unknown as Record<string,string|undefined>}}
+export async function safePolicyMcp(repositoryId:number,value:{definition:import("./tool-definitions.ts").McpServerDefinition;fileSha:string}){const {safeVersionedMcp}=await import("./mcp-tool-service.ts");return{...safeVersionedMcp(value),policyAuthority:await(await getMcpPolicyAuthority()).inspect(repositoryId,value.definition,await getProviderCredentialVault())}}
