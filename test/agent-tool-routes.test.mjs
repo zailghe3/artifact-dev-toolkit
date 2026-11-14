@@ -17,3 +17,24 @@ test('tool decision API requires explicitly delegated approvers independently of
  context.actor='reviewer';context.approvers='';assert.equal((await route.POST(request(body),params)).status,403);assert.equal((await f.approval()).approval.status,'pending');
  context.approvers='reviewer';view=await(await route.GET(new Request('https://adt.example'),params)).json();assert.equal(view.tools[0].approval.canDecide,true);assert.equal((await route.POST(request(body),params)).status,200);
 });
+
+
+test('an unverified live MCP authority exposes rejection only and persists an idempotent negative decision',async t=>{
+ const{f,approval,call,params}=await pending(t);await f.db.prepare("UPDATE agent_tool_invocations SET tool_key='mcp:docs:search',frozen_json=? WHERE id=?").bind(JSON.stringify({serverId:'docs'}),call.id).run();
+ const view=await(await route.GET(new Request('https://adt.example'),params)).json();assert.equal(view.tools[0].approval.canDecide,false);assert.equal(view.tools[0].approval.canReject,true);
+ const body={action:'approval',approvalId:approval.id,decisionId:crypto.randomUUID(),decision:'approved'};assert.equal((await route.POST(request(body),params)).status,409);assert.equal((await f.approval()).approval.status,'pending');
+ body.decision='rejected';assert.equal((await route.POST(request(body),params)).status,200);assert.equal((await route.POST(request(body),params)).status,200);assert.equal((await f.approval()).approval.status,'rejected');assert.equal(f.executions,0);
+ assert.equal((await route.POST(request({...body,decision:'approved'}),params)).status,409);
+});
+
+for(const boundary of ['delegation','frozen_reviewers','expired','cancelled','generation','wrong_run'])test(`safe rejection after authority loss still enforces ${boundary}`,async t=>{
+ const{f,approval,call,params}=await pending(t);await f.db.prepare("UPDATE agent_tool_invocations SET tool_key='mcp:docs:search',frozen_json=? WHERE id=?").bind(JSON.stringify({serverId:'docs'}),call.id).run();
+ if(boundary==='delegation')context.approvers='';
+ if(boundary==='frozen_reviewers')await f.db.prepare('UPDATE agent_tool_approvals SET reviewers_json=? WHERE id=?').bind('["other"]',approval.id).run();
+ if(boundary==='expired')await f.db.prepare('UPDATE agent_tool_approvals SET expires_at=0 WHERE id=?').bind(approval.id).run();
+ if(boundary==='cancelled')await f.db.prepare("UPDATE workflow_runs SET cancel_requested_at='now' WHERE id=?").bind(f.options.runId).run();
+ if(boundary==='generation')await f.db.prepare('UPDATE workflow_runs SET workflow_generation=2 WHERE id=?').bind(f.options.runId).run();
+ const target=boundary==='wrong_run'?{params:Promise.resolve({runId:crypto.randomUUID()})}:params;
+ const response=await route.POST(request({action:'approval',approvalId:approval.id,decisionId:crypto.randomUUID(),decision:'rejected'}),target);assert.equal(response.status,['delegation','frozen_reviewers'].includes(boundary)?403:409);assert.equal((await f.approval()).approval.status,'pending');assert.equal(f.executions,0);
+ const view=await(await route.GET(new Request('https://adt.example'),params)).json();if(boundary!=='wrong_run')assert.equal(view.tools[0].approval.canReject,false);
+});

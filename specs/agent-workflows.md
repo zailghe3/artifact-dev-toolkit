@@ -164,8 +164,8 @@
 - Trusted read-only tools execute automatically after mandatory checks. Unknown, mutating and sensitive tools require approval unless an authorised policy administrator explicitly configures permitted automatic execution.
 - Frozen and mandatory live restrictions both apply. Security denial wins; any required human approval wins over automatic execution.
 - Human tool approval and rejection require current, explicitly delegated approver authority plus repository access. Per-tool reviewer lists only narrow that authority; operators and policy administrators do not implicitly become approvers. Unauthorised viewers may inspect status without actionable approval controls.
-- Human approval identifies one exact frozen invocation. Reviewers cannot replace arguments, and approval cannot override security.
-- Tool approval pauses inside the Agent and survives Runtime replacement. Rejection is a correlated denial that allows continued reasoning within remaining budgets.
+- Human approval identifies one exact frozen invocation. Reviewers cannot replace arguments, and approval cannot override security. Replacing an MCP bearer credential invalidates prior frozen execution authority and approvals, including tools without explicit policies. New invocations require fresh authority and applicable approval.
+- Tool approval pauses inside the Agent and survives Runtime replacement. Rejection is a correlated denial that allows continued reasoning within remaining budgets. A currently delegated, frozen-authorized reviewer may reject an active pending call even when its live policy is revoked or unverified; this grants no execution authority.
 - Tool calls within an Agent execute serially; unresolved approval blocks later calls in that response. Parallel Workflow branches remain supported.
 - An unknown external execution outcome pauses the Agent for an authorised operator. Reconciliation requires an explicit evidenced decision; uncertain work is never automatically repeated.
 - Tool-result bytes form one aggregate activation budget, including denials and operator-supplied results. An over-budget result stops progression without fabricating an external outcome.

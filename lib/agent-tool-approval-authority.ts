@@ -5,14 +5,14 @@ import type {FrozenMcpTool} from "./mcp-tool-authority.ts";
 import type {D1McpPolicyAuthority,McpPolicyVault} from "./mcp-policy-authority.ts";
 import type {ToolDefinitionRepository} from "./tool-definition-repository.ts";
 
-/** Both the decision API and inspector use the same current role and policy checks. */
-export async function toolApprovalAuthority(input:{journal:AgentJournal;runId:string;invocationId:string;actor:string;repositoryId:number;repository:Pick<ToolDefinitionRepository,"get">;policies:D1McpPolicyAuthority;vault:McpPolicyVault}){
+/** Rejection needs frozen reviewer authority; approval additionally needs live execution authority. */
+export async function toolApprovalAuthority(input:{journal:AgentJournal;runId:string;invocationId:string;decision:"approved"|"rejected";actor:string;repositoryId:number;repository:Pick<ToolDefinitionRepository,"get">;policies:D1McpPolicyAuthority;vault:McpPolicyVault}){
  const {journal,actor}=input;
  if(!hasToolRole(actor,"approver",journal.environment))throw Error("permission_denied");
  const call=await journal.call(input.invocationId),c=call&&await journal.get(call.continuation_id);if(!call||!c||c.run_id!==input.runId)throw Error("approval_not_pending");
  const approval=await journal.approval(call);if(!approval)throw Error("approval_not_pending");
  const reviewers=JSON.parse(approval.reviewers_json) as string[];if(reviewers.length&&!reviewers.includes(actor.toLowerCase()))throw Error("permission_denied");
- if(call.tool_key==="artifact_search")return undefined;
+ if(input.decision==="rejected"||call.tool_key==="artifact_search")return undefined;
  const frozen=JSON.parse(call.frozen_json) as FrozenMcpTool,live=await input.repository.get(frozen.serverId);if(!live)throw Error("mcp_policy_unverified");
  const verified=await input.policies.verify(input.repositoryId,live.definition,input.vault);await input.policies.verifyFrozen(input.repositoryId,frozen,verified);
  const policy=verified.policies[frozen.tool.name];

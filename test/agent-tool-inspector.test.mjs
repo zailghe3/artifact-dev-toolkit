@@ -5,7 +5,7 @@ import {create,act} from 'react-test-renderer';
 import {installTsxHook} from './render-tsx.mjs';
 const require=installTsxHook(),{AgentToolInspector}=require('../components/AgentToolInspector.tsx'),{AppRouterContext}=require('next/dist/shared/lib/app-router-context.shared-runtime');
 test('approval UI submits opaque identities, keeps the decision identity after network loss, and displays exact call context',async t=>{
- const previous=globalThis.fetch,previousAct=globalThis.IS_REACT_ACT_ENVIRONMENT;globalThis.IS_REACT_ACT_ENVIRONMENT=true;let tree,posts=0;const sent=[],runId=crypto.randomUUID(),approvalId=crypto.randomUUID(),view={operator:false,tools:[{id:'invocation',nodeId:'agent-node',providerCallId:'original-call',iteration:2,attempt:1,tool:'server / change',target:'https://tools.example',state:'waiting',agentState:'waiting',arguments:{repository:'safe'},createdAt:Date.now(),approval:{canDecide:true,id:approvalId,status:'pending',expiresAt:Date.now()+60000}}]};
+ const previous=globalThis.fetch,previousAct=globalThis.IS_REACT_ACT_ENVIRONMENT;globalThis.IS_REACT_ACT_ENVIRONMENT=true;let tree,posts=0;const sent=[],runId=crypto.randomUUID(),approvalId=crypto.randomUUID(),view={operator:false,tools:[{id:'invocation',nodeId:'agent-node',providerCallId:'original-call',iteration:2,attempt:1,tool:'server / change',target:'https://tools.example',state:'waiting',agentState:'waiting',arguments:{repository:'safe'},createdAt:Date.now(),approval:{canDecide:true,canReject:true,id:approvalId,status:'pending',expiresAt:Date.now()+60000}}]};
  globalThis.fetch=async(_url,init)=>{if(init?.method==='POST'){sent.push(JSON.parse(init.body));if(++posts===1)throw Error('lost response');return Response.json({recorded:true})}return Response.json(view)};
  t.after(async()=>{await act(async()=>tree?.unmount());globalThis.fetch=previous;globalThis.IS_REACT_ACT_ENVIRONMENT=previousAct});
  await act(async()=>{tree=create(React.createElement(AppRouterContext.Provider,{value:{refresh(){},push(){},replace(){},prefetch(){},back(){},forward(){}}},React.createElement(AgentToolInspector,{runId})))});
@@ -31,4 +31,12 @@ test('repository viewers can inspect pending approval without receiving actionab
  globalThis.fetch=async()=>Response.json({operator:false,tools:[{id:'invocation',nodeId:'agent',tool:'probe',target:'https://tools.example',state:'waiting',agentState:'waiting',arguments:{nonce:'safe'},createdAt:Date.now(),approval:{id:crypto.randomUUID(),status:'pending',canDecide:false,expiresAt:Date.now()+60000}}]});
  t.after(async()=>{await act(async()=>tree?.unmount());globalThis.fetch=previous;globalThis.IS_REACT_ACT_ENVIRONMENT=previousAct});await act(async()=>{tree=create(React.createElement(AppRouterContext.Provider,{value:{refresh(){}}},React.createElement(AgentToolInspector,{runId:crypto.randomUUID()})))});
  assert.match(JSON.stringify(tree.toJSON()),/pending/);assert.equal(tree.root.findAllByType('button').length,0);
+});
+
+
+test('a reviewer can reject an invalidated pending call without receiving an approval control',async t=>{
+ const previous=globalThis.fetch,previousAct=globalThis.IS_REACT_ACT_ENVIRONMENT;globalThis.IS_REACT_ACT_ENVIRONMENT=true;let tree;const sent=[],approvalId=crypto.randomUUID();
+ globalThis.fetch=async(_url,init)=>{if(init?.method==='POST'){sent.push(JSON.parse(init.body));return Response.json({recorded:true})}return Response.json({operator:false,tools:[{id:'invocation',nodeId:'agent',tool:'probe',target:'https://tools.example',state:'waiting',agentState:'waiting',arguments:{},createdAt:Date.now(),approval:{id:approvalId,status:'pending',canDecide:false,canReject:true,expiresAt:Date.now()+60000}}]})};
+ t.after(async()=>{await act(async()=>tree?.unmount());globalThis.fetch=previous;globalThis.IS_REACT_ACT_ENVIRONMENT=previousAct});await act(async()=>{tree=create(React.createElement(AppRouterContext.Provider,{value:{refresh(){}}},React.createElement(AgentToolInspector,{runId:crypto.randomUUID()})))});
+ const buttons=tree.root.findAllByType('button');assert.equal(buttons.length,1);assert.equal(buttons[0].children.join(''),'Reject call');await act(async()=>{await buttons[0].props.onClick()});assert.equal(sent[0].approvalId,approvalId);assert.equal(sent[0].decision,'rejected');
 });

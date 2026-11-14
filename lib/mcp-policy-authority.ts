@@ -19,7 +19,7 @@ export async function mcpPolicyScope(repositoryId:number,definition:McpServerDef
  const policies=trustedPolicies(definition),schemas:Record<string,string>=Object.create(null);
  for(const name of Object.keys(policies)){const tool=definition.catalogue?.tools.find(tool=>tool.name===name);if(!tool)throw Error("mcp_policy_tool_unavailable");schemas[name]=mcpPolicyDigest(tool.inputSchema)}
  const bindingId=definition.authentication.mode==="bearer"?await vault.currentMcpServerCredentialBinding(repositoryId,definition.id,definition.endpointUrl,definition.authentication.credentialSecretRef):undefined;
- return{url:definition.endpointUrl,authenticationMode:definition.authentication.mode,...(bindingId?{bindingId}:{}),...(definition.authentication.mode==="bearer"&&Object.keys(policies).length?{credentialDigest:mcpPolicyDigest(definition.authentication.credentialSecretRef)}:{}),schemas};
+ return{url:definition.endpointUrl,authenticationMode:definition.authentication.mode,...(bindingId?{bindingId}:{}),...(definition.authentication.mode==="bearer"?{credentialDigest:mcpPolicyDigest(definition.authentication.credentialSecretRef)}:{}),schemas};
 }
 function assertAttestation(record:Attestation,definition:McpServerDefinition,scope:Scope){
  const policies=trustedPolicies(definition);
@@ -39,7 +39,7 @@ export class D1McpPolicyAuthority{
  async verifyFrozen(repositoryId:number,item:{policyAuthorityId?:string;policy?:ApprovalPolicy;serverId:string;authenticationMode:string;credentialBindingId?:string;server:{url:string};tool:{name:string;inputSchema:Record<string,unknown>}},current:Awaited<ReturnType<D1McpPolicyAuthority["verify"]>>){
   const record=item.policyAuthorityId&&await this.attestation(item.policyAuthorityId);if(!record||record.repository_id!==repositoryId||record.server_id!==item.serverId)throw Error("mcp_policy_unverified");
   const scope=JSON.parse(record.scope_json) as Scope,digests=JSON.parse(record.tool_digests_json) as Record<string,string>;
-  if(scope.url!==item.server.url||scope.authenticationMode!==item.authenticationMode||scope.bindingId!==item.credentialBindingId||scope.url!==current.scope.url||scope.authenticationMode!==current.scope.authenticationMode||scope.bindingId!==current.scope.bindingId||(scope.credentialDigest!==undefined&&scope.credentialDigest!==current.credentialDigest))throw Error("mcp_policy_unverified");
+  if(scope.url!==item.server.url||scope.authenticationMode!==item.authenticationMode||scope.bindingId!==item.credentialBindingId||scope.url!==current.scope.url||scope.authenticationMode!==current.scope.authenticationMode||scope.bindingId!==current.scope.bindingId||(scope.authenticationMode==="bearer"&&(!scope.credentialDigest||scope.credentialDigest!==current.credentialDigest)))throw Error("mcp_policy_unverified");
   if(digests[item.tool.name]!== (item.policy?mcpPolicyDigest(approvalPolicySchema.parse(item.policy)):undefined)||scope.schemas[item.tool.name]!== (item.policy?mcpPolicyDigest(item.tool.inputSchema):undefined)||(item.policy&&record.administrator!==1))throw Error("mcp_policy_unverified");
  }
  async begin(repositoryId:number,serverId:string,head:PolicyHead|undefined,recover=false){

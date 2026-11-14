@@ -42,14 +42,14 @@ for(const change of ['reviewers','deny','git_tamper'])test(`decision-time live p
  await f.step();await f.step();const{call}=await f.approval();
  if(change==='git_tamper')await m.repo.update({...saved.definition,toolPolicies:{}},saved.fileSha);
  else await updateMcpServer(101,{...input,fileSha:saved.fileSha,toolPolicies:{search:change==='deny'?{minimum:'deny'}:{reviewers:['other']}}},m.repo,m.vault,context);
- await assert.rejects(toolApprovalAuthority({journal:f.journal,runId:f.options.runId,invocationId:call.id,actor:'reviewer',repositoryId:101,repository:m.repo,policies:m.authority,vault:m.vault}));assert.equal((await f.approval()).approval.status,'pending');assert.equal(f.executions,0);
+ await assert.rejects(toolApprovalAuthority({journal:f.journal,runId:f.options.runId,invocationId:call.id,decision:"approved",actor:'reviewer',repositoryId:101,repository:m.repo,policies:m.authority,vault:m.vault}));assert.equal((await f.approval()).approval.status,'pending');assert.equal(f.executions,0);
 });
 
 for(const race of [false,true])test(`a valid MCP decision pins its live policy head (${race?'concurrent change is rejected':'authorized approval succeeds'})`,async t=>{
  const f=await fixture(t),m=await policyFixture(t);m.authority=new D1McpPolicyAuthority(f.db);const context={authority:m.authority,actor:'admin',environment:{ADT_TOOL_POLICY_ADMINS:'admin'}},input={id:'docs',name:'Docs',endpointUrl:'https://tools.example/mcp',authenticationMode:'none'};
  const created=await createMcpServer(101,input,m.repo,m.vault,context);await discoverMcpServer(101,'docs',created.fileSha,m.repo,m.vault,{discoverMcp:async()=>[{name:'search',inputSchema:f.tool.schema}]},context);
  const agent={...f.options.agent,tools:[{type:'mcp',serverId:'docs',toolName:'search'}]},frozen=(await freezeAuthorizedMcpTools(101,[agent],m.repo,m.vault,m.authority))[agent.id][0];frozen.alias='change';f.tool.frozen=frozen;f.tool.key='mcp:docs:search';await f.step();await f.step();const{call,approval}=await f.approval();
- const policyAuthority=await toolApprovalAuthority({journal:f.journal,runId:f.options.runId,invocationId:call.id,actor:'reviewer',repositoryId:101,repository:m.repo,policies:m.authority,vault:m.vault});
- if(race){await m.authority.begin(101,'docs',await m.authority.head(101,'docs'));await assert.rejects(f.journal.decide({...action(f,approval),policyAuthority}),/approval_not_pending/);assert.equal((await f.approval()).approval.status,'pending')}
+ const policyAuthority=await toolApprovalAuthority({journal:f.journal,runId:f.options.runId,invocationId:call.id,decision:"approved",actor:'reviewer',repositoryId:101,repository:m.repo,policies:m.authority,vault:m.vault});
+ if(race){await m.authority.begin(101,'docs',await m.authority.head(101,'docs'));await assert.rejects(f.journal.decide({...action(f,approval),policyAuthority}),/approval_not_pending/);assert.equal((await f.approval()).approval.status,'pending');assert.equal(await f.journal.decide({...action(f,approval),decision:'rejected',policyAuthority}),true);assert.equal((await f.approval()).approval.status,'rejected')}
  else{const decision={...action(f,approval),policyAuthority};assert.equal(await f.journal.decide(decision),true);assert.equal(await f.journal.decide(decision),false)}
 });
