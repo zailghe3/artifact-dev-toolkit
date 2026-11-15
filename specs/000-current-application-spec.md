@@ -133,7 +133,7 @@
 ## 9. Application interface
 
 - Protected application pages share a consistent application header and primary navigation.
-- Primary navigation presents Artifacts, Workflows, and Diagnostics; Workflow-area navigation presents Overview, Runs, Workflows, Agents, Connections, Tools, and Security.
+- Primary navigation presents Artifacts, Workflows, Advisor, and Diagnostics; Workflow-area navigation presents Overview, Runs, Workflows, Agents, Connections, Tools, and Security.
 - The interface is responsive across desktop and mobile layouts.
 - The application supports light and dark themes.
 - Theme changes apply immediately and persist for the user.
@@ -155,7 +155,21 @@
 - Provider and Runner credentials remain outside user-authored Workflow definitions.
 - Current graph capabilities, execution semantics, and limitations are defined in [Agent Workflows](agent-workflows.md).
 
-## 11. Current product boundaries
+## 11. Advisor
+
+- Advisor is a top-level, on-demand analysis entry point backed by an explicitly selected ordinary Workflow.
+- Advisor settings persist the selected Workflow identity and optional configured provider connection/model override server-side for the authorised repository.
+- Selection and launch validate the current Workflow, transitive composition, Agent configuration and effective provider compatibility. Missing or incompatible dependencies fail explicitly.
+- Each question starts a fresh ordinary Workflow execution. Existing run history, progress, approvals, cancellation, retry and recovery remain authoritative.
+- The underlying Workflow stays visible and editable through ordinary editors. Advisor links to its definition and execution record and displays effective provider/model choices.
+- Overrides apply to every affected Agent for that execution, preserve saved definitions and ordinary launches, and remain frozen with the run through retry and recovery.
+- Advisor grants no privileged identity. Backend admission and consumption enforce a closed read-only capability boundary, including reusable Workflow composition.
+- Advisor supports native ADT metadata tools through a compatible tool-enabled provider. MCP, Artifact Search content, command execution, publication, privileged Workflow invocation and conversation continuation are excluded.
+- Advisor cannot read prompts, execution inputs/outputs, external responses or raw errors through its native data tools. It acknowledges unavailable evidence and metrics.
+- Default ordinary definitions can be generated without publishing, overwriting existing definitions, changing credentials or activating configuration; see [Advisor setup](../docs/advisor-setup.md).
+- Scheduling, notifications, autonomous changes and persistent multi-turn memory are outside the current Advisor boundary.
+
+## 12. Current product boundaries
 
 - Artifact repository configuration and external service provisioning remain operator responsibilities.
 - Operational documentation may prescribe deployment technologies, versions, limits, or recovery procedures without making those mechanics part of this product specification.

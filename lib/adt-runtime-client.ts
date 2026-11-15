@@ -1,3 +1,4 @@
+import {isAdtDataTool} from "./adt-data-contract.ts";
 import type { AgentRuntime } from "./agent-runtime.ts";
 import type { AgentProviderAdapter, AdapterInvocation, AdapterResult, FailureCategory, ProviderTransportDiagnostics, ProviderTransportReason, ProviderRuntimeErrorName } from "./workflow-adapter.ts";
 import { ollamaChatOptionsSchema,AGENT_EXECUTION_TIMEOUT_DEFAULT_SECONDS,agentExecutionTimeoutSeconds,openAIAgentsOptionsSchema,anthropicMessagesOptionsSchema,workIqRestOptionsSchema } from "./workflow-adapter.ts";
@@ -121,6 +122,7 @@ export class RemoteProviderRuntime implements AgentRuntime{
  }
  async start(invocation:AdapterInvocation):Promise<AdapterResult>{
   const policy=requireProviderConnectionType(this.kind),connection=invocation.connection;
+  if(invocation.tools?.some(grant=>isAdtDataTool(typeof grant==="string"?grant:grant.type==="builtin"?grant.name:"")))throw failure("configuration_invalid","Native ADT data tools require durable journaled Agent execution.");
   if(connection.adapter!==this.kind||!connection.enabled||(policy.endpoint!==undefined&&connection.endpoint!==policy.endpoint)||(policy.model.required&&!connection.defaultModel?.trim()))throw failure("configuration_invalid","The Runtime provider connection is invalid.");
   const requiredCredential=()=>{const value=connection.credential;if(typeof value!=="string"||!value.trim()||value.length>8192)throw failure("connection_unavailable","Connection is not configured.");return value};
   let credential:string|undefined;
