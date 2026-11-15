@@ -52,6 +52,17 @@ test('shared application header renders semantic navigation without duplicate id
   for (const anchor of html.match(/<a[^>]*>[\s\S]*?<\/a>/g) ?? []) assert.doesNotMatch(anchor, /<button\b/);
 });
 
+test('Workflow secondary navigation shares the header container and retains active links', () => {
+  const navigation = React.createElement('nav', { 'aria-label': 'Workflow sections' },
+    React.createElement('a', { href: '/workflows/runs', 'aria-current': 'page' }, 'Runs'));
+  const html = renderToStaticMarkup(React.createElement(AppHeader, { login: 'octocat', currentPath: '/workflows/runs', secondaryNavigation: navigation }));
+  assert.match(html, /<nav aria-label="Primary"/);
+  assert.match(html, /<nav aria-label="Workflow sections"><a href="\/workflows\/runs" aria-current="page">Runs<\/a><\/nav>/);
+  assert.match(html, /<\/header>[\s\S]*<nav aria-label="Workflow sections"/);
+  const ordinary = renderToStaticMarkup(React.createElement(AppHeader, { login: 'octocat', currentPath: '/' }));
+  assert.doesNotMatch(ordinary, /Workflow sections/);
+});
+
 test('artifact operational shells retain shared navigation and the operational state', () => {
   const state = { category: 'github_temporarily_unavailable', title: 'GitHub temporarily unavailable', message: 'Try again later.' };
   for (const currentPath of ['/artifacts/example', '/artifacts/example/edit']) {

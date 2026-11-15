@@ -4,5 +4,5 @@ import { requireRepositoryAuthorization } from "@/lib/auth";
 
 export default async function SecurityLayout({children}:{children:React.ReactNode}) {
   const session=await requireRepositoryAuthorization("/security");
-  return <><AppHeader login={session.login} currentPath="/security"/><div className="mx-auto max-w-5xl px-4 py-6"><WorkflowSubnav/><main className="mt-6">{children}</main></div></>;
+  return <><AppHeader login={session.login} currentPath="/security" secondaryNavigation={<WorkflowSubnav/>}/><main className="mx-auto max-w-5xl px-4 py-6">{children}</main></>;
 }
