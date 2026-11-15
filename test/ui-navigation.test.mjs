@@ -14,7 +14,7 @@ const textCount = (html, text) => (html.match(new RegExp(text.replace(/[.*+?^${}
 
 test('primary navigation exposes the stable product destinations', () => {
   assert.equal(applicationIdentity.name, 'Artifact Toolkit');
-  assert.deepEqual(primaryNavigation.map(({ label, href }) => [label, href]), [['Artifacts', '/'], ['Workflows', '/workflows'], ['Diagnostics', '/diagnostics']]);
+  assert.deepEqual(primaryNavigation.map(({ label, href }) => [label, href]), [['Artifacts', '/'], ['Workflows', '/workflows'], ['Advisor', '/advisor'], ['Diagnostics', '/diagnostics']]);
   assert.equal(primaryNavigation.some((item) => item.label === 'Create artifact'), false);
 });
 
@@ -28,6 +28,8 @@ test('primary navigation resolves one active product area for nested routes', ()
     ['/security', 'Workflows'],
     ['/security/example/edit', 'Workflows'],
     ['/diagnostics', 'Diagnostics'],
+    ['/advisor', 'Advisor'],
+    ['/advisor/settings', 'Advisor'],
   ];
   for (const [path, expected] of cases) {
     const state = primaryNavigationState(path);

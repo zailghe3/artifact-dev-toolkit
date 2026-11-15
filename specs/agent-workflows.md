@@ -313,6 +313,16 @@
 - There is no automatic production promotion of Workflow definitions.
 - Non-managed Codex Runner Workflow jobs do not publish Git commits or pull requests.
 
+### Native ADT metadata tools
+
+- Eligible ordinary Agents may explicitly select separate native grants for Workflow lists, Workflow structure, execution lists, execution details and aggregate execution metrics.
+- Grants are frozen with run snapshots and checked server-side against the exact active Agent attempt and current authorised repository context at consumption.
+- Responses are bounded and paginated, use stable identifiers and explicit filters, and exclude cross-repository history and records without an authorised repository scope.
+- Workflow structure excludes prompts, starter input and free-text control/publication content. Execution details expose progression, failure categories and existing sanitised orchestration evidence without raw errors, inputs, outputs or external responses.
+- Aggregate metrics report recorded execution statuses, duration and retries, disclose bounded sampling, and identify provider-reported journal token usage as partial and unrecorded cost as unavailable.
+- Tool-enabled execution retains provider capability validation, the shared call budget, Security Profile gate and normal recovery semantics. Unsupported providers and older incompatible Runtime capabilities fail explicitly.
+- Advisor executions use the same lifecycle with an additional frozen read-only restriction; see [Advisor](000-current-application-spec.md#11-advisor).
+
 ## Historical run boundary
 
 - Current Workflow definitions are semantic v2 graphs and current execution uses the current generic graph plan.

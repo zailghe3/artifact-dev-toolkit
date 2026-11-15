@@ -133,6 +133,13 @@ The product invariants are in [`specs/agent-workflows.md`](specs/agent-workflows
 - The Worker journals complete tool proposals before policy, approval or execution. Models receive schemas without tool credentials. Each Runtime tool request contains one admitted invocation and scoped credentials.
 - Unknown external outcomes suspend Agent progression for operator reconciliation; timers never retry admitted uncertain calls. See [Agent tools and recovery](docs/agent-tools-and-recovery.md) for policies, continuation and cutover.
 
+### Advisor
+
+- Advisor launches an explicitly configured ordinary Workflow through the shared durable admission path; it is not a separate execution engine or privileged identity.
+- D1 stores repository-scoped Advisor settings and the run's frozen read-only context. Effective Agent and provider overrides use the existing run snapshots without rewriting Git definitions.
+- Native ADT metadata tools reuse the provider-neutral Agent tool journal, admission and shared security gate. The Worker checks exact frozen grants, active attempt authority and current repository identity before scoped Git or D1 reads.
+- Metadata projections exclude prompts, execution content, raw errors, credentials and external tool responses. Advisor's backend allowlist excludes external tools, Codex and publication even through composed Workflows.
+
 ### Security Profiles
 
 - Security Profiles are a first-class domain, separate from Connections, Tools, Agents, and Workflows.
@@ -180,7 +187,7 @@ Operational detail belongs in [`codex-runner/README.md`](codex-runner/README.md)
 | Repeatable Codex procedures | `.agents/skills/` |
 | Artifact content and Git-backed Agent, Workflow, layout, provider connection, and Security Profile definitions | configured GitHub repository |
 | Artifact repository layout and metadata | `docs/external-artifact-repository-contract.md` plus validation code |
-| Application sessions, encrypted provider credential vault, and durable Workflow state | D1 schema, migrations, and source |
+| Application sessions, encrypted provider credential vault, Advisor settings, and durable Workflow state | D1 schema, migrations, and source |
 | Catalogue acceleration | KV cache; GitHub remains authoritative |
 | Durable Workflow orchestration | Cloudflare Workflows outer lifecycle; LangGraph sequencing in ADT Runtime; checkpoints persisted behind the control plane in D1 |
 | Ordinary AI provider execution (OpenAI Agents, Anthropic Messages, Work IQ, Ollama) | independently deployed ADT Runtime; direct OpenAI Responses remains a supported exception |

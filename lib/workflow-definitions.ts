@@ -1,5 +1,6 @@
 import {executionLimitsSchema,blockToolsSchema,grantKey} from "../adt-runtime/src/agent-contract.ts";
 import { z } from "zod";
+import {ADT_DATA_TOOLS} from "./adt-data-contract.ts";
 import { validateAdapterOptions } from "./workflow-adapter.ts";
 import {validateOpenAIModelAgentOptions} from "./openai-model-agent-capabilities.ts";
 import {workflowBlockRegistry} from "./workflow-block-registry.ts";
@@ -13,7 +14,7 @@ const id = z.string().regex(DEFINITION_ID).max(80);
 const credentialKey = /(?:credential|password|secret|token|api.?key|private.?key)/i;
 
 export const AGENT_MASTER_PROMPT_MAX_LENGTH=65536;
-export const agentToolSchema=z.union([z.literal("artifact_search"),z.object({type:z.literal("builtin"),name:z.literal("artifact_search")}).strict(),z.object({type:z.literal("mcp"),serverId:id,toolName:z.string().trim().min(1).max(128)}).strict()]);
+export const agentToolSchema=z.union([z.enum(["artifact_search",...ADT_DATA_TOOLS]),z.object({type:z.literal("builtin"),name:z.enum(["artifact_search",...ADT_DATA_TOOLS])}).strict(),z.object({type:z.literal("mcp"),serverId:id,toolName:z.string().trim().min(1).max(128)}).strict()]);
 const agentBase={id,name:z.string().trim().min(1).max(120),description:z.string().max(2000),status:z.literal("draft"),connectionKey:id,securityProfileId:id.optional(),tools:z.array(agentToolSchema).max(129).superRefine((tools,ctx)=>{const keys=tools.map(tool=>typeof tool==="string"?tool:tool.type==="builtin"?tool.name:`mcp:${tool.serverId}:${tool.toolName}`);if(new Set(keys).size!==keys.length)ctx.addIssue({code:"custom",message:"Tool grants must be unique."})}).optional(),toolApproval:z.enum(["risk_based","approval"]).optional(),executionLimits:executionLimitsSchema.partial().optional(),adapterOptions:z.unknown().optional()};
 const {securityProfileId:_securityProfileId,...historicalAgentBase}=agentBase;void _securityProfileId;
 export const historicalAgentDefinitionV1Schema=z.object({schemaVersion:z.literal(1),...historicalAgentBase,masterPrompt:z.string().min(1).max(AGENT_MASTER_PROMPT_MAX_LENGTH)}).strict();
