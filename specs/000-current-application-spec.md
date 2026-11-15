@@ -133,6 +133,7 @@
 ## 9. Application interface
 
 - Protected application pages share a consistent application header and primary navigation.
+- The compact header preserves navigation text sizes and usable controls. Workflow-area navigation stays visible below it while page content scrolls, including on mobile.
 - Primary navigation presents Artifacts, Workflows, Advisor, and Diagnostics; Workflow-area navigation presents Overview, Runs, Workflows, Agents, Connections, Tools, and Security.
 - The interface is responsive across desktop and mobile layouts.
 - The application supports light and dark themes.

@@ -4,6 +4,7 @@ import React from 'react';
 import {act,create} from 'react-test-renderer';
 import Module from 'node:module';
 import {installTsxHook} from './render-tsx.mjs';
+import {renderToStaticMarkup} from 'react-dom/server';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT=true;
 const originalLoad=Module._load,navigations=[];
@@ -13,6 +14,7 @@ Module._load=function(request,parent,isMain){
  return originalLoad.call(this,request,parent,isMain);
 };
 const requireTsx=installTsxHook(),{WorkflowDefinitionEditor}=requireTsx('../components/WorkflowDefinitionEditor.tsx');
+const {WorkflowTextAuthoring}=requireTsx('../components/WorkflowTextAuthoring.tsx');
 const agents=[{id:'available',name:'Available',adapter:'codex-runner',connectionKey:'private',environmentKey:'private-env',managedGit:true,publishEligible:true}],reusableWorkflows=[{id:'reusable',name:'Reusable',description:''}];
 const transfer=(id='imported',agentId='available',workflowId='reusable')=>({format:'adt-workflow-transfer',version:1,definition:{schemaVersion:2,id,name:'Imported workflow',description:'Imported description',status:'draft',runInputTemplate:'Input template',exposableAsBlock:true,nodes:[{id:'start',blockType:'agent',blockVersion:2,config:{agentId,context:{publishOutput:true,includeRunInput:true,includeNodeOutputs:[]}}},{id:'call',blockType:'subworkflow',blockVersion:1,config:{workflowId}},{id:'finish',blockType:'agent',blockVersion:3,config:{agentId,context:{publishOutput:false,includeRunInput:false,includeNodeOutputs:['start']},conversation:{sourceNodeId:'start'}}},{id:'publish',blockType:'publish-github-pr',blockVersion:1,config:{sourceNodeId:'finish',title:'Exact title',body:'Exact body',draft:false}}],edges:[{id:'one',source:'start',target:'call'},{id:'two',source:'call',target:'finish'},{id:'three',source:'finish',target:'publish',targetPort:'managed-result'}],limits:{maxStepExecutions:64}},layout:{schemaVersion:1,workflowId:id,positions:{start:{x:123,y:45}},edgeWaypoints:{one:[{x:10,y:20}]},viewport:{x:-33,y:77,zoom:1.8}}});
 const text=node=>node.findAll(item=>typeof item.type==='string').flatMap(item=>item.children).filter(item=>typeof item==='string').join(' ');
@@ -24,6 +26,16 @@ async function mount(extra={}){let view;await act(async()=>{view=create(React.cr
 async function paste(view,value){await act(async()=>pasteField(view).props.onChange({target:{value:JSON.stringify(value)}}))}
 async function load(view,value){await paste(view,value);await act(async()=>button(view,'Load into editor').props.onClick())}
 async function change(view,name,value){await act(async()=>input(view,name).props.onChange({target:{value}}))}
+
+test('New Workflow authoring disclosure starts closed and retains all context and import controls',()=>{
+ const html=renderToStaticMarkup(React.createElement(WorkflowTextAuthoring,{context:'safe context',onLoad(){},onTextChange(){},error:'',disabled:false}));
+ assert.match(html,/<details><summary[^>]*>Import \/ AI authoring context<\/summary>/);
+ assert.doesNotMatch(html,/<details[^>]*\bopen(?:[=>\s])/);
+ assert.match(html,/Copy authoring context/);
+ assert.match(html,/Workflow Authoring Context/);
+ assert.match(html,/ADT Workflow Transfer JSON/);
+ assert.match(html,/Load into editor/);
+});
 
 test('load is explicit, creates no request, hydrates layout/settings and Create uses existing endpoints with edited ID',async()=>{
  const prior=globalThis.fetch,calls=[];globalThis.fetch=async(url,init)=>{calls.push({url,method:init.method,body:JSON.parse(init.body)});return Response.json({fileSha:'new-sha'})};let view;
