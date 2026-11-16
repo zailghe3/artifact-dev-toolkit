@@ -35,3 +35,15 @@ test('even reviewed knowledge cannot publish detected credentials; consent is co
  const git=knowledgeFixture(),draft=await store.save({document:document('reviewed-safe'),expectedSha:null}),review=await store.review(draft.id,draft.revision);
  await store.publish(draft.id,draft.revision,review.reviewToken,(doc,sha,actor)=>git.repository.publish(doc,sha,actor));assert.equal(git.writes.length,1);
 });
+
+test('credential rejection emits neither raw content nor credentials in console diagnostics or errors',()=>{
+ const methods=['log','info','warn','error'],original=Object.fromEntries(methods.map(key=>[key,console[key]])),logged=[];
+ try{
+  for(const key of methods)console[key]=(...args)=>logged.push(args);
+  for(const [,secret] of sensitiveFormats){
+   let rejected;try{assertNoSecrets(secret)}catch(error){rejected=error}
+   assert.ok(rejected instanceof ArtifactSecretRejectedError);assert.equal(rejected.message.includes(secret),false);assert.equal(JSON.stringify(observedText(secret,100)).includes(secret),false);
+  }
+ }finally{for(const key of methods)console[key]=original[key]}
+ for(const [,secret] of sensitiveFormats)assert.equal(JSON.stringify(logged).includes(secret),false);
+});
