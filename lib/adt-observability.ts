@@ -20,7 +20,7 @@ export function observedText(value:unknown,maxChars:number,offset=0){
  if(typeof value!=="string")return {available:false,reason:"not_recorded"};
  if(value.length>65536)return {available:false,reason:"content_limit"};
  try{assertNoSecrets(value)}catch{return {available:false,reason:"secret_safety_check"}}
- return {available:true,text:value.slice(offset,offset+maxChars),totalChars:value.length,truncated:offset>0||offset+maxChars<value.length,nextOffset:offset+maxChars<value.length?offset+maxChars:null,untrusted:true};
+ return {available:true,text:value.slice(offset,offset+maxChars),totalChars:value.length,truncated:offset>0||offset+maxChars<value.length,nextOffset:offset+maxChars<value.length?offset+maxChars:null,untrusted:true,safety:"unverified_sensitive_content",disclosure:"exact_call_human_approval_required"};
 }
 const attemptIdentity=(a:Record<string,unknown>)=>({stepId:a.step_id,agentId:a.agent_id,activationId:a.graph_activation_id??null,iteration:a.iteration,attempt:a.attempt,status:a.status});
 

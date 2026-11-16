@@ -97,12 +97,23 @@ async function mapWithConcurrency<T, U>(values: readonly T[], concurrency: numbe
   return results;
 }
 
+// This is a rejection check for recognised formats, not proof that unmatched text is safe.
+// Keep disclosure and both Git publication paths on this shared validation boundary.
 const secretPatterns = [
+  /\b(?:proxy[-_])?authorization["']?\s*[:=]\s*(?:["']\s*)?[^\s"']+/i,
+  /\bBearer\s+[A-Za-z0-9._~+\/=\-]+/i,
+  /\b[a-z][a-z0-9+.-]*:\/\/[^\s/?#@]+@/i,
+  /\b(?:password|pwd|passphrase|client[_-]?secret|accountkey|sharedaccesssignature|aws[_-]?(?:secret[_-]?access[_-]?key|session[_-]?token))["']?\s*[:=]\s*(?:["']\s*)?[^\s"']+/i,
+  /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/,
+  /\bAIza[A-Za-z0-9_-]{35}\b/,
+  /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/,
+  /\bsk_(?:live|test)_[A-Za-z0-9]{16,}\b/,
+  /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/,
   /-----BEGIN (?:RSA |DSA |EC |OPENSSH |PGP )?PRIVATE KEY-----/i,
   /\b(?:api[_-]?key|token|secret|password)\b\s*[:=]\s*["']?[A-Za-z0-9_./+=-]{16,}/i,
   /\bgh[pousr]_[A-Za-z0-9_]{36,}\b/,
   /\bgithub_pat_[A-Za-z0-9_]{22,}_[A-Za-z0-9_]{59,}\b/,
-  /\bsk-[A-Za-z0-9]{20,}\b/,
+  /\bsk-[A-Za-z0-9_-]{12,}\b/,
 ];
 
 export function assertNoSecrets(value: string) {

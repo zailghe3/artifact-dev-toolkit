@@ -40,9 +40,9 @@ export class KnowledgeProposalStore{
    if(saved.meta?.changes!==1)throw Error("knowledge_publish_uncertain");
    return this.get(id);
   }catch(error){
-   const conflict=error instanceof Error&&error.message==="knowledge_conflict";
-   await this.db.prepare("UPDATE advisor_knowledge_proposals SET state=?,updated_at=? WHERE id=? AND repository_scope=? AND owner_id=? AND state='publishing'").bind(conflict?"conflict":"uncertain",this.now(),id,this.scope,this.actor.githubId).run();
-   throw Error(conflict?"knowledge_conflict":"knowledge_publish_uncertain");
+   const conflict=error instanceof Error&&error.message==="knowledge_conflict",secretRejected=error instanceof Error&&error.message==="knowledge_secret_rejected";
+   await this.db.prepare("UPDATE advisor_knowledge_proposals SET state=?,updated_at=? WHERE id=? AND repository_scope=? AND owner_id=? AND state='publishing'").bind(secretRejected?"draft":conflict?"conflict":"uncertain",this.now(),id,this.scope,this.actor.githubId).run();
+   throw Error(secretRejected?"knowledge_secret_rejected":conflict?"knowledge_conflict":"knowledge_publish_uncertain");
   }
  }
 }

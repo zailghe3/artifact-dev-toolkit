@@ -65,3 +65,13 @@ test('sensitive approval cannot survive approver revocation, repository revocati
   await f.journal.decide({runId:f.value.id,approvalId:approval.id,decisionId:crypto.randomUUID(),decision:'approved',actor:'reviewer'});await revoke(f);await f.step();assert.equal(f.reads,0);
  }
 });
+
+test('approved journaled prompt reads omit detected authentication data before storing results or resuming the model',async t=>{
+ const f=await nativeFixture(t,{tool:'adt_agent_prompt_read',arguments:{agentId:'analyst'},tools:['adt_agent_prompt_read']}),current=await f.repo.getAgent('analyst'),secret='Authorization: Bearer synthetic-journal-value';
+ await f.repo.updateAgent({...current.definition,prompt:{source:'custom',text:secret}},current.fileSha);
+ assert.equal(adtDataArgumentSchemas.adt_agent_prompt_read.safeParse({agentId:'analyst',sensitiveDisclosureAcknowledged:true}).success,false);
+ await f.step();await f.step();assert.equal(f.reads,0);const call=(await f.journal.calls(f.id))[0],approval=await f.journal.approval(call);
+ await f.journal.decide({runId:f.value.id,approvalId:approval.id,decisionId:crypto.randomUUID(),decision:'approved',actor:'reviewer'});assert.equal((await f.finish()).state,'completed');assert.equal(f.reads,1);
+ assert.equal(f.lastEvidence.result.prompt.reason,'secret_safety_check');assert.equal((await f.journal.call(call.id)).result_json.includes(secret),false);
+ const events=(await f.db.prepare('SELECT evidence_json FROM agent_execution_events WHERE invocation_id=?').bind(call.id).all()).results;assert.equal(JSON.stringify(events).includes(secret),false);
+});

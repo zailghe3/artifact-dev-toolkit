@@ -166,10 +166,11 @@
 - Overrides apply to every affected Agent for that execution, preserve saved definitions and ordinary launches, and remain frozen with the run through retry and recovery.
 - Advisor grants no privileged identity. Backend admission and consumption enforce a closed read-only capability boundary, including reusable Workflow composition.
 - Advisor supports explicitly granted native ADT observability and Git knowledge tools through a compatible tool-enabled provider. MCP, Artifact Search content, command execution, publication, privileged Workflow invocation and conversation continuation are excluded.
-- The original metadata tools exclude sensitive content. Separate grants allow Agent instruction, selected execution content, sanitised failure diagnostic and tool journal reads; every sensitive invocation requires independently authorised human approval.
+- The original metadata tools exclude sensitive content. Separate grants allow Agent instruction, selected execution content, sanitised failure diagnostic and tool journal reads; every sensitive invocation requires independently authorised human approval and explicit acknowledgement of its disclosure scope. Credential detection does not certify unmatched content safe or permit automatic disclosure.
 - Git-backed knowledge uses the separate flat `advisor/knowledge/` namespace. It is not executable configuration or an Artifact Library type.
-- Users can browse/search approved knowledge, create entries manually, preserve an Advisor result as an editable proposal, and review updates or superseding relationships.
+- Users can browse/search approved knowledge, create entries manually, preserve an Advisor result as an editable proposal, and review updates or superseding relationships. Investigation provenance is separate from explicitly edited Workflow/Agent subjects; subject IDs are never inferred from model prose.
 - Knowledge type and lifecycle are independent. Findings can be uncertain, recommendations are not accepted decisions, and implementation is distinct from a verified outcome.
+- Detected credentials and authentication material prohibit knowledge publication even when a human approved it.
 - Each Git knowledge mutation requires a separate authenticated human publication action for the reviewed document and observed revision. Draft text, model tools and saved proposals cannot authorise publication.
 - D1 preserves pending proposals and operational publication state; Git remains authoritative for approved knowledge. Stale or uncertain publication is never automatically retried.
 - Retrieved instructions, execution content and knowledge remain untrusted evidence and cannot change permissions or override system instructions. Unavailable evidence is explicit.

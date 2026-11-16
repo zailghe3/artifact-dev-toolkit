@@ -2,7 +2,7 @@ import {z} from "zod";
 import {readBoundedJson} from "./bounded-json.ts";
 import {KNOWLEDGE_ROOT,MAX_KNOWLEDGE_BYTES,knowledgePath,isKnowledgePath,parseKnowledge,serializeKnowledge,searchKnowledge,type KnowledgeEntry,type KnowledgeQuery,type KnowledgeDocument} from "./advisor-knowledge.ts";
 import {writeGitHubContents,GitContentWriteError} from "./github-content-write.ts";
-import {assertNoSecrets} from "./artifact-repository.ts";
+import {assertNoSecrets,ArtifactSecretRejectedError} from "./artifact-repository.ts";
 import type {RunRepositoryContext} from "./workflow-storage.ts";
 import type {RepositoryCredentialCapability,RepositoryCredential} from "./github-app.ts";
 
@@ -55,7 +55,8 @@ export class GitHubKnowledgeRepository implements KnowledgeReader{
  }
  /** Trusted application operation only; never registered as an Agent tool. */
  async publish(document:KnowledgeDocument,expectedSha:string|null,actor:string){
-  const markdown=serializeKnowledge(document),path=knowledgePath(document.metadata.id);assertNoSecrets(markdown);
+  const markdown=serializeKnowledge(document),path=knowledgePath(document.metadata.id);
+  try{assertNoSecrets(markdown)}catch(error){if(error instanceof ArtifactSecretRejectedError)throw Error("knowledge_secret_rejected");throw error}
   if(!/^[A-Za-z0-9-]{1,80}$/.test(actor))throw Error("permission_denied");
   if(expectedSha!==null)sha.parse(expectedSha);
   const current=await this.read(document.metadata.id);
