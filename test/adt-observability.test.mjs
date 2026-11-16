@@ -10,7 +10,7 @@ import {toolApprovalAuthority} from '../lib/agent-tool-approval-authority.ts';
 import {requireSensitiveReadApproval} from '../lib/adt-sensitive-approval.ts';
 import {assertAdvisorRunReadOnly} from '../lib/advisor-policy.ts';
 import {nativeFixture} from './support/native-adt-fixture.mjs';
-import {context,agent,workflow,run,database} from './support/advisor-fixtures.mjs';
+import {context,agent,run,database} from './support/advisor-fixtures.mjs';
 
 test('each additional grant is independent, defaults to explicit human approval, and is in the closed Advisor allowlist',()=>{
  assert.equal(nativeAdtToolDefinitions(undefined).length,0);
