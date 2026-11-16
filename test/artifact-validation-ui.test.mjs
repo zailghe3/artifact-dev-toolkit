@@ -6,6 +6,7 @@ import {installTsxHook} from './render-tsx.mjs';
 const require=installTsxHook();
 const {ArtifactValidationAction,ArtifactValidationProvider,OperationalHealthSummary,ArtifactDomainStatus}=require('../components/ArtifactValidationAction.tsx');
 globalThis.IS_REACT_ACT_ENVIRONMENT=true;
+globalThis.self=globalThis;
 const deferred=()=>{let resolve;return{promise:new Promise(r=>{resolve=r}),resolve:value=>resolve(value)}};
 const domains=[{key:'artifact-library',title:'Artifact Library',state:'healthy',checks:[{id:'artifact-validation',label:'Content validation',status:{label:'Not run',tone:'neutral'},contributes:false}]}];
 const text=view=>JSON.stringify(view.toJSON());

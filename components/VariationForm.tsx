@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import {PendingButtonContent} from "@/components/PendingButtonContent";
 import { unknownVariationErrorMessage, variationErrorMessage } from "@/lib/variation-errors";
 import { hasPreview, safeGitHubUrl } from "@/lib/edit-ui";
@@ -79,7 +80,7 @@ export function VariationForm({ artifactId, defaultBody, defaultTitle }: { artif
           <PendingButtonContent pending={saving}>{saving ? "Saving…" : "Save variation"}</PendingButtonContent>
         </button>
       </FormActions></div>
-      {reconciliationRequired ? <p className="mt-3 text-sm"><a className="underline" href="/">Check the Artifact Library before starting another variation.</a></p> : null}
+      {reconciliationRequired ? <p className="mt-3 text-sm"><Link className="underline" href="/">Check the Artifact Library before starting another variation.</Link></p> : null}
       {success ? <div className="mt-4 rounded-xl bg-emerald-50 p-4 text-sm text-emerald-900"><strong>Variation saved</strong><div className="mt-2 flex gap-4"><a className="underline" href={success.artifactUrl}>View variation</a><a className="underline" href={success.commitUrl} target="_blank" rel="noreferrer">View GitHub commit</a></div></div> : null}
       {hasPreview(preview) ? <article className="mt-5 rounded-2xl border border-slate-200 p-5 dark:border-slate-700"><h3 className="text-xl font-bold">{preview.metadata.title}</h3><dl className="my-3 text-sm"><dt className="font-semibold">Source</dt><dd>{preview.metadata.sourceId}</dd><dt className="font-semibold">Tags</dt><dd>{preview.metadata.tags.join(", ") || "None"}</dd><dt className="font-semibold">Aliases</dt><dd>{preview.metadata.aliases.join(", ") || "None"}</dd></dl><div className="prose" dangerouslySetInnerHTML={{ __html: preview.bodyHtml }} /></article> : null}
     </Panel>
