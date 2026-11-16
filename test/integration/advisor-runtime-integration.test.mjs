@@ -26,3 +26,17 @@ for(const provider of ['openai-agents','anthropic-messages','ollama-chat'])test(
  assert.equal((await f.step()).state,'completed');assert.equal(f.reads,1);assert.equal(turns,2);
  const metadata=await f.data.execute('adt_execution_metrics',{},f.value.repositoryContext);assert.equal(metadata.tokens.available,true);assert.equal(metadata.tokens.recordedTotal,30);assert.equal(metadata.cost.available,false);
 });
+
+test('ordinary Runtime handles approved prompt evidence and Git knowledge while publication stays outside model authority',async t=>{
+ const {knowledgeFixture,document}=await import('../support/knowledge-fixture.mjs'),git=knowledgeFixture();git.add(document());let turns=0;
+ const runtime=await createRuntimeServer({host:'127.0.0.1',port:0,authSecret:auth,privateKeyPem:keys.privateKey,revision:'advisor-knowledge-integration',logger:()=>{},providerHttp:{fetcher:async(url,init)=>{
+  const payload=JSON.parse(init.body);assert.ok(payload.tools.every(tool=>tool.function.name!=='adt_advisor_knowledge_publish'));
+  turns++;const next=turns===1?{name:'adt_agent_prompt_read',arguments:JSON.stringify({agentId:'analyst'})}:turns===2?{name:'adt_advisor_knowledge_search',arguments:JSON.stringify({id:'retry-policy'})}:undefined;
+  if(turns===2)assert.match(JSON.stringify(payload),/SENSITIVE_PROMPT/);if(turns===3)assert.match(JSON.stringify(payload),/Accepted choice/);
+  return Response.json({id:`knowledge-${turns}`,object:'chat.completion',created:1,model:'gpt-5',choices:[{index:0,finish_reason:next?'tool_calls':'stop',message:next?{role:'assistant',content:null,tool_calls:[{id:`call-${turns}`,type:'function',function:next}]}:{role:'assistant',content:'Evidence and prior decision retrieved. Publication requires human review.'}}]});
+ }},mcpFetcher:async()=>assert.fail('No external tool authority')});
+ await runtime.listen();t.after(()=>runtime.close());const remote=new RemoteOpenAIAgentsRuntime({baseUrl:`http://127.0.0.1:${runtime.server.address().port}`,authSecret:auth,wrappingPublicKey:keys.publicKey});
+ const f=await nativeFixture(t,{tools:['adt_agent_prompt_read','adt_advisor_knowledge_search'],knowledgeReader:git.repository,remote});
+ await f.step();await f.step();assert.equal(f.reads,0);assert.equal(turns,1);const call=(await f.journal.calls(f.id))[0],approval=await f.journal.approval(call);assert.equal(approval.status,'pending');
+ await f.journal.decide({runId:f.value.id,approvalId:approval.id,decisionId:crypto.randomUUID(),decision:'approved',actor:'reviewer'});const outcome=await f.finish();assert.equal(outcome.state,'completed');assert.equal(turns,3);assert.equal(f.reads,2);assert.equal(git.writes.length,0);assert.match(outcome.outputText,/requires human review/);
+});

@@ -1,3 +1,4 @@
+import {KNOWLEDGE_ROOT,parseKnowledge} from "./advisor-knowledge.ts";
 import fs from "node:fs/promises";
 import path from "node:path";
 import {
@@ -33,7 +34,7 @@ async function walkMarkdownFiles(dir: string): Promise<string[]> {
     }))).flat();
   } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return []; throw error; }
 }
-async function walkConnectionFiles(dir:string):Promise<string[]>{try{const entries=await fs.readdir(dir,{withFileTypes:true});return(await Promise.all(entries.map(entry=>{const full=path.join(dir,entry.name);if(entry.isDirectory())return walkConnectionFiles(full);if(entry.isFile())return[full];return[]}))).flat()}catch(error){if((error as NodeJS.ErrnoException).code==="ENOENT")return[];throw error}}
+async function walkConnectionFiles(dir:string,includeSymlinks=false):Promise<string[]>{try{const entries=await fs.readdir(dir,{withFileTypes:true});return(await Promise.all(entries.map(entry=>{const full=path.join(dir,entry.name);if(entry.isDirectory())return walkConnectionFiles(full,includeSymlinks);if(entry.isFile()||includeSymlinks&&entry.isSymbolicLink())return[full];return[]}))).flat()}catch(error){if((error as NodeJS.ErrnoException).code==="ENOENT")return[];throw error}}
 function normalizeRelative(file: string, root: string) { return path.relative(root, file).split(path.sep).join("/"); }
 
 export async function validateExternalArtifactRepository(checkoutDir: string): Promise<ArtifactRepositoryValidationResult> {
@@ -46,5 +47,9 @@ export async function validateExternalArtifactRepository(checkoutDir: string): P
   const connectionIds=new Map<string,string>();
   for(const file of await walkConnectionFiles(path.join(checkoutRoot,CONNECTION_ROOT))){const displayPath=normalizeRelative(file,checkoutRoot);if(!displayPath.endsWith(CONNECTION_SUFFIX)||displayPath.split("/").length!==2){errors.push({file:displayPath,reason:"Connection definitions must use connections/<id>.connection.json."});continue}try{const definition=parseConnectionDefinition(JSON.parse(await fs.readFile(file,"utf8")),displayPath),previous=connectionIds.get(definition.id);if(previous)errors.push({file:displayPath,reason:`Duplicate connection id "${definition.id}" already used by ${previous}.`});else connectionIds.set(definition.id,displayPath)}catch(error){if(error instanceof z.ZodError)for(const issue of error.issues)errors.push({file:displayPath,reason:formatZodIssue(issue)});else errors.push({file:displayPath,reason:(error as Error).message})}}
   const toolIds=new Map<string,string>();for(const file of await walkConnectionFiles(path.join(checkoutRoot,MCP_SERVER_ROOT))){const displayPath=normalizeRelative(file,checkoutRoot);if(!displayPath.endsWith(MCP_SERVER_SUFFIX)||displayPath.split("/").length!==2){errors.push({file:displayPath,reason:"MCP definitions must use tools/<id>.mcp.json."});continue}try{const definition=mcpServerDefinitionSchema.parse(JSON.parse(await fs.readFile(file,"utf8"))),previous=toolIds.get(definition.id);if(previous)errors.push({file:displayPath,reason:`Duplicate tool integration id "${definition.id}" already used by ${previous}.`});else toolIds.set(definition.id,displayPath)}catch(error){if(error instanceof z.ZodError)for(const issue of error.issues)errors.push({file:displayPath,reason:formatZodIssue(issue)});else errors.push({file:displayPath,reason:(error as Error).message})}}
+  for(const file of await walkConnectionFiles(path.join(checkoutRoot,"advisor"),true)){
+    const displayPath=normalizeRelative(file,checkoutRoot);
+    try{if((await fs.lstat(file)).isSymbolicLink()||!displayPath.startsWith(`${KNOWLEDGE_ROOT}/`))throw Error();parseKnowledge(await fs.readFile(file,"utf8"),displayPath)}catch{errors.push({file:displayPath,reason:"Knowledge must use flat advisor/knowledge/<id>.md with valid knowledge metadata and bounded Markdown."})}
+  }
   return { valid: errors.length === 0, artifactCount, errors };
 }

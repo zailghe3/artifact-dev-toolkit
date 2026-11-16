@@ -1,3 +1,5 @@
+import {GitHubKnowledgeRepository} from "./advisor-knowledge-repository.ts";
+import {GitHubArtifactRepository} from "./artifact-repository.ts";
 import {AdtDataTools} from "./adt-data-tools.ts";
 import {GitHubWorkflowDefinitionRepository} from "./workflow-definition-repository.ts";
 import {createGitHubAppJwt,getConfiguredRepository,getRepositoryInstallation,mintInstallationToken} from "./github-app.ts";
@@ -31,5 +33,8 @@ export function createAdtDataTools(context:RunRepositoryContext,db:WorkflowD1Dat
     const url=new URL(`https://api.github.com/repos/${encodeURIComponent(context.owner)}/${encodeURIComponent(context.repository)}${path}`);url.searchParams.set("ref",context.branch);
     return fetch(url,{headers:{accept:"application/vnd.github+json",authorization:`Bearer ${token}`,"user-agent":"artifact-dev-toolkit"},redirect:"error"});
   });
-  return new AdtDataTools(db,definitions);
+  const credential=async()=>({token,permissions:{contents:"read" as const},expiresAt:new Date(Date.now()+60000).toISOString()});
+  const knowledge=new GitHubKnowledgeRepository(context,credential);
+  const artifacts=new GitHubArtifactRepository({owner:context.owner,repo:context.repository,branch:context.branch,rootPath:context.root,credentialProvider:credential});
+  return new AdtDataTools(db,definitions,knowledge,async id=>{const result=await artifacts.findByIdWithRevision(id);return result?.artifact.type==="prompt"?{body:result.artifact.body,path:result.artifact.path,revision:result.currentFileSha}:undefined});
 }

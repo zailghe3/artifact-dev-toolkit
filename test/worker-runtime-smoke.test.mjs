@@ -36,6 +36,7 @@ const fixture = mode => port => [process.execPath, '--input-type=module', '-e', 
     if (${JSON.stringify(mode)} === 'hung-request') return;
     if (${JSON.stringify(mode)} === '500') {console.error('Unexpected loadManifest(/.next/server/preview-props.json) call!');res.writeHead(500);res.end();return;}
     if (${JSON.stringify(mode)} === 'arbitrary') {res.end('ok');return;}
+    if(req.url.startsWith('/api/advisor/knowledge')){res.writeHead(401,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify({error:'Authentication required'}));return;}
     if (req.url.startsWith('/auth/')) {
       res.writeHead(307, {location:'http://127.0.0.1:${port}/sign-in?error=configuration&returnTo=%2Fsmoke','cache-control':'no-store'});res.end();
     } else {res.writeHead(200, {'content-type':'text/html'});res.end('Sign in required <a href="/auth/github/start">GitHub</a>');}

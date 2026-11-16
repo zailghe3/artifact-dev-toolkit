@@ -82,6 +82,13 @@ export async function smokeWorker({ command, startupMs = 30000, requestMs = 3000
       if (!response) throw new Error('Worker startup/request deadline exceeded');
       if (!validateProbe(path, response, body, origin)) throw new Error(`Unexpected ADT response for ${path.split('?')[0]}: HTTP ${response.status}`);
     }
+    // Runtime/model bearer authority is never browser-session publication authority.
+    for(const path of ['/api/advisor/knowledge','/api/advisor/knowledge/proposals','/api/advisor/knowledge/proposals/00000000-0000-4000-8000-000000000000']){
+      const method=path==='/api/advisor/knowledge'?'GET':'POST';
+      const response=await fetch(origin+path,{method,redirect:'manual',headers:{origin,authorization:'Bearer smoke-runtime-authority','content-type':'application/json'},...(method==='POST'?{body:JSON.stringify({action:'publish',revision:1,confirmation:'publish',reviewToken:'model-generated-approval'})}:{}),signal:AbortSignal.any([interrupted.signal,AbortSignal.timeout(requestMs)])});
+      if(response.status!==401||!/no-store/.test(response.headers.get('cache-control')||''))throw new Error(`Knowledge session boundary failed: HTTP ${response.status}`);
+      await response.body?.cancel();
+    }
     alive();
     return { ok: true };
   } catch (error) {

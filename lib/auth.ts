@@ -173,11 +173,11 @@ export async function requireRepositoryAuthorization(returnTo = "/") {
   return (await requireRepositoryAccess(returnTo)).session;
 }
 
-async function resolveRepositoryAccess(session: SessionRecord, now = Date.now()): Promise<{ session: SessionRecord; access?: RepositoryAccessContext; failure?: RepositoryAuthorizationStatus & { ok: false }; reauthenticate?: boolean; refreshed: boolean }> {
+async function resolveRepositoryAccess(session: SessionRecord, now = Date.now(), forceRevalidation = false): Promise<{ session: SessionRecord; access?: RepositoryAccessContext; failure?: RepositoryAuthorizationStatus & { ok: false }; reauthenticate?: boolean; refreshed: boolean }> {
   const config = getRepositoryAuthorizationConfig();
   const auth = session.repositoryAuthorization;
   const matches = storedAuthorizationMatchesConfig(session, config);
-  const stale = authorizationRequiresRevalidation(auth, now);
+  const stale = forceRevalidation || authorizationRequiresRevalidation(auth, now);
   if (!matches) {
     const failure = { ok: false as const, reason: "configuration" as const, message: "Repository access is not authorised." };
     try {
@@ -248,10 +248,10 @@ export async function requireApiDiagnosticsAccess(request: Request): Promise<Ses
   return session;
 }
 
-export async function requireApiRepositoryAccess(request: Request): Promise<{ access: RepositoryAccessContext; session: SessionRecord } | Response> {
+export async function requireApiRepositoryAccess(request: Request, options: {fresh?:boolean} = {}): Promise<{ access: RepositoryAccessContext; session: SessionRecord } | Response> {
   const session = await getSession();
   if (session) {
-    const result = await resolveRepositoryAccess(session);
+    const result = await resolveRepositoryAccess(session, Date.now(), options.fresh === true);
     if (result.access) return { access: result.access, session: result.session };
     if (!result.reauthenticate) return authorizationDeniedResponse(result.failure?.reason ?? "configuration");
   }
