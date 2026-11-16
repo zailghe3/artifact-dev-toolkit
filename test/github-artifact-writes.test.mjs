@@ -175,7 +175,7 @@ test('update rejects a stale SHA before sending a write', async () => {
 });
 
 test('write failures preserve permission, conflict, and temporary classifications without retries', async () => {
-  for (const [status, ErrorType] of [[403, ArtifactWritePermissionError], [409, ArtifactWriteConflictError], [429, ArtifactRepositoryUnavailableError], [503, ArtifactRepositoryUnavailableError]]) {
+  for (const [status, ErrorType] of [[400, ArtifactWriteResponseError], [403, ArtifactWritePermissionError], [404, ArtifactWriteResponseError], [409, ArtifactWriteConflictError], [429, ArtifactRepositoryUnavailableError], [503, ArtifactRepositoryUnavailableError]]) {
     const runtime = fake({ files: { 'prompts/new-prompt.md': existingMarkdown }, writeStatus: status, writeValue: { private: 'upstream body' } });
     await assert.rejects(runtime.repository.update({ id: metadata.id, metadata, body: 'Updated', currentFileSha: 'blob-0', actorLogin: 'octocat' }), ErrorType);
     assert.equal(runtime.calls.filter((call) => call.options.method === 'PUT').length, 1);

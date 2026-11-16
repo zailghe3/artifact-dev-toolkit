@@ -40,3 +40,15 @@ test('a reviewer can reject an invalidated pending call without receiving an app
  t.after(async()=>{await act(async()=>tree?.unmount());globalThis.fetch=previous;globalThis.IS_REACT_ACT_ENVIRONMENT=previousAct});await act(async()=>{tree=create(React.createElement(AppRouterContext.Provider,{value:{refresh(){}}},React.createElement(AgentToolInspector,{runId:crypto.randomUUID()})))});
  const buttons=tree.root.findAllByType('button');assert.equal(buttons.length,1);assert.equal(buttons[0].children.join(''),'Reject call');await act(async()=>{await buttons[0].props.onClick()});assert.equal(sent[0].approvalId,approvalId);assert.equal(sent[0].decision,'rejected');
 });
+
+test('sensitive read UI displays the exact scope and requires an acknowledgement bound to that approval',async t=>{
+ const previous=globalThis.fetch,previousAct=globalThis.IS_REACT_ACT_ENVIRONMENT;globalThis.IS_REACT_ACT_ENVIRONMENT=true;let tree;const sent=[];
+ const view={operator:false,tools:[{id:'sensitive-invocation',nodeId:'analyst',tool:'adt_agent_prompt_read',target:'authorised ADT repository',state:'waiting',agentState:'waiting',arguments:{agentId:'review-agent',runId:crypto.randomUUID(),offset:0,maxChars:100},createdAt:Date.now(),approval:{id:crypto.randomUUID(),status:'pending',canDecide:true,canReject:true,expiresAt:Date.now()+60000}}]};
+ globalThis.fetch=async(url,init)=>{if(init?.method==='POST'){sent.push(JSON.parse(init.body));view.tools[0].approval.id=crypto.randomUUID();return Response.json({recorded:true})}return Response.json(view)};
+ t.after(async()=>{await act(async()=>tree?.unmount());globalThis.fetch=previous;globalThis.IS_REACT_ACT_ENVIRONMENT=previousAct});
+ await act(async()=>{tree=create(React.createElement(AppRouterContext.Provider,{value:{refresh(){}}},React.createElement(AgentToolInspector,{runId:crypto.randomUUID()})))});
+ const approve=()=>tree.root.findAllByType('button').find(b=>b.children.join('')==='Approve exact call');
+ assert.equal(approve().props.disabled,true);const text=JSON.stringify(tree.toJSON());assert.match(text,/Frozen execution Agent instructions/);assert.match(text,/review-agent/);assert.match(text,/unverified/);assert.match(text,/configured model/);
+ await act(async()=>tree.root.findByProps({type:'checkbox'}).props.onChange({target:{checked:true}}));assert.equal(approve().props.disabled,false);await act(async()=>approve().props.onClick());assert.equal(sent[0].sensitiveDisclosureAcknowledged,true);
+ assert.equal(approve().props.disabled,true);assert.equal(sent.length,1);
+});

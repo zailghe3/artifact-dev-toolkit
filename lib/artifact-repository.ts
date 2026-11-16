@@ -1,3 +1,4 @@
+import {writeGitHubContents,GitContentWriteError} from "./github-content-write.ts";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
@@ -96,15 +97,26 @@ async function mapWithConcurrency<T, U>(values: readonly T[], concurrency: numbe
   return results;
 }
 
+// This is a rejection check for recognised formats, not proof that unmatched text is safe.
+// Keep disclosure and both Git publication paths on this shared validation boundary.
 const secretPatterns = [
+  /\b(?:proxy[-_])?authorization["']?\s*[:=]\s*(?:["']\s*)?[^\s"']+/i,
+  /\bBearer\s+[A-Za-z0-9._~+\/=\-]+/i,
+  /\b[a-z][a-z0-9+.-]*:\/\/[^\s/?#@]+@/i,
+  /\b(?:password|pwd|passphrase|client[_-]?secret|accountkey|sharedaccesssignature|aws[_-]?(?:secret[_-]?access[_-]?key|session[_-]?token))["']?\s*[:=]\s*(?:["']\s*)?[^\s"']+/i,
+  /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/,
+  /\bAIza[A-Za-z0-9_-]{35}\b/,
+  /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/,
+  /\bsk_(?:live|test)_[A-Za-z0-9]{16,}\b/,
+  /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/,
   /-----BEGIN (?:RSA |DSA |EC |OPENSSH |PGP )?PRIVATE KEY-----/i,
   /\b(?:api[_-]?key|token|secret|password)\b\s*[:=]\s*["']?[A-Za-z0-9_./+=-]{16,}/i,
   /\bgh[pousr]_[A-Za-z0-9_]{36,}\b/,
   /\bgithub_pat_[A-Za-z0-9_]{22,}_[A-Za-z0-9_]{59,}\b/,
-  /\bsk-[A-Za-z0-9]{20,}\b/,
+  /\bsk-[A-Za-z0-9_-]{12,}\b/,
 ];
 
-function assertNoSecrets(value: string) {
+export function assertNoSecrets(value: string) {
   if (secretPatterns.some((pattern) => pattern.test(value))) {
     throw new ArtifactSecretRejectedError();
   }
@@ -469,14 +481,11 @@ export class GitHubArtifactRepository implements ArtifactRepository {
 
   private async writeContents(filePath: string, artifactId: string, markdown: string, commitMessage: string, sha?: string): Promise<ArtifactWriteResult> {
     const credential = await this.writeCredential();
-    let response: Response;
-    try { response = await this.fetchImpl(this.githubUrl(`/contents/${filePath.split("/").map(encodeURIComponent).join("/")}`), { method: "PUT", headers: { accept: "application/vnd.github+json", authorization: `Bearer ${credential}`, "content-type": "application/json", "user-agent": "artifact-dev-toolkit", "x-github-api-version": "2022-11-28" }, body: JSON.stringify({ message: commitMessage, content: Buffer.from(markdown).toString("base64"), branch: this.branch, ...(sha ? { sha } : {}) }) }); }
-    catch { throw new ArtifactRepositoryUnavailableError(); }
-    if (!response.ok) { await response.body?.cancel().catch(() => undefined); if (response.status === 401) throw new ArtifactWriteAuthenticationError(); if (response.status === 403) throw new ArtifactWritePermissionError(); if (response.status === 409 || response.status === 422) throw sha ? new ArtifactWriteConflictError() : new ArtifactDuplicateError(); if (response.status === 429 || response.status >= 500) throw new ArtifactRepositoryUnavailableError(response.status); throw new ArtifactWriteResponseError(); }
-    let value: unknown; try { value = await response.json(); } catch { throw new ArtifactWriteResponseError(); }
-    const parsed = z.object({ content: z.object({ path: z.string(), sha: z.string().min(1) }), commit: z.object({ sha: z.string().min(1), html_url: z.string().url() }) }).safeParse(value);
-    if (!parsed.success || parsed.data.content.path !== filePath) throw new ArtifactWriteResponseError();
-    return { artifactId, path: filePath, fileSha: parsed.data.content.sha, commitSha: parsed.data.commit.sha, commitUrl: parsed.data.commit.html_url, repositoryRevision: parsed.data.commit.sha };
+    try { return {artifactId,...await writeGitHubContents({url:this.githubUrl(`/contents/${filePath.split("/").map(encodeURIComponent).join("/")}`),token:credential,path:filePath,markdown,message:commitMessage,branch:this.branch,sha,fetchImpl:this.fetchImpl})}; }
+    catch(error) {
+      if(error instanceof GitContentWriteError){if(error.code==="authentication")throw new ArtifactWriteAuthenticationError();if(error.code==="permission")throw new ArtifactWritePermissionError();if(error.code==="conflict"&&error.status!==404)throw sha?new ArtifactWriteConflictError():new ArtifactDuplicateError();if(error.responseInvalid||error.status!==undefined&&error.status!==429&&error.status<500)throw new ArtifactWriteResponseError();throw new ArtifactRepositoryUnavailableError(error.status);}
+      throw error;
+    }
   }
 
   private async writeCredential() {

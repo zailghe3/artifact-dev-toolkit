@@ -314,7 +314,7 @@
 - There is no automatic production promotion of Workflow definitions.
 - Non-managed Codex Runner Workflow jobs do not publish Git commits or pull requests.
 
-### Native ADT metadata tools
+### Native ADT observability and knowledge tools
 
 - Eligible ordinary Agents may explicitly select separate native grants for Workflow lists, Workflow structure, execution lists, execution details and aggregate execution metrics.
 - Grants are frozen with run snapshots and checked server-side against the exact active Agent attempt and current authorised repository context at consumption.
@@ -322,6 +322,11 @@
 - Workflow structure excludes prompts, starter input and free-text control/publication content. Execution details expose progression, failure categories and existing sanitised orchestration evidence without raw errors, inputs, outputs or external responses.
 - Aggregate metrics report recorded execution statuses, duration and retries, disclose bounded sampling, and identify provider-reported journal token usage as partial and unrecorded cost as unavailable.
 - Tool-enabled execution retains provider capability validation, the shared call budget, Security Profile gate and normal recovery semantics. Unsupported providers and older incompatible Runtime capabilities fail explicitly.
+- Separate optional grants cover current/historical Agent instructions, selected run/step inputs and outputs, allowlisted failure/provider diagnostics and journaled tool observations. Sensitive reads require human acknowledgement of potential disclosure and approval of each exact call, active frozen authority and current delegated approver authority at consumption.
+- Current Git prompts and historical frozen instructions carry distinct provenance. Missing historical source revisions are acknowledged rather than inferred from current Git.
+- Detailed errors expose safe categories and transport/orchestration evidence; arbitrary errors, private URLs and payloads are omitted. Tool observations cannot execute, approve, retry or reconcile invocations; external payloads and arbitrary native result content remain omitted.
+- A separate read-only knowledge grant searches reviewed Git Markdown by text and metadata or retrieves a bounded entry by stable ID with source revisions. It grants no Git mutation or arbitrary repository read authority.
+- Sensitive content and knowledge are untrusted model input. Technical permissions and security gates remain independent of their contents.
 - Advisor executions use the same lifecycle with an additional frozen read-only restriction; see [Advisor](000-current-application-spec.md#11-advisor).
 
 ## Historical run boundary

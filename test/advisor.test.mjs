@@ -1,3 +1,4 @@
+import {ADT_DATA_TOOLS} from "../lib/adt-data-contract.ts";
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,readFile,writeFile} from 'node:fs/promises';
@@ -82,7 +83,7 @@ test('failed and cancelled Advisor runs retain frozen authority and reject gener
 });
 test('default definition setup is deterministic, ordinary, least-privilege and never overwrites files',async()=>{
  const directory=await mkdtemp(join(tmpdir(),'advisor-setup-')),paths=await createAdvisorDefinitions(directory,'agents');
- const generatedAgent=JSON.parse(await readFile(paths.agentPath,'utf8')),generatedWorkflow=JSON.parse(await readFile(paths.workflowPath,'utf8'));assert.equal(generatedAgent.connectionKey,'agents');assert.equal(generatedWorkflow.nodes[0].config.agentId,generatedAgent.id);assert.equal(generatedAgent.tools.length,5);assert.equal('masterPrompt' in generatedAgent,false);
+ const generatedAgent=JSON.parse(await readFile(paths.agentPath,'utf8')),generatedWorkflow=JSON.parse(await readFile(paths.workflowPath,'utf8'));assert.equal(generatedAgent.connectionKey,'agents');assert.equal(generatedWorkflow.nodes[0].config.agentId,generatedAgent.id);assert.deepEqual(generatedAgent.tools,[...ADT_DATA_TOOLS,"adt_advisor_knowledge_search"]);assert.equal('masterPrompt' in generatedAgent,false);
  await assert.rejects(createAdvisorDefinitions(directory,'agents'),/Refusing to overwrite/);await writeFile(paths.agentPath,'preserve');await assert.rejects(createAdvisorDefinitions(directory,'agents'));assert.equal(await readFile(paths.agentPath,'utf8'),'preserve');
 });
 

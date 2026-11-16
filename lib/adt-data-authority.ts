@@ -1,4 +1,4 @@
-import {isAdtDataTool,ADT_DATA_TOOL_DESCRIPTIONS,adtDataModelSchemas,type AdtDataTool} from "./adt-data-contract.ts";
+import {isAdtDataTool,isSensitiveAdtTool,ADT_DATA_TOOL_DESCRIPTIONS,adtDataModelSchemas,type AdtDataTool} from "./adt-data-contract.ts";
 import {assertAdvisorRunReadOnly,sameRepositoryContext} from "./advisor-policy.ts";
 import {getProviderConnectionType} from "./provider-connection-types.ts";
 import {isLegacyRunReadOnly} from "./workflow-run-legacy.ts";
@@ -9,7 +9,7 @@ import type {GraphNodeAuthorityScope} from "./langgraph-checkpoints.ts";
 import type {RunDetail,RunRepositoryContext} from "./workflow-storage.ts";
 
 export function nativeAdtToolDefinitions(grants:AgentDefinitionV1["tools"]):AgentTool[]{
-  return (grants??[]).map(grantKey).filter(isAdtDataTool).map(name=>({key:name,alias:name,description:ADT_DATA_TOOL_DESCRIPTIONS[name],schema:adtDataModelSchemas[name],target:"authorised ADT repository metadata",policy:approvalPolicySchema.parse({classification:"read_only"}),frozen:{type:"builtin",name,version:1}}));
+  return (grants??[]).map(grantKey).filter(isAdtDataTool).map(name=>({key:name,alias:name,description:ADT_DATA_TOOL_DESCRIPTIONS[name],schema:adtDataModelSchemas[name],target:"authorised ADT repository",policy:approvalPolicySchema.parse(isSensitiveAdtTool(name)?{classification:"sensitive",minimum:"approval"}:{classification:"read_only"}),frozen:{type:"builtin",name,version:1}}));
 }
 
 /** Invoked after approval/security waits and immediately before a journal-admitted data read. */

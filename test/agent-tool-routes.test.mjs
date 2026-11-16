@@ -38,3 +38,13 @@ for(const boundary of ['delegation','frozen_reviewers','expired','cancelled','ge
  const response=await route.POST(request({action:'approval',approvalId:approval.id,decisionId:crypto.randomUUID(),decision:'rejected'}),target);assert.equal(response.status,['delegation','frozen_reviewers'].includes(boundary)?403:409);assert.equal((await f.approval()).approval.status,'pending');assert.equal(f.executions,0);
  const view=await(await route.GET(new Request('https://adt.example'),params)).json();if(boundary!=='wrong_run')assert.equal(view.tools[0].approval.canReject,false);
 });
+
+test('sensitive native disclosure requires explicit acknowledgement at the authenticated exact-call approval boundary',async t=>{
+ const {f,call,approval,params}=await pending(t);
+ await f.db.prepare('UPDATE agent_tool_invocations SET tool_key=?,alias=?,frozen_json=?,arguments_json=? WHERE id=?').bind('adt_execution_content_read','adt_execution_content_read',JSON.stringify({type:'builtin',name:'adt_execution_content_read',version:1}),JSON.stringify({runId:f.options.runId,selection:'input',maxChars:100}),call.id).run();
+ const body={action:'approval',approvalId:approval.id,decisionId:crypto.randomUUID(),decision:'approved'};
+ assert.equal((await route.POST(request(body),params)).status,403);assert.equal((await f.approval()).approval.status,'pending');assert.equal(f.executions,0);
+ assert.equal((await route.POST(request({...body,sensitiveDisclosureAcknowledged:false}),params)).status,409);
+ context.actor='member';assert.equal((await route.POST(request({...body,sensitiveDisclosureAcknowledged:true}),params)).status,403);context.actor='reviewer';
+ assert.equal((await route.POST(request({...body,sensitiveDisclosureAcknowledged:true}),params)).status,200);assert.equal((await f.approval()).approval.status,'approved');assert.equal(f.executions,0);
+});

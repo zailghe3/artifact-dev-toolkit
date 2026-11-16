@@ -138,7 +138,10 @@ The product invariants are in [`specs/agent-workflows.md`](specs/agent-workflows
 - Advisor launches an explicitly configured ordinary Workflow through the shared durable admission path; it is not a separate execution engine or privileged identity.
 - D1 stores repository-scoped Advisor settings and the run's frozen read-only context. Effective Agent and provider overrides use the existing run snapshots without rewriting Git definitions.
 - Native ADT metadata tools reuse the provider-neutral Agent tool journal, admission and shared security gate. The Worker checks exact frozen grants, active attempt authority and current repository identity before scoped Git or D1 reads.
-- Metadata projections exclude prompts, execution content, raw errors, credentials and external tool responses. Advisor's backend allowlist excludes external tools, Codex and publication even through composed Workflows.
+- Existing metadata projections exclude sensitive content. Independently granted deeper observability tools require exact-call human approval, frozen scope and current authority; raw errors and unsafe external payloads remain omitted.
+- Approved Advisor knowledge lives only in the configured Git repository under `advisor/knowledge/`. D1 stores account/repository-scoped proposals, expiring session-bound review consent and publication state, never an authoritative accepted-knowledge index.
+- The trusted browser/application boundary alone can publish reviewed knowledge through short-lived GitHub App authority and optimistic concurrency. Consent is consumed once per mutation; uncertain writes are never replayed. Model tools and ADT Runtime cannot access this publication authority.
+- Advisor's backend allowlist includes the explicitly granted native readers and excludes external tools, Codex and publication even through composed Workflows.
 
 ### Security Profiles
 
@@ -186,8 +189,9 @@ Operational detail belongs in [`codex-runner/README.md`](codex-runner/README.md)
 | Repository-wide agent/contributor rules | `AGENTS.md` and scoped `AGENTS.md` files |
 | Repeatable Codex procedures | `.agents/skills/` |
 | Artifact content and Git-backed Agent, Workflow, layout, provider connection, and Security Profile definitions | configured GitHub repository |
+| Approved Advisor knowledge | configured GitHub repository (`advisor/knowledge/`) |
 | Artifact repository layout and metadata | `docs/external-artifact-repository-contract.md` plus validation code |
-| Application sessions, encrypted provider credential vault, Advisor settings, and durable Workflow state | D1 schema, migrations, and source |
+| Application sessions, encrypted provider credential vault, Advisor settings/proposals/publication state, and durable Workflow state | D1 schema, migrations, and source |
 | Catalogue acceleration | KV cache; GitHub remains authoritative |
 | Durable Workflow orchestration | Cloudflare Workflows outer lifecycle; LangGraph sequencing in ADT Runtime; checkpoints persisted behind the control plane in D1 |
 | Ordinary AI provider execution (OpenAI Agents, Anthropic Messages, Work IQ, Ollama) | independently deployed ADT Runtime; direct OpenAI Responses remains a supported exception |

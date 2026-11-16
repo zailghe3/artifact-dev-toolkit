@@ -1,0 +1,33 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import Module from 'node:module';
+import {installTsxHook} from './render-tsx.mjs';
+import {KnowledgeProposalStore} from '../lib/advisor-knowledge-proposals.ts';
+import {document,knowledgeFixture} from './support/knowledge-fixture.mjs';
+import {context,database} from './support/advisor-fixtures.mjs';
+const original=Module._load;let denied=false,db,repository,accesses=[],reads=0;let actor={githubId:123,login:'reviewer',id:'browser-session'};let scoped=context;
+Module._load=function(name,parent,isMain){
+ if(name==='@/lib/auth')return {requireApiRepositoryAccess:async(request,options)=>{accesses.push(options);return denied?Response.json({error:'Denied'},{status:403}):{access:scoped,session:actor}}};
+ if(name==='@/lib/advisor-knowledge-services')return {createKnowledgeProposalStore:async(access,a)=>new KnowledgeProposalStore(db,access,{...a,sessionId:actor.id}),createKnowledgeRepository:()=>{reads++;return repository}};
+ return original.call(this,name,parent,isMain);
+};
+const requireTsx=installTsxHook(),entries=requireTsx('../app/api/advisor/knowledge/route.ts'),proposals=requireTsx('../app/api/advisor/knowledge/proposals/route.ts'),publication=requireTsx('../app/api/advisor/knowledge/proposals/[id]/route.ts');
+const req=(path,body,origin='https://adt.invalid')=>new Request(`https://adt.invalid/api/advisor/knowledge${path}`,{method:body?'POST':'GET',headers:{origin,'content-type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});
+const params=id=>({params:Promise.resolve({id})});
+test('knowledge routes require repository sessions, reject model-shaped publication requests and enforce same-origin review',async t=>{
+ db=await database(t);const f=knowledgeFixture();repository=f.repository;denied=true;
+ for(const response of [await entries.GET(req('')),await proposals.GET(req('/proposals')),await proposals.POST(req('/proposals',{document:document(),expectedSha:null})),await publication.POST(req('/proposals/id',{action:'publish'}),params(crypto.randomUUID()))])assert.equal(response.status,403);assert.equal(reads,0);
+ denied=false;assert.equal((await proposals.POST(req('/proposals',{document:document(),expectedSha:null},'https://evil.invalid'))).status,403);
+ assert.equal((await publication.POST(req('/proposals/id',{action:'review',revision:1},'https://evil.invalid'),params(crypto.randomUUID()))).status,403);assert.deepEqual(accesses.at(-1),{fresh:true});assert.equal(f.writes.length,0);
+ for(const body of [{document:document(),expectedSha:null,publish:true},{document:document(),expectedSha:null,approved:true},{document:document(),expectedSha:null,repositoryId:99}])assert.equal((await proposals.POST(req('/proposals',body))).status,400);
+ const created=await proposals.POST(req('/proposals',{document:document(),expectedSha:null})),p=await created.json();assert.equal(created.status,200);assert.equal(p.state,'draft');
+ assert.equal((await publication.POST(req('/proposals/id',{action:'publish',revision:p.revision,confirmation:'publish',reviewToken:'model-approved'.repeat(4)}),params(p.id))).status,409);assert.equal(f.writes.length,0);
+ const reviewResponse=await publication.POST(req('/proposals/id',{action:'review',revision:p.revision}),params(p.id)),review=await reviewResponse.json();assert.equal(reviewResponse.status,200);assert.equal(review.proposal.state,'reviewed');
+ const body={action:'publish',revision:p.revision,confirmation:'publish',reviewToken:review.reviewToken};
+ actor={...actor,id:'other-session'};assert.equal((await publication.POST(req('/proposals/id',body),params(p.id))).status,409);actor={...actor,id:'browser-session'};
+ const published=await publication.POST(req('/proposals/id',body),params(p.id));assert.equal(published.status,200);assert.equal((await published.json()).state,'published');assert.deepEqual(accesses.at(-1),{fresh:true});assert.equal(f.writes.length,1);
+ assert.equal((await publication.POST(req('/proposals/id',body),params(p.id))).status,409);assert.equal(f.writes.length,1);
+ const search=await entries.GET(req('?query=retry&type=decision'));assert.equal(search.status,200);assert.equal((await search.json()).results[0].metadata.id,document().metadata.id);
+ scoped={...context,branch:'other'};assert.deepEqual((await(await proposals.GET(req('/proposals'))).json()).proposals,[]);scoped=context;
+ denied=true;assert.equal((await publication.POST(req('/proposals/id',{action:'review',revision:p.revision}),params(p.id))).status,403);
+});

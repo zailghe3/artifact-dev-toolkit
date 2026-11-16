@@ -1,5 +1,6 @@
+import {requireSensitiveReadApproval} from "./adt-sensitive-approval.ts";
 import {nativeAdtToolDefinitions,authorizeNativeAdtTool} from "./adt-data-authority.ts";
-import {isAdtDataTool} from "./adt-data-contract.ts";
+import {isAdtDataTool,isSensitiveAdtTool} from "./adt-data-contract.ts";
 import {createNativeAdtDataAccess,type NativeAdtDataAccess} from "./adt-data-services.ts";
 import {assertAdvisorRunReadOnly} from "./advisor-policy.ts";
 import {D1McpPolicyAuthority,type McpAdmissionAuthority} from "./mcp-policy-authority.ts";
@@ -70,7 +71,7 @@ export async function executeJournaledWorkflowAgent(input:{env:CloudflareEnv;sco
    security:async(conversation,call,identity)=>{const security=await resolveFrozenSecurityProfile(repository!.repositoryId,agent,detail.run.securityProfileSnapshots,vault);if(!security)return{outcome:"not_configured"};return remote.agentOperation("/v1/agents/security",{profile:{profileId:security.profileId,endpointUrl:security.endpointUrl,decisionTimeoutMs:security.decisionTimeoutMs},context:{id:identity,model:connection.defaultModel,instructions:agent.masterPrompt,conversation,call}},security.credential)},
    execute:async(tool,call,admissionId)=>{
     const current=await storage.getRun(scope.runId);if(!current)throw Error("run_not_active");assertAdvisorRunReadOnly(current.run);
-    if(isAdtDataTool(tool.key)){const context=authorizeNativeAdtTool(current,scope,tool.key,repository);if(Date.now()>=call.execution_deadline_at!)throw Error("tool_dispatch_deadline");return nativeData.execute(tool.key,JSON.parse(call.arguments_json),context)}
+    if(isAdtDataTool(tool.key)){const context=authorizeNativeAdtTool(current,scope,tool.key,repository);if(Date.now()>=call.execution_deadline_at!)throw Error("tool_dispatch_deadline");if(isSensitiveAdtTool(tool.key))await requireSensitiveReadApproval(journal,call,admissionId);return nativeData.execute(tool.key,JSON.parse(call.arguments_json),context)}
     if(tool.key==="artifact_search"){const {getArtifactsForRepositoryContext}=await import("./artifacts.ts");const artifacts=await getArtifactsForRepositoryContext(access(),repository!);if(Date.now()>=call.execution_deadline_at!)throw Error("tool_dispatch_deadline");return boundedArtifactSearch(artifacts,JSON.parse(call.arguments_json))}
     const grants=await resolveFrozenMcpTools(repository!.repositoryId,agent,detail.run.mcpToolSnapshots,vault,{repository:toolRepository,policies:policyAuthority}),grant=grants.find(value=>value.alias===tool.alias);if(!grant||JSON.stringify(grant.authorityGuard)!==JSON.stringify(admissionAuthorities.get(tool.alias)))throw Error("tool_revoked");
     return remote.agentOperation("/v1/agents/tool",{admissionId,executionDeadlineAt:call.execution_deadline_at,invocationId:call.id,fingerprint:call.fingerprint,server:grant.server,tool:grant.tool,arguments:JSON.parse(call.arguments_json)},grant.credential);

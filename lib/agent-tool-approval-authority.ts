@@ -1,5 +1,6 @@
 import {evaluateToolPolicy} from "../adt-runtime/src/agent-contract.ts";
 import {hasToolRole} from "./agent-tool-roles.ts";
+import {isAdtDataTool} from "./adt-data-contract.ts";
 import type {AgentJournal,ToolApproval} from "./agent-journal.ts";
 import type {FrozenMcpTool} from "./mcp-tool-authority.ts";
 import type {D1McpPolicyAuthority,McpPolicyVault} from "./mcp-policy-authority.ts";
@@ -13,6 +14,11 @@ export async function toolApprovalAuthority(input:{journal:AgentJournal;runId:st
  const approval=await journal.approval(call);if(!approval)throw Error("approval_not_pending");
  const reviewers=JSON.parse(approval.reviewers_json) as string[];if(reviewers.length&&!reviewers.includes(actor.toLowerCase()))throw Error("permission_denied");
  if(input.decision==="rejected"||call.tool_key==="artifact_search")return undefined;
+ if(isAdtDataTool(call.tool_key)){
+  const frozen=JSON.parse(call.frozen_json);
+  if(frozen.type!=="builtin"||frozen.name!==call.tool_key||frozen.version!==1)throw Error("permission_denied");
+  return undefined; // Live repository/attempt authority is revalidated before consumption.
+ }
  const frozen=JSON.parse(call.frozen_json) as FrozenMcpTool,live=await input.repository.get(frozen.serverId);if(!live)throw Error("mcp_policy_unverified");
  const verified=await input.policies.verify(input.repositoryId,live.definition,input.vault);await input.policies.verifyFrozen(input.repositoryId,frozen,verified);
  const policy=verified.policies[frozen.tool.name];
