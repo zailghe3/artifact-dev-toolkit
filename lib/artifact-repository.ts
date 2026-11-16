@@ -472,7 +472,7 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     const credential = await this.writeCredential();
     try { return {artifactId,...await writeGitHubContents({url:this.githubUrl(`/contents/${filePath.split("/").map(encodeURIComponent).join("/")}`),token:credential,path:filePath,markdown,message:commitMessage,branch:this.branch,sha,fetchImpl:this.fetchImpl})}; }
     catch(error) {
-      if(error instanceof GitContentWriteError){if(error.code==="authentication")throw new ArtifactWriteAuthenticationError();if(error.code==="permission")throw new ArtifactWritePermissionError();if(error.code==="conflict")throw sha?new ArtifactWriteConflictError():new ArtifactDuplicateError();if(error.responseInvalid)throw new ArtifactWriteResponseError();throw new ArtifactRepositoryUnavailableError(error.status);}
+      if(error instanceof GitContentWriteError){if(error.code==="authentication")throw new ArtifactWriteAuthenticationError();if(error.code==="permission")throw new ArtifactWritePermissionError();if(error.code==="conflict"&&error.status!==404)throw sha?new ArtifactWriteConflictError():new ArtifactDuplicateError();if(error.responseInvalid||error.status!==undefined&&error.status!==429&&error.status<500)throw new ArtifactWriteResponseError();throw new ArtifactRepositoryUnavailableError(error.status);}
       throw error;
     }
   }
