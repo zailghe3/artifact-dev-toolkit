@@ -8,7 +8,7 @@ const digest=v=>createHash('sha1').update(v).digest('hex');
 export function knowledgeFixture({files={},writeStatus,writeBody,writeThrow=false,readPermission=true,writePermission=true,listOverride}={}){
  const contents=new Map(Object.entries(files)),writes=[],requests=[],capabilities=[];let revision=digest('revision');
  const fetchImpl=async(url,init={})=>{
-  requests.push({url,init});const u=new URL(url),base='/repos/acme/private';assert.equal(u.origin,'https://api.github.com');assert.ok(u.pathname.startsWith(base));assert.equal(init.redirect,'error');
+  requests.push({url,init});const u=new URL(url),base='/repos/acme/private';assert.equal(u.origin,'https://api.github.com');assert.ok(u.pathname.startsWith(base));assert.equal(init.redirect,init.method==='PUT'?'manual':'error');
   const path=u.pathname.slice(base.length);
   if(path==='/git/ref/heads/main')return Response.json({object:{sha:revision}});
   if(path.startsWith('/git/trees/')){

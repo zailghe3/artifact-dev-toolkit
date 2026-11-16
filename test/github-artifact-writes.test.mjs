@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  ArtifactDuplicateError, ArtifactRepositoryAccessError, ArtifactRepositoryConfigurationError, ArtifactRepositoryContentError, ArtifactRepositoryUnavailableError, ArtifactSecretRejectedError,
+  ArtifactMutationUncertainError, ArtifactDuplicateError, ArtifactRepositoryAccessError, ArtifactRepositoryConfigurationError, ArtifactRepositoryContentError, ArtifactRepositoryUnavailableError, ArtifactSecretRejectedError,
 ArtifactWriteAuthenticationError, ArtifactWriteConflictError, ArtifactWritePermissionError, ArtifactWriteResponseError,
   ArtifactWriteValidationError, GitHubArtifactRepository,
   ArtifactWriteTooLargeError,
@@ -184,7 +184,7 @@ test('write failures preserve permission, conflict, and temporary classification
 
 test('malformed successful write responses fail closed', async () => {
   const runtime = fake({ writeValue: { content: {}, commit: {} } });
-  await assert.rejects(runtime.repository.create({ metadata, body: 'Body', actorLogin: 'octocat' }), ArtifactWriteResponseError);
+  await assert.rejects(runtime.repository.create({ metadata, body: 'Body', actorLogin: 'octocat' }), ArtifactMutationUncertainError);
 });
 
 function bodyAtMost(limit, character = 'a') {
@@ -278,7 +278,7 @@ test('direct deletion maps changed state, authentication, permission and availab
 test('direct deletion rejects malformed success metadata and unsafe commit URLs', async () => {
   for (const value of [{ content: null }, { content: null, commit: { sha: 'c', html_url: 'https://evil.test/o/r/commit/c' } }]) {
     const runtime = fake({ files: { 'prompts/item.md': existingMarkdown }, writeValue: value });
-    await assert.rejects(runtime.repository.delete({ id: metadata.id, currentFileSha: 'blob-0', actorLogin: 'octocat' }), ArtifactWriteResponseError);
+    await assert.rejects(runtime.repository.delete({ id: metadata.id, currentFileSha: 'blob-0', actorLogin: 'octocat' }), ArtifactMutationUncertainError);
   }
 });
 

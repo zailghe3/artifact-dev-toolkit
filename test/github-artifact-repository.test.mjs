@@ -230,7 +230,7 @@ test('a temporary blob HTTP failure retries only that blob with secret-free diag
   assert.deepEqual(artifacts.map(({ id }) => id), ['a', 'b']);
   assert.equal(failedBlobAttempts, 2);
   const retry = runtime.entries.find(({ event }) => event === 'github_artifact_request_retry');
-  assert.deepEqual(retry, { event: 'github_artifact_request_retry', operation: 'blob', path: 'prompts/a.md', status: 503, attempt: 2, maxAttempts: 3 });
+  assert.deepEqual(retry, { event: 'github_artifact_request_retry', operation: 'blob', status: 503, attempt: 2, maxAttempts: 3 });
   const logs = JSON.stringify(runtime.entries);
   assert.equal(logs.includes(secretToken), false);
   assert.equal(logs.includes(responseSecret), false);
@@ -262,7 +262,7 @@ test('a temporary blob response body failure retries safely and recovers', async
   assert.equal((await repository(fetch, runtime).list()).length, 1);
   assert.equal(attempts, 2);
   assert.deepEqual(runtime.entries.find(({ event }) => event === 'github_artifact_request_retry'), {
-    event: 'github_artifact_request_retry', operation: 'blob', path: 'prompts/a.md', attempt: 2, maxAttempts: 3,
+    event: 'github_artifact_request_retry', operation: 'blob', attempt: 2, maxAttempts: 3,
   });
   assert.equal(JSON.stringify(runtime.entries).includes(secret), false);
 });
@@ -281,7 +281,7 @@ test('blob response body retry exhaustion is unavailable and returns no partial 
   await assert.rejects(repository(fetch, runtime).list(), ArtifactRepositoryUnavailableError);
   assert.equal(attempts, 3);
   assert.deepEqual(runtime.entries.find(({ event }) => event === 'github_artifact_request_failed'), {
-    event: 'github_artifact_request_failed', operation: 'blob', path: 'prompts/a.md', category: 'temporary_unavailable', attempts: 3,
+    event: 'github_artifact_request_failed', operation: 'blob', category: 'temporary_unavailable', attempts: 3,
   });
   assert.equal(JSON.stringify(runtime.entries).includes('private body failure detail'), false);
 });
@@ -330,7 +330,7 @@ test('blob retry exhaustion returns no partial list and logs safe final classifi
   await assert.rejects(repository(fetch, runtime).list(), ArtifactRepositoryUnavailableError);
   assert.equal(attempts, 3);
   assert.deepEqual(runtime.entries.find(({ event }) => event === 'github_artifact_request_failed'), {
-    event: 'github_artifact_request_failed', operation: 'blob', path: 'prompts/a.md', category: 'temporary_unavailable', status: 503, attempts: 3,
+    event: 'github_artifact_request_failed', operation: 'blob', category: 'temporary_unavailable', status: 503, attempts: 3,
   });
   assert.equal(JSON.stringify(runtime.entries).includes('sensitive body'), false);
 });

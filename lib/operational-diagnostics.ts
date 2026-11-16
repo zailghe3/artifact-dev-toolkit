@@ -169,3 +169,12 @@ export function operationalContributors(domains: DiagnosticDomain[], limit = 8):
   const all = domains.flatMap(domain => domain.state === "not-configured" ? [] : domain.checks.filter(check => check.contributes !== false && (check.status.tone === "negative" || check.status.tone === "warning")).map(check => ({ id: `${domain.key}-${check.id}`, message: `${domain.title}: ${check.label} is ${check.status.label.toLowerCase()}.`, href: `#${check.id}` })));
   return { contributors: all.slice(0, Math.max(0, limit)), omittedCount: Math.max(0, all.length - Math.max(0, limit)) };
 }
+
+/** Apply explicitly queried content validation without re-querying other services. */
+export function withArtifactValidation(domains: DiagnosticDomain[], validation: RepositoryDiagnostics["validation"]): DiagnosticDomain[] {
+  return domains.map(domain => {
+    if (domain.key !== "artifact-library") return domain;
+    const checks = domain.checks.map(check => check.id === "artifact-validation" ? { ...check, status: validationStatusPresentation(validation.state), contributes: validation.state !== "not_run" } : check);
+    return { ...domain, checks, state: checkState(checks) };
+  });
+}

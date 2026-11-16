@@ -1,3 +1,5 @@
+import { withGitHubDeadline, GitHubRequestTimeoutError, ARTIFACT_VALIDATION_TIMEOUT_MS } from "./github-request.ts";
+import { ArtifactOperation } from "./artifact-operation.ts";
 import {writeGitHubContents,GitContentWriteError} from "./github-content-write.ts";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -82,15 +84,21 @@ export type GitHubArtifactRepositoryConfig = {
   logger?: Pick<Console, "info" | "error">;
   now?: () => Date;
   randomBytes?: (length: number) => Uint8Array;
+  requestTimeoutMs?: number;
+  validationTimeoutMs?: number;
+  signal?: AbortSignal;
+  operationId?: string;
 };
 
 async function mapWithConcurrency<T, U>(values: readonly T[], concurrency: number, mapper: (value: T, index: number) => Promise<U>): Promise<U[]> {
   const results = new Array<U>(values.length);
   let nextIndex = 0;
+  let failed = false;
   async function worker() {
-    while (nextIndex < values.length) {
+    while (!failed && nextIndex < values.length) {
       const index = nextIndex++;
-      results[index] = await mapper(values[index], index);
+      try { results[index] = await mapper(values[index], index); }
+      catch (error) { failed = true; throw error; }
     }
   }
   await Promise.all(Array.from({ length: Math.min(concurrency, values.length) }, worker));
@@ -258,6 +266,9 @@ export class ArtifactWriteConflictError extends Error { constructor() { super("T
 export class ArtifactWritePermissionError extends Error { constructor() { super("The GitHub App does not have artifact write permission."); } }
 export class ArtifactWriteAuthenticationError extends Error { constructor() { super("GitHub repository authentication failed."); } }
 export class ArtifactNotFoundError extends Error { constructor() { super("Artifact not found."); } }
+export class ArtifactMutationUncertainError extends ArtifactRepositoryUnavailableError {
+  constructor(status?: number) { super(status); }
+}
 export class ArtifactWriteResponseError extends Error { constructor() { super("GitHub returned an invalid write response."); } }
 
 
@@ -333,8 +344,8 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     return this.resolveBranch("read");
   }
 
-  private async resolveBranch(capability: RepositoryCredentialCapability): Promise<string> {
-    const ref = await this.githubJson<{ object?: { sha?: string } }>(this.githubUrl(`/git/ref/heads/${encodeURIComponent(this.branch)}`), "tree", undefined, capability);
+  private async resolveBranch(capability: RepositoryCredentialCapability, operation?: ArtifactOperation): Promise<string> {
+    const ref = await this.githubJson<{ object?: { sha?: string } }>(this.githubUrl(`/git/ref/heads/${encodeURIComponent(this.branch)}`), "tree", undefined, capability, "content", operation);
     if (typeof ref.object?.sha !== "string" || !/^[a-f0-9]{7,64}$/i.test(ref.object.sha)) throw new ArtifactRepositoryContentError();
     return ref.object.sha;
   }
@@ -353,15 +364,30 @@ export class GitHubArtifactRepository implements ArtifactRepository {
   }
 
   async diagnoseCatalogue(revision?: string): Promise<RepositoryValidationReport> {
-    const resolvedRevision = revision ?? await this.getBaseRevision();
-    const tree = await this.fetchTree("read", resolvedRevision);
+    const operation = new ArtifactOperation("validation", this.logger, this.config.operationId);
+    return operation.run("diagnostic_validation", async () => {
+      try {
+        return await withGitHubDeadline(signal => {
+          operation.signal = signal;
+          return this.diagnoseSnapshot(revision, operation);
+        }, this.config.validationTimeoutMs ?? ARTIFACT_VALIDATION_TIMEOUT_MS, this.config.signal);
+      } catch (error) {
+        if (error instanceof GitHubRequestTimeoutError || this.config.signal?.aborted) throw new ArtifactRepositoryUnavailableError();
+        throw error;
+      }
+    });
+  }
+
+  private async diagnoseSnapshot(revision: string | undefined, operation: ArtifactOperation): Promise<RepositoryValidationReport> {
+    const resolvedRevision = revision ?? await this.resolveBranch("read", operation);
+    const tree = await this.fetchTree("read", resolvedRevision, operation);
     const files = tree.filter((entry) => entry.type === "blob" && typeof entry.path === "string" && isArtifactMarkdownCandidate(entry.path, this.rootPath));
     const results = await mapWithConcurrency(files, githubBlobConcurrency, async (file, entryIndex) => {
       const safePath = typeof file.path === "string" && isSupportedArtifactPath(file.path, this.rootPath) ? file.path : "[unsafe repository path]";
       if (safePath.startsWith("[")) return { entryIndex, error: { path: safePath, code: "invalid_path", message: "Artifact path is not a safe repository-relative path under the configured root." } as ArtifactValidationDiagnostic };
       if (!file.sha || !/^[a-f0-9]{7,64}$/i.test(file.sha)) return { entryIndex, error: { path: safePath, code: "missing_blob_sha", message: "GitHub did not provide a valid blob revision." } as ArtifactValidationDiagnostic };
       if (typeof file.size === "number" && file.size > MAX_SERIALIZED_ARTIFACT_BYTES) return { entryIndex, error: { path: safePath, code: "blob_too_large", message: "Artifact exceeds the maximum allowed size." } as ArtifactValidationDiagnostic };
-      try { return { entryIndex, artifact: parseArtifactMarkdown(await this.fetchBlob(file.sha, safePath, "read"), safePath, classifyArtifactPath(safePath, this.rootPath)) }; }
+      try { return { entryIndex, artifact: parseArtifactMarkdown(await this.fetchBlob(file.sha, safePath, "read", operation), safePath, classifyArtifactPath(safePath, this.rootPath)) }; }
       catch (error) {
         if (error instanceof ArtifactRepositoryUnavailableError || error instanceof ArtifactRepositoryAccessError) throw error;
         if (error instanceof ArtifactBlobDiagnosticError) return { entryIndex, error: { path: safePath, code: error.code, message: error.code === "unsupported_encoding" ? "Artifact blob encoding is unsupported." : error.code === "blob_unavailable" ? "Artifact blob is unavailable." : "Artifact exceeds the maximum allowed size." } as ArtifactValidationDiagnostic };
@@ -380,16 +406,18 @@ export class GitHubArtifactRepository implements ArtifactRepository {
 
   async create(input: CreateArtifactInput): Promise<ArtifactWriteResult> {
     if (!/^[A-Za-z0-9-]+$/.test(input.actorLogin)) throw new ArtifactWriteValidationError();
-    const prepared = prepareArtifactWrite(input.metadata, input.body);
-    return this.createValidatedArtifactAtPath({ metadata: prepared.metadata, body: input.body, path: this.artifactPath(prepared.metadata), actorLogin: input.actorLogin, commitMessage: `Create artifact ${prepared.metadata.id} (requested by @${input.actorLogin})`, prepared });
+    const operation = new ArtifactOperation("artifact_create", this.logger, this.config.operationId);
+    const prepared = await operation.run("content_validation", async () => prepareArtifactWrite(input.metadata, input.body));
+    return this.createValidatedArtifactAtPath({ metadata: prepared.metadata, body: input.body, path: this.artifactPath(prepared.metadata), actorLogin: input.actorLogin, commitMessage: `Create artifact ${prepared.metadata.id} (requested by @${input.actorLogin})`, prepared, operation });
   }
 
   async update(input: UpdateArtifactInput): Promise<ArtifactWriteResult> {
     if (!/^[A-Za-z0-9-]+$/.test(input.actorLogin)) throw new ArtifactWriteValidationError();
-    const { metadata, markdown } = prepareArtifactWrite(input.metadata, input.body);
+    const operation = new ArtifactOperation("artifact_edit", this.logger, this.config.operationId);
+    const { metadata, markdown } = await operation.run("content_validation", async () => prepareArtifactWrite(input.metadata, input.body));
     if (metadata.id !== input.id || !input.currentFileSha.trim()) throw new ArtifactWriteValidationError();
-    const tree = await this.fetchTree("write");
-    const artifacts = await this.artifactsFromTree(tree, "write");
+    const tree = await this.fetchTree("write", this.branch, operation);
+    const artifacts = await this.artifactsFromTree(tree, "write", operation);
     const artifact = artifacts.find((candidate) => candidate.id === input.id);
     if (!artifact) throw new ArtifactNotFoundError();
     const entry = tree.find((candidate) => candidate.type === "blob" && candidate.path === artifact.path);
@@ -397,27 +425,29 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     if (entry.sha !== input.currentFileSha) throw new ArtifactWriteConflictError();
     if (!isSupportedArtifactMutationPath(artifact.path, this.rootPath)) throw new ArtifactRepositoryContentError();
     validateImmutableArtifactMetadata(artifact, metadata);
-    return this.writeContents(artifact.path, metadata.id, markdown, `Update artifact ${metadata.id} (requested by @${input.actorLogin})`, input.currentFileSha);
+    return this.writeContents(artifact.path, metadata.id, markdown, `Update artifact ${metadata.id} (requested by @${input.actorLogin})`, input.currentFileSha, operation);
   }
 
   async delete(input: DeleteArtifactInput): Promise<ArtifactDeleteResult> {
-    const { path: artifactPath } = await this.resolveDeletion(input, "write");
-    return this.deleteContents(artifactPath, input);
+    const operation = new ArtifactOperation("artifact_delete", this.logger, this.config.operationId);
+    const { path: artifactPath } = await this.resolveDeletion(input, "write", operation);
+    return this.deleteContents(artifactPath, input, operation);
   }
 
   async createVariation(input: CreateVariationInput): Promise<CreateVariationResult> {
     if (!/^[A-Za-z0-9-]+$/.test(input.actorLogin)) throw new ArtifactWriteValidationError();
+    const operation = new ArtifactOperation("variation_create", this.logger, this.config.operationId);
     const { id, metadata } = prepareVariation(input.source, input.title, this.variationGeneration);
     const path = canonicalArtifactWritePath(metadata.type, id, this.rootPath);
     if (!path) throw new ArtifactWriteValidationError();
-    const result = await this.createValidatedArtifactAtPath({ metadata, body: input.body.trim(), path, actorLogin: input.actorLogin, commitMessage: `Create variation ${id} from ${input.source.id} (requested by @${input.actorLogin})` });
+    const result = await this.createValidatedArtifactAtPath({ metadata, body: input.body.trim(), path, actorLogin: input.actorLogin, commitMessage: `Create variation ${id} from ${input.source.id} (requested by @${input.actorLogin})`, operation });
     return { id, path: result.path, fileSha: result.fileSha, commitSha: result.commitSha, commitUrl: result.commitUrl, repositoryRevision: result.repositoryRevision };
   }
 
-  private async resolveDeletion(input: DeleteArtifactInput, capability: RepositoryCredentialCapability) {
+  private async resolveDeletion(input: DeleteArtifactInput, capability: RepositoryCredentialCapability, operation: ArtifactOperation) {
     if (!/^[A-Za-z0-9-]+$/.test(input.actorLogin) || !input.currentFileSha.trim()) throw new ArtifactWriteValidationError();
-    const tree = await this.fetchTree(capability);
-    const artifacts = await this.artifactsFromTree(tree, capability);
+    const tree = await this.fetchTree(capability, this.branch, operation);
+    const artifacts = await this.artifactsFromTree(tree, capability, operation);
     const artifact = artifacts.find((candidate) => candidate.id === input.id);
     if (!artifact) throw new ArtifactNotFoundError();
     if (!isSupportedArtifactMutationPath(artifact.path, this.rootPath)) throw new ArtifactRepositoryContentError();
@@ -427,34 +457,49 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     return { artifact, path: artifact.path };
   }
 
-  private async deleteContents(filePath: string, input: DeleteArtifactInput): Promise<ArtifactDeleteResult> {
-    const credential = await this.writeCredential();
-    let response: Response;
-    try { response = await this.fetchImpl(this.githubUrl(`/contents/${filePath.split("/").map(encodeURIComponent).join("/")}`), { method: "DELETE", headers: { accept: "application/vnd.github+json", authorization: `Bearer ${credential}`, "content-type": "application/json", "user-agent": "artifact-dev-toolkit", "x-github-api-version": "2022-11-28" }, body: JSON.stringify({ message: `Delete artifact ${input.id} (requested by @${input.actorLogin})`, sha: input.currentFileSha, branch: this.branch }) }); }
-    catch { throw new ArtifactRepositoryUnavailableError(); }
-    if (!response.ok) {
-      await response.body?.cancel().catch(() => undefined);
-      if (response.status === 401) throw new ArtifactWriteAuthenticationError();
-      if (response.status === 403) throw new ArtifactWritePermissionError();
-      if (response.status === 404 || response.status === 409 || response.status === 422) throw new ArtifactWriteConflictError();
-      if (response.status === 429 || response.status >= 500) throw new ArtifactRepositoryUnavailableError(response.status);
-      throw new ArtifactWriteResponseError();
+  private async deleteContents(filePath: string, input: DeleteArtifactInput, operation: ArtifactOperation): Promise<ArtifactDeleteResult> {
+    const credential = await this.writeCredential(operation);
+    if (this.config.signal?.aborted) throw new ArtifactRepositoryUnavailableError();
+    const started = Date.now();
+    operation.mutation = "uncertain";
+    operation.log("mutation_put", "started", started);
+    const state: { stage: "mutation_put" | "mutation_response"; status?: number } = {stage:"mutation_put"};
+    try {
+      const result = await withGitHubDeadline(async signal => {
+        const response = await this.fetchImpl(this.githubUrl(`/contents/${filePath.split("/").map(encodeURIComponent).join("/")}`), { method: "DELETE", redirect: "manual", signal, headers: { accept: "application/vnd.github+json", authorization: `Bearer ${credential}`, "content-type": "application/json", "user-agent": "artifact-dev-toolkit", "x-github-api-version": "2022-11-28" }, body: JSON.stringify({ message: `Delete artifact ${input.id} (requested by @${input.actorLogin})`, sha: input.currentFileSha, branch: this.branch }) });
+        state.status = response.status;
+        if (!response.ok) {
+          void response.body?.cancel().catch(() => undefined);
+          if (response.status === 401) throw new ArtifactWriteAuthenticationError();
+          if (response.status === 403) throw new ArtifactWritePermissionError();
+          if ([404,409,422].includes(response.status)) throw new ArtifactWriteConflictError();
+          throw new ArtifactMutationUncertainError(response.status);
+        }
+        state.stage = "mutation_response";
+        const parsed = z.object({ content: z.null(), commit: z.object({ sha: z.string().min(1), html_url: z.string().url() }) }).safeParse(await response.json());
+        if (!parsed.success || !parsed.data.commit.html_url.startsWith("https://github.com/")) throw new ArtifactMutationUncertainError(response.status);
+        return { artifactId: input.id, path: filePath, commitSha: parsed.data.commit.sha, commitUrl: parsed.data.commit.html_url, repositoryRevision: parsed.data.commit.sha };
+      }, this.config.requestTimeoutMs);
+      operation.mutation = "committed";
+      operation.log("mutation_response", "success", started, state.status);
+      return result;
+    } catch (error) {
+      operation.log(state.stage, "failure", started, state.status, 0, "mutation_failed");
+      if (error instanceof ArtifactWriteAuthenticationError || error instanceof ArtifactWritePermissionError || error instanceof ArtifactWriteConflictError || error instanceof ArtifactMutationUncertainError) throw error;
+      throw new ArtifactMutationUncertainError(state.status);
     }
-    let value: unknown; try { value = await response.json(); } catch { throw new ArtifactWriteResponseError(); }
-    const parsed = z.object({ content: z.null(), commit: z.object({ sha: z.string().min(1), html_url: z.string().url() }) }).safeParse(value);
-    if (!parsed.success || !parsed.data.commit.html_url.startsWith("https://github.com/")) throw new ArtifactWriteResponseError();
-    return { artifactId: input.id, path: filePath, commitSha: parsed.data.commit.sha, commitUrl: parsed.data.commit.html_url, repositoryRevision: parsed.data.commit.sha };
   }
 
-  private async createValidatedArtifactAtPath(input: { metadata: ArtifactMetadata; body: string; path: string; actorLogin: string; commitMessage: string; prepared?: ReturnType<typeof prepareArtifactWrite> }): Promise<ArtifactWriteResult> {
-    const { metadata, markdown } = input.prepared ?? prepareArtifactWrite(input.metadata, input.body);
+  private async createValidatedArtifactAtPath(input: { metadata: ArtifactMetadata; body: string; path: string; actorLogin: string; commitMessage: string; prepared?: ReturnType<typeof prepareArtifactWrite>; operation: ArtifactOperation }): Promise<ArtifactWriteResult> {
+    const operation = input.operation;
+    const { metadata, markdown } = input.prepared ?? await operation.run("content_validation", async () => prepareArtifactWrite(input.metadata, input.body));
     const expectedPath = canonicalArtifactWritePath(metadata.type, metadata.id, this.rootPath);
     if (!expectedPath || input.path !== expectedPath) throw new ArtifactWriteValidationError();
-    const tree = await this.fetchTree("write");
+    const tree = await this.fetchTree("write", this.branch, operation);
     if (tree.some((entry) => entry.type === "blob" && entry.path === input.path)) throw new ArtifactDuplicateError();
-    const artifacts = await this.artifactsFromTree(tree, "write");
+    const artifacts = await this.artifactsFromTree(tree, "write", operation);
     if (artifacts.some((artifact) => artifact.id === metadata.id)) throw new ArtifactDuplicateError();
-    return this.writeContents(input.path, metadata.id, markdown, input.commitMessage, undefined);
+    return this.writeContents(input.path, metadata.id, markdown, input.commitMessage, undefined, operation);
   }
 
   private githubUrl(pathname: string) {
@@ -467,36 +512,56 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     return target;
   }
 
-  private async artifactsFromTree(tree: GitHubTreeEntry[], capability: RepositoryCredentialCapability) {
+  private async artifactsFromTree(tree: GitHubTreeEntry[], capability: RepositoryCredentialCapability, operation?: ArtifactOperation) {
     const files = tree.filter((entry) => entry.type === "blob" && typeof entry.path === "string" && isArtifactMarkdownCandidate(entry.path, this.rootPath));
     const artifacts = await mapWithConcurrency(files, githubBlobConcurrency, async (file) => {
       if (!file.path || !file.sha) throw new ArtifactRepositoryContentError();
       const layout = classifyArtifactPath(file.path, this.rootPath);
       if (!layout) throw new ArtifactRepositoryContentError();
-      try { return parseArtifactMarkdown(await this.fetchBlob(file.sha, file.path, capability), file.path, layout); } catch (error) { if (error instanceof ArtifactMarkdownParseError) throw new ArtifactRepositoryContentError(); throw error; }
+      try {
+        const raw = await this.fetchBlob(file.sha, file.path, capability, operation);
+        const parse = async () => parseArtifactMarkdown(raw, file.path!, layout);
+        return operation ? await operation.run("content_validation", parse) : await parse();
+      } catch (error) { if (error instanceof ArtifactMarkdownParseError) throw new ArtifactRepositoryContentError(); throw error; }
     });
-    validateUniqueArtifactIds(artifacts);
+    if (operation) await operation.run("content_validation", async () => validateUniqueArtifactIds(artifacts));
+    else validateUniqueArtifactIds(artifacts);
     return artifacts;
   }
 
-  private async writeContents(filePath: string, artifactId: string, markdown: string, commitMessage: string, sha?: string): Promise<ArtifactWriteResult> {
-    const credential = await this.writeCredential();
-    try { return {artifactId,...await writeGitHubContents({url:this.githubUrl(`/contents/${filePath.split("/").map(encodeURIComponent).join("/")}`),token:credential,path:filePath,markdown,message:commitMessage,branch:this.branch,sha,fetchImpl:this.fetchImpl})}; }
-    catch(error) {
-      if(error instanceof GitContentWriteError){if(error.code==="authentication")throw new ArtifactWriteAuthenticationError();if(error.code==="permission")throw new ArtifactWritePermissionError();if(error.code==="conflict"&&error.status!==404)throw sha?new ArtifactWriteConflictError():new ArtifactDuplicateError();if(error.responseInvalid||error.status!==undefined&&error.status!==429&&error.status<500)throw new ArtifactWriteResponseError();throw new ArtifactRepositoryUnavailableError(error.status);}
+  private async writeContents(filePath: string, artifactId: string, markdown: string, commitMessage: string, sha?: string, operation = new ArtifactOperation("artifact_edit", this.logger, this.config.operationId)): Promise<ArtifactWriteResult> {
+    const credential = await this.writeCredential(operation);
+    if (this.config.signal?.aborted) throw new ArtifactRepositoryUnavailableError();
+    const started = Date.now();
+    operation.mutation = "uncertain";
+    operation.log("mutation_put", "started", started);
+    try {
+      const result = await writeGitHubContents({url:this.githubUrl(`/contents/${filePath.split("/").map(encodeURIComponent).join("/")}`),token:credential,path:filePath,markdown,message:commitMessage,branch:this.branch,sha,fetchImpl:this.fetchImpl,timeoutMs:this.config.requestTimeoutMs});
+      operation.mutation = "committed";
+      operation.log("mutation_response", "success", started);
+      return {artifactId, ...result};
+    } catch(error) {
+      if (error instanceof GitContentWriteError) {
+        operation.log(error.stage, "failure", started, error.status, 0, error.code);
+        if(error.code === "authentication") throw new ArtifactWriteAuthenticationError();
+        if(error.code === "permission") throw new ArtifactWritePermissionError();
+        if(error.status === 404 || error.status === 400) throw new ArtifactWriteResponseError();
+        if(error.code === "conflict") throw sha ? new ArtifactWriteConflictError() : new ArtifactDuplicateError();
+        throw new ArtifactMutationUncertainError(error.status);
+      }
       throw error;
     }
   }
 
-  private async writeCredential() {
-    try { return await this.credential("write"); }
+  private async writeCredential(operation?: ArtifactOperation) {
+    try { return operation ? await operation.run("write_credential", () => this.credential("write")) : await this.credential("write"); }
     catch (error) { if (error instanceof ArtifactWritePermissionError) throw error; const status = (error as { status?: number }).status; if (status === 401 || status === 403 || status === 404) throw new ArtifactWriteAuthenticationError(); if (status === 429 || status === undefined || status >= 500) throw new ArtifactRepositoryUnavailableError(status); throw new ArtifactRepositoryConfigurationError("Installation credential could not be created."); }
   }
 
   private async credential(capability: RepositoryCredentialCapability): Promise<string> {
     let promise = this.credentialPromises.get(capability);
     if (!promise) {
-      promise = this.config.credentialProvider(capability).then((credential) => {
+      promise = withGitHubDeadline(() => this.config.credentialProvider(capability), this.config.requestTimeoutMs, this.config.signal).then((credential) => {
         const contentsAllowed = capability === "read"
           ? credential.permissions.contents === "read" || credential.permissions.contents === "write"
           : credential.permissions.contents === "write";
@@ -521,87 +586,84 @@ export class GitHubArtifactRepository implements ArtifactRepository {
     return Math.min(githubMaximumRetryDelayMs, 100 * (2 ** (attempt - 1)));
   }
 
-  private async githubJson<T>(url: string, operation: "tree" | "blob", filePath?: string, capability: RepositoryCredentialCapability = "read", notFound: "branch" | "content" | "repository" = "content"): Promise<T> {
+  private async githubJson<T>(url: string, operation: "tree" | "blob", filePath?: string, capability: RepositoryCredentialCapability = "read", notFound: "branch" | "content" | "repository" = "content", trace?: ArtifactOperation): Promise<T> {
+    const parentSignal = trace?.signal ?? this.config.signal;
     let credential: string;
     try {
-      credential = await this.credential(capability);
+      credential = capability === "write" && trace ? await trace.run("write_credential", () => this.credential(capability)) : await this.credential(capability);
     } catch (error) {
-      if (error instanceof ArtifactWritePermissionError || error instanceof ArtifactRepositoryAccessError) throw error;
+      if (error instanceof ArtifactWritePermissionError || error instanceof ArtifactRepositoryAccessError || error instanceof ArtifactWriteAuthenticationError || error instanceof ArtifactRepositoryUnavailableError) throw error;
       const status = (error as { status?: number }).status;
       if (status === 429 || (typeof status === "number" && status >= 500) || status === undefined) throw new ArtifactRepositoryUnavailableError(status);
       if (status === 401 || status === 403 || status === 404) throw new ArtifactRepositoryAccessError();
       throw new ArtifactRepositoryConfigurationError("Installation credential could not be created.");
     }
+    const started = Date.now(), stage = operation === "tree" ? "preflight_tree" : "preflight_blob";
     for (let attempt = 1; attempt <= githubMaxAttempts; attempt++) {
+      if (parentSignal?.aborted) throw new ArtifactRepositoryUnavailableError();
       let response: Response | undefined;
       try {
-        response = await this.fetchImpl(url, {
-          headers: { accept: "application/vnd.github+json", authorization: `Bearer ${credential}`, "user-agent": "artifact-dev-toolkit", "x-github-api-version": "2022-11-28" },
-        });
-      } catch {
-        if (attempt < githubMaxAttempts) {
-          this.logRetry(operation, filePath, undefined, attempt + 1);
-          await this.sleep(this.retryDelay(undefined, attempt));
+        const value = await withGitHubDeadline(async signal => {
+          response = await this.fetchImpl(url, {
+            redirect: "manual", signal,
+            headers: { accept: "application/vnd.github+json", authorization: `Bearer ${credential}`, "user-agent": "artifact-dev-toolkit", "x-github-api-version": "2022-11-28" },
+          });
+          if (response.ok) return await response.json() as T;
+          void response.body?.cancel().catch(() => undefined);
+          return undefined;
+        }, this.config.requestTimeoutMs, parentSignal);
+        if (response!.ok) { trace?.log(stage, "success", started, response!.status, attempt - 1); return value as T; }
+      } catch (error) {
+        const transient = error instanceof TypeError || error instanceof GitHubRequestTimeoutError || parentSignal?.aborted;
+        trace?.log(stage, "failure", started, response?.status, attempt - 1, parentSignal?.aborted ? "cancelled" : error instanceof GitHubRequestTimeoutError ? "timeout" : transient ? "network" : "invalid_response");
+        if (!transient && response?.ok) throw new ArtifactRepositoryContentError();
+        if (attempt < githubMaxAttempts && !parentSignal?.aborted) {
+          this.logRetry(operation, undefined, attempt + 1);
+          await withGitHubDeadline(() => this.sleep(this.retryDelay(undefined, attempt)), this.config.requestTimeoutMs, parentSignal).catch(() => { throw new ArtifactRepositoryUnavailableError(); });
           continue;
         }
-        this.logFailure(operation, filePath, undefined, attempt);
+        this.logFailure(operation, undefined, attempt);
         throw new ArtifactRepositoryUnavailableError();
       }
-      if (response.ok) {
-        try {
-          return await response.json() as T;
-        } catch (error) {
-          if (error instanceof TypeError) {
-            if (attempt < githubMaxAttempts) {
-              this.logRetry(operation, filePath, undefined, attempt + 1);
-              await this.sleep(this.retryDelay(undefined, attempt));
-              continue;
-            }
-            this.logFailure(operation, filePath, undefined, attempt);
-            throw new ArtifactRepositoryUnavailableError();
-          }
-          throw new ArtifactRepositoryContentError();
-        }
-      }
-      const retryable = response.status === 429 || response.status >= 500 && response.status <= 599;
+      const status = response!.status;
+      const retryable = status === 429 || status >= 500 && status <= 599;
+      trace?.log(stage, "failure", started, status, attempt - 1, retryable ? "temporary_unavailable" : "request_rejected");
       if (!retryable) {
-        if (response.status === 401 || response.status === 403) throw new ArtifactRepositoryAccessError();
-        if (response.status === 404 && url.includes("/git/ref/heads/")) throw new ArtifactBranchNotFoundError();
-        if (response.status === 404 && operation === "blob" && filePath) throw new ArtifactBlobDiagnosticError("blob_unavailable");
-        if (response.status === 404 && notFound === "branch") throw new ArtifactBranchNotFoundError();
-        if (response.status === 404 && notFound === "repository") throw new ArtifactRepositoryNotFoundError();
+        if (status === 401 || status === 403) throw new ArtifactRepositoryAccessError();
+        if (status === 404 && url.includes("/git/ref/heads/")) throw new ArtifactBranchNotFoundError();
+        if (status === 404 && operation === "blob" && filePath) throw new ArtifactBlobDiagnosticError("blob_unavailable");
+        if (status === 404 && notFound === "branch") throw new ArtifactBranchNotFoundError();
+        if (status === 404 && notFound === "repository") throw new ArtifactRepositoryNotFoundError();
         throw new ArtifactRepositoryContentError();
       }
-      const delay = this.retryDelay(response, attempt);
-      await response.body?.cancel().catch(() => undefined);
       if (attempt < githubMaxAttempts) {
-        this.logRetry(operation, filePath, response.status, attempt + 1);
-        await this.sleep(delay);
+        this.logRetry(operation, status, attempt + 1);
+        await withGitHubDeadline(() => this.sleep(this.retryDelay(response, attempt)), this.config.requestTimeoutMs, parentSignal).catch(() => { throw new ArtifactRepositoryUnavailableError(); });
         continue;
       }
-      this.logFailure(operation, filePath, response.status, attempt);
-      throw new ArtifactRepositoryUnavailableError(response.status);
+      this.logFailure(operation, status, attempt);
+      throw new ArtifactRepositoryUnavailableError(status);
     }
     throw new ArtifactRepositoryUnavailableError();
   }
 
-  private logRetry(operation: "tree" | "blob", filePath: string | undefined, status: number | undefined, attempt: number) {
-    this.logger.info(JSON.stringify({ event: "github_artifact_request_retry", operation, ...(filePath ? { path: filePath } : {}), ...(status === undefined ? {} : { status }), attempt, maxAttempts: githubMaxAttempts }));
+  private logRetry(operation: "tree" | "blob", status: number | undefined, attempt: number) {
+    this.logger.info(JSON.stringify({ event: "github_artifact_request_retry", operation, ...(status === undefined ? {} : { status }), attempt, maxAttempts: githubMaxAttempts }));
   }
 
-  private logFailure(operation: "tree" | "blob", filePath: string | undefined, status: number | undefined, attempts: number) {
-    this.logger.error(JSON.stringify({ event: "github_artifact_request_failed", operation, ...(filePath ? { path: filePath } : {}), category: "temporary_unavailable", ...(status === undefined ? {} : { status }), attempts }));
+  private logFailure(operation: "tree" | "blob", status: number | undefined, attempts: number) {
+    this.logger.error(JSON.stringify({ event: "github_artifact_request_failed", operation, category: "temporary_unavailable", ...(status === undefined ? {} : { status }), attempts }));
   }
 
-  private async fetchTree(capability: RepositoryCredentialCapability, revision = this.branch) {
-    const tree = await this.githubJson<GitHubTreeResponse>(this.githubUrl(`/git/trees/${encodeURIComponent(revision)}?recursive=1`), "tree", undefined, capability, revision === this.branch ? "branch" : "content");
+  private async fetchTree(capability: RepositoryCredentialCapability, revision = this.branch, operation?: ArtifactOperation) {
+    const tree = await this.githubJson<GitHubTreeResponse>(this.githubUrl(`/git/trees/${encodeURIComponent(revision)}?recursive=1`), "tree", undefined, capability, revision === this.branch ? "branch" : "content", operation);
     if (!Array.isArray(tree.tree)) throw new Error("GitHub artifact repository tree response was malformed.");
     if (tree.truncated) throw new Error("GitHub artifact repository tree response was truncated; reduce repository size or artifact root scope.");
     return tree.tree;
   }
 
-  private async fetchBlob(sha: string, filePath: string, capability: RepositoryCredentialCapability) {
-    const blob = await this.githubJson<GitHubBlobResponse>(this.githubUrl(`/git/blobs/${encodeURIComponent(sha)}`), "blob", filePath, capability);
+  private async fetchBlob(sha: string, filePath: string, capability: RepositoryCredentialCapability, operation?: ArtifactOperation) {
+    const blob = await this.githubJson<GitHubBlobResponse>(this.githubUrl(`/git/blobs/${encodeURIComponent(sha)}`), "blob", filePath, capability, "content", operation);
     if (typeof blob.size === "number" && blob.size > MAX_SERIALIZED_ARTIFACT_BYTES) {
       throw new ArtifactBlobDiagnosticError("blob_too_large");
     }
@@ -618,7 +680,7 @@ export class GitHubArtifactRepository implements ArtifactRepository {
 class ArtifactBlobDiagnosticError extends ArtifactRepositoryContentError { readonly code: "unsupported_encoding" | "blob_too_large" | "blob_unavailable"; constructor(code: "unsupported_encoding" | "blob_too_large" | "blob_unavailable") { super(); this.code = code; } }
 
 
-export function createArtifactRepository(access: RepositoryAccessContext): ArtifactRepository {
+export function createArtifactRepository(access: RepositoryAccessContext, options: { signal?: AbortSignal; operationId?: string } = {}): ArtifactRepository {
   const backend = getArtifactRepositoryBackend();
   console.info(JSON.stringify({ event: "artifact_repository_selected", backend }));
   if (backend === "file") return new FileArtifactRepository();
@@ -628,5 +690,5 @@ export function createArtifactRepository(access: RepositoryAccessContext): Artif
   const rootPath = trimSlashes(defaultGitHubArtifactRoot);
   if (!owner || !repo || !branch) throw new ArtifactRepositoryConfigurationError("GitHub artifact repository configuration is incomplete.");
   if (access.owner.toLowerCase() !== owner.toLowerCase() || access.repo.toLowerCase() !== repo.toLowerCase() || !Number.isSafeInteger(access.repositoryId)) throw new ArtifactRepositoryConfigurationError("Repository access context does not match configuration.");
-  return new GitHubArtifactRepository({ owner: access.owner, repo: access.repo, branch, rootPath, credentialProvider: access.installationCredentialProvider });
+  return new GitHubArtifactRepository({ owner: access.owner, repo: access.repo, branch, rootPath, credentialProvider: access.installationCredentialProvider, signal: options.signal, operationId: options.operationId });
 }
