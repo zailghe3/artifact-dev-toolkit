@@ -5,6 +5,7 @@ const variationErrorMessages: Record<string, string> = {
   duplicate_artifact: "A variation with this generated ID already exists. Try saving again.",
   write_permission_required: "The GitHub App does not have permission to create variations.",
   repository_authentication_failed: "GitHub repository authentication failed. Sign in again or contact the administrator.",
+  mutation_uncertain: "GitHub may have saved this change. Refresh the library and check GitHub before submitting again.",
   repository_unavailable: "The artifact repository is temporarily unavailable. Try again.",
   repository_configuration: "Variation storage is not correctly configured.",
 };

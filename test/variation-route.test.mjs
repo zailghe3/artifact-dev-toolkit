@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  ArtifactDuplicateError, ArtifactRepositoryConfigurationError, ArtifactRepositoryUnavailableError,
+  ArtifactMutationUncertainError, ArtifactDuplicateError, ArtifactRepositoryConfigurationError, ArtifactRepositoryUnavailableError,
   ArtifactSecretRejectedError, ArtifactWritePermissionError, ArtifactWriteTooLargeError,
 } from '../lib/artifact-repository.ts';
 import { handleVariationPost } from '../lib/variation-route-handler.ts';
@@ -68,6 +68,7 @@ test('variation route maps typed repository failures without exposing upstream d
     [new ArtifactWriteTooLargeError(), 413, 'artifact_too_large'],
     [new ArtifactDuplicateError(), 409, 'duplicate_artifact'],
     [new ArtifactWritePermissionError(), 403, 'write_permission_required'],
+    [new ArtifactMutationUncertainError(), 503, 'mutation_uncertain'],
     [new ArtifactRepositoryUnavailableError(429), 503, 'repository_unavailable'],
     [new ArtifactRepositoryConfigurationError('private credential'), 500, 'repository_configuration'],
     [new Error('raw upstream body credential exception'), 500, 'internal_error'],

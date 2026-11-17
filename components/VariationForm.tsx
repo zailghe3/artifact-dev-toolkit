@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import {PendingButtonContent} from "@/components/PendingButtonContent";
 import { unknownVariationErrorMessage, variationErrorMessage } from "@/lib/variation-errors";
 import { hasPreview, safeGitHubUrl } from "@/lib/edit-ui";
@@ -10,6 +11,7 @@ export function VariationForm({ artifactId, defaultBody, defaultTitle }: { artif
   const [title, setTitle] = useState(`${defaultTitle} Variation`);
   const [body, setBody] = useState(defaultBody);
   const [saving, setSaving] = useState(false);
+  const [reconciliationRequired, setReconciliationRequired] = useState(false);
   const [message, setMessage] = useState("");
   const [preview, setPreview] = useState<unknown>();
   const [success, setSuccess] = useState<{ artifactUrl: string; commitUrl: string }>();
@@ -25,7 +27,7 @@ export function VariationForm({ artifactId, defaultBody, defaultTitle }: { artif
   }
 
   async function saveVariation() {
-    if (saving) return;
+    if (saving || reconciliationRequired) return;
     setSaving(true);
     setMessage("");
     try {
@@ -37,18 +39,21 @@ export function VariationForm({ artifactId, defaultBody, defaultTitle }: { artif
       let data: unknown;
       try { data = await response.json(); } catch { data = undefined; }
       if (!response.ok) {
+        if ((data as {code?:unknown}|undefined)?.code === "mutation_uncertain") setReconciliationRequired(true);
         setMessage(variationErrorMessage((data as { code?: unknown } | undefined)?.code));
         return;
       }
       const id = (data as { id?: unknown } | undefined)?.id;
       const commitUrl = safeGitHubUrl((data as { commitUrl?: unknown } | undefined)?.commitUrl, "commit");
       if (response.status !== 201 || typeof id !== "string" || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id) || !commitUrl) {
-        setMessage(unknownVariationErrorMessage);
+        setReconciliationRequired(true);
+        setMessage(variationErrorMessage("mutation_uncertain"));
         return;
       }
       setSuccess({ artifactUrl: `/artifacts/${encodeURIComponent(id)}`, commitUrl });
     } catch {
-      setMessage(unknownVariationErrorMessage);
+      setReconciliationRequired(true);
+      setMessage(variationErrorMessage("mutation_uncertain"));
     } finally {
       setSaving(false);
     }
@@ -71,10 +76,11 @@ export function VariationForm({ artifactId, defaultBody, defaultTitle }: { artif
       </label>
       <div className="mt-4"><FormActions feedback={message ? <p className="text-sm text-slate-600 dark:text-slate-300">{message}</p> : null}>
         <button disabled={saving} onClick={previewVariation} className={buttonStyles.secondary}>Preview</button>
-        <button disabled={saving} aria-busy={saving} onClick={saveVariation} className={buttonStyles.primary}>
+        <button disabled={saving || reconciliationRequired} aria-busy={saving} onClick={saveVariation} className={buttonStyles.primary}>
           <PendingButtonContent pending={saving}>{saving ? "Saving…" : "Save variation"}</PendingButtonContent>
         </button>
       </FormActions></div>
+      {reconciliationRequired ? <p className="mt-3 text-sm"><Link className="underline" href="/">Check the Artifact Library before starting another variation.</Link></p> : null}
       {success ? <div className="mt-4 rounded-xl bg-emerald-50 p-4 text-sm text-emerald-900"><strong>Variation saved</strong><div className="mt-2 flex gap-4"><a className="underline" href={success.artifactUrl}>View variation</a><a className="underline" href={success.commitUrl} target="_blank" rel="noreferrer">View GitHub commit</a></div></div> : null}
       {hasPreview(preview) ? <article className="mt-5 rounded-2xl border border-slate-200 p-5 dark:border-slate-700"><h3 className="text-xl font-bold">{preview.metadata.title}</h3><dl className="my-3 text-sm"><dt className="font-semibold">Source</dt><dd>{preview.metadata.sourceId}</dd><dt className="font-semibold">Tags</dt><dd>{preview.metadata.tags.join(", ") || "None"}</dd><dt className="font-semibold">Aliases</dt><dd>{preview.metadata.aliases.join(", ") || "None"}</dd></dl><div className="prose" dangerouslySetInnerHTML={{ __html: preview.bodyHtml }} /></article> : null}
     </Panel>
