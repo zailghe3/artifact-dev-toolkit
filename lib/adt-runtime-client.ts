@@ -1,12 +1,15 @@
 import {isAdtDataTool} from "./adt-data-contract.ts";
 import type { AgentRuntime } from "./agent-runtime.ts";
-import type { AgentProviderAdapter, AdapterInvocation, AdapterResult, FailureCategory, ProviderTransportDiagnostics, ProviderTransportReason, ProviderRuntimeErrorName } from "./workflow-adapter.ts";
+import type { AgentProviderAdapter, AdapterInvocation, AdapterResult, FailureCategory, ProviderTransportDiagnostics, ProviderTransportReason } from "./workflow-adapter.ts";
 import { ollamaChatOptionsSchema,AGENT_EXECUTION_TIMEOUT_DEFAULT_SECONDS,agentExecutionTimeoutSeconds,openAIAgentsOptionsSchema,anthropicMessagesOptionsSchema,workIqRestOptionsSchema } from "./workflow-adapter.ts";
 import {parseRuntimeOrchestrationEvidence,type RuntimeOrchestrationEvidence} from "./workflow-orchestration-diagnostics.ts";
 import type {GenericWorkflowExecutionPlan} from "./workflow-definitions.ts";
 
 import {normalizeProviderSafeConfiguration,requireProviderConnectionType} from "./provider-connection-types.ts";
 import {providerExecutionTimeoutMs,PROVIDER_TRANSPORT_ALLOWANCE_MS,PROVIDER_GRAPH_TRANSPORT_TIMEOUT_MS,PROVIDER_GRAPH_NODE_TIMEOUT_MS} from "./provider-execution-timeouts.ts";
+import {AGENT_PROGRESS_PATH,AGENT_TOOL_PATH,AGENT_SECURITY_PATH,AGENT_PROGRESS_CAPABILITY,modelProgressResultSchema} from "../adt-runtime/src/agent-contract.ts";
+import {agentOperationDiagnosticsSchema,type AgentOperationDiagnostics} from "./workflow-agent-diagnostics.ts";
+import {classifyTransportException,isLocalRuntimeTransportRejection} from "./safe-transport-exception.ts";
 export const ADT_RUNTIME_PROVIDER_EXECUTE_PATH="/v1/executions/provider",ADT_RUNTIME_PROVIDER_CAPABILITY="provider-execution";
 export type RuntimeProviderKind="openai-agents"|"anthropic-messages"|"work-iq-rest"|"ollama-chat";
 export const ADT_RUNTIME_PROTOCOL="adt-runtime-v1", ADT_RUNTIME_EXECUTE_PATH="/v1/executions/openai-agents", ADT_RUNTIME_LANGGRAPH_PATH="/v1/executions/langgraph-linear", ADT_RUNTIME_READINESS_PATH="/v1/readiness",ADT_RUNTIME_EXECUTION_PATH_DIAGNOSTIC_PATH="/v1/diagnostics/execution-path",ADT_RUNTIME_EXECUTION_PATH_DIAGNOSTIC_CAPABILITY="diagnostic:execution-path";
@@ -35,6 +38,15 @@ const knownCodes=new Set<RuntimeErrorCode>(["runtime_authentication_failed","inv
 const knownCategories=new Set<FailureCategory>(["configuration_invalid","security_denied","security_timeout","security_unavailable","connection_unavailable","authentication_failed","permission_denied","provider_rejected","provider_start_ambiguous","rate_limited","provider_unavailable","provider_timeout","malformed_response","output_too_large","internal_error"]);
 
 export class RemoteRuntimeFailure extends Error{readonly retryable=false;readonly category:FailureCategory;readonly safeMessage:string;readonly transportDiagnostics?:ProviderTransportDiagnostics;readonly runtimeCode?:string;readonly orchestration?:RuntimeOrchestrationEvidence;readonly runtimeRevision?:string;readonly securityDiagnostic?:AdrianTestDiagnostic;readonly runtimeReleaseRevision?:number;constructor(category:FailureCategory,safeMessage:string,transportDiagnostics?:ProviderTransportDiagnostics,runtimeCode?:string,orchestration?:RuntimeOrchestrationEvidence,runtimeRevision?:string,securityDiagnostic?:AdrianTestDiagnostic,runtimeReleaseRevision?:number){super(category);this.category=category;this.safeMessage=safeMessage;this.transportDiagnostics=transportDiagnostics;this.runtimeCode=runtimeCode;this.orchestration=orchestration;this.runtimeRevision=runtimeRevision;this.securityDiagnostic=securityDiagnostic;this.runtimeReleaseRevision=runtimeReleaseRevision}}
+export class AgentOperationFailure extends RemoteRuntimeFailure{
+ readonly diagnostics:AgentOperationDiagnostics;
+ readonly ambiguous:boolean;
+ constructor(category:FailureCategory,safeMessage:string,diagnostics:AgentOperationDiagnostics,ambiguous:boolean){
+  super(category,safeMessage,undefined,diagnostics.runtimeCode);
+  this.diagnostics=diagnostics;
+  this.ambiguous=ambiguous;
+ }
+}
 const failure=(category:FailureCategory,message:string,transportDiagnostics?:ProviderTransportDiagnostics,runtimeCode?:string,orchestration?:RuntimeOrchestrationEvidence,runtimeRevision?:string,runtimeReleaseRevision?:number)=>new RemoteRuntimeFailure(category,message,transportDiagnostics,runtimeCode,orchestration,runtimeRevision,undefined,runtimeReleaseRevision);
 const b64=(value:ArrayBuffer|Uint8Array)=>{const bytes=value instanceof Uint8Array?value:new Uint8Array(value);let s="";for(const byte of bytes)s+=String.fromCharCode(byte);return btoa(s).replaceAll("+","-").replaceAll("/","_").replace(/=+$/g,"")};
 const pem=(value:string)=>Uint8Array.from(atob(value.replace(/-----[^-]+-----|\s/g,"")),c=>c.charCodeAt(0));
@@ -73,7 +85,19 @@ export async function requestRuntimeRedeploy(config:ADTRuntimeConfiguration,targ
  return{state:response.status===404?"unsupported":"rejected",message:response.status===404?"Runtime-mediated redeploy is unavailable; a manual Runtime update or configuration is required.":"Redeploy request was not accepted."};
 }
 const CROSS_REQUEST_IO_MESSAGE="Cannot perform I/O on behalf of a different request",CROSS_REQUEST_IO_PREFIX=`${CROSS_REQUEST_IO_MESSAGE}.`,SUBREQUEST_LIMIT=/^Too many subrequests\.?(?:$|\s)/;
-function transportError(error:unknown):Pick<ProviderTransportDiagnostics,"outcome"|"reason"|"runtimeErrorName">{const name=error instanceof DOMException&&["AbortError","TimeoutError"].includes(error.name)?"AbortError":error instanceof TypeError?"TypeError":"Error" as ProviderRuntimeErrorName;const timeout=error instanceof DOMException&&["AbortError","TimeoutError"].includes(error.name),reason=timeout?"aborted":error instanceof TypeError?"fetch_type_error":error instanceof Error&&SUBREQUEST_LIMIT.test(error.message)?"platform_subrequest_limit":error instanceof Error&&(error.message===CROSS_REQUEST_IO_MESSAGE||error.message.startsWith(CROSS_REQUEST_IO_PREFIX))?"cross_request_io":"unknown";return{outcome:timeout?"timeout":"network_error" as const,reason:reason as ProviderTransportReason,runtimeErrorName:name};}
+const INVALID_REQUEST_CONTEXT=/^(?:Network I\/O attempted outside of a request context|Some functionality, such as asynchronous I\/O.*cannot be performed outside the context of an incoming request)\b/i;
+function transportError(error:unknown,deadline?:AbortSignal):Pick<ProviderTransportDiagnostics,"outcome"|"reason"|"runtimeErrorName">{
+ const classified=classifyTransportException(error);
+ const timeout=deadline?.aborted===true||error instanceof DOMException&&(error.name==="TimeoutError"||deadline===undefined&&error.name==="AbortError");
+ if(timeout)return{outcome:"timeout",reason:"aborted",runtimeErrorName:"AbortError"};
+ const message=error instanceof Error?error.message:"";
+ const reason:ProviderTransportReason=SUBREQUEST_LIMIT.test(message)?"platform_subrequest_limit":
+  message===CROSS_REQUEST_IO_MESSAGE||message.startsWith(CROSS_REQUEST_IO_PREFIX)?"cross_request_io":
+  INVALID_REQUEST_CONTEXT.test(message)?"invalid_request_context":
+  isLocalRuntimeTransportRejection(classified.reason)?"unknown":classified.reason;
+ return{outcome:"network_error",reason,runtimeErrorName:classified.runtimeErrorName??"Error"};
+}
+const elapsed=(started:number)=>Math.max(0,Math.min(3_600_000,Date.now()-started));
 function record(value:unknown):Record<string,unknown>{return value&&typeof value==="object"?value as Record<string,unknown>:{}}
 export function parseRuntimeRedeployTargets(value:unknown,capabilities:unknown):RedeployTarget[]{if(!Array.isArray(capabilities)||!capabilities.includes(ADT_RUNTIME_REDEPLOY_CAPABILITY)||!Array.isArray(value)||value.length>2||value.some(target=>target!=="runtime"&&target!=="runner")||new Set(value).size!==value.length)return[];return value as RedeployTarget[]}
 const boundedProtocolString=(value:unknown,max:number)=>typeof value==="string"&&value.length>=1&&value.length<=max;
@@ -109,16 +133,84 @@ export class RemoteProviderRuntime implements AgentRuntime{
   throw failure("malformed_response","Runtime model discovery returned an invalid response.");
  }
  async agentOperation(path:string,payload:Record<string,unknown>,credential?:string):Promise<unknown>{
-  if(!["/v1/agents/progress","/v1/agents/tool","/v1/agents/security"].includes(path))throw Error("agent_operation_invalid");
-  const wrapping=await publicKey(this.config.wrappingPublicKey??""),ready=await this.readiness(wrapping.keyId,nonce(),{requireAgentCapability:false});
-  if(!(record(ready.value).capabilities as string[]).includes("agent:progress-v1"))throw failure("configuration_invalid","Runtime Agent progression capability is unavailable.");
-  const requestId=crypto.randomUUID(),capability="agent:progress-v1",body=JSON.stringify({protocolVersion:ADT_RUNTIME_PROTOCOL,capability,requestId,...payload,...(credential?{credential:await envelope(credential,wrapping.key,wrapping.keyId,`${ADT_RUNTIME_PROTOCOL}:${capability}:${requestId}`)}:{})});
-  if(encoder.encode(body).byteLength>1100000)throw failure("configuration_invalid","Agent request exceeds its bound.");
-  const headers=await signedHeaders(this.config.authSecret!,"POST",path,body,nonce());let response:Response;
-  try{response=await this.fetcher()(this.base()+path,{method:"POST",headers,body,redirect:"error",signal:AbortSignal.timeout(path==="/v1/agents/progress"?Math.min(930000,Number(record(payload.request).timeoutMs)+30000):path==="/v1/agents/security"?65000:30000)})}catch{throw Object.assign(failure("provider_start_ambiguous","Agent operation outcome is uncertain."),{ambiguous:true})}
-  let wire:Record<string,unknown>;try{wire=record(await boundedJson(response))}catch{throw Object.assign(failure("malformed_response","Agent operation returned an invalid outcome."),{ambiguous:true})}
-  if(response.ok&&wire.protocolVersion===ADT_RUNTIME_PROTOCOL&&wire.ok===true)return wire.result;
-  const error=record(wire.error),safe=parseSafeError(wire),trusted=wire.protocolVersion===ADT_RUNTIME_PROTOCOL&&wire.ok===false&&safe!==undefined;const ambiguous=trusted&&typeof error.ambiguous==="boolean"?error.ambiguous:trusted&&["credential_invalid","runtime_authentication_failed","invalid_request","unsupported_operation","protocol_incompatible"].includes(String(error.code))?false:true;throw Object.assign(failure(safe?.category??"internal_error",safe?.safeMessage??"Agent operation failed safely."),{ambiguous});
+  const operation=path===AGENT_PROGRESS_PATH?"model_progression":path===AGENT_TOOL_PATH?"tool_execution":path===AGENT_SECURITY_PATH?"security_decision":undefined;
+  if(!operation)throw Error("agent_operation_invalid");
+  const requestId=crypto.randomUUID(),started=Date.now(),capability=AGENT_PROGRESS_CAPABILITY;
+  const prepared=():AgentOperationDiagnostics=>({operation,stage:"preparation" as const,clientRequestId:requestId,outcome:"not_dispatched" as const,elapsedMs:elapsed(started)});
+  let url:string;
+  try{url=this.base()+path}catch(error){
+   if(!(error instanceof RemoteRuntimeFailure))throw error;
+   throw new AgentOperationFailure(error.category,error.safeMessage,prepared(),false);
+  }
+  let wrapping;
+  try{wrapping=await publicKey(this.config.wrappingPublicKey??"")}catch{
+   throw new AgentOperationFailure("configuration_invalid","ADT Runtime wrapping key is invalid.",{...prepared(),runtimeCode:"wrapping_key_invalid"},false);
+  }
+  const readinessId=nonce();
+  try{
+   const ready=await this.readiness(wrapping.keyId,readinessId,{requireAgentCapability:false});
+   if(!(record(ready.value).capabilities as string[]).includes(capability))throw failure("configuration_invalid","Runtime Agent progression capability is unavailable.",ready.diagnostics,"capability_unavailable");
+  }catch(error){
+   const remote=error instanceof RemoteRuntimeFailure?error:undefined,diagnostics=remote?.transportDiagnostics;
+   const runtimeCode=agentOperationDiagnosticsSchema.shape.runtimeCode.safeParse(remote?.runtimeCode).data;
+   throw new AgentOperationFailure(remote?.category??"internal_error",remote?.safeMessage||"ADT Runtime readiness could not be established.",{
+    ...prepared(),...diagnostics,operation,stage:"readiness",clientRequestId:readinessId,elapsedMs:diagnostics?Math.min(3_600_000,Math.max(0,diagnostics.elapsedMs)):elapsed(started),runtimeCode,
+   },false);
+  }
+  let init:RequestInit,signal:AbortSignal;
+  try{
+   const wrapped=credential?await envelope(credential,wrapping.key,wrapping.keyId,`${ADT_RUNTIME_PROTOCOL}:${capability}:${requestId}`):undefined;
+   const body=JSON.stringify({...payload,protocolVersion:ADT_RUNTIME_PROTOCOL,capability,requestId,credential:wrapped});
+   if(encoder.encode(body).byteLength>1_100_000)throw failure("configuration_invalid","Agent request exceeds its bound.");
+   const timeoutMs=operation==="model_progression"?Math.min(930_000,Number(record(payload.request).timeoutMs)+30_000):operation==="security_decision"?65_000:30_000;
+   if(!Number.isInteger(timeoutMs)||timeoutMs<=0)throw failure("configuration_invalid","Agent request deadline is invalid.");
+   const headers=await signedHeaders(this.config.authSecret!,"POST",path,body,requestId);
+   signal=AbortSignal.timeout(timeoutMs);
+   // workerd accepts only "follow" and "manual". Keep signed requests on the configured origin.
+   init={method:"POST",headers,body,redirect:"manual",signal};
+  }catch(error){
+   throw new AgentOperationFailure("configuration_invalid",error instanceof RemoteRuntimeFailure?error.safeMessage:"Agent request could not be prepared.",prepared(),false);
+  }
+  const dispatched=Date.now();
+  let response:Response;
+  try{response=await this.fetcher()(url,init)}catch(error){
+   const transport=transportError(error,signal);
+   const local=transport.reason!==undefined&&(isLocalRuntimeTransportRejection(transport.reason)||transport.reason==="platform_subrequest_limit");
+   throw new AgentOperationFailure(local?"provider_unavailable":"provider_start_ambiguous",
+    local?"The Worker rejected the Agent request before it could be dispatched.":"Agent operation outcome is uncertain.",
+    {...transport,operation,stage:"dispatch",clientRequestId:requestId,elapsedMs:elapsed(dispatched),...(local?{outcome:"not_dispatched" as const}:{})},!local);
+  }
+  const received=():AgentOperationDiagnostics=>({operation,stage:"response" as const,clientRequestId:requestId,outcome:"response_received" as const,elapsedMs:elapsed(dispatched),...(response.status>=100&&response.status<=599?{httpStatus:response.status}:{})});
+  if(response.status>=300&&response.status<400){
+   await response.body?.cancel().catch(()=>undefined);
+   throw new AgentOperationFailure("provider_start_ambiguous","ADT Runtime returned an unexpected redirect.",{...received(),runtimeCode:"unexpected_redirect"},true);
+  }
+  const malformed=()=>new AgentOperationFailure("provider_start_ambiguous","Agent operation returned an invalid outcome.",{...received(),runtimeCode:"malformed_response"},true);
+  let wire:Record<string,unknown>;
+  try{wire=record(await boundedJson(response))}catch(error){
+   const transport=transportError(error,signal);
+   if(transport.outcome==="timeout"||transport.reason==="network_connection_lost"||transport.reason==="aborted"||transport.reason==="fetch_type_error"){
+    throw new AgentOperationFailure("provider_start_ambiguous","Agent operation response could not be read.",{...received(),...transport},true);
+   }
+   throw malformed();
+  }
+  if(response.ok&&wire.protocolVersion===ADT_RUNTIME_PROTOCOL&&wire.ok===true){
+   if(operation==="model_progression"&&!modelProgressResultSchema.safeParse(wire.result).success)throw malformed();
+   return wire.result;
+  }
+  const safe=!response.ok?parseSafeError(wire):undefined;
+  const runtimeCode=agentOperationDiagnosticsSchema.shape.runtimeCode.safeParse(safe?.code).data;
+  if(!safe||!runtimeCode||!safe.safeMessage.trim())throw malformed();
+  const explicitAmbiguity=record(wire.error).ambiguous;
+  if(explicitAmbiguity!==undefined&&typeof explicitAmbiguity!=="boolean")throw malformed();
+  if(operation==="model_progression"&&explicitAmbiguity===true&&!safe.providerExecutionEntered)throw malformed();
+  const rejectedBeforeOperation=["credential_invalid","runtime_authentication_failed","invalid_request","unsupported_operation","protocol_incompatible","runtime_unavailable"].includes(runtimeCode);
+  const ambiguous=operation==="model_progression"?
+   safe.providerExecutionEntered&&(explicitAmbiguity!==false||safe.category==="provider_start_ambiguous"):
+   explicitAmbiguity??!rejectedBeforeOperation;
+  const category=ambiguous&&operation==="model_progression"?"provider_start_ambiguous":!ambiguous&&safe.category==="provider_start_ambiguous"?"provider_unavailable":safe.category;
+  throw new AgentOperationFailure(category,safe.safeMessage,{...received(),runtimeCode,
+   ...(operation==="model_progression"?{providerExecutionEntered:safe.providerExecutionEntered}:{})},ambiguous);
  }
  async start(invocation:AdapterInvocation):Promise<AdapterResult>{
   const policy=requireProviderConnectionType(this.kind),connection=invocation.connection;

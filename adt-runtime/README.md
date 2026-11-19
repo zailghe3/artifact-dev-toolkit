@@ -102,6 +102,8 @@ Passive readiness, execution-path readiness, provider connection readiness, and 
 
 Runtime logs are structured safe events. Use bounded stage/result/status/correlation/duration fields; do not log or compare secret values, provider payloads, prompts, callback bodies, or raw exception text.
 
+For a journaled Agent failure, use the inspector's client request ID to find the Runtime receipt, provider entry, and completion or failure events. A missing response or log entry leaves provider execution unconfirmed.
+
 ## Ollama endpoints and model commissioning
 
 - Configure `ADT_RUNTIME_OLLAMA_ALLOWED_BASE_URLS` with up to 32 comma-separated origin URLs, for example `http://ollama:11434,https://ollama.com`. The default empty list permits no Ollama endpoint.

@@ -305,6 +305,8 @@
 
 - Workflow state is visible without exposing provider secrets or private execution content beyond authorised run output.
 - Real runs may retain bounded run-level orchestration evidence separately from provider diagnostics on Agent attempts.
+- Journaled Agent failures retain safe request correlation, transport stage and outcome, and provider entry evidence when confirmed. Run guidance follows the frozen execution provider.
+- Workflow failure reports preserve the recorded graph failure category and safe message after reconciliation.
 - Orchestration evidence excludes secrets, raw errors, callback bodies, provider data, prompts, Artifact contents, private paths, and credentials.
 - Runner status may expose bounded activity category/count/timestamps but never provider lifecycle payloads, commands, arguments, reasoning, prompts, or file content.
 - Provider-side failure must not be misrepresented as application authorisation failure when the distinction is known.
