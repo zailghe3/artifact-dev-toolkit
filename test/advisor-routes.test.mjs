@@ -26,5 +26,12 @@ test('Advisor launch resolves authoritative configuration and rejects model-sele
 });
 test('Advisor settings reject invalid definitions and persist only validated repository-scoped settings',async()=>{
  const valid={settings:{workflowId:'review',override:null},revision:1};assert.equal((await config.PUT(request({...valid,settings:{...valid.settings,workflowId:'missing'}},'/api/advisor/settings','https://adt.invalid','PUT'))).status,422);assert.equal(saves,0);
+ const incompatible={...valid,settings:{...valid.settings,override:{connectionKey:'agents',model:'gpt-6-luna'}}};
+ const rejection=await config.PUT(request(incompatible,'/api/advisor/settings','https://adt.invalid','PUT'));
+ assert.equal(rejection.status,422);
+ const failure=await rejection.json();
+ assert.equal(failure.code,'agent_tool_model_unsupported');
+ assert.match(failure.error,/gpt-6-luna.*supported tool-capable model/);
+ assert.equal(saves,0);
  const response=await config.PUT(request(valid,'/api/advisor/settings','https://adt.invalid','PUT'));assert.equal(response.status,200);assert.equal((await response.json()).revision,2);assert.equal(saves,1);
 });

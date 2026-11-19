@@ -5,7 +5,7 @@ import {applyAdvisorOverride,assertAdvisorReadOnly,assertAdvisorRunReadOnly,same
 import {getProviderConnectionType} from "./provider-connection-types.ts";
 import type {ConnectionDescriptor} from "./workflow-connections.ts";
 import {newLangGraphWorkflowRun,type WorkflowRun} from "./workflow-storage.ts";
-import {validateWorkflowRunAdmissionSources,validateAgentForConnection,workflowAgentReferences,compileWorkflowV2ExecutionPlan,composeVersionedWorkflowV2,AGENT_MASTER_PROMPT_MAX_LENGTH} from "./workflow-definitions.ts";
+import {validateWorkflowRunAdmissionSources,validateAgentConnectionOptions,workflowAgentReferences,compileWorkflowV2ExecutionPlan,composeVersionedWorkflowV2,AGENT_MASTER_PROMPT_MAX_LENGTH} from "./workflow-definitions.ts";
 import {resolveWorkflowRunConnectionSnapshot} from "./workflow-run-connection-snapshots.ts";
 import * as services from "./workflow-services.ts";
 import {workflowError} from "./workflow-http.ts";
@@ -55,13 +55,13 @@ export async function launchWorkflowRun(access:RepositoryAccessContext,body:Work
       const effective=applyAdvisorOverride(agents.map(item=>item.definition),identities,advisor.override);
       agents=agents.map((item,index)=>({...item,definition:effective.agents[index]}));identities=effective.connections;
       assertAdvisorReadOnly(compileWorkflowV2ExecutionPlan(definition,effective.agents),effective.agents,identities);
-      await validateAdvisorOverrideModel(advisor,identities,access,dependencies);
     }
     const available=identities.filter(item=>item.enabled);
-    await validateWorkflowRunAdmissionSources(definition,agents.map(item=>item.definition),identities,new Set(available.map(item=>item.key)),new Set((catalog?.environments??[]).filter(item=>item.enabled&&item.ready&&item.managedRepository===true).map(item=>item.key)));
+    const plan=await validateWorkflowRunAdmissionSources(definition,agents.map(item=>item.definition),identities,new Set(available.map(item=>item.key)),new Set((catalog?.environments??[]).filter(item=>item.enabled&&item.ready&&item.managedRepository===true).map(item=>item.key)));
+    if(advisor)await validateAdvisorOverrideModel(advisor,identities,access,dependencies);
     const validated=await Promise.all(agents.map(async item=>{
       const descriptor=available.find(connection=>connection.key===item.definition.connectionKey)!;
-      let agent=validateAgentForConnection(item.definition,descriptor);
+      let agent=validateAgentConnectionOptions(item.definition,descriptor);
       if(agent.prompt.source==="artifact"){
         const resolved=await service.getArtifactWithRevision(access,agent.prompt.artifactId);
         if(!resolved)throw new Error("prompt_not_found");
@@ -82,7 +82,7 @@ export async function launchWorkflowRun(access:RepositoryAccessContext,body:Work
     const connections=await Promise.all([...new Set(validated.map(item=>item.definition.connectionKey))].map(key=>resolveWorkflowRunConnectionSnapshot(available.find(connection=>connection.key===key)!,providerStore)));
     const created=await storage.createRun(newLangGraphWorkflowRun({
       id:crypto.randomUUID(),revision:versioned.fileSha,workflow:versioned.definition,compositionSnapshot:composed.composition,
-      executionPlan:compileWorkflowV2ExecutionPlan(definition,validated.map(item=>item.definition)),
+      executionPlan:plan,
       agents:validated.map(item=>item.definition),agentRevisions:Object.fromEntries(validated.map(item=>[item.definition.id,item.fileSha])),connections,mcpToolSnapshots,securityProfileSnapshots,managedCodeRepositoryContexts,
       repositoryContext:{repositoryId:access.repositoryId,installationId:access.installationId,owner:access.owner,repository:access.repo,branch:process.env.GITHUB_ARTIFACT_REPOSITORY_BRANCH??"main",root:DEFAULT_ARTIFACT_ROOT},
       initialInput:body.initialInput,clientIdempotencyKey:body.idempotencyKey,

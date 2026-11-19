@@ -35,3 +35,14 @@ test('Agent POST and PUT preserve granular fail-closed Codex validation for disa
   assert.ok(route.indexOf('validateAgentForConnection')<route.indexOf('validateCodexRunnerAgentOptions(definition.adapterOptions)'));
  }
 });
+
+test('Agent authoring enforces provider tool-model eligibility only when tools are granted',async()=>{
+ const {validateAgentForConnection}=await import('../lib/workflow-definitions.ts');
+ const {agent,connection}=await import('./support/advisor-fixtures.mjs');
+ for(const [adapter,defaultModel] of [['openai-agents','gpt-6-luna'],['openai-agents','gpt-5-pro'],['anthropic-messages','claude-2']]){
+  const selected={...connection,adapter,defaultModel};
+  assert.throws(()=>validateAgentForConnection(agent,selected),error=>error.message.includes(defaultModel)&&/supported tool-capable model/.test(error.message));
+  assert.doesNotThrow(()=>validateAgentForConnection({...agent,tools:[]},selected));
+ }
+ assert.doesNotThrow(()=>validateAgentForConnection(agent,{...connection,adapter:'ollama-chat',defaultModel:'locally-installed-model'}));
+});

@@ -37,3 +37,36 @@ test('security failure categories survive the durable boundary and remain non-re
   assert.deepEqual(result,{category,safeMessage:`Safe ${category}.`,retryable:false});
  }
 });
+
+test('Workflow failed finalization preserves durable graph failure and prioritises cancellation',async t=>{
+ for(const scenario of ['specific','no recorded failure','cancellation','stale generation'])await t.test(scenario,async()=>{
+  const id='finalization',f=await fixture(id);
+  const result=await execute(id,f,{advanceLangGraph:async()=>{
+   if(scenario==='specific'||scenario==='cancellation')await f.storage.recordGraphFailure(id,'provider_start_ambiguous','Agent operation outcome is uncertain.');
+   if(scenario==='cancellation')await f.storage.requestCancellation(id);
+   if(scenario==='stale generation'){
+    await f.storage.claimGraphNode(id,'a','input','task-a');
+    await f.storage.failStep(id,'a',1,1,{category:'provider_start_ambiguous',safeMessage:'Agent operation outcome is uncertain.',retryable:false});
+    await f.storage.failRun(id,'provider_start_ambiguous','Agent operation outcome is uncertain.');
+    await f.storage.prepareManualRetry(id,'a');
+    const launch=await f.storage.claimWorkflowLaunch(id,2,'new-instance');
+    assert.equal(launch.result,'claimed');
+    await f.storage.attachWorkflowInstance(id,2,'new-instance');
+   }
+   return {state:'failed',safeMessage:'Stale or incomplete node response.'};
+  }});
+  const {run}=await f.storage.getRun(id);
+  assert.equal(result.status,run.status);
+  if(scenario==='stale generation'){
+   assert.equal(run.workflowGeneration,2);
+   assert.equal(run.status,'queued');
+   assert.equal(run.failureCode,undefined);
+  }else if(scenario==='cancellation'){
+   assert.equal(run.status,'cancelled');
+  }else{
+   assert.equal(run.status,'failed');
+   assert.equal(run.failureCode,scenario==='specific'?'provider_start_ambiguous':'internal_error');
+   assert.equal(run.failureMessage,scenario==='specific'?'Agent operation outcome is uncertain.':'Workflow node state could not be reconciled.');
+  }
+ });
+});

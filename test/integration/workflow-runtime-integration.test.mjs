@@ -8,7 +8,7 @@ import {AgentRuntimeRegistry,createAgentRuntimeRegistry} from '../../lib/agent-r
 import {D1LangGraphCheckpointStore,issueCheckpointAuthority,issueGraphNodeAuthority,parseCheckpointOperation,verifyGraphNodeAuthority} from '../../lib/langgraph-checkpoints.ts';
 import {D1WorkflowRunStorage} from '../../lib/workflow-d1-storage.ts';
 import {executeDurableGraphNodeTurn} from '../../lib/workflow-durable-driver.ts';
-import {agentDefinitionSchema,compileWorkflowV2ExecutionPlan,composeVersionedWorkflowV2,workflowDefinitionV2Schema} from '../../lib/workflow-definitions.ts';
+import {agentDefinitionSchema,compileWorkflowV2ExecutionPlan,composeVersionedWorkflowV2,validateAgentForConnection,workflowDefinitionV2Schema} from '../../lib/workflow-definitions.ts';
 import {executeLangGraphWorkflow,waitForApprovalWake} from '../../lib/workflow-worker-runtime.ts';
 import {D1WorkflowApprovalStore} from '../../lib/workflow-approvals.ts';
 import {MAX_WORKFLOW_RUN_MS} from '../../lib/workflow-durable-driver.ts';
@@ -22,7 +22,7 @@ const agent=id=>agentDefinitionSchema.parse({schemaVersion:2,id:`agent-${id}`,na
 const edge=(source,target,sourcePort)=>({id:`${source}-${sourcePort??'out'}-${target}`,source,...(sourcePort?{sourcePort}:{}),target});
 const listen=server=>new Promise(resolve=>server.listen(0,'127.0.0.1',()=>resolve(`http://127.0.0.1:${server.address().port}`)));
 
-async function database(t){const mf=new Miniflare(convertV4MiniflareOptions({modules:true,script:'export default {fetch(){return new Response("ok")}}',d1Databases:{DB:crypto.randomUUID()}})),db=await mf.getD1Database('DB');t.after(()=>mf.dispose());for(const name of ['0003_create_workflow_runs.sql','0005_create_workflow_codex_environments.sql','0007_add_provider_transport_diagnostics.sql','0008_add_provider_transport_reason.sql','0010_add_workflow_run_repository_context.sql','0011_add_langgraph_workflow_runs.sql','0022_add_checkpoint_write_task_paths.sql','0012_add_graph_activation_identity.sql','0013_add_workflow_approvals.sql','0014_add_workflow_composition_snapshot.sql','0015_add_workflow_orchestration_diagnostics.sql','0017_add_managed_code_repository_contexts.sql','0018_add_workflow_conversation_lineage.sql','0020_add_workflow_run_mcp_snapshots.sql','0021_add_security_profile_authority.sql','0023_add_agent_tool_journal.sql','0024_add_advisor.sql']){const sql=await readFile(new URL(`../../migrations/${name}`,import.meta.url),'utf8');await db.batch(sql.split(';').map(value=>value.trim()).filter(Boolean).map(value=>db.prepare(value)))}return db}
+async function database(t){const mf=new Miniflare(convertV4MiniflareOptions({modules:true,script:'export default {fetch(){return new Response("ok")}}',d1Databases:{DB:crypto.randomUUID()}})),db=await mf.getD1Database('DB');t.after(()=>mf.dispose());for(const name of ['0003_create_workflow_runs.sql','0005_create_workflow_codex_environments.sql','0007_add_provider_transport_diagnostics.sql','0008_add_provider_transport_reason.sql','0010_add_workflow_run_repository_context.sql','0011_add_langgraph_workflow_runs.sql','0022_add_checkpoint_write_task_paths.sql','0012_add_graph_activation_identity.sql','0013_add_workflow_approvals.sql','0014_add_workflow_composition_snapshot.sql','0015_add_workflow_orchestration_diagnostics.sql','0017_add_managed_code_repository_contexts.sql','0018_add_workflow_conversation_lineage.sql','0020_add_workflow_run_mcp_snapshots.sql','0021_add_security_profile_authority.sql','0023_add_agent_tool_journal.sql','0026_add_journaled_agent_failure.sql','0024_add_advisor.sql']){const sql=await readFile(new URL(`../../migrations/${name}`,import.meta.url),'utf8');await db.batch(sql.split(';').map(value=>value.trim()).filter(Boolean).map(value=>db.prepare(value)))}return db}
 
 async function harness(t,{definition,authoredDefinition=definition,compositionSnapshot,agents,initialInput,provider,connection:testConnection=connection,connections:testConnections=[testConnection],runtimeRegistry,resolveConnection}){
  const db=await database(t),storage=new D1WorkflowRunStorage(db),plan=compileWorkflowV2ExecutionPlan(definition,agents),run=newLangGraphWorkflowRun({id:crypto.randomUUID(),workflow:authoredDefinition,compositionSnapshot,executionPlan:plan,revision:'immutable-sha',agents,connections:testConnections,initialInput});await storage.createRun(run);
@@ -123,4 +123,121 @@ test('persisted Ollama run decoding fails closed for official Cloud without Bear
  connection.providerConfiguration={baseUrl:'https://ollama.com',authMode:'none'};
  await db.prepare('UPDATE workflow_runs SET connection_snapshots_json = ? WHERE id = ?').bind(JSON.stringify({ollama:connection}),run.id).run();
  await assert.rejects(storage.getRun(run.id),/ollama_configuration_invalid/);
+});
+
+test('workerd and ADT Runtime preserve journaled failure evidence without replaying or following redirects',async t=>{
+ const {build}=await import('esbuild'),{nativeFixture}=await import('../support/native-adt-fixture.mjs');
+ const {ADT_DATA_TOOLS,isSensitiveAdtTool}=await import('../../lib/adt-data-contract.ts');
+ const {AgentOperationFailure}=await import('../../lib/adt-runtime-client.ts');
+ const {manualRetryEligibility}=await import('../../lib/workflow-storage.ts');
+ const {privateKey,publicKey}=generateKeyPairSync('rsa',{modulusLength:2048,privateKeyEncoding:{type:'pkcs8',format:'pem'},publicKeyEncoding:{type:'spki',format:'pem'}});
+ const events=[];
+ let providerCalls=0;
+ const runtime=await createRuntimeServer({
+  host:'127.0.0.1',port:0,authSecret:secret,privateKeyPem:privateKey,revision:'journal-integration',
+  logger:event=>events.push(event),
+  providerHttp:{fetcher:async()=>{
+   providerCalls++;
+   return Response.json({id:'success',object:'chat.completion',created:1,model:'gpt-5',
+    choices:[{index:0,finish_reason:'stop',message:{role:'assistant',content:'SENSITIVE_PROVIDER_OUTPUT'}}]});
+  }},
+ });
+ await runtime.listen();
+ t.after(()=>runtime.close());
+ const runtimeUrl=`http://127.0.0.1:${runtime.server.address().port}`;
+ let redirectPost=false,unintendedRequests=0;
+ const redirectTrap=createHttpServer((_req,res)=>{unintendedRequests++;res.writeHead(500);res.end()});
+ const redirectUrl=await listen(redirectTrap);
+ t.after(()=>new Promise(resolve=>redirectTrap.close(resolve)));
+ const proxy=createHttpServer(async(req,res)=>{
+  if(redirectPost&&req.url==='/v1/agents/progress'){
+   res.writeHead(307,{location:redirectUrl+'/SENSITIVE_REDIRECT_TARGET'});
+   res.end();
+   return;
+  }
+  const chunks=[];
+  for await(const chunk of req)chunks.push(chunk);
+  const headers=new Headers(req.headers);
+  for(const header of ['connection','host','content-length','transfer-encoding'])headers.delete(header);
+  const upstream=await fetch(runtimeUrl+req.url,{method:req.method,headers,...(chunks.length?{body:Buffer.concat(chunks)}:{})});
+  const body=Buffer.from(await upstream.arrayBuffer());
+  if(req.url==='/v1/agents/progress'){res.destroy();return}
+  res.writeHead(upstream.status,{'content-type':'application/json'});
+  res.end(body);
+ });
+ const proxyUrl=await listen(proxy);
+ t.after(()=>new Promise(resolve=>proxy.close(resolve)));
+ const worker=await build({stdin:{resolveDir:process.cwd(),contents:`
+  import {AgentOperationFailure,RemoteOpenAIAgentsRuntime} from './lib/adt-runtime-client.ts';
+  export default {async fetch(request,env) {
+   const baseUrl = new URL(request.url).pathname === '/rejected' ? env.RUNTIME : env.PROXY;
+   const remote = new RemoteOpenAIAgentsRuntime({baseUrl,authSecret:env.AUTH,wrappingPublicKey:env.KEY});
+   const {path,payload,credential} = await request.json();
+   try {return Response.json(await remote.agentOperation(path,payload,credential))}
+   catch(error) {
+    if (!(error instanceof AgentOperationFailure)) throw error;
+    return Response.json(error,{status:422});
+   }
+  }};
+ `},bundle:true,write:false,format:'esm',platform:'node',target:'es2022'});
+ const {compatibility_date,compatibility_flags}=JSON.parse(await readFile(new URL('../../wrangler.jsonc',import.meta.url),'utf8'));
+ const mf=new Miniflare(convertV4MiniflareOptions({modules:true,script:worker.outputFiles[0].text,
+  compatibilityDate:compatibility_date,compatibilityFlags:compatibility_flags,
+  bindings:{PROXY:proxyUrl,RUNTIME:runtimeUrl,AUTH:secret,KEY:publicKey},
+ }));
+ t.after(()=>mf.dispose());
+ for(const scenario of ['rejected','lost','redirect'])await t.test(scenario,async t=>{
+  const rejected=scenario==='rejected';
+  redirectPost=scenario==='redirect';
+  let requests=0;
+  const remote={agentOperation:async(path,payload,credential)=>{
+   requests++;
+   const result=await mf.dispatchFetch(`http://worker/${scenario}`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({path,payload,credential})});
+   const value=await result.json();
+   if(!result.ok)throw new AgentOperationFailure(value.category,value.safeMessage,value.diagnostics,value.ambiguous);
+   return value;
+  }};
+  const f=await nativeFixture(t,{remote,model:rejected?'gpt-6-luna':'gpt-5',tools:ADT_DATA_TOOLS.filter(tool=>!isSensitiveAdtTool(tool))});
+  const validate=()=>validateAgentForConnection(f.value.agentSnapshots.analyst,f.value.connectionSnapshots.agents);
+  if(rejected)assert.throws(validate,/gpt-6-luna.*supported tool-capable model/);
+  else assert.doesNotThrow(validate);
+  const failStep=f.storage.failStep.bind(f.storage);
+  f.storage.failStep=async()=>{throw Error('simulated interruption before attempt finalization')};
+  await assert.rejects(f.step(),/simulated interruption/);
+  const interrupted=await f.storage.getRun(f.value.id);
+  assert.equal(interrupted.attempts[0].status,'starting');
+  const diagnostic=interrupted.attempts[0].agentOperationDiagnostics;
+  assert.equal(diagnostic.operation,'model_progression');
+  f.storage.failStep=failStep;
+  const outcome=await f.step();
+  assert.equal(outcome.state,'failed');
+  const result=await executeLangGraphWorkflow({runId:f.value.id,storage:f.storage,remote:{advanceLangGraph:async()=>outcome},
+   step:{do:async(_name,...args)=>JSON.parse(JSON.stringify(await args.at(-1)())),sleep:async()=>{}},
+   checkpointUrl:'https://unused.invalid/checkpoints',nodeUrl:'https://unused.invalid/nodes',
+   checkpointAuthority:async()=> 'unused',nodeAuthority:async()=> 'unused',
+  });
+  const detail=await f.storage.getRun(f.value.id),attempt=detail.attempts[0];
+  const category=rejected?'configuration_invalid':'provider_start_ambiguous';
+  assert.equal(result.status,'failed');
+  assert.equal(detail.run.failureCode,category);
+  assert.equal(attempt.failureCategory,category);
+  assert.equal(detail.run.failureMessage,attempt.safeFailureMessage);
+  assert.deepEqual(attempt.agentOperationDiagnostics,diagnostic);
+  assert.equal(attempt.retryable,false);
+  assert.equal(manualRetryEligibility(detail).eligible,false);
+  assert.equal(requests,1);
+  assert.equal(f.reads,0);
+  assert.equal(providerCalls,rejected?0:1);
+  assert.equal(unintendedRequests,0);
+  assert.equal(diagnostic.stage,scenario==='lost'?'dispatch':'response');
+  assert.equal(diagnostic.outcome,scenario==='lost'?'network_error':'response_received');
+  assert.equal(diagnostic.httpStatus,rejected?422:redirectPost?307:undefined);
+  assert.equal(diagnostic.runtimeCode,rejected?'execution_failed':redirectPost?'unexpected_redirect':undefined);
+  assert.equal(diagnostic.providerExecutionEntered,rejected?false:undefined);
+  const correlated=events.filter(event=>event.requestId===diagnostic.clientRequestId);
+  assert.equal(correlated.some(event=>event.event==='runtime_agent_operation_received'&&event.operation==='model_progression'),!redirectPost);
+  assert.equal(correlated.some(event=>event.event==='runtime_provider_execution_started'),scenario==='lost');
+  if(rejected)assert.match(attempt.safeFailureMessage,/no verified tool capability/);
+  assert.doesNotMatch(JSON.stringify({diagnostic,correlated}),/SENSITIVE_|127\.0\.0\.1|wrappedKey|ciphertext|toolArguments/);
+ });
 });

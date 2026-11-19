@@ -1,4 +1,5 @@
 import {ADT_DATA_TOOLS} from "../lib/adt-data-contract.ts";
+import {DEFAULT_ARTIFACT_ROOT} from "../lib/artifact-contract.ts";
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,readFile,writeFile} from 'node:fs/promises';
@@ -58,7 +59,9 @@ test('selection and launch reject deleted workflows, stale definitions, tool esc
   const response=await launchWorkflowRun(access,{workflowId:'review',initialInput:'question',idempotencyKey:crypto.randomUUID()},settings,f.deps);assert.equal(response.status,422);assert.equal(f.launches(),0);
  }
  const stale=await f.repo.getWorkflow('review');await f.repo.deleteWorkflow('review',stale.fileSha);assert.equal((await launchWorkflowRun(access,{workflowId:'review',initialInput:'q',idempotencyKey:crypto.randomUUID()},settings,f.deps)).status,422);
- const fresh=await fixture();fresh.deps.getProviderModelService=async()=>({validate:async()=>{throw Error('model_unavailable')}});assert.equal((await launchWorkflowRun(access,{workflowId:'review',initialInput:'q',idempotencyKey:crypto.randomUUID()},{...settings,override:{connectionKey:'override',model:'not-available'}},fresh.deps)).status,422);assert.equal(fresh.launches(),0);
+ const fresh=await fixture();fresh.deps.getProviderModelService=async()=>({validate:async()=>{throw Error('model_unavailable')}});
+ const unavailable=await launchWorkflowRun(access,{workflowId:'review',initialInput:'q',idempotencyKey:crypto.randomUUID()},{...settings,override:{connectionKey:'override',model:'gpt-5-mini'}},fresh.deps);
+ assert.equal(unavailable.status,422);assert.equal((await unavailable.json()).code,'model_unavailable');assert.equal(fresh.launches(),0);
 });
 test('read-only admission expands reusable workflows and blocks indirect MCP, Codex and publication escalation',()=>{
  const leaf={...workflow,id:'leaf',exposableAsBlock:true},root={...workflow,nodes:[{id:'nested',blockType:'subworkflow',blockVersion:1,config:{workflowId:'leaf'}}]};
@@ -97,7 +100,9 @@ test('a validated credentialless Ollama snapshot remains executable while histor
 
 test('default Advisor definitions validate across every supported tool-enabled provider',async()=>{
  const {defaultAdvisorDefinitions}=await import('../lib/advisor-default.ts'),{agent:defaultAgent}=defaultAdvisorDefinitions('agents');
- for(const adapter of ['openai-agents','anthropic-messages','ollama-chat'])assert.doesNotThrow(()=>validateAgentForConnection(defaultAgent,{...connection,adapter}));
+ for(const [adapter,defaultModel] of [['openai-agents','gpt-5'],['anthropic-messages','claude-sonnet-4-5'],['ollama-chat','qwen3']]){
+  assert.doesNotThrow(()=>validateAgentForConnection(defaultAgent,{...connection,adapter,defaultModel}));
+ }
 });
 
 
@@ -105,4 +110,83 @@ test('legacy direct Runtime execution explicitly rejects native metadata grants 
  const {RemoteOpenAIAgentsRuntime}=await import('../lib/adt-runtime-client.ts');let requests=0;
  const runtime=new RemoteOpenAIAgentsRuntime({},async()=>{requests++;throw Error('No transport is permitted')});
  await assert.rejects(runtime.start({connection,tools:['adt_workflow_read']}),error=>error.category==='configuration_invalid'&&/journaled/.test(error.safeMessage));assert.equal(requests,0);
+});
+
+test('Advisor validates the effective default, override, and Workflow tool restrictions',async()=>{
+ const f=await fixture(),incompatible={...connection,defaultModel:'gpt-6-luna'};
+ await assert.rejects(validateAdvisorSelection(settings,f.repo,[incompatible]),/gpt-6-luna.*supported tool-capable model/);
+ const override={...settings,override:{connectionKey:connection.key,model:'gpt-5-mini'}};
+ const selection=await validateAdvisorSelection(override,f.repo,[incompatible]);
+ assert.equal(selection.agents[0].model,'gpt-5-mini');
+ assert.equal(incompatible.defaultModel,'gpt-6-luna');
+
+ const saved=await f.repo.getWorkflow(workflow.id);
+ const restricted={...saved.definition,nodes:[{...saved.definition.nodes[0],blockVersion:4,config:{agentId:agent.id,toolRestrictions:{allowlist:[]}}}]};
+ await f.repo.updateWorkflow(restricted,saved.fileSha);
+ const toolFree=await validateAdvisorSelection({...settings,override:{...override.override,model:'gpt-6-luna'}},f.repo,[connection]);
+ assert.equal(toolFree.agents[0].model,'gpt-6-luna');
+});
+
+test('Workflow and Advisor admission reject incompatible effective models before creating or launching a run',async()=>{
+ const f=await fixture(),incompatible={...connection,defaultModel:'gpt-6-luna'};
+ f.deps.listWorkflowConnectionDescriptors=async()=>[incompatible];
+ f.deps.getProviderCredentialVault=async()=>assert.fail('Eligibility must be checked before snapshotting');
+ for(const advisor of [undefined,{...settings,override:{connectionKey:'override',model:'gpt-6-luna'}}]){
+  const body={workflowId:workflow.id,initialInput:'question',idempotencyKey:crypto.randomUUID()};
+  const response=await launchWorkflowRun(access,body,advisor,f.deps);
+  assert.equal(response.status,422);
+  const result=await response.json();
+  assert.equal(result.code,'agent_tool_model_unsupported');
+  assert.match(result.error,/gpt-6-luna.*supported tool-capable model/);
+  assert.equal(await f.storage.findRunByIdempotencyKey(body.idempotencyKey),undefined);
+ }
+ assert.equal(f.modelChecks.length,0);
+ assert.equal(f.launches(),0);
+});
+
+test('Workflow admission allows a model when every activation removes its tools',async()=>{
+ const f=await fixture(),incompatible={...connection,defaultModel:'gpt-6-luna'};
+ f.deps.listWorkflowConnectionDescriptors=async()=>[incompatible];
+ const saved=await f.repo.getWorkflow(workflow.id);
+ const restricted={...saved.definition,nodes:[{...saved.definition.nodes[0],blockVersion:4,config:{agentId:agent.id,toolRestrictions:{allowlist:[]}}}]};
+ const revision=await f.repo.updateWorkflow(restricted,saved.fileSha);
+ const body={workflowId:workflow.id,initialInput:'question',idempotencyKey:crypto.randomUUID()};
+ const response=await launchWorkflowRun(access,body,undefined,f.deps);
+ assert.equal(response.status,201,await response.clone().text());
+ const {runId}=await response.json(),detail=await f.storage.getRun(runId);
+ assert.equal(detail.run.connectionSnapshots.agents.defaultModel,'gpt-6-luna');
+ assert.deepEqual(detail.run.executionPlan.nodes[0].config.toolRestrictions.allowlist,[]);
+ assert.deepEqual(detail.run.agentSnapshots.analyst.tools,agent.tools);
+
+ const next={...restricted,nodes:[...restricted.nodes,{id:'verify',blockType:'agent',blockVersion:1,config:{agentId:agent.id}}],edges:[{id:'analyse-verify',source:'analyse',target:'verify'}]};
+ await f.repo.updateWorkflow(next,revision.fileSha);
+ const rejected=await launchWorkflowRun(access,{...body,idempotencyKey:crypto.randomUUID()},undefined,f.deps);
+ assert.equal(rejected.status,422);
+ assert.equal((await rejected.json()).code,'agent_tool_model_unsupported');
+ assert.equal(f.launches(),1);
+});
+
+test('frozen Advisor runs with a historically accepted model remain readable and idempotent',async t=>{
+ const db=await database(t),storage=new D1WorkflowRunStorage(db),override={connectionKey:'agents',model:'gpt-6-luna'};
+ const historical=run({
+  connections:[{...connection,defaultModel:override.model}],
+  advisorContext:{version:1,readOnly:true,override},
+  repositoryContext:{...context,root:DEFAULT_ARTIFACT_ROOT},
+  clientIdempotencyKey:crypto.randomUUID(),
+ });
+ await storage.createRun(historical);
+ await storage.claimWorkflowLaunch(historical.id,1,"historical-instance");
+ await storage.attachWorkflowInstance(historical.id,1,"historical-instance");
+ await storage.failRun(historical.id,'configuration_invalid','The model has no verified tool capability.');
+ const detail=await new D1WorkflowRunStorage(db).getRun(historical.id);
+ assert.equal(detail.run.connectionSnapshots.agents.defaultModel,override.model);
+ assert.equal(detail.run.failureCode,'configuration_invalid');
+ assert.doesNotThrow(()=>assertAdvisorRunReadOnly(detail.run));
+ const response=await launchWorkflowRun(access,{workflowId:historical.workflowId,initialInput:historical.initialInput,idempotencyKey:historical.clientIdempotencyKey},{workflowId:historical.workflowId,override},{
+  getWorkflowRunStorage:async()=>storage,
+  createWorkflowDefinitionRepository:()=>assert.fail('Existing runs must read frozen history'),
+  getWorkflowEnvironment:async()=>({AGENT_RUN_WORKFLOW:{create:async()=>assert.fail('A terminal run must not be relaunched')}}),
+ });
+ assert.equal(response.status,200,await response.clone().text());
+ assert.equal((await response.json()).runId,historical.id);
 });

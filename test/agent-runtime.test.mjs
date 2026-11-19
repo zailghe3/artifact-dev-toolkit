@@ -63,3 +63,120 @@ test('Adrian commissioning diagnostics are accepted only through the exact bound
 
 test('malformed Adrian diagnostics never become trusted Runtime failure metadata',async()=>{const profile={id:'production',endpointUrl:'wss://security.example/events',decisionTimeoutMs:1000},bad=[{stage:'private-stage',safeCode:'adrian_ws_unreachable',elapsedMs:1},{stage:'transport',safeCode:'adrian_ws_unreachable',elapsedMs:'1'},{stage:'transport',safeCode:'adrian_ws_unreachable',elapsedMs:-1},{stage:'transport',safeCode:'adrian_ws_unreachable',elapsedMs:60001},{stage:'transport',safeCode:'adrian_ws_unreachable',elapsedMs:1,httpStatus:999},{stage:'transport',safeCode:'adrian_ws_unreachable',elapsedMs:1,websocketCloseCode:999},{stage:'transport',safeCode:'adrian_ws_unreachable',elapsedMs:1,policyMode:'secret'},{stage:'transport',safeCode:'adrian_ws_unreachable',elapsedMs:1,raw:'secret upstream body'},{stage:'transport',safeCode:'adrian_login_timeout',elapsedMs:1}];for(const diagnostic of bad){const runtime=new RemoteOpenAIAgentsRuntime(config,async url=>url.endsWith('/readiness')?readiness({capabilities:['openai-agents','security:adrian:test']}):Response.json({protocolVersion:ADT_RUNTIME_PROTOCOL,ok:false,error:{code:'adrian_ws_unreachable',category:'security_unavailable',safeMessage:'safe',retryable:false,providerExecutionEntered:false,diagnostic}},{status:503}));await assert.rejects(runtime.testSecurityProfile(profile,'adrian-key'),error=>error.runtimeCode==='adrian_ws_unreachable'&&error.securityDiagnostic===undefined&&error.runtimeRevision==='b'.repeat(40)&&error.runtimeReleaseRevision===1&&!JSON.stringify(error).includes('secret upstream body'))}});
 test('authenticated Runtime diagnostic preserves only valid redeploy target availability',async()=>{for(const [redeployTargets,expected] of [[['runtime','runner'],['runtime','runner']],[['runtime','runtime'],[]],[['app'],[]],[undefined,[]]]){const capabilities=['openai-agents','infrastructure:redeploy'],runtime=new RemoteOpenAIAgentsRuntime(config,async()=>readiness({capabilities,redeployTargets})),diagnostic=await runtime.diagnose();assert.deepEqual(diagnostic.redeployTargets,expected);assert.doesNotMatch(JSON.stringify(diagnostic),/webhook|secret|https?:/i)}const legacy=new RemoteOpenAIAgentsRuntime(config,async()=>readiness({redeployTargets:['runtime']}));assert.deepEqual((await legacy.diagnose()).redeployTargets,[])});
+
+test('journaled transport separates fetch failures, deadlines and proven pre-dispatch rejection',async t=>{
+ const cases=[
+  {error:new TypeError('private URL: https://internal.example'),category:'provider_start_ambiguous',outcome:'network_error',reason:'fetch_type_error'},
+  {error:new DOMException('private deadline','TimeoutError'),category:'provider_start_ambiguous',outcome:'timeout',reason:'aborted'},
+  {error:new DOMException('private abort','AbortError'),category:'provider_start_ambiguous',outcome:'network_error',reason:'aborted'},
+  {error:new Error('Cannot perform I/O on behalf of a different request. private object'),category:'provider_unavailable',outcome:'not_dispatched',reason:'cross_request_io'},
+  {error:new Error('Network I/O attempted outside of a request context: private state'),category:'provider_unavailable',outcome:'not_dispatched',reason:'invalid_request_context'},
+  {error:new Error('Too many subrequests. private budget'),category:'provider_unavailable',outcome:'not_dispatched',reason:'platform_subrequest_limit'},
+  {error:new Error('Upstream says Cannot perform I/O on behalf of a different request. private state'),category:'provider_start_ambiguous',outcome:'network_error',reason:'unknown'},
+ ];
+ for(const {error,category,outcome,reason} of cases)await t.test(reason+' '+outcome,async()=>{
+  let posts=0,requestId;
+  const runtime=new RemoteOpenAIAgentsRuntime(config,async(url,init)=>{
+   if(url.endsWith('/readiness'))return readiness({capabilities:['agent:progress-v1']});
+   posts++;
+   const body=JSON.parse(init.body);
+   requestId=body.requestId;
+   assert.equal(init.headers['x-adt-nonce'],requestId);
+   assert.equal(init.redirect,'manual');
+   assert.ok(init.signal instanceof AbortSignal);
+   assert.doesNotMatch(init.body,/private credential/);
+   throw error;
+  });
+  await assert.rejects(runtime.agentOperation('/v1/agents/progress',{request:{timeoutMs:30000}},'private credential'),failure=>{
+   const {diagnostics}=failure;
+   assert.equal(failure.category,category);
+   assert.equal(failure.ambiguous,outcome!=='not_dispatched');
+   assert.equal(failure.retryable,false);
+   assert.equal(diagnostics.clientRequestId,requestId);
+   assert.equal(diagnostics.operation,'model_progression');
+   assert.equal(diagnostics.stage,'dispatch');
+   assert.equal(diagnostics.outcome,outcome);
+   assert.equal(diagnostics.reason,reason);
+   assert.equal(diagnostics.providerExecutionEntered,undefined);
+   assert.ok(Number.isInteger(diagnostics.elapsedMs)&&diagnostics.elapsedMs>=0);
+   assert.doesNotMatch(JSON.stringify(failure),/private|internal\.example/);
+   return true;
+  });
+  assert.equal(posts,1);
+ });
+});
+
+test('journaled preflight failures keep readiness and request preparation distinct',async()=>{
+ let fetches=0;
+ const rejecting=new RemoteOpenAIAgentsRuntime(config,async(url,init)=>{
+  fetches++;
+  assert.ok(url.endsWith('/readiness'));
+  assert.equal(init.method,'GET');
+  return safe('authentication_failed','runtime_authentication_failed',false,401);
+ });
+ await assert.rejects(rejecting.agentOperation('/v1/agents/progress',{}),error=>{
+  assert.equal(error.category,'authentication_failed');
+  assert.equal(error.ambiguous,false);
+  assert.equal(error.diagnostics.stage,'readiness');
+  assert.equal(error.diagnostics.httpStatus,401);
+  assert.equal(error.diagnostics.providerExecutionEntered,undefined);
+  return true;
+ });
+ assert.equal(fetches,1);
+ const invalid=new RemoteOpenAIAgentsRuntime({...config,wrappingPublicKey:'private invalid key'},async()=>assert.fail('must not fetch'));
+ await assert.rejects(invalid.agentOperation('/v1/agents/progress',{}),error=>
+  error.category==='configuration_invalid'&&!error.ambiguous&&error.diagnostics.stage==='preparation'&&error.diagnostics.outcome==='not_dispatched'&&error.runtimeCode==='wrapping_key_invalid');
+});
+
+test('journaled malformed or untrusted Runtime responses retain HTTP evidence without asserting provider entry',async()=>{
+ for(const response of [new Response('private upstream body',{status:502}),Response.json({protocolVersion:'other',ok:false,error:{code:'invalid_request',category:'configuration_invalid',safeMessage:'private forged error',retryable:false,providerExecutionEntered:false}},{status:400}),Response.json({protocolVersion:ADT_RUNTIME_PROTOCOL,ok:true,result:{text:'private invalid output'}})]){
+  const runtime=new RemoteOpenAIAgentsRuntime(config,async url=>url.endsWith('/readiness')?readiness({capabilities:['agent:progress-v1']}):response);
+  await assert.rejects(runtime.agentOperation('/v1/agents/progress',{request:{timeoutMs:30000}}),error=>{
+   assert.equal(error.ambiguous,true);
+   assert.equal(error.category,'provider_start_ambiguous');
+   assert.equal(error.diagnostics.httpStatus,response.status);
+   assert.equal(error.diagnostics.outcome,'response_received');
+   assert.equal(error.diagnostics.stage,'response');
+   assert.equal(error.diagnostics.runtimeCode,'malformed_response');
+   assert.equal(error.diagnostics.providerExecutionEntered,undefined);
+   assert.doesNotMatch(JSON.stringify(error),/private/);
+   return true;
+  });
+ }
+});
+
+test('a journaled dispatch deadline aborts an in-flight request without claiming non-execution',async t=>{
+ const timeout=AbortSignal.timeout;
+ t.mock.method(AbortSignal,'timeout',ms=>timeout(ms===60_000?10:ms));
+ let posts=0;
+ const runtime=new RemoteOpenAIAgentsRuntime(config,async(url,init)=>{
+  if(url.endsWith('/readiness'))return readiness({capabilities:['agent:progress-v1']});
+  posts++;
+  return new Promise((_resolve,reject)=>{
+   const guard=setTimeout(()=>reject(Error('The dispatch signal did not abort')),1_000);
+   init.signal.addEventListener('abort',()=>{clearTimeout(guard);reject(init.signal.reason)},{once:true});
+  });
+ });
+ await assert.rejects(runtime.agentOperation('/v1/agents/progress',{request:{timeoutMs:30000}}),error=>{
+  assert.equal(error.category,'provider_start_ambiguous');
+  assert.equal(error.ambiguous,true);
+  assert.equal(error.diagnostics.outcome,'timeout');
+  assert.equal(error.diagnostics.reason,'aborted');
+  assert.equal(error.diagnostics.providerExecutionEntered,undefined);
+  return true;
+ });
+ assert.equal(posts,1);
+});
+
+test('trusted Runtime reports provider entry independently of the model outcome',async()=>{
+ const runtime=new RemoteOpenAIAgentsRuntime(config,async url=>url.endsWith('/readiness')?
+  readiness({capabilities:['agent:progress-v1']}):safe('provider_start_ambiguous','execution_failed',true,422));
+ await assert.rejects(runtime.agentOperation('/v1/agents/progress',{request:{timeoutMs:30000}}),error=>{
+  assert.equal(error.category,'provider_start_ambiguous');
+  assert.equal(error.ambiguous,true);
+  assert.equal(error.diagnostics.providerExecutionEntered,true);
+  assert.equal(error.diagnostics.runtimeCode,'execution_failed');
+  assert.equal(error.diagnostics.httpStatus,422);
+  return true;
+ });
+});

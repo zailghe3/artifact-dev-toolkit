@@ -139,6 +139,9 @@
 ## 10. Agent tools
 
 - Provider capability policy explicitly determines whether an Agent execution path supports tools.
+- Agent saves validate the selected model against deterministic tool eligibility rules when grants are present. New Workflow runs apply the same rules to each Agent activation after resolving its effective model and tool restrictions.
+- Deterministic eligibility does not establish live model access or capability. ADT Runtime independently enforces eligibility and checks advertised Ollama tool support at execution. Tool-free executions do not require verified tool support.
+- Frozen runs remain readable and recover under their saved execution contract.
 - Artifact Search remains a built-in ADT tool and uses the authorised application gateway.
 - Runtime evaluates a provider-independent security boundary after a model requests a tool and before execution.
 - ADT Runtime can discover and invoke bounded remote MCP tools over Streamable HTTP using no authentication or an invocation-scoped bearer credential.
@@ -305,6 +308,8 @@
 
 - Workflow state is visible without exposing provider secrets or private execution content beyond authorised run output.
 - Real runs may retain bounded run-level orchestration evidence separately from provider diagnostics on Agent attempts.
+- Journaled Agent failures retain safe request correlation, transport stage and outcome, and provider entry evidence when confirmed. Run guidance follows the frozen execution provider.
+- Workflow failure reports preserve the recorded graph failure category and safe message after reconciliation.
 - Orchestration evidence excludes secrets, raw errors, callback bodies, provider data, prompts, Artifact contents, private paths, and credentials.
 - Runner status may expose bounded activity category/count/timestamps but never provider lifecycle payloads, commands, arguments, reasoning, prompts, or file content.
 - Provider-side failure must not be misrepresented as application authorisation failure when the distinction is known.

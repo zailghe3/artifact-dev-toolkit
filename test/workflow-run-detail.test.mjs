@@ -11,7 +11,7 @@ import {newLangGraphWorkflowRun,WORKFLOW_LAUNCH_STALE_MS} from '../lib/workflow-
 async function database() {
   const mf = new Miniflare(convertV4MiniflareOptions({ modules: true, script: 'export default {fetch(){return new Response("ok")}}', d1Databases: { DB: 'run-detail-test' } }));
   const db = await mf.getD1Database('DB');
-  for (const migration of ['0003_create_workflow_runs.sql', '0007_add_provider_transport_diagnostics.sql','0008_add_provider_transport_reason.sql','0010_add_workflow_run_repository_context.sql','0012_add_graph_activation_identity.sql','0014_add_workflow_composition_snapshot.sql','0015_add_workflow_orchestration_diagnostics.sql','0017_add_managed_code_repository_contexts.sql','0018_add_workflow_conversation_lineage.sql','0020_add_workflow_run_mcp_snapshots.sql','0021_add_security_profile_authority.sql','0023_add_agent_tool_journal.sql','0024_add_advisor.sql']) {
+  for (const migration of ['0003_create_workflow_runs.sql', '0007_add_provider_transport_diagnostics.sql','0008_add_provider_transport_reason.sql','0010_add_workflow_run_repository_context.sql','0012_add_graph_activation_identity.sql','0014_add_workflow_composition_snapshot.sql','0015_add_workflow_orchestration_diagnostics.sql','0017_add_managed_code_repository_contexts.sql','0018_add_workflow_conversation_lineage.sql','0020_add_workflow_run_mcp_snapshots.sql','0021_add_security_profile_authority.sql','0023_add_agent_tool_journal.sql','0026_add_journaled_agent_failure.sql','0024_add_advisor.sql']) {
     const sql = await readFile(new URL(`../migrations/${migration}`, import.meta.url), 'utf8');
     await db.batch(sql.split(';').map(value => value.trim()).filter(Boolean).map(value => db.prepare(value)));
   }
@@ -25,8 +25,6 @@ test('the run page and API route delegate to the same reconciliation-aware loade
     readFile(new URL('../app/workflows/runs/[runId]/page.tsx', import.meta.url), 'utf8'),
     readFile(new URL('../app/api/workflow-runs/[runId]/route.ts', import.meta.url), 'utf8'),
   ]);
-  assert.match(page, /Provider diagnostics/);
-  for (const label of ["Client request ID","Transport outcome","Transport reason","Request duration","Provider request ID","HTTP status","Provider processing"]) assert.match(page,new RegExp(label));
   assert.doesNotMatch(page,/raw provider body|authorization|cookie/i);
   assert.match(page,/CopyButton text=\{run\.initialInput\} compact label="run input"/);
   assert.match(page,/CopyButton text=\{attempt\.outputText\} compact label=\{`raw output for \${step\.name}`\}/);

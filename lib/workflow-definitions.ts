@@ -1,9 +1,10 @@
-import {executionLimitsSchema,blockToolsSchema,grantKey} from "../adt-runtime/src/agent-contract.ts";
+import {executionLimitsSchema,blockToolsSchema,grantKey,isAgentToolAllowed} from "../adt-runtime/src/agent-contract.ts";
 import { z } from "zod";
 import {NATIVE_ADT_TOOLS} from "./adt-data-contract.ts";
 import { validateAdapterOptions } from "./workflow-adapter.ts";
 import {validateOpenAIModelAgentOptions} from "./openai-model-agent-capabilities.ts";
 import {workflowBlockRegistry} from "./workflow-block-registry.ts";
+import {validateAgentToolModel} from "./provider-connection-types.ts";
 
 export const DEFINITION_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 export const MAX_WORKFLOW_STEPS = 32;
@@ -117,7 +118,19 @@ export type GenericWorkflowExecutionPlan=z.infer<typeof genericWorkflowExecution
 export type WorkflowV2ExecutionPlan=z.infer<typeof workflowV2ExecutionPlanSchema>;
 
 export function validateAgentAdapterOptions(agent:AgentDefinitionV1,adapter:string){return {...agent,adapterOptions:validateAdapterOptions(adapter,agent.adapterOptions)};}
-export function validateAgentForConnection(agent:AgentDefinitionV1,connection:{adapter:string;defaultModel?:string;capabilities?:{agentTools?:boolean;runtimeSecurity?:boolean}}){const definition=validateAgentAdapterOptions(agent,connection.adapter);if(definition.tools?.length&&connection.capabilities?.agentTools!==true)throw new Error("agent_tool_runtime_unsupported");if(definition.securityProfileId&&connection.capabilities?.runtimeSecurity!==true)throw new Error("agent_runtime_security_unsupported");if(connection.adapter==="openai-responses"||connection.adapter==="openai-agents")validateOpenAIModelAgentOptions(connection.defaultModel,definition.adapterOptions as import("./workflow-adapter.ts").OpenAIResponsesOptions);return definition;}
+type AgentConnection={adapter:string;defaultModel?:string;capabilities?:{agentTools?:boolean;runtimeSecurity?:boolean}};
+export function validateAgentConnectionOptions(agent:AgentDefinitionV1,connection:AgentConnection){
+  const definition=validateAgentAdapterOptions(agent,connection.adapter);
+  if(definition.tools?.length&&connection.capabilities?.agentTools!==true)throw new Error("agent_tool_runtime_unsupported");
+  if(definition.securityProfileId&&connection.capabilities?.runtimeSecurity!==true)throw new Error("agent_runtime_security_unsupported");
+  if(connection.adapter==="openai-responses"||connection.adapter==="openai-agents")validateOpenAIModelAgentOptions(connection.defaultModel,definition.adapterOptions as import("./workflow-adapter.ts").OpenAIResponsesOptions);
+  return definition;
+}
+export function validateAgentForConnection(agent:AgentDefinitionV1,connection:AgentConnection){
+  const definition=validateAgentConnectionOptions(agent,connection);
+  validateAgentToolModel(connection.adapter,connection.defaultModel,Boolean(definition.tools?.length));
+  return definition;
+}
 export const hasArtifactSearchGrant=(tools:AgentDefinitionV1["tools"])=>tools?.some(tool=>tool==="artifact_search"||(typeof tool!=="string"&&tool.type==="builtin"&&tool.name==="artifact_search"))===true;
 export const mcpToolGrants=(tools:AgentDefinitionV1["tools"])=>(tools?.filter(tool=>typeof tool!=="string"&&tool.type==="mcp")??[]) as Array<{type:"mcp";serverId:string;toolName:string}>;
 
@@ -173,7 +186,7 @@ export function compileWorkflowV2ExecutionPlan(workflow:WorkflowDefinitionV2,age
 export function projectExecutionPlanForRuntime(plan:GenericWorkflowExecutionPlan):GenericWorkflowExecutionPlan{return genericWorkflowExecutionPlanSchema.parse({...plan,nodes:plan.nodes.map(node=>{if(node.blockType!=="agent"||(node.blockVersion!==3&&node.blockVersion!==4))return structuredClone(node);const value=node.config,context=value.context,active=Boolean(context?.publishOutput||context?.includeRunInput||context?.includeNodeOutputs.length);return active?{id:node.id,blockType:"agent" as const,blockVersion:2 as const,config:{agentId:value.agentId,context}}:{id:node.id,blockType:"agent" as const,blockVersion:1 as const,config:{agentId:value.agentId}}})});}
 
 export async function validateWorkflowReferences(workflow: WorkflowDefinition, agents: readonly AgentDefinitionV1[], availableConnections: ReadonlySet<string>) {
-  compileWorkflowV2ExecutionPlan(workflow,agents);
+  const plan=compileWorkflowV2ExecutionPlan(workflow,agents);
   for(const node of workflow.nodes){if(node.blockType!=="agent"||node.blockVersion!==4)continue;const config=workflowBlockRegistry.validate("agent",4,node.config) as {agentId:string;toolRestrictions?:z.infer<typeof blockToolsSchema>};const grants=new Set((agents.find(agent=>agent.id===config.agentId)?.tools??[]).map(grantKey));for(const key of [...(config.toolRestrictions?.allowlist??[]),...(config.toolRestrictions?.requireApproval??[])])if(!grants.has(key))throw new Error("workflow_tool_expansion");}
 
   const byId = new Map(agents.map((agent) => [agent.id, agent]));
@@ -181,6 +194,21 @@ export async function validateWorkflowReferences(workflow: WorkflowDefinition, a
     const agent = byId.get(agentId);
     if (!agent) throw new Error(`missing_agent:${agentId}`);
     if (!availableConnections.has(agent.connectionKey)) throw new Error(`connection_unavailable:${agent.connectionKey}`);
+  }
+  return plan;
+}
+
+/** Validate model eligibility for each newly admitted activation's effective grants. */
+export function validateWorkflowToolModels(plan:GenericWorkflowExecutionPlan,agents:readonly AgentDefinitionV1[],connections:readonly {key:string;adapter:string;defaultModel?:string}[]){
+  const agentsById=new Map(agents.map(agent=>[agent.id,agent])),connectionsByKey=new Map(connections.map(connection=>[connection.key,connection]));
+  for(const node of plan.nodes){
+    if(node.blockType!=="agent")continue;
+    const agent=agentsById.get(node.config.agentId);
+    if(!agent)throw new Error(`missing_agent:${node.config.agentId}`);
+    const connection=connectionsByKey.get(agent.connectionKey);
+    if(!connection)throw new Error(`connection_unavailable:${agent.connectionKey}`);
+    const allowlist=node.blockVersion===4?node.config.toolRestrictions?.allowlist:undefined;
+    validateAgentToolModel(connection.adapter,connection.defaultModel,agent.tools?.some(tool=>isAgentToolAllowed(grantKey(tool),allowlist))===true);
   }
 }
 
@@ -208,9 +236,11 @@ export function validatePublishGitHubPrSources(workflow:WorkflowDefinition,agent
  for(const node of workflow.nodes){if(node.blockType!=="publish-github-pr")continue;const source=workflow.nodes.find(value=>value.id===(node.config as {sourceNodeId:string}).sourceNodeId)!;const agent=agentsById.get((source.config as {agentId:string}).agentId)!;const environmentKey=(agent.adapterOptions as {environmentKey:string}).environmentKey;if(!managedEnvironmentKeys.has(environmentKey))throw new Error("publish_source_operationally_unavailable")}
 }
 
-export async function validateWorkflowRunAdmissionSources(workflow:WorkflowDefinition,agents:readonly AgentDefinitionV1[],connectionIdentities:readonly {key:string;adapter:string}[],availableConnectionKeys:ReadonlySet<string>,managedEnvironmentKeys:ReadonlySet<string>){
+export async function validateWorkflowRunAdmissionSources(workflow:WorkflowDefinition,agents:readonly AgentDefinitionV1[],connectionIdentities:readonly {key:string;adapter:string;defaultModel?:string}[],availableConnectionKeys:ReadonlySet<string>,managedEnvironmentKeys:ReadonlySet<string>){
  validatePublishGitHubPrSources(workflow,agents,connectionIdentities,managedEnvironmentKeys);
- await validateWorkflowReferences(workflow,agents,availableConnectionKeys);
+ const plan=await validateWorkflowReferences(workflow,agents,availableConnectionKeys);
+ validateWorkflowToolModels(plan,agents,connectionIdentities);
+ return plan;
 }
 
 export function validateTerminalCodexSteps(workflow:WorkflowDefinitionV1,agents:readonly AgentDefinitionV1[],adapterForConnection:(key:string)=>string|undefined){const byId=new Map(agents.map(agent=>[agent.id,agent]));workflow.steps.forEach((step,index)=>{const agent=byId.get(step.agentId);if(agent&&adapterForConnection(agent.connectionKey)==="codex-cloud"&&index!==workflow.steps.length-1)throw new Error("codex_cloud_terminal_only");});}

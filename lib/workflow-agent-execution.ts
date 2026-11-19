@@ -5,7 +5,9 @@ import {createNativeAdtDataAccess,type NativeAdtDataAccess} from "./adt-data-ser
 import {assertAdvisorRunReadOnly} from "./advisor-policy.ts";
 import {D1McpPolicyAuthority,type McpAdmissionAuthority} from "./mcp-policy-authority.ts";
 import {AgentJournal,agentDigest} from "./agent-journal.ts";
-import {progressDurableAgent,builtinSearchTool,defaultToolPolicy,type AgentTool} from "./agent-execution.ts";
+import {progressDurableAgent,builtinSearchTool,defaultToolPolicy,type AgentTool,type AgentProgressOutcome} from "./agent-execution.ts";
+import type {FailureCategory} from "./workflow-adapter.ts";
+import {parseJournaledAgentFailure} from "./workflow-agent-diagnostics.ts";
 import {RemoteOpenAIAgentsRuntime,type ADTRuntimeConfiguration} from "./adt-runtime-client.ts";
 import {resolveFrozenMcpTools} from "./mcp-tool-authority.ts";
 import {resolveFrozenSecurityProfile} from "./security-profile-authority.ts";
@@ -29,21 +31,34 @@ export async function executeJournaledWorkflowAgent(input:{env:CloudflareEnv;sco
  if(input.attempt.status==="succeeded")return{state:"completed" as const,outputText:input.attempt.outputText??""};
  if(!detail.run.executionPlan||!("agentExecutionContract" in detail.run.executionPlan)||detail.run.executionPlan.agentExecutionContract!==1){await storage.recordGraphFailure(scope.runId,"configuration_invalid","This historical tool execution contract requires cutover. Cancel the old run and launch a new frozen run.");return{state:"failed" as const,safeMessage:"Historical tool execution requires explicit cutover."}}
  let attempt=input.attempt,initialize=false;
- if(attempt.status==="succeeded")return{state:"completed" as const,outputText:attempt.outputText??""};
  if(attempt.status==="pending"){const claim=await storage.claimGraphNode(scope.runId,scope.nodeId,input.inputText,scope.activationId);attempt=claim.attempt;initialize=claim.claimed}
+ if(attempt.status==="succeeded")return{state:"completed" as const,outputText:attempt.outputText??""};
+ const reportFailure=async(category:FailureCategory,safeMessage:string)=>{
+  if(!detail.run.failureCode)await storage.recordGraphFailure(scope.runId,category,safeMessage,scope.workflowGeneration);
+  const remaining=await storage.getRun(scope.runId);
+  return remaining?.attempts.some(item=>["starting","waiting_provider"].includes(item.status))?
+   {state:"pending" as const,retryAfterMs:1000}:{state:"failed" as const,safeMessage};
+ };
+ if(attempt.status==="failed")return reportFailure(attempt.failureCategory??"internal_error",attempt.safeFailureMessage??"Agent activation cannot progress.");
  if(attempt.status!=="starting")return{state:"failed" as const,safeMessage:"Agent activation cannot progress."};
+ const failAttempt=async(category:FailureCategory,safeMessage:string)=>{
+  await storage.failStep(scope.runId,scope.nodeId,scope.iteration,scope.attempt,{category,safeMessage,retryable:false});
+  return reportFailure(category,safeMessage);
+ };
  const id=agentDigest([scope.runId,scope.workflowGeneration,scope.nodeId,scope.activationId,scope.iteration,scope.attempt]);
  // Contract 1 cannot enter a model before creating its journal. A lost node-claim
  // response with no journal is therefore safe to initialise from persisted input.
- if(!await journal.get(id))initialize=true;
-
  const existingContinuation=await journal.get(id);
+ if(!existingContinuation)initialize=true;
+ const recordedFailure=parseJournaledAgentFailure(existingContinuation?.failure_json);
+ if(existingContinuation?.state==="failed"&&recordedFailure)return failAttempt(recordedFailure.category,recordedFailure.safeMessage);
  if(detail.run.failureCode){
   if(existingContinuation?.state==="completed"){const last=JSON.parse(existingContinuation.conversation_json).at(-1) as {role:string;text:string;calls?:unknown[]};if(last.role!=="assistant"||last.calls?.length)throw Error("agent_final_state_invalid");await storage.completeStep(scope.runId,scope.nodeId,scope.iteration,scope.attempt,last.text);return{state:"pending" as const,retryAfterMs:1000}}
   if(existingContinuation){const outstanding=(await journal.calls(id)).find(call=>call.state==="admitted"||call.state==="unknown");if(outstanding){if(outstanding.state==="admitted")await journal.markUnknown(outstanding,"execution_deadline",true);return{state:"pending" as const,retryAfterMs:1000}}await journal.transition(existingContinuation,existingContinuation.state,"failed")}
-  await storage.failStep(scope.runId,scope.nodeId,scope.iteration,scope.attempt,{category:detail.run.failureCode,safeMessage:detail.run.failureMessage??"Another Workflow branch failed.",retryable:false});const latest=await storage.getRun(scope.runId);return latest?.attempts.some(item=>["starting","waiting_provider"].includes(item.status))?{state:"pending" as const,retryAfterMs:1000}:{state:"failed" as const};
+  return failAttempt(detail.run.failureCode,detail.run.failureMessage??"Another Workflow branch failed.");
  }
- const persisted=await journal.get(id);if(persisted?.state==="reconciliation"&&(await journal.calls(id)).some(call=>call.state==="unknown"))return{state:"pending" as const,retryAfterMs:1000};
+ if(existingContinuation?.state==="reconciliation"&&(await journal.calls(id)).some(call=>call.state==="unknown"))return{state:"pending" as const,retryAfterMs:1000};
+ let outcome:AgentProgressOutcome;
  try{
   const snapshot=detail.run.connectionSnapshots[agent.connectionKey],connection=await input.resolveConnection(agent.connectionKey,snapshot);if(!snapshot||!connection.enabled||connection.adapter!==snapshot.adapter)throw Error("connection_unavailable");
   const repository=detail.run.repositoryContext;if(!repository&&agent.tools?.length)throw Error("tool_repository_context_missing");
@@ -56,7 +71,7 @@ export async function executeJournaledWorkflowAgent(input:{env:CloudflareEnv;sco
   const policyAuthority=new D1McpPolicyAuthority(database),admissionAuthorities=new Map<string,McpAdmissionAuthority>();
   const {GitHubToolDefinitionRepository}=await import("./tool-definition-repository.ts");
   const toolRepository=input.toolRepository??new GitHubToolDefinitionRepository(async(path,init)=>{const credential=await access().installationCredentialProvider("read"),url=new URL(`https://api.github.com/repos/${repository!.owner}/${repository!.repository}${path}`);url.searchParams.set("ref",repository!.branch);return fetch(url,{...init,headers:{accept:"application/vnd.github+json",authorization:`Bearer ${credential.token}`,"user-agent":"artifact-dev-toolkit"}})});
-  const outcome=await progressDurableAgent({journal,id,runId:scope.runId,generation:scope.workflowGeneration,nodeId:scope.nodeId,activationId:scope.activationId??scope.nodeId,iteration:scope.iteration,attempt:scope.attempt,agent,provider:connection.adapter as ModelProgress["provider"],model:connection.defaultModel!,input:attempt.inputText??input.inputText,configuration:connection.providerConfiguration,timeoutMs:providerExecutionTimeoutMs(connection.adapter,agent.adapterOptions)??30000,restrictions,tools,initialize,
+  outcome=await progressDurableAgent({journal,id,runId:scope.runId,generation:scope.workflowGeneration,nodeId:scope.nodeId,activationId:scope.activationId??scope.nodeId,iteration:scope.iteration,attempt:scope.attempt,agent,provider:connection.adapter as ModelProgress["provider"],model:connection.defaultModel!,input:attempt.inputText??input.inputText,configuration:connection.providerConfiguration,timeoutMs:providerExecutionTimeoutMs(connection.adapter,agent.adapterOptions)??30000,restrictions,tools,initialize,
    admissionAuthority:tool=>{if(tool.key==="artifact_search"||isAdtDataTool(tool.key))return undefined;const proof=admissionAuthorities.get(tool.alias);if(!proof)throw Error("mcp_policy_unverified");return proof},
    progress:request=>remote.agentOperation("/v1/agents/progress",{request},connection.credential),
    authorize:async(tool)=>{
@@ -77,10 +92,11 @@ export async function executeJournaledWorkflowAgent(input:{env:CloudflareEnv;sco
     return remote.agentOperation("/v1/agents/tool",{admissionId,executionDeadlineAt:call.execution_deadline_at,invocationId:call.id,fingerprint:call.fingerprint,server:grant.server,tool:grant.tool,arguments:JSON.parse(call.arguments_json)},grant.credential);
    }
   });
-  if(outcome.state==="completed"){await storage.completeStep(scope.runId,scope.nodeId,scope.iteration,scope.attempt,outcome.outputText??"");return{state:"completed" as const,outputText:outcome.outputText}}
-  if(outcome.state==="failed"){await storage.failStep(scope.runId,scope.nodeId,scope.iteration,scope.attempt,{category:outcome.category??"provider_rejected",safeMessage:outcome.safeMessage??"Agent progression failed.",retryable:false});await storage.recordGraphFailure(scope.runId,outcome.category??"provider_rejected",outcome.safeMessage??"Agent progression failed.");const remaining=await storage.getRun(scope.runId);return remaining?.attempts.some(item=>["starting","waiting_provider"].includes(item.status))?{state:"pending" as const,retryAfterMs:1000}:{state:"failed" as const,safeMessage:outcome.safeMessage}}
-  return{state:"pending" as const,retryAfterMs:1000};
  }catch{
-  await storage.failStep(scope.runId,scope.nodeId,scope.iteration,scope.attempt,{category:"configuration_invalid",safeMessage:"Agent authority or configuration is unavailable. No automatic replay was made.",retryable:false});await storage.recordGraphFailure(scope.runId,"configuration_invalid","Agent authority or configuration is unavailable.");const remaining=await storage.getRun(scope.runId);return remaining?.attempts.some(item=>["starting","waiting_provider"].includes(item.status))?{state:"pending" as const,retryAfterMs:1000}:{state:"failed" as const,safeMessage:"Agent authority or configuration is unavailable."}
+  const failure=parseJournaledAgentFailure((await journal.get(id))?.failure_json);
+  outcome={state:"failed",category:failure?.category??"configuration_invalid",safeMessage:failure?.safeMessage??"Agent authority or configuration is unavailable. No automatic replay was made."};
  }
+ if(outcome.state==="completed"){await storage.completeStep(scope.runId,scope.nodeId,scope.iteration,scope.attempt,outcome.outputText??"");return{state:"completed" as const,outputText:outcome.outputText}}
+ if(outcome.state==="failed")return failAttempt(outcome.category??"provider_rejected",outcome.safeMessage??"Agent progression failed.");
+ return{state:"pending" as const,retryAfterMs:1000};
 }
