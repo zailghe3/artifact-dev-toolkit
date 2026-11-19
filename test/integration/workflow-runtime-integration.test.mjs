@@ -8,7 +8,7 @@ import {AgentRuntimeRegistry,createAgentRuntimeRegistry} from '../../lib/agent-r
 import {D1LangGraphCheckpointStore,issueCheckpointAuthority,issueGraphNodeAuthority,parseCheckpointOperation,verifyGraphNodeAuthority} from '../../lib/langgraph-checkpoints.ts';
 import {D1WorkflowRunStorage} from '../../lib/workflow-d1-storage.ts';
 import {executeDurableGraphNodeTurn} from '../../lib/workflow-durable-driver.ts';
-import {agentDefinitionSchema,compileWorkflowV2ExecutionPlan,composeVersionedWorkflowV2,workflowDefinitionV2Schema} from '../../lib/workflow-definitions.ts';
+import {agentDefinitionSchema,compileWorkflowV2ExecutionPlan,composeVersionedWorkflowV2,validateAgentForConnection,workflowDefinitionV2Schema} from '../../lib/workflow-definitions.ts';
 import {executeLangGraphWorkflow,waitForApprovalWake} from '../../lib/workflow-worker-runtime.ts';
 import {D1WorkflowApprovalStore} from '../../lib/workflow-approvals.ts';
 import {MAX_WORKFLOW_RUN_MS} from '../../lib/workflow-durable-driver.ts';
@@ -198,6 +198,9 @@ test('workerd and ADT Runtime preserve journaled failure evidence without replay
    return value;
   }};
   const f=await nativeFixture(t,{remote,model:rejected?'gpt-6-luna':'gpt-5',tools:ADT_DATA_TOOLS.filter(tool=>!isSensitiveAdtTool(tool))});
+  const validate=()=>validateAgentForConnection(f.value.agentSnapshots.analyst,f.value.connectionSnapshots.agents);
+  if(rejected)assert.throws(validate,/gpt-6-luna.*supported tool-capable model/);
+  else assert.doesNotThrow(validate);
   const failStep=f.storage.failStep.bind(f.storage);
   f.storage.failStep=async()=>{throw Error('simulated interruption before attempt finalization')};
   await assert.rejects(f.step(),/simulated interruption/);

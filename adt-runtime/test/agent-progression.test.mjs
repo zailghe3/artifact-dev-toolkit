@@ -17,6 +17,24 @@ for(const provider of ['openai-agents','anthropic-messages','ollama-chat'])test(
 });
 test('model request schema rejects tool credentials and privileged execution authority',()=>{assert.equal(progressWireSchema.safeParse({protocolVersion:'adt-runtime-v1',capability:'agent:progress-v1',requestId:crypto.randomUUID(),request:{...request('ollama-chat'),mcpCredentials:['secret']}}).success,false)});
 test('Ollama capability discovery rejects unverified models before inference',async()=>{let chats=0;await assert.rejects(progressAgentModel(request('ollama-chat'),'',new Set(['http://ollama:11434']),{fetcher:async url=>{if(String(url).endsWith('/api/chat'))chats++;return Response.json({capabilities:['completion']})}}),{category:'configuration_invalid'});assert.equal(chats,0)});
+test('Runtime rejects models outside the tool rules and still dispatches tool-free requests',async()=>{
+ for(const [provider,model] of [['openai-agents','gpt-6-luna'],['openai-agents','gpt-5-pro'],['anthropic-messages','claude-2']]){
+  let entered=0,calls=0;
+  const dependencies={onProviderEntry:()=>{entered++},fetcher:async(_url,init)=>{
+   calls++;
+   const body=JSON.parse(init.body);assert.equal(body.model,model);assert.equal(body.tools,undefined);
+   if(provider==='anthropic-messages')return Response.json({type:'message',stop_reason:'end_turn',content:[{type:'text',text:'done'}]});
+   return Response.json({id:'chat-fixture',object:'chat.completion',created:1,model,choices:[{index:0,finish_reason:'stop',message:{role:'assistant',content:'done'}}]});
+  }};
+  const input={...request(provider),model};
+  await assert.rejects(progressAgentModel(input,'fixture-secret',new Set(),dependencies),{
+   category:'configuration_invalid',safeMessage:'This model has no verified tool capability. Select a supported tool-capable model.',
+  });
+  assert.equal(entered,0);assert.equal(calls,0);
+  assert.equal((await progressAgentModel({...input,tools:[]},'fixture-secret',new Set(),dependencies)).text,'done');
+  assert.equal(entered,1);assert.equal(calls,1);
+ }
+});
 test('invalid tool identity and uncorrelatable continuation never reach execution',async()=>{assert.throws(()=>validateConversation([{role:'tool',callId:'missing',name:'search',text:'x'}]));await assert.rejects(progressAgentModel(request('anthropic-messages'),'secret',new Set(),{fetcher:async()=>Response.json({type:'message',stop_reason:'tool_use',content:[{type:'tool_use',id:'same',name:'search',input:{}},{type:'tool_use',id:'same',name:'search',input:{}}]})}));await assert.rejects(progressAgentModel(request('anthropic-messages'),'secret',new Set(),{fetcher:async()=>Response.json({type:'message',stop_reason:'tool_use',content:[{type:'tool_use',id:'id',name:'ungranted',input:{}}]})}),{category:'permission_denied'})});
 const verdict={eventId:'event',sessionId:'session',madCode:'',policy:{mode:3,policyM0:false,policyM2:false,policyM3:false,policyM4:false},hitl:null};
 for(const provider of ['openai-agents','anthropic-messages','ollama-chat'])test(`${provider} journal reconstructs Adrian exact-call enforcement after process replacement`,async()=>{for(const outcome of ['allow','deny','unavailable','throw','alert']){const events=[],handler={handleChatModelStart:async(...args)=>events.push(['context',...args]),handleLLMEnd:async data=>events.push(['proposal',data]),handleToolStart:async(...args)=>events.push(['tool',...args]),handleToolError:async()=>{}},client={loginAcked:()=>true,policyActive:()=>true,blockTimeout:()=>outcome==='alert'?0:0.25,waitForToolCallVerdict:async id=>{assert.equal(id,'exact-call');if(outcome==='throw')throw Error('timeout');return outcome==='allow'?verdict:outcome==='deny'?{...verdict,madCode:'M0',policy:{...verdict.policy,policyM0:true}}:null}},context={model:provider,instructions:'context',conversation:[{role:'user',text:'request'}],call:{id:'exact-call',name:'search',arguments:{query:'safe'}},id:'invocation'};const work=authorizeJournaledTool(handler,client,context,250);if(outcome==='allow'){assert.deepEqual(await work,{outcome:'allow'});assert.deepEqual(events.map(e=>e[0]),['context','proposal','tool']);assert.equal(events[1][1].toolCalls[0].id,'exact-call')}else await assert.rejects(work)}});

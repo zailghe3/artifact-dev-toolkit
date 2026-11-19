@@ -4,14 +4,14 @@ import {AgentOperationFailure,RemoteRuntimeFailure} from "./adt-runtime-client.t
 import type {FailureCategory} from "./workflow-adapter.ts";
 import {parseJournaledAgentFailure,type AgentOperationDiagnostics} from "./workflow-agent-diagnostics.ts";
 import {AgentJournal,agentDigest,type ToolInvocation} from "./agent-journal.ts";
-import {approvalPolicySchema,blockToolsSchema,conversationSchema,evaluateToolPolicy,modelProgressResultSchema,narrowLimits,validateToolArguments,type ApprovalPolicy,type Conversation,type ModelProgress,type ToolProposal} from "../adt-runtime/src/agent-contract.ts";
+import {approvalPolicySchema,blockToolsSchema,conversationSchema,evaluateToolPolicy,isAgentToolAllowed,modelProgressResultSchema,narrowLimits,validateToolArguments,type ApprovalPolicy,type Conversation,type ModelProgress,type ToolProposal} from "../adt-runtime/src/agent-contract.ts";
 import type {AgentDefinitionV1} from "./workflow-definitions.ts";
 export type AgentTool={key:string;alias:string;description:string;schema:Record<string,unknown>;target:string;policy:ApprovalPolicy;frozen:unknown};
 export type AgentExecutionDependencies={journal:AgentJournal;id:string;runId:string;generation:number;nodeId:string;activationId:string;iteration:number;attempt:number;agent:AgentDefinitionV1;provider:ModelProgress["provider"];model:string;input:string;configuration?:Record<string,string>;timeoutMs:number;restrictions?:unknown;tools:AgentTool[];initialize:boolean;admissionAuthority?:(tool:AgentTool)=>McpAdmissionAuthority|undefined;progress:(request:ModelProgress)=>Promise<unknown>;authorize:(tool:AgentTool,call:ToolProposal)=>Promise<ApprovalPolicy[]>;security:(conversation:Conversation,call:ToolProposal,identity:string)=>Promise<unknown>;execute:(tool:AgentTool,call:ToolInvocation,admissionId:string)=>Promise<unknown>};
 export type AgentProgressOutcome={state:"pending"|"completed"|"failed";outputText?:string;safeMessage?:string;category?:FailureCategory;waiting?:boolean};
 const denial=(reason:string)=>({ok:false,denied:true,code:reason});
 export async function progressDurableAgent(input:AgentExecutionDependencies):Promise<AgentProgressOutcome>{
- const {journal,id}=input,restrictions=blockToolsSchema.parse(input.restrictions??{}),limits=narrowLimits(input.agent.executionLimits,restrictions.limits),tools=input.tools.filter(tool=>restrictions.allowlist===undefined||restrictions.allowlist.includes(tool.key));
+ const {journal,id}=input,restrictions=blockToolsSchema.parse(input.restrictions??{}),limits=narrowLimits(input.agent.executionLimits,restrictions.limits),tools=input.tools.filter(tool=>isAgentToolAllowed(tool.key,restrictions.allowlist));
  if(restrictions.allowlist?.some(key=>!input.tools.some(tool=>tool.key===key)))throw Error("workflow_tool_expansion");
  let c=await journal.get(id);
  if(!c){if(!input.initialize)throw Error("historical_agent_requires_cutover");c=await journal.create({id,runId:input.runId,generation:input.generation,nodeId:input.nodeId,activationId:input.activationId,iteration:input.iteration,attempt:input.attempt,provider:input.provider,model:input.model,input:input.input,toolResultBytes:limits.toolResultBytes})}

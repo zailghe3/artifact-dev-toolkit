@@ -1,6 +1,6 @@
 import {z} from "zod";
 import {isAdtDataTool} from "./adt-data-contract.ts";
-import {validateAgentForConnection,type AgentDefinitionV1,type GenericWorkflowExecutionPlan} from "./workflow-definitions.ts";
+import {validateAgentConnectionOptions,type AgentDefinitionV1,type GenericWorkflowExecutionPlan} from "./workflow-definitions.ts";
 import {getProviderConnectionType} from "./provider-connection-types.ts";
 import type {ConnectionDescriptor} from "./workflow-connections.ts";
 import type {WorkflowRun} from "./workflow-storage.ts";
@@ -21,8 +21,8 @@ export function assertAdvisorReadOnly(plan:GenericWorkflowExecutionPlan,agents:r
     const agent=byId.get(node.config.agentId),connection=connections.find(item=>item.key===agent?.connectionKey);
     if(!agent||!connection||!getProviderConnectionType(connection.adapter)?.capabilities.agentTools||!connection.enabled||!connection.defaultModel||(node.blockVersion===3||node.blockVersion===4)&&node.config.conversation)throw new Error("advisor_provider_incompatible");
     if(agent.tools?.some(grant=>!isAdtDataTool(typeof grant==="string"?grant:grant.type==="builtin"?grant.name:"")))throw new Error("advisor_read_only_required");
-    // Snapshot hydration retains only execution capabilities; the provider policy is fixed here.
-    validateAgentForConnection(agent,{...connection,capabilities:getProviderConnectionType(connection.adapter)!.capabilities});
+    // Historical consumption rechecks authority. Model eligibility is a new-admission check.
+    validateAgentConnectionOptions(agent,{...connection,capabilities:getProviderConnectionType(connection.adapter)!.capabilities});
   }
 }
 
@@ -42,7 +42,7 @@ export function applyAdvisorOverride(agents:readonly AgentDefinitionV1[],connect
     const effective=override?{...structuredClone(agent),connectionKey:override.connectionKey}:structuredClone(agent);
     const connection=effectiveConnections.find(connection=>connection.key===effective.connectionKey);
     if(!connection)throw new Error("connection_unavailable");
-    try{return validateAgentForConnection(effective,connection)}catch{throw new Error("advisor_provider_incompatible")}
+    try{return validateAgentConnectionOptions(effective,connection)}catch{throw new Error("advisor_provider_incompatible")}
   });
   return {agents:effectiveAgents,connections:effectiveConnections};
 }

@@ -139,6 +139,9 @@
 ## 10. Agent tools
 
 - Provider capability policy explicitly determines whether an Agent execution path supports tools.
+- Agent saves validate the selected model against deterministic tool eligibility rules when grants are present. New Workflow runs apply the same rules to each Agent activation after resolving its effective model and tool restrictions.
+- Deterministic eligibility does not establish live model access or capability. ADT Runtime independently enforces eligibility and checks advertised Ollama tool support at execution. Tool-free executions do not require verified tool support.
+- Frozen runs remain readable and recover under their saved execution contract.
 - Artifact Search remains a built-in ADT tool and uses the authorised application gateway.
 - Runtime evaluates a provider-independent security boundary after a model requests a tool and before execution.
 - ADT Runtime can discover and invoke bounded remote MCP tools over Streamable HTTP using no authentication or an invocation-scoped bearer credential.

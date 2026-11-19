@@ -1,4 +1,5 @@
 import {parseOllamaConfiguration} from "../adt-runtime/src/ollama-configuration.ts";
+import {agentToolModelEligibility} from "../adt-runtime/src/agent-model-eligibility.ts";
 export const PROVIDER_CONNECTION_TYPE_IDS=["openai-responses","openai-agents","anthropic-messages","work-iq-rest","ollama-chat"] as const;
 export type ProviderConnectionTypeId=typeof PROVIDER_CONNECTION_TYPE_IDS[number];
 export type ProviderAuthenticationKind="api-key"|"delegated-oauth"|"optional-api-key";
@@ -41,6 +42,14 @@ export function usesOpenAIModelAgentSettings(policy:Pick<ProviderConnectionTypeP
 export function usesAnthropicMessagesAgentSettings(policy:Pick<ProviderConnectionTypePolicy,"agentSettings">|undefined){return policy?.agentSettings==="anthropic-messages"}
 export function usesWorkIqAgentSettings(policy:Pick<ProviderConnectionTypePolicy,"agentSettings">|undefined){return policy?.agentSettings==="work-iq-rest"}
 export function supportsAgentTools(policy:Pick<ProviderConnectionTypePolicy,"capabilities">|undefined){return policy?.capabilities.agentTools===true}
+export class UnsupportedAgentToolModelError extends Error{
+  constructor(model:string){
+    super(`Model ${JSON.stringify(model)} has no verified tool capability. Select a supported tool-capable model.`);
+  }
+}
+export function validateAgentToolModel(adapter:string,model:string|undefined,hasTools:boolean){
+  if(model&&agentToolModelEligibility(adapter,model,hasTools)==="ineligible")throw new UnsupportedAgentToolModelError(model);
+}
 export function normalizeConnectionModel(policy:Pick<ProviderConnectionTypePolicy,"model">,model?:string){const value=model?.trim();if(policy.model.required&&!value)throw new Error("model_required");return policy.model.required&&value?{model:value}:{};}
 export function connectionRequestModel(policy:Pick<ProviderConnectionTypePolicy,"model">,model:string){return normalizeConnectionModel(policy,model)}
 
