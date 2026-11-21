@@ -1,4 +1,4 @@
-import {composeVersionedWorkflowV2,compileWorkflowV2ExecutionPlan,validateWorkflowReferences,validateWorkflowToolModels,workflowAgentReferences,type AgentDefinitionV1} from "./workflow-definitions.ts";
+import {composeVersionedWorkflowV2,compileWorkflowV2ExecutionPlan,validateWorkflowReferences,validateWorkflowAgentModels,workflowAgentReferences,type AgentDefinitionV1} from "./workflow-definitions.ts";
 import {applyAdvisorOverride,assertAdvisorReadOnly,type AdvisorSettings} from "./advisor-policy.ts";
 import type {WorkflowDefinitionRepository} from "./workflow-definition-repository.ts";
 import type {ConnectionDescriptor} from "./workflow-connections.ts";
@@ -13,7 +13,7 @@ export async function validateAdvisorSelection(settings:AdvisorSettings,reposito
   const effective=applyAdvisorOverride(versions.map(item=>item!.definition),connections,settings.override),plan=compileWorkflowV2ExecutionPlan(composed.workflow,effective.agents);
   assertAdvisorReadOnly(plan,effective.agents,effective.connections);
   await validateWorkflowReferences(composed.workflow,effective.agents,new Set(effective.connections.filter(c=>c.enabled).map(c=>c.key)));
-  validateWorkflowToolModels(plan,effective.agents,effective.connections);
+  validateWorkflowAgentModels(plan,effective.agents,effective.connections,true);
   await validateDependencies?.(effective.agents);
   return {workflow:{id:selected.definition.id,name:selected.definition.name,revision:selected.fileSha},agents:effective.agents.map(agent=>({id:agent.id,name:agent.name,connectionKey:agent.connectionKey,provider:effective.connections.find(c=>c.key===agent.connectionKey)!.adapter,model:effective.connections.find(c=>c.key===agent.connectionKey)!.defaultModel}))};
 }

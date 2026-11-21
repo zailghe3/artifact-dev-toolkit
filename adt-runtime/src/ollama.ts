@@ -13,7 +13,7 @@ function auth(configuration:OllamaConfiguration,credential:string):Record<string
 }
 export async function executeOllama(request:OllamaExecutionRequest,credential:string,allowed:ReadonlySet<string>,dependencies:ProviderHttpDependencies={}){
  const configuration=approvedOllamaConfiguration(request.configuration,allowed);
- const value=await providerPost(configuration.baseUrl+"/api/chat",{"content-type":"application/json",...auth(configuration,credential)},{model:request.model,messages:[{role:"system",content:request.instructions},{role:"user",content:request.input}],stream:false,options:{num_predict:request.options.maxOutputTokens}},request.options.executionTimeoutSeconds*1000,200,{...dependencies,uncertainBodyFailure:true});
+ const value=await providerPost(configuration.baseUrl+"/api/chat",{"content-type":"application/json",...auth(configuration,credential)},{model:request.model,messages:[{role:"system",content:request.instructions},{role:"user",content:request.input}],stream:false,options:{num_predict:request.options.maxOutputTokens}},request.options.executionTimeoutSeconds*1000,200,{...dependencies,uncertainBodyFailure:true,classifyRejection:ollamaChatRejection});
  if(!record(value)||!record(value.message)||typeof value.message.content!=="string")throw fail("malformed_response");
  return boundedProviderOutput(value.message.content);
 }
@@ -36,4 +36,23 @@ export async function discoverOllamaModels(configuration:OllamaConfiguration,cre
   let value:unknown;try{value=JSON.parse(Buffer.concat(chunks).toString("utf8"))}catch{throw fail("malformed_response")}
   return parseOllamaModels(value);
  })(),new Promise<never>((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(fail("provider_timeout"))},timeoutMs)})])}finally{clearTimeout(timer);await dispatcher?.destroy().catch(()=>undefined)}
+}
+
+export function ollamaChatRejection(status:number,body:unknown){
+ if(!record(body)||typeof body.error!=="string")return;
+ if(status===404&&/^model ['"].+['"] not found(?:$|[,])/i.test(body.error))
+  return new RuntimeFailure("model_unavailable","The selected model is unavailable on the Ollama endpoint. Load the available models for this connection.");
+ if(status===400&&/^(?:model ['"].+['"]|[^ ]+) does not support tools[.!]?$/i.test(body.error))
+  return new RuntimeFailure("tool_proposals_unsupported","Ollama reported that the selected model does not support tools. Select another model or remove tool grants for this block.");
+}
+
+export async function ollamaToolCapability(baseUrl:string,headers:Record<string,string>,model:string,timeoutMs:number,dependencies:ProviderHttpDependencies):Promise<"supported"|"unsupported"|"unknown">{
+ const unavailable=new RuntimeFailure("metadata_unavailable","The Ollama endpoint did not provide capability metadata.");
+ const info=await providerPost(baseUrl+"/api/show",headers,{model},timeoutMs,200,{
+  ...dependencies,onProviderEntry:undefined,
+  classifyRejection:(status,body)=>ollamaChatRejection(status,body)??(status===404?unavailable:undefined),
+ }).catch((error:unknown)=>{if(error!==unavailable)throw error});
+ const capabilities=record(info)?info.capabilities:undefined;
+ if(!Array.isArray(capabilities)||capabilities.some(value=>typeof value!=="string"))return "unknown";
+ return capabilities.includes("tools")?"supported":"unsupported";
 }

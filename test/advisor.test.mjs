@@ -28,7 +28,7 @@ async function fixture(){
 test('repository-scoped Advisor settings persist and reject stale concurrent saves',async t=>{
  const db=await database(t),store=new AdvisorSettingsStore(db);assert.deepEqual(await store.get(42),{settings:{workflowId:null,override:null},revision:0});
  assert.deepEqual(await store.save(42,settings,0),{settings,revision:1});assert.deepEqual(await new AdvisorSettingsStore(db).get(42),{settings,revision:1});assert.equal((await store.get(99)).settings.workflowId,null);
- await assert.rejects(store.save(42,{...settings,workflowId:'other'},0),/advisor_settings_conflict/);await store.save(42,{...settings,override:{connectionKey:'agents',model:'gpt-5-mini'}},1);await assert.rejects(store.save(42,settings,1),/advisor_settings_conflict/);
+ await assert.rejects(store.save(42,{...settings,workflowId:'other'},0),/advisor_settings_conflict/);await store.save(42,{...settings,override:{connectionKey:'agents',model:'vendor-model-preview'}},1);await assert.rejects(store.save(42,settings,1),/advisor_settings_conflict/);
  await assert.rejects(store.save(42,{...settings,token:'secret'},2));
  const storage=new D1WorkflowRunStorage(db),value=run({advisorContext:{version:1,readOnly:true,override:{connectionKey:'agents',model:'gpt-5'}}});await storage.createRun(value);
  assert.deepEqual((await new D1WorkflowRunStorage(db).getRun(value.id)).run.advisorContext,value.advisorContext);
@@ -37,7 +37,9 @@ test('override validates every affected Agent, keeps saved definitions intact an
  const other={...agent,id:'other'},original=structuredClone([agent,other]),connections=[connection,{...connection,key:'replacement',defaultModel:'gpt-5-mini'}],before=structuredClone(connections);
  const result=applyAdvisorOverride(original,connections,{connectionKey:'replacement',model:'gpt-5'});assert.deepEqual(result.agents.map(a=>a.connectionKey),['replacement','replacement']);assert.equal(result.connections[1].defaultModel,'gpt-5');assert.deepEqual(original,[agent,other]);assert.deepEqual(connections,before);
  for(const override of [{connectionKey:'missing',model:'gpt-5'},{connectionKey:'bad',model:'gpt-5'}])assert.throws(()=>applyAdvisorOverride([agent],[connection,{...connection,key:'bad',adapter:'codex-runner'}],override));
- assert.throws(()=>applyAdvisorOverride([{...agent,adapterOptions:{reasoningEffort:'high'}}],[connection],{connectionKey:'agents',model:'gpt-4.1'}));
+ const options={reasoningEffort:'high'};
+ assert.deepEqual(applyAdvisorOverride([{...agent,adapterOptions:options}],[connection],{connectionKey:'agents',model:'vendor-preview'}).agents[0].adapterOptions,options);
+ assert.throws(()=>applyAdvisorOverride([{...agent,adapterOptions:{reasoningEffort:'unknown-value'}}],[connection],{connectionKey:'agents',model:'vendor-preview'}),/advisor_provider_incompatible/);
  assert.throws(()=>validateAgentForConnection(agent,{...connection,adapter:'anthropic-messages',capabilities:{agentTools:false}}),/agent_tool_runtime_unsupported/);
 });
 test('Advisor launches through ordinary admission and freezes override choices for all Agents without mutating Git',async()=>{
@@ -60,7 +62,7 @@ test('selection and launch reject deleted workflows, stale definitions, tool esc
  }
  const stale=await f.repo.getWorkflow('review');await f.repo.deleteWorkflow('review',stale.fileSha);assert.equal((await launchWorkflowRun(access,{workflowId:'review',initialInput:'q',idempotencyKey:crypto.randomUUID()},settings,f.deps)).status,422);
  const fresh=await fixture();fresh.deps.getProviderModelService=async()=>({validate:async()=>{throw Error('model_unavailable')}});
- const unavailable=await launchWorkflowRun(access,{workflowId:'review',initialInput:'q',idempotencyKey:crypto.randomUUID()},{...settings,override:{connectionKey:'override',model:'gpt-5-mini'}},fresh.deps);
+ const unavailable=await launchWorkflowRun(access,{workflowId:'review',initialInput:'q',idempotencyKey:crypto.randomUUID()},{...settings,override:{connectionKey:'override',model:'vendor-model-preview'}},fresh.deps);
  assert.equal(unavailable.status,422);assert.equal((await unavailable.json()).code,'model_unavailable');assert.equal(fresh.launches(),0);
 });
 test('read-only admission expands reusable workflows and blocks indirect MCP, Codex and publication escalation',()=>{
@@ -114,10 +116,10 @@ test('legacy direct Runtime execution explicitly rejects native metadata grants 
 
 test('Advisor validates the effective default, override, and Workflow tool restrictions',async()=>{
  const f=await fixture(),incompatible={...connection,defaultModel:'gpt-6-luna'};
- await assert.rejects(validateAdvisorSelection(settings,f.repo,[incompatible]),/gpt-6-luna.*supported tool-capable model/);
- const override={...settings,override:{connectionKey:connection.key,model:'gpt-5-mini'}};
+ await assert.rejects(validateAdvisorSelection(settings,f.repo,[incompatible]),/GPT-6 Luna.*reasoning effort None/);
+ const override={...settings,override:{connectionKey:connection.key,model:'vendor-model-preview'}};
  const selection=await validateAdvisorSelection(override,f.repo,[incompatible]);
- assert.equal(selection.agents[0].model,'gpt-5-mini');
+ assert.equal(selection.agents[0].model,'vendor-model-preview');
  assert.equal(incompatible.defaultModel,'gpt-6-luna');
 
  const saved=await f.repo.getWorkflow(workflow.id);
@@ -130,14 +132,14 @@ test('Advisor validates the effective default, override, and Workflow tool restr
 test('Workflow and Advisor admission reject incompatible effective models before creating or launching a run',async()=>{
  const f=await fixture(),incompatible={...connection,defaultModel:'gpt-6-luna'};
  f.deps.listWorkflowConnectionDescriptors=async()=>[incompatible];
- f.deps.getProviderCredentialVault=async()=>assert.fail('Eligibility must be checked before snapshotting');
+ f.deps.getProviderCredentialVault=async()=>assert.fail('Known API requirements must be checked before snapshotting');
  for(const advisor of [undefined,{...settings,override:{connectionKey:'override',model:'gpt-6-luna'}}]){
   const body={workflowId:workflow.id,initialInput:'question',idempotencyKey:crypto.randomUUID()};
   const response=await launchWorkflowRun(access,body,advisor,f.deps);
   assert.equal(response.status,422);
   const result=await response.json();
-  assert.equal(result.code,'agent_tool_model_unsupported');
-  assert.match(result.error,/gpt-6-luna.*supported tool-capable model/);
+  assert.equal(result.code,'unsupported_model_option');
+  assert.match(result.error,/GPT-6 Luna.*reasoning effort None/);
   assert.equal(await f.storage.findRunByIdempotencyKey(body.idempotencyKey),undefined);
  }
  assert.equal(f.modelChecks.length,0);
@@ -162,7 +164,7 @@ test('Workflow admission allows a model when every activation removes its tools'
  await f.repo.updateWorkflow(next,revision.fileSha);
  const rejected=await launchWorkflowRun(access,{...body,idempotencyKey:crypto.randomUUID()},undefined,f.deps);
  assert.equal(rejected.status,422);
- assert.equal((await rejected.json()).code,'agent_tool_model_unsupported');
+ assert.equal((await rejected.json()).code,'unsupported_model_option');
  assert.equal(f.launches(),1);
 });
 

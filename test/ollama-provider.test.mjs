@@ -60,7 +60,7 @@ test('saved commissioning rejects endpoint/auth retargeting before secret resolu
  const f=fixture('bearer'),models=new ProviderModelService({listRuntimeModels:async(safe,key)=>{assert.deepEqual(safe,definition('bearer').configuration);assert.equal(key,'secret-sentinel');return['model:tag','other']}});
  for(const configuration of [{baseUrl:'http://other',authMode:'bearer'},{...definition('bearer').configuration,authMode:'none'}]){await assert.rejects(listSavedProviderModels('ollama','ollama-chat',configuration,f.repository,f.store,models),/connection_configuration_immutable/);assert.deepEqual(f.calls,[]);assert.throws(()=>assertProviderConfigurationMutable(policy,definition('bearer').configuration,configuration),/immutable/)}
  assert.deepEqual(await listSavedProviderModels('ollama','ollama-chat',undefined,f.repository,f.store,models),['model:tag','other']);
- await models.validate('ollama-chat','secret-sentinel','other',definition('bearer').configuration);await assert.rejects(models.validate('ollama-chat','secret-sentinel','missing',definition('bearer').configuration),error=>error.category==='provider_rejected');
+ await models.validate('ollama-chat','secret-sentinel','other',definition('bearer').configuration);await assert.rejects(models.validate('ollama-chat','secret-sentinel','missing',definition('bearer').configuration),error=>error.category==='model_unavailable');
  assert.deepEqual(await testWorkflowConnection('ollama',f.store,new Map(),models),{ok:true,outputText:'Selected model is available through ADT Runtime.'});
 });
 

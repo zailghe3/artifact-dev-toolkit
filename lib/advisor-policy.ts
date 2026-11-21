@@ -21,7 +21,7 @@ export function assertAdvisorReadOnly(plan:GenericWorkflowExecutionPlan,agents:r
     const agent=byId.get(node.config.agentId),connection=connections.find(item=>item.key===agent?.connectionKey);
     if(!agent||!connection||!getProviderConnectionType(connection.adapter)?.capabilities.agentTools||!connection.enabled||!connection.defaultModel||(node.blockVersion===3||node.blockVersion===4)&&node.config.conversation)throw new Error("advisor_provider_incompatible");
     if(agent.tools?.some(grant=>!isAdtDataTool(typeof grant==="string"?grant:grant.type==="builtin"?grant.name:"")))throw new Error("advisor_read_only_required");
-    // Historical consumption rechecks authority. Model eligibility is a new-admission check.
+    // Historical consumption rechecks authority using the frozen configuration.
     validateAgentConnectionOptions(agent,{...connection,capabilities:getProviderConnectionType(connection.adapter)!.capabilities});
   }
 }

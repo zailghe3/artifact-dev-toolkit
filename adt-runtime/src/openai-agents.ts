@@ -8,6 +8,7 @@ import {InstrumentedModelProvider,type ModelTurnInstrumentation} from "./model-i
 
 export const MAX_TURNS=6, MAX_TOOL_CALLS=4, DEFAULT_MODEL_TIMEOUT_MS=30_000,MODEL_TIMEOUT_MS=DEFAULT_MODEL_TIMEOUT_MS, MAX_OUTPUT_BYTES=262_144,MAX_TOOL_RESULT_BYTES=128_000;
 import {RuntimeFailure} from "./provider-execution.js";
+import {openAIRequestRejection} from "./openai-model-policy.js";
 export {RuntimeFailure,type SafeFailure} from "./provider-execution.js";
 const fail=(category:string,safeMessage:string)=>new RuntimeFailure(category,safeMessage);
 function classify(error:unknown){
@@ -17,6 +18,7 @@ function classify(error:unknown){
  if(error instanceof ModelRefusalError)return fail("provider_rejected","The model refused the request.");
  if(error instanceof ModelBehaviorError)return fail("malformed_response","The model returned an invalid response.");
  if(error instanceof UserError)return fail("configuration_invalid","The Agents runtime configuration is invalid.");
+ if(error instanceof OpenAI.APIError&&error.status!==undefined){const issue=openAIRequestRejection(error.status,error.error,"responses");if(issue)return fail(issue.category,issue.safeMessage)}
  const status=error&&typeof error==="object"&&"status" in error&&typeof error.status==="number"?error.status:undefined;
  if(status===401)return fail("authentication_failed","Authentication failed.");if(status===403)return fail("permission_denied","Permission denied.");if(status===429)return fail("rate_limited","Provider rate limited.");if(status&&status>=500)return fail("provider_unavailable","Provider temporarily unavailable.");if(status&&status>=400)return fail("provider_rejected","Configured model was rejected.");
  return fail("internal_error","The Agents runtime failed unexpectedly.");
