@@ -48,8 +48,14 @@ export function openAIRequestRejection(status: number, body: unknown, api: OpenA
     return {category: "model_unavailable", safeMessage: "The selected model is unavailable to this OpenAI project. Load the available models for this connection or check project access."};
   if (status === 403) return;
   const text = typeof message === "string" ? message.slice(0, 2048) : "";
-  if (api === "chat-completions" && /(?:not a chat model.*v1\/chat\/completions|model is not supported (?:on|in|by|with) (?:the )?(?:Chat Completions API|v1\/chat\/completions)|model (?:is )?only (?:available|supported) (?:in|on|via|through) (?:the )?(?:v1\/responses|(?:OpenAI )?Responses API))/i.test(text))
-    return responsesOnly;
+  if (api === "chat-completions") {
+    if (/model (?:is )?only (?:available|supported) (?:in|on|via|through) (?:the )?(?:v1\/responses|(?:OpenAI )?Responses API)/i.test(text))
+      return responsesOnly;
+    if (/(?:not a chat model.*v1\/chat\/completions|model is not supported (?:on|in|by|with) (?:the )?(?:Chat Completions API|v1\/chat\/completions))/i.test(text))
+      return {category: "provider_api_unsupported", safeMessage: "OpenAI rejected this model for Chat Completions. Select a model that supports Chat Completions for journaled Agents."};
+  } else if (/model is not supported (?:on|in|by|with) (?:the )?(?:Responses API|v1\/responses)/i.test(text)) {
+    return {category: "provider_api_unsupported", safeMessage: "OpenAI rejected this model for the Responses API. Select a model that supports Responses for this Agent."};
+  }
   if (code === "unsupported_parameter" || code === "unsupported_value" || code === "invalid_value" || code === "invalid_request_error") {
     const option = typeof param === "string" ? optionFields.get(param) : undefined;
     if (option) return {category: "unsupported_model_option", safeMessage: `OpenAI rejected the requested ${option} for this model and API. Adjust the Agent setting or choose another model.`};

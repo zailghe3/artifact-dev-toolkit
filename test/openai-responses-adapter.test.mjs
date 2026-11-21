@@ -43,3 +43,8 @@ test('Responses sends explicit options and preserves definitive, sanitized provi
   return true;
  });
 });
+
+test('Responses reports definitive endpoint incompatibility without assuming another API works',async()=>{
+ const {adapter,call}=invocation(async()=>Response.json({error:{message:'This model is not supported in the Responses API.'}},{status:400}));
+ await assert.rejects(adapter.start(call),{category:'provider_api_unsupported',safeMessage:'OpenAI rejected this model for the Responses API. Select a model that supports Responses for this Agent.'});
+});

@@ -89,7 +89,9 @@ test('provider rejections distinguish tool capability, endpoint, availability an
    calls++;return Response.json(body,{status});
   };
   await assert.rejects(progressAgentModel({...request(provider),model:'unfamiliar-model'},'fixture-secret',new Set(['http://ollama:11434']),{fetcher}),error=>{
-   assert.equal(error.category,category);assert.doesNotMatch(error.safeMessage,/private|fixture-secret/i);return true;
+   assert.equal(error.category,category);assert.doesNotMatch(error.safeMessage,/private|fixture-secret/i);
+   if(category==='provider_api_unsupported')assert.doesNotMatch(error.safeMessage,/Responses/);
+   return true;
   });
   assert.equal(calls,1);
  }
