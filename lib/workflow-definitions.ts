@@ -2,9 +2,8 @@ import {executionLimitsSchema,blockToolsSchema,grantKey,isAgentToolAllowed} from
 import { z } from "zod";
 import {NATIVE_ADT_TOOLS} from "./adt-data-contract.ts";
 import { validateAdapterOptions } from "./workflow-adapter.ts";
-import {validateOpenAIModelAgentOptions} from "./openai-model-agent-capabilities.ts";
 import {workflowBlockRegistry} from "./workflow-block-registry.ts";
-import {validateAgentToolModel} from "./provider-connection-types.ts";
+import {usesJournaledAgentProgression,validateProviderModelCompatibility} from "./provider-connection-types.ts";
 
 export const DEFINITION_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 export const MAX_WORKFLOW_STEPS = 32;
@@ -123,12 +122,11 @@ export function validateAgentConnectionOptions(agent:AgentDefinitionV1,connectio
   const definition=validateAgentAdapterOptions(agent,connection.adapter);
   if(definition.tools?.length&&connection.capabilities?.agentTools!==true)throw new Error("agent_tool_runtime_unsupported");
   if(definition.securityProfileId&&connection.capabilities?.runtimeSecurity!==true)throw new Error("agent_runtime_security_unsupported");
-  if(connection.adapter==="openai-responses"||connection.adapter==="openai-agents")validateOpenAIModelAgentOptions(connection.defaultModel,definition.adapterOptions as import("./workflow-adapter.ts").OpenAIResponsesOptions);
   return definition;
 }
 export function validateAgentForConnection(agent:AgentDefinitionV1,connection:AgentConnection){
   const definition=validateAgentConnectionOptions(agent,connection);
-  validateAgentToolModel(connection.adapter,connection.defaultModel,Boolean(definition.tools?.length));
+  validateProviderModelCompatibility(connection.adapter,connection.defaultModel,definition.adapterOptions,usesJournaledAgentProgression(connection.adapter,definition),Boolean(definition.tools?.length));
   return definition;
 }
 export const hasArtifactSearchGrant=(tools:AgentDefinitionV1["tools"])=>tools?.some(tool=>tool==="artifact_search"||(typeof tool!=="string"&&tool.type==="builtin"&&tool.name==="artifact_search"))===true;
@@ -198,8 +196,8 @@ export async function validateWorkflowReferences(workflow: WorkflowDefinition, a
   return plan;
 }
 
-/** Validate model eligibility for each newly admitted activation's effective grants. */
-export function validateWorkflowToolModels(plan:GenericWorkflowExecutionPlan,agents:readonly AgentDefinitionV1[],connections:readonly {key:string;adapter:string;defaultModel?:string}[]){
+/** Validate the API selected for each activation with its effective tool grants. */
+export function validateWorkflowAgentModels(plan:GenericWorkflowExecutionPlan,agents:readonly AgentDefinitionV1[],connections:readonly (AgentConnection&{key:string})[],advisor=false){
   const agentsById=new Map(agents.map(agent=>[agent.id,agent])),connectionsByKey=new Map(connections.map(connection=>[connection.key,connection]));
   for(const node of plan.nodes){
     if(node.blockType!=="agent")continue;
@@ -208,7 +206,9 @@ export function validateWorkflowToolModels(plan:GenericWorkflowExecutionPlan,age
     const connection=connectionsByKey.get(agent.connectionKey);
     if(!connection)throw new Error(`connection_unavailable:${agent.connectionKey}`);
     const allowlist=node.blockVersion===4?node.config.toolRestrictions?.allowlist:undefined;
-    validateAgentToolModel(connection.adapter,connection.defaultModel,agent.tools?.some(tool=>isAgentToolAllowed(grantKey(tool),allowlist))===true);
+    const definition=validateAgentConnectionOptions(agent,connection);
+    const hasTools=definition.tools?.some(tool=>isAgentToolAllowed(grantKey(tool),allowlist))===true;
+    validateProviderModelCompatibility(connection.adapter,connection.defaultModel,definition.adapterOptions,usesJournaledAgentProgression(connection.adapter,definition,node.blockVersion,advisor),hasTools);
   }
 }
 
@@ -236,10 +236,10 @@ export function validatePublishGitHubPrSources(workflow:WorkflowDefinition,agent
  for(const node of workflow.nodes){if(node.blockType!=="publish-github-pr")continue;const source=workflow.nodes.find(value=>value.id===(node.config as {sourceNodeId:string}).sourceNodeId)!;const agent=agentsById.get((source.config as {agentId:string}).agentId)!;const environmentKey=(agent.adapterOptions as {environmentKey:string}).environmentKey;if(!managedEnvironmentKeys.has(environmentKey))throw new Error("publish_source_operationally_unavailable")}
 }
 
-export async function validateWorkflowRunAdmissionSources(workflow:WorkflowDefinition,agents:readonly AgentDefinitionV1[],connectionIdentities:readonly {key:string;adapter:string;defaultModel?:string}[],availableConnectionKeys:ReadonlySet<string>,managedEnvironmentKeys:ReadonlySet<string>){
+export async function validateWorkflowRunAdmissionSources(workflow:WorkflowDefinition,agents:readonly AgentDefinitionV1[],connectionIdentities:readonly (AgentConnection&{key:string})[],availableConnectionKeys:ReadonlySet<string>,managedEnvironmentKeys:ReadonlySet<string>,advisor=false){
  validatePublishGitHubPrSources(workflow,agents,connectionIdentities,managedEnvironmentKeys);
  const plan=await validateWorkflowReferences(workflow,agents,availableConnectionKeys);
- validateWorkflowToolModels(plan,agents,connectionIdentities);
+ validateWorkflowAgentModels(plan,agents,connectionIdentities,advisor);
  return plan;
 }
 

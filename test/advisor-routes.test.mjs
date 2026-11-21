@@ -30,8 +30,12 @@ test('Advisor settings reject invalid definitions and persist only validated rep
  const rejection=await config.PUT(request(incompatible,'/api/advisor/settings','https://adt.invalid','PUT'));
  assert.equal(rejection.status,422);
  const failure=await rejection.json();
- assert.equal(failure.code,'agent_tool_model_unsupported');
- assert.match(failure.error,/gpt-6-luna.*supported tool-capable model/);
+ assert.equal(failure.code,'unsupported_model_option');
+ assert.match(failure.error,/GPT-6 Luna.*reasoning effort None/);
  assert.equal(saves,0);
  const response=await config.PUT(request(valid,'/api/advisor/settings','https://adt.invalid','PUT'));assert.equal(response.status,200);assert.equal((await response.json()).revision,2);assert.equal(saves,1);
+ const unfamiliar={...valid,settings:{...valid.settings,override:{connectionKey:'agents',model:'vendor-release-2026'}}};
+ const accepted=await config.PUT(request(unfamiliar,'/api/advisor/settings','https://adt.invalid','PUT'));
+ assert.equal(accepted.status,200);assert.equal((await accepted.json()).settings.override.model,'vendor-release-2026');
+ assert.equal(saves,2);
 });

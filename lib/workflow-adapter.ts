@@ -3,8 +3,9 @@ import type {RunRepositoryContext} from "./workflow-storage.ts";
 import type {ManagedCodeRepositoryContext} from "./managed-code-repository.ts";
 import type {AgentDefinitionV1} from "./workflow-definitions.ts";
 import { z } from "zod";
+import {openAIMaxOutputTokens,openAIReasoningEfforts,openAIVerbosities} from "../adt-runtime/src/openai-model-policy.ts";
 
-export const failureCategories = ["configuration_invalid", "security_denied", "security_timeout", "security_unavailable", "connection_unavailable", "authentication_failed", "permission_denied", "provider_rejected", "provider_start_ambiguous", "provider_publish_ambiguous", "rate_limited", "provider_unavailable", "provider_timeout", "malformed_response", "output_too_large", "cancelled", "conversation_unavailable", "internal_error"] as const;
+export const failureCategories = ["configuration_invalid", "security_denied", "security_timeout", "security_unavailable", "connection_unavailable", "model_unavailable", "provider_api_unsupported", "tool_proposals_unsupported", "unsupported_model_option", "authentication_failed", "permission_denied", "provider_rejected", "provider_start_ambiguous", "provider_publish_ambiguous", "rate_limited", "provider_unavailable", "provider_timeout", "malformed_response", "output_too_large", "cancelled", "conversation_unavailable", "internal_error"] as const;
 export type FailureCategory = typeof failureCategories[number];
 export type AuthorizedRuntimeSecurity={provider:"adrian";profileId:string;endpointUrl:string;decisionTimeoutMs:number;credential:string};
 export type AuthorizedMcpTool={alias:string;serverId:string;server:{url:string;transport:"streamable-http"};tool:{name:string;description?:string;inputSchema:Record<string,unknown>};credential?:string};
@@ -24,7 +25,7 @@ export interface AgentProviderAdapter {
 }
 
 export const deterministicOptionsSchema=z.object({mode:z.enum(["immediate","pending","transient_failure","terminal_failure","oversized"]).optional(),pendingChecks:z.number().int().min(0).max(20).optional(),cancellation:z.enum(["supported","unsupported"]).optional()}).strict();
-export const openAIResponsesOptionsSchema=z.object({reasoningEffort:z.enum(["none","low","medium","high","xhigh","max"]).optional(),verbosity:z.enum(["low","medium","high"]).optional(),maxOutputTokens:z.number().int().positive().max(262144).optional()}).strict();
+export const openAIResponsesOptionsSchema=z.object({reasoningEffort:z.enum(openAIReasoningEfforts).optional(),verbosity:z.enum(openAIVerbosities).optional(),maxOutputTokens:z.number().int().positive().max(openAIMaxOutputTokens).optional()}).strict();
 export const ANTHROPIC_MAX_OUTPUT_TOKENS_DEFAULT=4096,ANTHROPIC_MAX_OUTPUT_TOKENS_MAX=32768;
 export const anthropicMessagesOptionsSchema=z.object({maxOutputTokens:z.number().int().min(1).max(ANTHROPIC_MAX_OUTPUT_TOKENS_MAX).optional()}).strict();
 const validIanaTimeZone=(value:string)=>{try{new Intl.DateTimeFormat("en-US",{timeZone:value}).format();return true}catch{return false}};

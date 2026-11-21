@@ -1,6 +1,6 @@
 # Set up Advisor
 
-- Advisor runs an ordinary, visible Workflow. It needs configured, enabled tool-capable connections: OpenAI Agents, Anthropic Messages or Ollama with a tool-compatible model.
+- Advisor runs an ordinary, visible Workflow. Choose an enabled OpenAI Agents, Anthropic Messages or Ollama connection with a model that supports the selected API and effective tool grants.
 - In a local checkout of the configured **artifact definition repository**, use an existing connection ID. Generate the default definitions from the application checkout:
 
   ```sh
@@ -9,7 +9,7 @@
 
 - This creates `agents/advisor.agent.json` and `workflows/advisor.workflow.json`. It refuses existing files, does not publish Git changes, and does not configure credentials or activate Advisor.
 - Review and commit the definitions through your ordinary Git-backed definition process. The provider connection ID must identify a compatible connection in that repository.
-- Open **Advisor → Advisor settings**, select the Workflow, and save. Optional overrides select an existing configured connection and a model validated for that connection; every affected Agent must be compatible.
+- Open **Advisor → Advisor settings**, select the Workflow, and save. Optional overrides select an existing configured connection and a model validated for that connection; the override uses each Agent’s saved settings and block restrictions. For GPT-6 Luna with tools, set each affected Agent’s reasoning effort to **none**. Model discovery checks availability. The provider can still reject the selected API, tools or settings during a run. See [provider and schema limits](agent-tools-and-recovery.md#provider-and-schema-limits).
 - Open Advisor, ask about a named Workflow, and inspect the execution link for progress, approval, cancellation, tool decisions, recovery and the frozen provider/model choices.
 - Edit the default Agent or Workflow using the ordinary editors. New questions use current definitions; recovery retains the original execution snapshot. Failed journaled activations cannot use generic step retry; inspect recorded outcomes and explicitly start a new question when appropriate.
 

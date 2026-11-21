@@ -1,6 +1,8 @@
 import type { AdapterInvocation, AdapterResult, AgentProviderAdapter, ConnectionTestResult, FailureCategory, ProviderTransportDiagnostics } from "./workflow-adapter.ts";
 import { openAIResponsesOptionsSchema } from "./workflow-adapter.ts";
 import type { ConnectionDescriptor,ResolvedConnection } from "./workflow-connections.ts";
+import {openAIModelCompatibilityIssue,openAIRequestRejection} from "../adt-runtime/src/openai-model-policy.ts";
+import {readBoundedJson} from "./bounded-json.ts";
 import {classifyTransportException,isLocalRuntimeTransportRejection} from "./safe-transport-exception.ts";
 
 const ENDPOINT="https://api.openai.com/v1", POLL_AFTER_MS=10_000, DEFAULT_TIMEOUT_MS=30_000;
@@ -39,10 +41,19 @@ export class OpenAIResponsesAdapter implements AgentProviderAdapter {
     return openAIResponsesOptionsSchema.parse(invocation.providerOptions??{});
   }
   private async request(url:string,init:RequestInit,operation:"start"|"check"|"cancel",clientId?:string):Promise<{response:Response;diagnostics?:ProviderTransportDiagnostics}>{
-    const controller=new AbortController(),started=Date.now();let timer:ReturnType<typeof setTimeout>|undefined,timedOut=false;
+    const controller=new AbortController(),started=Date.now();let timer:ReturnType<typeof setTimeout>|undefined,timedOut=false,rejection:ProviderFailure|undefined;
     const diagnostic=(outcome:ProviderTransportDiagnostics["outcome"],response?:Response,exception?:ReturnType<typeof classifyTransportException>):ProviderTransportDiagnostics|undefined=>clientId?{clientRequestId:clientId,requestId:response?safeHeader(response.headers.get("x-request-id"),/^[\x21-\x7e]+$/,255):undefined,httpStatus:response?.status,elapsedMs:Math.max(0,Date.now()-started),processingMs:response&&safeHeader(response.headers.get("openai-processing-ms"),/^\d{1,12}$/,12)!==undefined?Number(response.headers.get("openai-processing-ms")):undefined,outcome,...exception}:undefined;
-    const timeout=new Promise<never>((_,reject)=>{timer=setTimeout(()=>{timedOut=true;controller.abort();reject(failure(operation==="start"?"provider_start_ambiguous":"provider_timeout",diagnostic("timeout")));},this.timeoutMs);});
-    try{const response=await Promise.race([this.performFetch(url,{...init,signal:controller.signal}),timeout]);return {response,diagnostics:diagnostic("response_received",response)};}
+    const timeout=new Promise<never>((_,reject)=>{timer=setTimeout(()=>{timedOut=true;controller.abort();reject(rejection??failure(operation==="start"?"provider_start_ambiguous":"provider_timeout",diagnostic("timeout")));},this.timeoutMs);});
+    try{return await Promise.race([this.performFetch(url,{...init,signal:controller.signal}).then(async response=>{
+      const diagnostics=diagnostic("response_received",response);
+      if(operation==="start"&&[400,403,404,422].includes(response.status)){
+        rejection=Object.assign(this.httpFailure(response.status,operation),{transportDiagnostics:diagnostics});
+        const body=await readBoundedJson(response,8192).catch(()=>undefined);
+        const issue=openAIRequestRejection(response.status,object(body)?body.error:undefined,"responses");
+        throw issue?Object.assign(failure(issue.category,diagnostics),issue):rejection;
+      }
+      return {response,diagnostics};
+    }),timeout]);}
     catch(error){if(error&&typeof error==="object"&&"category" in error)throw error;const exception=classifyTransportException(error),localRuntime=isLocalRuntimeTransportRejection(exception.reason);throw failure(operation==="start"?(localRuntime?"internal_error":"provider_start_ambiguous"):timedOut?"provider_timeout":"provider_unavailable",diagnostic(timedOut?"timeout":"network_error",undefined,timedOut?undefined:exception));}
     finally{if(timer)clearTimeout(timer);}
   }
@@ -61,7 +72,9 @@ export class OpenAIResponsesAdapter implements AgentProviderAdapter {
     throw failure("malformed_response");
   }
   async start(invocation:AdapterInvocation):Promise<AdapterResult>{
-    const options=this.validate(invocation),body:Record<string,unknown>={model:invocation.connection.defaultModel,instructions:invocation.masterPrompt,input:invocation.inputText,background:true,store:false};
+    const options=this.validate(invocation),issue=openAIModelCompatibilityIssue("responses",invocation.connection.defaultModel!,options);
+    if(issue)throw Object.assign(failure(issue.category),issue);
+    const body:Record<string,unknown>={model:invocation.connection.defaultModel,instructions:invocation.masterPrompt,input:invocation.inputText,background:true,store:false};
     if(options.reasoningEffort)body.reasoning={effort:options.reasoningEffort};if(options.verbosity)body.text={verbosity:options.verbosity};if(options.maxOutputTokens)body.max_output_tokens=options.maxOutputTokens;
     const clientId=await clientRequestId(invocation),{response,diagnostics}=await this.request(`${ENDPOINT}/responses`,{method:"POST",headers:{authorization:`Bearer ${invocation.connection.credential}`,"content-type":"application/json","X-Client-Request-Id":clientId},body:JSON.stringify(body)},"start",clientId);
     if(!response.ok)throw Object.assign(this.httpFailure(response.status,"start"),{transportDiagnostics:diagnostics});return {...this.result(await this.json(response),true) as AdapterResult,transportDiagnostics:diagnostics};

@@ -67,7 +67,8 @@ export async function createRuntimeServer(options:Options){
     return safe(res,200,{protocolVersion:PROTOCOL_VERSION,ok:true,result});
    }catch(value){
     const known=value instanceof RuntimeFailure||value instanceof McpFailure||value instanceof SecurityDecisionError||value instanceof AdrianExecutionLeaseUnavailableError;
-    const category=known?value.category:entered?"provider_start_ambiguous":"configuration_invalid",ambiguous=value instanceof McpFailure?value.ambiguous:entered;
+    const category=known?value.category:entered?"provider_start_ambiguous":"configuration_invalid",ambiguous=value instanceof McpFailure?value.ambiguous:entered&&!(value instanceof RuntimeFailure&&
+      ["model_unavailable","provider_api_unsupported","tool_proposals_unsupported","unsupported_model_option","provider_rejected","authentication_failed","permission_denied","rate_limited"].includes(value.category));
     emit("runtime_agent_operation_failed",{operation,requestId,result:"execution_failed",failureCategory:category,httpStatus:422,elapsedMs:Date.now()-started,providerExecutionEntered:entered,ambiguous});
     return safe(res,422,{protocolVersion:PROTOCOL_VERSION,ok:false,error:{code:"execution_failed",category,safeMessage:known?value.safeMessage:"Agent operation failed safely.",retryable:false,providerExecutionEntered:entered,ambiguous}});
    }finally{credential="";release?.()}

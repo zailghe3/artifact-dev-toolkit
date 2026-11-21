@@ -25,3 +25,26 @@ test('start safely classifies runtime transport exceptions',async()=>{const case
   [new Error('Network connection lost: raw secret'),'network_connection_lost','provider_start_ambiguous'],
   [new TypeError('undocumented fetch failure with raw secret'),'fetch_type_error','provider_start_ambiguous'],
 ];for(const [thrown,reason,category] of cases){const value=invocation(async()=>{throw thrown});await assert.rejects(value.adapter.start(value.call),error=>{assert.equal(error.category,category);assert.equal(error.transportDiagnostics.outcome,'network_error');assert.equal(error.transportDiagnostics.reason,reason);assert.ok(['Error','TypeError'].includes(error.transportDiagnostics.runtimeErrorName));assert.equal(JSON.stringify(error).includes('raw secret'),false);assert.equal(JSON.stringify(error).includes('private cause'),false);return true})}});
+
+test('Responses sends explicit options and preserves definitive, sanitized provider rejections',async()=>{
+ const {adapter,call}=invocation(async(_url,init)=>{
+  const body=JSON.parse(init.body);
+  assert.deepEqual(body.reasoning,{effort:'minimal'});
+  assert.deepEqual(body.text,{verbosity:'high'});
+  assert.equal(body.max_output_tokens,1234);
+  return Response.json({error:{code:'unsupported_parameter',param:'text.verbosity',message:'private provider detail'}},{status:400});
+ },{reasoningEffort:'minimal',verbosity:'high',maxOutputTokens:1234});
+ call.connection.defaultModel='unfamiliar-model';
+ await assert.rejects(adapter.start(call),error=>{
+  assert.equal(error.category,'unsupported_model_option');
+  assert.match(error.safeMessage,/verbosity/);
+  assert.doesNotMatch(error.safeMessage,/private/);
+  assert.equal(error.transportDiagnostics.httpStatus,400);
+  return true;
+ });
+});
+
+test('Responses reports definitive endpoint incompatibility without assuming another API works',async()=>{
+ const {adapter,call}=invocation(async()=>Response.json({error:{message:'This model is not supported in the Responses API.'}},{status:400}));
+ await assert.rejects(adapter.start(call),{category:'provider_api_unsupported',safeMessage:'OpenAI rejected this model for the Responses API. Select a model that supports Responses for this Agent.'});
+});

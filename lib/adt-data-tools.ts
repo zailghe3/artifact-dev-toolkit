@@ -1,3 +1,4 @@
+import {openAIMaxOutputTokens,openAIReasoningEfforts,openAIVerbosities} from "../adt-runtime/src/openai-model-policy.ts";
 import {adtRunScope} from "./adt-data-scope.ts";
 import {AdtObservability,type PromptReader} from "./adt-observability.ts";
 import type {KnowledgeReader} from "./advisor-knowledge-repository.ts";
@@ -13,9 +14,9 @@ const duration=(start:unknown,end:unknown)=>typeof start==="string"&&typeof end=
 const safeCategory=(value:unknown)=>(failureCategories as readonly unknown[]).includes(value)?value:null;
 function safeAgentOptions(value:unknown){
   const options=value&&typeof value==="object"&&!Array.isArray(value)?value as Record<string,unknown>:{},result:Record<string,unknown>={};
-  if(typeof options.reasoningEffort==="string"&&["none","low","medium","high","xhigh","max"].includes(options.reasoningEffort))result.reasoningEffort=options.reasoningEffort;
-  if(typeof options.verbosity==="string"&&["low","medium","high"].includes(options.verbosity))result.verbosity=options.verbosity;
-  for(const [key,max] of [["maxOutputTokens",262144],["executionTimeoutSeconds",900]] as const)if(Number.isSafeInteger(options[key])&&Number(options[key])>0&&Number(options[key])<=max)result[key]=options[key];
+  if(typeof options.reasoningEffort==="string"&&openAIReasoningEfforts.some(value=>value===options.reasoningEffort))result.reasoningEffort=options.reasoningEffort;
+  if(typeof options.verbosity==="string"&&openAIVerbosities.some(value=>value===options.verbosity))result.verbosity=options.verbosity;
+  for(const [key,max] of [["maxOutputTokens",openAIMaxOutputTokens],["executionTimeoutSeconds",900]] as const)if(Number.isSafeInteger(options[key])&&Number(options[key])>0&&Number(options[key])<=max)result[key]=options[key];
   if(typeof options.managedGit==="boolean")result.managedGit=options.managedGit;
   return result;
 }

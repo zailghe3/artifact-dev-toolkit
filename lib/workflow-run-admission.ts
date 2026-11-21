@@ -57,7 +57,7 @@ export async function launchWorkflowRun(access:RepositoryAccessContext,body:Work
       assertAdvisorReadOnly(compileWorkflowV2ExecutionPlan(definition,effective.agents),effective.agents,identities);
     }
     const available=identities.filter(item=>item.enabled);
-    const plan=await validateWorkflowRunAdmissionSources(definition,agents.map(item=>item.definition),identities,new Set(available.map(item=>item.key)),new Set((catalog?.environments??[]).filter(item=>item.enabled&&item.ready&&item.managedRepository===true).map(item=>item.key)));
+    const plan=await validateWorkflowRunAdmissionSources(definition,agents.map(item=>item.definition),identities,new Set(available.map(item=>item.key)),new Set((catalog?.environments??[]).filter(item=>item.enabled&&item.ready&&item.managedRepository===true).map(item=>item.key)),Boolean(advisor));
     if(advisor)await validateAdvisorOverrideModel(advisor,identities,access,dependencies);
     const validated=await Promise.all(agents.map(async item=>{
       const descriptor=available.find(connection=>connection.key===item.definition.connectionKey)!;

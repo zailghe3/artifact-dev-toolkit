@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {installTsxHook} from './render-tsx.mjs';
-import {getOpenAIModelAgentCapabilities,validateOpenAIModelAgentOptions} from '../lib/openai-model-agent-capabilities.ts';
 import {AGENT_MASTER_PROMPT_MAX_LENGTH} from '../lib/workflow-definitions.ts';
 import {copiedWorkflowAgentPrompt,searchWorkflowAgentPrompts,workflowAgentPromptDescriptor,workflowAgentPromptKeyAction,workflowAgentPromptSelection} from '../lib/workflow-agent-prompts.ts';
 import {defaultWorkflowRunSort,nextWorkflowRunSort,sortWorkflowRunRows,workflowRunColumns} from '../lib/workflow-run-table.ts';
@@ -77,14 +76,17 @@ test('prompt selector renders an accessible combobox and custom prompt editor wi
  assert.match(html,/<textarea[^>]*name="masterPrompt"[^>]*required=""/);
 });
 
-test('OpenAI capabilities are exact and unknown models are conservative',()=>{
- assert.deepEqual(getOpenAIModelAgentCapabilities('unknown-model'),{});
- const known=getOpenAIModelAgentCapabilities('gpt-5.2');
- assert.deepEqual(known.reasoningEfforts,['none','low','medium','high','xhigh']);
- assert.equal(known.reasoningEfforts.includes('max'),false);
- assert.throws(()=>validateOpenAIModelAgentOptions('gpt-5',{reasoningEffort:'xhigh'}));
- assert.deepEqual(validateOpenAIModelAgentOptions('unknown-model',{}),{});
- assert.throws(()=>validateOpenAIModelAgentOptions('unknown-model',{verbosity:'high'}));
+test('OpenAI editor offers API options for unfamiliar models and preserves saved choices',()=>{
+ const connection={key:'agents',name:'Agents Runtime',adapter:'openai-agents',enabled:true,defaultModel:'vendor-next-release'};
+ const create=renderAgent(React.createElement(WorkflowAgentEditor,{connections:[connection]}));
+ assert.match(create,/name="maxOutputTokens"/);
+ assert.match(create,/<option value="minimal">minimal<\/option>/);
+ assert.match(create,/Supported values depend on the model and API/);
+ const initial={id:'saved',name:'Saved',description:'',prompt:{source:'custom',text:'Act.'},connectionKey:'agents',adapterOptions:{reasoningEffort:'max',verbosity:'high',maxOutputTokens:200000}};
+ const edit=renderAgent(React.createElement(WorkflowAgentEditor,{connections:[connection],initial}));
+ assert.match(edit,/<option value="max" selected="">max<\/option>/);
+ assert.match(edit,/<option value="high" selected="">high<\/option>/);
+ assert.match(edit,/<input(?=[^>]*name="maxOutputTokens")(?=[^>]*value="200000")/);
 });
 
 test('OpenAI Agents execution timeout defaults and saved values render as one bounded setting',()=>{

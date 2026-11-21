@@ -16,23 +16,84 @@ for(const provider of ['openai-agents','anthropic-messages','ollama-chat'])test(
  const last=received.filter(r=>!r.url.endsWith('/api/show')).at(-1).body;if(provider==='anthropic-messages'){assert.equal(last.messages.at(-1).content[0].tool_use_id,'native-call');assert.equal(last.messages.at(-1).content[0].is_error,true)}else if(provider==='openai-agents'){assert.equal(last.messages.at(-1).tool_call_id,'native-call');assert.equal(last.store,false)}else{assert.equal(last.messages.at(-1).tool_name,'search')}
 });
 test('model request schema rejects tool credentials and privileged execution authority',()=>{assert.equal(progressWireSchema.safeParse({protocolVersion:'adt-runtime-v1',capability:'agent:progress-v1',requestId:crypto.randomUUID(),request:{...request('ollama-chat'),mcpCredentials:['secret']}}).success,false)});
-test('Ollama capability discovery rejects unverified models before inference',async()=>{let chats=0;await assert.rejects(progressAgentModel(request('ollama-chat'),'',new Set(['http://ollama:11434']),{fetcher:async url=>{if(String(url).endsWith('/api/chat'))chats++;return Response.json({capabilities:['completion']})}}),{category:'configuration_invalid'});assert.equal(chats,0)});
-test('Runtime rejects models outside the tool rules and still dispatches tool-free requests',async()=>{
- for(const [provider,model] of [['openai-agents','gpt-6-luna'],['openai-agents','gpt-5-pro'],['anthropic-messages','claude-2']]){
-  let entered=0,calls=0;
-  const dependencies={onProviderEntry:()=>{entered++},fetcher:async(_url,init)=>{
-   calls++;
-   const body=JSON.parse(init.body);assert.equal(body.model,model);assert.equal(body.tools,undefined);
-   if(provider==='anthropic-messages')return Response.json({type:'message',stop_reason:'end_turn',content:[{type:'text',text:'done'}]});
-   return Response.json({id:'chat-fixture',object:'chat.completion',created:1,model,choices:[{index:0,finish_reason:'stop',message:{role:'assistant',content:'done'}}]});
-  }};
-  const input={...request(provider),model};
-  await assert.rejects(progressAgentModel(input,'fixture-secret',new Set(),dependencies),{
-   category:'configuration_invalid',safeMessage:'This model has no verified tool capability. Select a supported tool-capable model.',
+test('Ollama capability discovery rejects a definitive lack of tools before inference',async()=>{let chats=0;await assert.rejects(progressAgentModel(request('ollama-chat'),'',new Set(['http://ollama:11434']),{fetcher:async url=>{if(String(url).endsWith('/api/chat'))chats++;return Response.json({capabilities:['completion']})}}),{category:'tool_proposals_unsupported'});assert.equal(chats,0)});
+test('an unfamiliar model can respond with or without offered tools and an ordinary answer makes no capability claim',async()=>{
+ for(const provider of ['openai-agents','anthropic-messages','ollama-chat']){
+  const model='vendor-pro-codex-preview';
+  for(const hasTools of [true,false]){
+   let entries=0,requests=0,metadata=0;
+   const input={...request(provider),model,...(hasTools?{}:{tools:[]}),
+    ...(provider==='openai-agents'?{options:{maxOutputTokens:100,reasoningEffort:'minimal',verbosity:'high'}}:{})};
+   const result=await progressAgentModel(input,'fixture-secret',new Set(['http://ollama:11434']),{
+    onProviderEntry:()=>{entries++},
+    fetcher:async(url,init)=>{
+     if(String(url).endsWith('/api/show')){metadata++;return Response.json({details:{}})}
+     requests++;
+     const body=JSON.parse(init.body);assert.equal(body.model,model);assert.equal(Boolean(body.tools?.length),hasTools);
+     if(provider==='openai-agents'){
+      assert.match(String(url),/chat\/completions$/);
+      assert.equal(body.max_completion_tokens,100);
+      assert.ok(!Object.hasOwn(body,'max_tokens'));
+      assert.equal(body.reasoning_effort,'minimal');
+      assert.equal(body.verbosity,'high');
+      return Response.json({id:'chat-fixture',object:'chat.completion',created:1,model,choices:[{index:0,finish_reason:'stop',message:{role:'assistant',content:'done'}}]});
+     }
+     if(provider==='anthropic-messages')return Response.json({type:'message',stop_reason:'end_turn',content:[{type:'text',text:'done'}]});
+     return Response.json({done:true,message:{content:'done'}});
+    },
+   });
+   assert.equal(result.text,'done');assert.deepEqual(result.calls,[]);
+   assert.equal(entries,1);assert.equal(requests,1);assert.equal(metadata,provider==='ollama-chat'&&hasTools?1:0);
+  }
+ }
+});
+
+test('Ollama attempts chat when the metadata endpoint is missing but stops when it reports a missing model',async()=>{
+ for(const available of [true,false]){
+  const visited=[];
+  const progress=progressAgentModel(request('ollama-chat'),'',new Set(['http://ollama:11434']),{
+   fetcher:async url=>{
+    const path=new URL(url).pathname;visited.push(path);
+    if(path==='/api/show')return available?new Response('404 page not found',{status:404}):Response.json({error:"model 'qwen3' not found"},{status:404});
+    return Response.json({done:true,message:{content:'done'}});
+   },
   });
-  assert.equal(entered,0);assert.equal(calls,0);
-  assert.equal((await progressAgentModel({...input,tools:[]},'fixture-secret',new Set(),dependencies)).text,'done');
-  assert.equal(entered,1);assert.equal(calls,1);
+  if(available)assert.equal((await progress).text,'done');
+  else await assert.rejects(progress,{category:'model_unavailable'});
+  assert.deepEqual(visited,available?['/api/show','/api/chat']:['/api/show']);
+ }
+});
+
+test('Runtime independently enforces documented API and settings requirements before inference',async()=>{
+ const fetcher=()=>assert.fail('Provider request must not be made');
+ const input=request('openai-agents');
+ await assert.rejects(progressAgentModel({...input,model:'gpt-5-pro',tools:[]},'fixture-secret',new Set(),{fetcher}),{category:'provider_api_unsupported'});
+ await assert.rejects(progressAgentModel({...input,model:'gpt-6-luna'},'fixture-secret',new Set(),{fetcher}),{category:'unsupported_model_option'});
+ await assert.rejects(progressAgentModel({...request('anthropic-messages'),options:{verbosity:'high'}},'fixture-secret',new Set(),{fetcher}),{category:'unsupported_model_option'});
+});
+
+test('provider rejections distinguish tool capability, endpoint, availability and settings without exposing payloads',async()=>{
+ for(const [provider,status,body,category] of [
+  ['openai-agents',400,{error:{type:'invalid_request_error',param:'tools',code:'unsupported_parameter',message:'private'}},'tool_proposals_unsupported'],
+  ['openai-agents',404,{error:{code:'model_not_found',message:'private'}},'model_unavailable'],
+  ['openai-agents',400,{error:{message:'This model is not supported in the Chat Completions API. SENSITIVE_PRIVATE'}},'provider_api_unsupported'],
+  ['openai-agents',400,{error:{code:'unsupported_value',param:'reasoning_effort',message:'SENSITIVE_PRIVATE'}},'unsupported_model_option'],
+  ['openai-agents',400,{error:{code:'invalid_request_error',param:'messages',message:'SENSITIVE_PRIVATE'}},'provider_rejected'],
+  ['openai-agents',503,{error:{message:'SENSITIVE_PRIVATE'}},'provider_start_ambiguous'],
+  ['anthropic-messages',400,{type:'error',error:{type:'invalid_request_error',message:'This model does not support tool use. SENSITIVE_PRIVATE'}},'tool_proposals_unsupported'],
+  ['ollama-chat',400,{error:'"SENSITIVE_PRIVATE" does not support tools'},'tool_proposals_unsupported'],
+ ]){
+  let calls=0;
+  const fetcher=async url=>{
+   if(String(url).endsWith('/api/show'))return Response.json({details:{}});
+   calls++;return Response.json(body,{status});
+  };
+  await assert.rejects(progressAgentModel({...request(provider),model:'unfamiliar-model'},'fixture-secret',new Set(['http://ollama:11434']),{fetcher}),error=>{
+   assert.equal(error.category,category);assert.doesNotMatch(error.safeMessage,/private|fixture-secret/i);
+   if(category==='provider_api_unsupported')assert.doesNotMatch(error.safeMessage,/Responses/);
+   return true;
+  });
+  assert.equal(calls,1);
  }
 });
 test('invalid tool identity and uncorrelatable continuation never reach execution',async()=>{assert.throws(()=>validateConversation([{role:'tool',callId:'missing',name:'search',text:'x'}]));await assert.rejects(progressAgentModel(request('anthropic-messages'),'secret',new Set(),{fetcher:async()=>Response.json({type:'message',stop_reason:'tool_use',content:[{type:'tool_use',id:'same',name:'search',input:{}},{type:'tool_use',id:'same',name:'search',input:{}}]})}));await assert.rejects(progressAgentModel(request('anthropic-messages'),'secret',new Set(),{fetcher:async()=>Response.json({type:'message',stop_reason:'tool_use',content:[{type:'tool_use',id:'id',name:'ungranted',input:{}}]})}),{category:'permission_denied'})});
