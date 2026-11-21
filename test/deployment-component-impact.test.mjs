@@ -39,3 +39,13 @@ test('renamed paths can be evaluated with both old and new names', () => {
 });
 
 test('Runtime release manifest is a shared Worker and Runtime input',()=>{const impact=deploymentComponentImpact(['adt-runtime/release.json']);assert.deepEqual(impact,{worker:true,runtime:true,runner:false,adrian:false});const classified=classifyChanges([{filename:'adt-runtime/release.json',status:'modified'}]);assert.equal(classified.deploy_worker,true);assert.equal(classified.publish_runtime,true);assert.equal(classified.publish_runner,false)});
+
+
+test('OpenAI model policy changes verify and publish both consumers',()=>{
+  const path='adt-runtime/src/openai-model-policy.ts';
+  assert.deepEqual(deploymentComponentImpact([path]),{worker:true,runtime:true,runner:false,adrian:false});
+  const classified=classifyChanges([{filename:path,status:'modified'}]);
+  assert.equal(classified.deploy_worker,true);
+  assert.equal(classified.publish_runtime,true);
+  assert.equal(classified.verify_integration,true);
+});
