@@ -13,9 +13,9 @@
     "@langchain/langgraph": "^1.5.0",
     "@langchain/langgraph-checkpoint": "^1.2.0",
     "@modelcontextprotocol/sdk": "1.32.2",
-    "@openai/agents": "0.21.0",
+    "@openai/agents": "0.22.0",
     "@secureagentics/adrian": "1.1.0",
-    "openai": "7.55.0",
+    "openai": "7.60.0",
     "undici": "8.12.4",
     "ws": "^8.22.0",
     "zod": "^4.6.5"
