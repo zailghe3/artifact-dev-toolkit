@@ -118,14 +118,14 @@ export function InfrastructureFreshnessIndicator() {
 
   async function pollRedeploy(target:"runtime"|"runner",attempt=1){
     clearInfrastructureFreshnessClientCacheForTests();const next=await queryInfrastructureFreshness();setState(next);
-    if(next.status==="loaded"&&next.snapshot.components[target].state!=="superseded"){setActions(value=>({...value,[target]:"idle"}));return}
-    if(attempt>=12||next.status==="hidden"){setActions(value=>({...value,[target]:"idle"}));setFeedback(value=>({...value,[target]:"Rollout status is not confirmed. Check freshness before trying again."}));return}
+    if(next.status==="loaded"&&next.snapshot.components[target].state==="current"){setActions(value=>({...value,[target]:"idle"}));setFeedback(value=>({...value,[target]:`${target==="runtime"?"Runtime":"Runner"} update confirmed.`}));return}
+    if(attempt>=12||next.status==="hidden"){setActions(value=>({...value,[target]:"idle"}));setFeedback(value=>({...value,[target]:"Update not yet confirmed; refresh to check again."}));return}
     const timer=window.setTimeout(()=>{pollTimers.current.delete(timer);void pollRedeploy(target,attempt+1)},5_000);pollTimers.current.add(timer);
   }
 
   async function redeploy(target:"runtime"|"runner"){
     if(actions[target]!=="idle")return;setActions(value=>({...value,[target]:"submitting"}));setFeedback(value=>({...value,[target]:undefined}));
-    try{const response=await fetch("/api/infrastructure-redeploy",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({target}),cache:"no-store"}),value=await response.json() as {state?:unknown;message?:unknown},message=typeof value.message==="string"?value.message:"Redeploy request was not accepted.";setFeedback(current=>({...current,[target]:message}));if(response.status===202&&value.state==="accepted"){setActions(current=>({...current,[target]:"rollout"}));void pollRedeploy(target);return}if(value.state==="ambiguous"){setActions(current=>({...current,[target]:"uncertain"}));void pollRedeploy(target);return}setActions(current=>({...current,[target]:value.state==="unsupported"?"unavailable":"idle"}))}catch{setFeedback(value=>({...value,[target]:"Redeploy request outcome is uncertain. Check freshness before trying again."}));setActions(value=>({...value,[target]:"uncertain"}));void pollRedeploy(target)}
+    try{const response=await fetch("/api/infrastructure-redeploy",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({target}),cache:"no-store"}),value=await response.json() as {state?:unknown;message?:unknown},message=typeof value.message==="string"?value.message:"Webhook request rejected.";setFeedback(current=>({...current,[target]:message}));if(response.status===202&&value.state==="accepted"){setActions(current=>({...current,[target]:"rollout"}));void pollRedeploy(target);return}if(value.state==="ambiguous"){setActions(current=>({...current,[target]:"uncertain"}));void pollRedeploy(target);return}setActions(current=>({...current,[target]:value.state==="unsupported"?"unavailable":"idle"}))}catch{setFeedback(value=>({...value,[target]:"Webhook request outcome is uncertain. Check freshness before trying again."}));setActions(value=>({...value,[target]:"uncertain"}));void pollRedeploy(target)}
   }
 
   if (state.status === "hidden") return null;

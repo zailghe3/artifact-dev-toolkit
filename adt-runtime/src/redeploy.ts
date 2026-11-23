@@ -14,11 +14,13 @@ export function redeployAvailable(target:RedeployTarget,configuration:RedeployCo
  return roles.every(role=>validRedeployUrl(configuration[role]));
 }
 
-export async function requestRedeploy(target:RedeployTarget,configuration:RedeployConfiguration,fetcher:typeof fetch=fetch,now=Date.now):Promise<{accepted:boolean;ambiguous:boolean;outcomes:RedeployOutcome[]}>{
+export async function requestRedeploy(target:RedeployTarget,configuration:RedeployConfiguration,fetcher:typeof fetch=fetch,now=Date.now,onDispatch?:(role:RedeployRole)=>void):Promise<{accepted:boolean;ambiguous:boolean;outcomes:RedeployOutcome[]}>{
  const roles:RedeployRole[]=target==="runtime"?["runtime"]:["executor","repository-manager","controller"],outcomes:RedeployOutcome[]=[];
  for(const role of roles){
   const url=configuration[role];if(!validRedeployUrl(url))throw new Error("redeploy_not_configured");
   const started=now();
+  // Self-redeployment can terminate this process before the POST returns.
+  onDispatch?.(role);
   try{
    const response=await fetcher(url!,{method:"POST",redirect:"manual",signal:AbortSignal.timeout(REDEPLOY_TIMEOUT_MS)}),elapsedMs=Math.max(0,Math.min(60_000,now()-started));
    if(response.status>=200&&response.status<300){outcomes.push({role,outcome:"accepted",httpStatus:response.status,elapsedMs});continue}
