@@ -10,6 +10,44 @@ const { InfrastructureFreshnessIndicator } = requireTsx('../components/Infrastru
 
 const text = node => node.findAll(item => Array.isArray(item.children)).flatMap(item => item.children).filter(item => typeof item === 'string').join(' ');
 
+async function redeployFixture(t,{target='runtime',outcome='accepted'}={}){
+ const previousWindow=globalThis.window,previousDocument=globalThis.document,previousFetch=globalThis.fetch;
+ const timers=new Map(),calls={actions:0,freshness:0};let id=0,observation='superseded',view;
+ globalThis.window={setTimeout(callback,milliseconds){const value=++id;timers.set(value,{callback,milliseconds});return value},clearTimeout(value){timers.delete(value)},addEventListener(){},removeEventListener(){}};
+ globalThis.document={visibilityState:'visible',addEventListener(){},removeEventListener(){}};
+ globalThis.fetch=async(url,init)=>{
+  if(String(url).includes('infrastructure-redeploy')){
+   calls.actions++;
+   assert.deepEqual(JSON.parse(init.body),{target});
+   if(outcome==='disconnect')throw new TypeError('private connection exception');
+   return Response.json({state:outcome,message:outcome==='accepted'?`${target} webhook request accepted. Checking update status.`:outcome==='rejected'?'Webhook request rejected.':'Webhook request outcome is uncertain. Check freshness before trying again.'},{status:outcome==='accepted'?202:502});
+  }
+  calls.freshness++;
+  if(observation==='unavailable')return new Response(null,{status:503});
+  const components={worker:{state:'current'},runtime:{state:'superseded',deployedRevision:'2'.repeat(40)},runner:{state:'superseded',deployedRevision:'3'.repeat(40)}};
+  components[target]={state:observation,...(observation==='unknown'?{unknownReason:'observation_unavailable'}:{deployedRevision:(observation==='current'?'4':'2').repeat(40)})};
+  return Response.json({state:'superseded',checkedAt:'2026-11-23T00:00:00.000Z',redeployTargets:['runtime','runner'],components});
+ };
+ const {clearInfrastructureFreshnessClientCacheForTests}=requireTsx('../components/InfrastructureFreshnessIndicator.tsx');
+ clearInfrastructureFreshnessClientCacheForTests();
+ t.after(async()=>{
+  try{if(view)await act(async()=>view.unmount())}finally{
+   clearInfrastructureFreshnessClientCacheForTests();globalThis.fetch=previousFetch;
+   if(previousWindow===undefined)delete globalThis.window;else globalThis.window=previousWindow;
+   if(previousDocument===undefined)delete globalThis.document;else globalThis.document=previousDocument;
+  }
+ });
+ const runTimer=async milliseconds=>{
+  const entry=[...timers.entries()].find(([,timer])=>timer.milliseconds===milliseconds);
+  assert.ok(entry,`expected a ${milliseconds}ms timer`);timers.delete(entry[0]);
+  await act(async()=>{entry[1].callback();await Promise.resolve()});
+ };
+ await act(async()=>{view=create(React.createElement(InfrastructureFreshnessIndicator))});
+ await runTimer(0);
+ const button=()=>view.root.findAllByType('button').find(item=>text(item).toLowerCase().includes(target));
+ return{view,calls,timers,runTimer,button,setObservation:value=>{observation=value},click:async()=>{await act(async()=>{button().props.onClick();await Promise.resolve()})}};
+}
+
 test('footer freshness renders first, refreshes after expiry, and never polls while hidden', async () => {
   const previousWindow = globalThis.window;
   const previousDocument = globalThis.document;
@@ -158,4 +196,58 @@ test('superseded Runtime and Runner actions follow independent authenticated ava
  const previousWindow=globalThis.window,previousDocument=globalThis.document,previousFetch=globalThis.fetch;let id=0;const timers=new Map();globalThis.window={setTimeout(callback,milliseconds){const value=++id;timers.set(value,{callback,milliseconds});return value},clearTimeout(value){timers.delete(value)},addEventListener(){},removeEventListener(){}};globalThis.document={visibilityState:'visible',addEventListener(){},removeEventListener(){}};
  const base={state:'superseded',checkedAt:'2026-10-04T00:00:00.000Z',components:{worker:{state:'current'},runtime:{state:'superseded'},runner:{state:'superseded'}}};const {clearInfrastructureFreshnessClientCacheForTests}=requireTsx('../components/InfrastructureFreshnessIndicator.tsx');
  try{for(const [targets,expected] of [[['runtime'],['Runtime update available']],[['runner'],['Runner update available']],[[],[]],[['runtime','runner'],['Runtime update available','Runner update available']]]){clearInfrastructureFreshnessClientCacheForTests();timers.clear();globalThis.fetch=async()=>Response.json({...base,redeployTargets:targets});let view;await act(async()=>{view=create(React.createElement(InfrastructureFreshnessIndicator))});const load=[...timers.entries()].find(([,value])=>value.milliseconds===0);timers.delete(load[0]);await act(async()=>{load[1].callback();await Promise.resolve()});assert.match(text(view.root),/Runtime update available/);assert.match(text(view.root),/Runner update available/);assert.deepEqual(view.root.findAllByType('button').map(button=>button.children.join('')),expected);await act(async()=>view.unmount())}}finally{globalThis.fetch=previousFetch;if(previousWindow===undefined)delete globalThis.window;else globalThis.window=previousWindow;if(previousDocument===undefined)delete globalThis.document;else globalThis.document=previousDocument}
+});
+
+for(const target of ['runtime','runner'])for(const outcome of ['accepted','ambiguous','disconnect']){
+ test(`${target} ${outcome} attempt stays locked through unknown and confirms only target current freshness`,async t=>{
+  const f=await redeployFixture(t,{target,outcome});
+  f.setObservation('unknown');
+  await f.click();
+  assert.equal(f.calls.actions,1);
+  assert.equal(f.calls.freshness,2);
+  assert.doesNotMatch(text(f.view.root),/update confirmed|not yet confirmed|private connection exception/);
+  assert.match(text(f.view.root),outcome==='accepted'?/webhook request accepted/:/outcome is uncertain/);
+  assert.ok([...f.timers.values()].some(timer=>timer.milliseconds===5_000),'unknown continues bounded polling');
+
+  f.setObservation('superseded');
+  await f.runTimer(5_000);
+  assert.equal(f.button().props.disabled,true,'temporary unknown must not unlock the same target');
+  const other=f.view.root.findAllByType('button').find(button=>button!==f.button());
+  assert.equal(other.props.disabled,false,'the other target remains independently actionable');
+  await f.click();
+  assert.equal(f.calls.actions,1,'duplicate submission stays suppressed');
+
+  f.setObservation('current');
+  await f.runTimer(5_000);
+  assert.match(text(f.view.root),new RegExp(`${target==='runtime'?'Runtime':'Runner'} update confirmed\\.`));
+  assert.match(text(f.view.root),new RegExp(`${target==='runtime'?'Runtime':'Runner'} 4444444`),'normal freshness still reports the observed release identity');
+  assert.doesNotMatch(text(f.view.root),/webhook request accepted|outcome is uncertain|not yet confirmed/);
+  assert.equal([...f.timers.values()].some(timer=>timer.milliseconds===5_000),false,'confirmation stops redeploy polling');
+  assert.equal(f.calls.actions,1,'freshness confirmation never repeats the mutation');
+ });
+}
+
+for(const outcome of ['accepted','ambiguous'])for(const observation of ['superseded','unknown','unavailable']){
+ test(`${outcome} polling exhaustion with ${observation} freshness reports an unconfirmed update and never retries`,async t=>{
+  const f=await redeployFixture(t,{outcome});
+  f.setObservation(observation);
+  await f.click();
+  for(let attempt=2;attempt<=12;attempt++)await f.runTimer(5_000);
+  assert.equal(f.calls.freshness,13,'one initial observation plus the existing twelve redeploy checks');
+  assert.equal(f.calls.actions,1);
+  assert.match(text(f.view.root),/Update not yet confirmed; refresh to check again\./);
+  assert.doesNotMatch(text(f.view.root),/Runtime update confirmed|outcome is uncertain|failed to deploy/);
+  assert.equal([...f.timers.values()].some(timer=>timer.milliseconds===5_000),false,'polling does not exceed its original bound');
+  if(observation==='superseded')assert.equal(f.button().props.disabled,false,'the polling lock is released when the bounded window ends');
+ });
+}
+
+test('explicit webhook rejection unlocks the action without starting redeploy freshness polling',async t=>{
+ const f=await redeployFixture(t,{outcome:'rejected'});
+ await f.click();
+ assert.match(text(f.view.root),/Webhook request rejected\./);
+ assert.equal(f.calls.actions,1);
+ assert.equal(f.calls.freshness,1);
+ assert.equal(f.button().props.disabled,false);
+ assert.equal([...f.timers.values()].some(timer=>timer.milliseconds===5_000),false);
 });

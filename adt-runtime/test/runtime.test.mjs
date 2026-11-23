@@ -21,6 +21,37 @@ test('redeploy endpoint authenticates, validates fixed targets, and rejects exac
 
 test('missing redeploy configuration fails without dispatch or secret exposure',async t=>{let dispatches=0;const f=await fixtureWith({redeployFetcher:async()=>{dispatches++;return new Response(null,{status:202})}});t.after(()=>f.runtime.close());const body=JSON.stringify({target:'runner',requestId:'missing-runner'}),response=await fetch(f.base+REDEPLOY_PATH,{method:'POST',headers:headers('POST',REDEPLOY_PATH,body,'missing-runner-nonce'),body}),text=await response.text();assert.equal(response.status,503);assert.equal(dispatches,0);assert.match(text,/not configured/);assert.doesNotMatch(text,/webhook|https?:/i)});
 
+test('redeploy logs each dispatch before fetch and preserves safe completion and response semantics',async t=>{
+ const configuration={runtime:'http://10.0.0.2/api/webhooks/private-runtime-token',executor:'http://10.0.0.2/api/webhooks/private-executor-token','repository-manager':'http://10.0.0.2/api/webhooks/private-repository-token',controller:'http://10.0.0.2/api/webhooks/private-controller-token'};
+ for(const target of ['runtime','runner'])for(const outcome of ['accepted','rejected','ambiguous']){
+  const events=[],timeline=[],roles=target==='runtime'?['runtime']:['executor','repository-manager','controller'];
+  let calls=0,now=Date.now();
+  const f=await fixtureWith({redeploy:configuration,now:()=>now,logger:event=>{events.push(event);timeline.push(`log:${event.event}:${event.role}`)},redeployFetcher:async(url,init)=>{
+   const role=roles[calls++];timeline.push(`fetch:${role}`);
+   assert.equal(url,configuration[role]);assert.equal(init.method,'POST');assert.equal(init.redirect,'manual');
+   now+=25;
+   if(outcome==='ambiguous')throw new TypeError(`private exception ${url} Authorization: Bearer private-credential`);
+   return new Response('private response body',{status:outcome==='accepted'?202:403});
+  }});
+  t.after(()=>f.runtime.close());
+  const requestId=`redeploy-${target}-${outcome}`,body=JSON.stringify({target,requestId}),signed=headers('POST',REDEPLOY_PATH,body,requestId);
+  const response=await fetch(f.base+REDEPLOY_PATH,{method:'POST',headers:signed,body}),responseText=await response.text(),wire=JSON.parse(responseText);
+  assert.equal(response.status,outcome==='accepted'?202:502);
+  const attempted=outcome==='accepted'?roles:roles.slice(0,1);
+  assert.equal(calls,attempted.length,'ambiguous or rejected requests never retry or dispatch later roles');
+  assert.deepEqual(timeline,[...attempted.flatMap(role=>[`log:runtime_redeploy_role_dispatching:${role}`,`fetch:${role}`]),...attempted.map(role=>`log:runtime_redeploy_role_completed:${role}`)]);
+  assert.deepEqual(events.filter(event=>event.event==='runtime_redeploy_role_dispatching'),attempted.map(role=>({event:'runtime_redeploy_role_dispatching',protocolVersion:PROTOCOL_VERSION,runtimeRevision:'revision-test',operation:'infrastructure_redeploy',requestId,target,role,stage:'webhook_dispatch',providerExecutionEntered:false})));
+  const completions=events.filter(event=>event.event==='runtime_redeploy_role_completed');
+  assert.equal(completions.length,attempted.length);
+  for(const event of completions){assert.equal(event.result,outcome);assert.equal(event.requestId,requestId);assert.equal(event.target,target);assert.equal(event.elapsedMs,25);assert.equal(event.httpStatus,outcome==='ambiguous'?undefined:outcome==='accepted'?202:403)}
+  if(outcome==='accepted')assert.equal(wire.result.state,'accepted');
+  else{assert.equal(wire.error.ambiguous,outcome==='ambiguous');assert.equal(wire.error.retryable,false);assert.equal(wire.error.category,outcome==='ambiguous'?'provider_start_ambiguous':'provider_rejected');assert.match(wire.error.safeMessage,outcome==='ambiguous'?/outcome is uncertain/:/request rejected/)}
+  const combined=responseText+JSON.stringify(events);
+  for(const secret of [auth,signed['x-adt-signature'],...Object.values(configuration),'private-credential','private response body','private exception','10.0.0.2'])assert.equal(combined.includes(secret),false,`must not expose ${secret===auth?'authentication secret':'private upstream material'}`);
+  assert.doesNotMatch(combined,/Authorization|x-adt-signature/);
+ }
+});
+
 test('replay cache is bounded and credential envelope rejects the wrong key identity',async t=>{const cache=new ReplayCache(3);for(let i=0;i<20;i++)assert.equal(cache.accept(`nonce-${i}`),true);assert.equal(cache.size,3);assert.equal(MAX_NONCES,10000);const f=await fixture();t.after(()=>f.runtime.close());const body=JSON.stringify({...request,credential:await wrap('private-provider-text','wrong-key')});const response=await fetch(f.base+EXECUTE_PATH,{method:'POST',headers:headers('POST',EXECUTE_PATH,body,'wrong-key-nonce-1'),body}),text=await response.text();assert.equal(response.status,400);assert.doesNotMatch(text,/private-provider-text|provider-secret/)});
 test('SDK failures are safe, trusted classifications and provider retry is disabled',async()=>{for(const [error,category] of [[new ModelTimeoutError({timeoutMs:30000}),'provider_timeout'],[new ModelRefusalError('private refusal'),'provider_rejected'],[Object.assign(new Error('private'),{status:401}),'authentication_failed'],[Object.assign(new Error('private'),{status:403}),'permission_denied'],[Object.assign(new Error('private'),{status:429}),'rate_limited'],[Object.assign(new Error('private'),{status:503}),'provider_unavailable'],[Object.assign(new Error('private'),{category:'authentication_failed'}),'internal_error']])await assert.rejects(executeOpenAIAgents({...request,credential:await wrap()},'secret',{provider:()=>({getModel:async()=>new ScriptedModel([{type:'error',error}])})}),e=>e.category===category&&e.retryable===false&&!e.safeMessage.includes('private'));let calls=0;await assert.rejects(executeOpenAIAgents({...request,credential:await wrap()},'secret',{client:c=>new OpenAI({...c,fetch:async()=>{calls++;return Response.json({error:{message:'private'}},{status:429})}})}));assert.equal(calls,1)});
 test('wrapping fingerprint is derived from the loaded private key and logs stay structured and secret free',async t=>{const events=[],f=await fixtureWith({logger:event=>events.push(event)});t.after(()=>f.runtime.close());assert.equal(f.runtime.keyId,keyId);const body=JSON.stringify({...request,instructions:'sensitive-prompt-fixture',input:'sensitive-input-fixture',credential:await wrap('sensitive-credential-fixture','wrong-key')});const response=await fetch(f.base+EXECUTE_PATH,{method:'POST',headers:headers('POST',EXECUTE_PATH,body,'logging-nonce-value'),body});assert.equal(response.status,400);assert.ok(events.some(event=>event.event==='runtime_request_rejected'&&event.result==='credential_invalid'&&event.providerExecutionEntered===false));const logged=JSON.stringify(events);assert.doesNotMatch(logged,/sensitive-prompt-fixture|sensitive-input-fixture|sensitive-credential-fixture|wrong-key|wrappedKey|ciphertext|x-adt-signature/)});
