@@ -1,6 +1,7 @@
 import { createHash, createHmac, createPrivateKey, createPublicKey, timingSafeEqual, webcrypto } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { z } from "zod";
+import {openAIMaxOutputTokens,openAIReasoningEfforts,openAIVerbosities} from "./openai-model-policy.js";
 import {parseOllamaConfiguration} from "./ollama-configuration.js";
 
 export const PROTOCOL_VERSION = "adt-runtime-v1";
@@ -29,7 +30,7 @@ export const executionSchema = z.object({
   requestId: bounded(128), idempotencyKey: bounded(256), agentName: bounded(160),
   instructions: bounded(262_144), input: bounded(262_144), model: bounded(120),
   executionTimeoutMs:z.number().int().min(5_000).max(120_000).default(30_000),
-  options: z.object({reasoningEffort:z.enum(["none","low","medium","high","xhigh","max"]).optional(),verbosity:z.enum(["low","medium","high"]).optional(),maxOutputTokens:z.number().int().positive().max(262_144).optional()}).strict(),
+  options: z.object({reasoningEffort:z.enum(openAIReasoningEfforts).optional(),verbosity:z.enum(openAIVerbosities).optional(),maxOutputTokens:z.number().int().positive().max(openAIMaxOutputTokens).optional()}).strict(),
   tools:z.array(z.literal("artifact_search")).max(1).default([]),
   toolGateway:z.object({url:z.string().url().max(2048),authority:bounded(4096)}).strict().optional(),
   mcpTools:z.array(authorizedMcpTool).max(128).default([]),

@@ -132,14 +132,31 @@ test('workerd and ADT Runtime preserve journaled failure evidence without replay
  const {manualRetryEligibility}=await import('../../lib/workflow-storage.ts');
  const {privateKey,publicKey}=generateKeyPairSync('rsa',{modulusLength:2048,privateKeyEncoding:{type:'pkcs8',format:'pem'},publicKeyEncoding:{type:'spki',format:'pem'}});
  const events=[];
- let providerCalls=0;
+ const providerRequests=[];
  const runtime=await createRuntimeServer({
   host:'127.0.0.1',port:0,authSecret:secret,privateKeyPem:privateKey,revision:'journal-integration',
   logger:event=>events.push(event),
-  providerHttp:{fetcher:async()=>{
-   providerCalls++;
-   return Response.json({id:'success',object:'chat.completion',created:1,model:'gpt-5',
-    choices:[{index:0,finish_reason:'stop',message:{role:'assistant',content:'SENSITIVE_PROVIDER_OUTPUT'}}]});
+  providerHttp:{fetcher:async(url,init)=>{
+   assert.match(String(url),/\/chat\/completions$/);
+   const body=JSON.parse(init.body);providerRequests.push(body);
+   if(body.model==='vendor-unsupported-tools'){
+    return Response.json({error:{type:'invalid_request_error',param:'tools',code:'unsupported_parameter',message:'SENSITIVE_PROVIDER_ERROR'}},{status:400});
+   }
+   const reply=(finish_reason,message)=>Response.json({id:'success',object:'chat.completion',created:1,model:body.model,
+    choices:[{index:0,finish_reason,message}]});
+   if(body.model!=='gpt-6-luna')return reply('stop',{role:'assistant',content:'SENSITIVE_PROVIDER_OUTPUT'});
+   assert.equal(body.reasoning_effort,'none');assert.equal(body.verbosity,'low');
+   assert.equal(body.max_completion_tokens,1600);assert.equal(body.max_tokens,undefined);
+   const last=body.messages.at(-1);
+   if(last.role==='tool'){
+    assert.equal(last.tool_call_id,'assistant-call-1');
+    const data=JSON.parse(last.content);assert.equal(data.ok,true);assert.equal(data.result.id,'review');
+    return reply('stop',{role:'assistant',content:'Analysis grounded in review'});
+   }
+   assert.ok(body.tools.some(tool=>tool.function.name==='adt_workflow_read'));
+   return reply('tool_calls',{role:'assistant',content:null,tool_calls:[{
+    id:'assistant-call-1',type:'function',function:{name:'adt_workflow_read',arguments:JSON.stringify({workflowId:'review'})},
+   }]});
   }},
  });
  await runtime.listen();
@@ -170,7 +187,7 @@ test('workerd and ADT Runtime preserve journaled failure evidence without replay
  const worker=await build({stdin:{resolveDir:process.cwd(),contents:`
   import {AgentOperationFailure,RemoteOpenAIAgentsRuntime} from './lib/adt-runtime-client.ts';
   export default {async fetch(request,env) {
-   const baseUrl = new URL(request.url).pathname === '/rejected' ? env.RUNTIME : env.PROXY;
+   const baseUrl = ['/rejected','/compatible'].includes(new URL(request.url).pathname) ? env.RUNTIME : env.PROXY;
    const remote = new RemoteOpenAIAgentsRuntime({baseUrl,authSecret:env.AUTH,wrappingPublicKey:env.KEY});
    const {path,payload,credential} = await request.json();
    try {return Response.json(await remote.agentOperation(path,payload,credential))}
@@ -197,10 +214,10 @@ test('workerd and ADT Runtime preserve journaled failure evidence without replay
    if(!result.ok)throw new AgentOperationFailure(value.category,value.safeMessage,value.diagnostics,value.ambiguous);
    return value;
   }};
-  const f=await nativeFixture(t,{remote,model:rejected?'gpt-6-luna':'gpt-5',tools:ADT_DATA_TOOLS.filter(tool=>!isSensitiveAdtTool(tool))});
+  const providerCallsBefore=providerRequests.length;
+  const f=await nativeFixture(t,{remote,model:rejected?'vendor-unsupported-tools':'gpt-5',tools:ADT_DATA_TOOLS.filter(tool=>!isSensitiveAdtTool(tool))});
   const validate=()=>validateAgentForConnection(f.value.agentSnapshots.analyst,f.value.connectionSnapshots.agents);
-  if(rejected)assert.throws(validate,/gpt-6-luna.*supported tool-capable model/);
-  else assert.doesNotThrow(validate);
+  assert.doesNotThrow(validate);
   const failStep=f.storage.failStep.bind(f.storage);
   f.storage.failStep=async()=>{throw Error('simulated interruption before attempt finalization')};
   await assert.rejects(f.step(),/simulated interruption/);
@@ -217,7 +234,7 @@ test('workerd and ADT Runtime preserve journaled failure evidence without replay
    checkpointAuthority:async()=> 'unused',nodeAuthority:async()=> 'unused',
   });
   const detail=await f.storage.getRun(f.value.id),attempt=detail.attempts[0];
-  const category=rejected?'configuration_invalid':'provider_start_ambiguous';
+  const category=rejected?'tool_proposals_unsupported':'provider_start_ambiguous';
   assert.equal(result.status,'failed');
   assert.equal(detail.run.failureCode,category);
   assert.equal(attempt.failureCategory,category);
@@ -227,17 +244,41 @@ test('workerd and ADT Runtime preserve journaled failure evidence without replay
   assert.equal(manualRetryEligibility(detail).eligible,false);
   assert.equal(requests,1);
   assert.equal(f.reads,0);
-  assert.equal(providerCalls,rejected?0:1);
+  assert.equal(providerRequests.length-providerCallsBefore,redirectPost?0:1);
   assert.equal(unintendedRequests,0);
   assert.equal(diagnostic.stage,scenario==='lost'?'dispatch':'response');
   assert.equal(diagnostic.outcome,scenario==='lost'?'network_error':'response_received');
   assert.equal(diagnostic.httpStatus,rejected?422:redirectPost?307:undefined);
   assert.equal(diagnostic.runtimeCode,rejected?'execution_failed':redirectPost?'unexpected_redirect':undefined);
-  assert.equal(diagnostic.providerExecutionEntered,rejected?false:undefined);
+  assert.equal(diagnostic.providerExecutionEntered,rejected?true:undefined);
   const correlated=events.filter(event=>event.requestId===diagnostic.clientRequestId);
   assert.equal(correlated.some(event=>event.event==='runtime_agent_operation_received'&&event.operation==='model_progression'),!redirectPost);
-  assert.equal(correlated.some(event=>event.event==='runtime_provider_execution_started'),scenario==='lost');
-  if(rejected)assert.match(attempt.safeFailureMessage,/no verified tool capability/);
+  assert.equal(correlated.some(event=>event.event==='runtime_provider_execution_started'),!redirectPost);
+  if(rejected)assert.match(attempt.safeFailureMessage,/cannot propose tools/);
   assert.doesNotMatch(JSON.stringify({diagnostic,correlated}),/SENSITIVE_|127\.0\.0\.1|wrappedKey|ciphertext|toolArguments/);
  });
+ await t.test('GPT-6 Luna Chat Completions fixture preserves ADT-only execution and provider correlation',async t=>{
+  const remote={agentOperation:async(path,payload,credential)=>{
+   const response=await mf.dispatchFetch('http://worker/compatible',{
+    method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({path,payload,credential}),
+   });
+   assert.equal(response.status,200,await response.clone().text());
+   return response.json();
+  }};
+  const f=await nativeFixture(t,{remote,model:'gpt-6-luna',adapterOptions:{reasoningEffort:'none',verbosity:'low',maxOutputTokens:1600},tools:['adt_workflow_read']});
+  const before=providerRequests.length;
+  assert.equal((await f.step()).state,'pending');
+  assert.equal(f.reads,0);
+  assert.equal(f.authorizations,0);
+  assert.equal((await f.finish()).outputText,'Analysis grounded in review');
+  assert.equal(f.reads,1);
+  assert.equal(f.authorizations,1);
+  assert.equal(providerRequests.length-before,2);
+  const calls=await f.journal.calls(f.id);
+  assert.equal(calls.length,1);assert.equal(calls[0].provider_call_id,'assistant-call-1');assert.equal(calls[0].state,'completed');
+  assert.equal((await f.step()).state,'completed');
+  assert.equal(f.reads,1);
+  assert.equal(providerRequests.length-before,2);
+ });
+
 });

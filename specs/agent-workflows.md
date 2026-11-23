@@ -139,8 +139,8 @@
 ## 10. Agent tools
 
 - Provider capability policy explicitly determines whether an Agent execution path supports tools.
-- Agent saves validate the selected model against deterministic tool eligibility rules when grants are present. New Workflow runs apply the same rules to each Agent activation after resolving its effective model and tool restrictions.
-- Deterministic eligibility does not establish live model access or capability. ADT Runtime independently enforces eligibility and checks advertised Ollama tool support at execution. Tool-free executions do not require verified tool support.
+- Agent saves, Workflow authoring and new-run admission check known incompatibilities with the selected provider API and settings. Workflow checks use each block’s effective tool restrictions.
+- Provider discovery establishes account or endpoint availability. Unknown model capabilities and optional setting support can be checked by the provider during normal execution. Runtime independently enforces known API requirements and checks advertised tool support where available. Tool-free work requires only the selected API and settings.
 - Frozen runs remain readable and recover under their saved execution contract.
 - Artifact Search remains a built-in ADT tool and uses the authorised application gateway.
 - Runtime evaluates a provider-independent security boundary after a model requests a tool and before execution.
@@ -206,7 +206,7 @@
 - A connection selects a provider-discovered Claude model before an Agent can use it.
 - The resolved Agent prompt is the Anthropic system prompt; the Workflow handoff is one user message. Neither value is implicitly transformed.
 - Tool-free Anthropic execution uses one bounded Messages request. Tool-enabled Agents use ordered native tool calls and results through the common ADT lifecycle. Neither path has a provider task or cancellation identity.
-- Only bounded ordered text blocks become Workflow output. Tools, thinking, streaming, provider sessions, and non-text response data are not supported.
+- Only bounded ordered text blocks become Workflow output. Extended thinking, server tools, streaming and provider sessions are outside the supported path.
 - An ambiguous synchronous start is not blindly retried because the request may already have produced billable provider work.
 
 ### Ollama execution
@@ -219,7 +219,7 @@
 - Runs freeze the selected model, validated base URL, authentication mode, credential reference when required, and Ollama Agent settings. Later connection changes cannot replace a historical endpoint or credential identity. Revoked bearer credentials fail closed.
 - Each invocation sends the resolved Agent prompt unchanged as a system message and the Workflow handoff unchanged as one user message, including an empty handoff. Only textual message content becomes Workflow output; thinking and timing metadata are not retained.
 - Agent controls expose only a positive maximum output-token count and execution timeout. Defaults are 4096 tokens and 300 seconds; supported ranges are 1–32768 tokens and 5–900 seconds.
-- Tool-free Ollama execution uses one bounded chat request. Models advertising tool capability may use the common ADT tool, approval and Security Profile lifecycle with an ADT-owned conversation. Streaming, images and embeddings remain unsupported. Uncertain submissions are not blindly retried.
+- Tool-free Ollama execution uses one bounded chat request. Tool-enabled runs use the common ADT tool, approval and Security Profile lifecycle. Ollama’s advertised tool support is checked when available. Streaming, images and embeddings remain unsupported. Uncertain submissions are not blindly retried.
 - A Runtime without Ollama execution/model-discovery capabilities reports the provider unavailable until upgraded. Generic Runtime diagnostics, Ollama model commissioning, and actual Agent execution remain distinct checks.
 
 ### Microsoft Work IQ execution

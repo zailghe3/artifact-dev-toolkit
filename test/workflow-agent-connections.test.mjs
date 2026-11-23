@@ -36,13 +36,19 @@ test('Agent POST and PUT preserve granular fail-closed Codex validation for disa
  }
 });
 
-test('Agent authoring enforces provider tool-model eligibility only when tools are granted',async()=>{
+test('Agent authoring distinguishes provider authority, documented incompatibility and unknown model support',async()=>{
  const {validateAgentForConnection}=await import('../lib/workflow-definitions.ts');
  const {agent,connection}=await import('./support/advisor-fixtures.mjs');
- for(const [adapter,defaultModel] of [['openai-agents','gpt-6-luna'],['openai-agents','gpt-5-pro'],['anthropic-messages','claude-2']]){
-  const selected={...connection,adapter,defaultModel};
-  assert.throws(()=>validateAgentForConnection(agent,selected),error=>error.message.includes(defaultModel)&&/supported tool-capable model/.test(error.message));
-  assert.doesNotThrow(()=>validateAgentForConnection({...agent,tools:[]},selected));
- }
+ const options={reasoningEffort:'minimal',verbosity:'high',maxOutputTokens:130000};
+ assert.deepEqual(validateAgentForConnection({...agent,adapterOptions:options},{...connection,defaultModel:'vendor-pro-codex-preview'}).adapterOptions,options);
+ assert.doesNotThrow(()=>validateAgentForConnection(agent,{...connection,adapter:'anthropic-messages',defaultModel:'new-anthropic-model'}));
  assert.doesNotThrow(()=>validateAgentForConnection(agent,{...connection,adapter:'ollama-chat',defaultModel:'locally-installed-model'}));
+ assert.throws(()=>validateAgentForConnection(agent,{...connection,adapter:'openai-responses',capabilities:{}}),/agent_tool_runtime_unsupported/);
+
+ const luna={...connection,defaultModel:'gpt-6-luna'},pro={...connection,defaultModel:'gpt-5-pro'};
+ assert.throws(()=>validateAgentForConnection(agent,luna),{code:'unsupported_model_option'});
+ assert.doesNotThrow(()=>validateAgentForConnection({...agent,adapterOptions:{reasoningEffort:'none'}},luna));
+ assert.doesNotThrow(()=>validateAgentForConnection({...agent,tools:[]},luna));
+ assert.throws(()=>validateAgentForConnection(agent,pro),{code:'provider_api_unsupported'});
+ assert.doesNotThrow(()=>validateAgentForConnection({...agent,tools:[]},pro));
 });

@@ -1,5 +1,5 @@
 import {parseOllamaConfiguration} from "../adt-runtime/src/ollama-configuration.ts";
-import {agentToolModelEligibility} from "../adt-runtime/src/agent-model-eligibility.ts";
+import {openAIModelCompatibilityIssue} from "../adt-runtime/src/openai-model-policy.ts";
 export const PROVIDER_CONNECTION_TYPE_IDS=["openai-responses","openai-agents","anthropic-messages","work-iq-rest","ollama-chat"] as const;
 export type ProviderConnectionTypeId=typeof PROVIDER_CONNECTION_TYPE_IDS[number];
 export type ProviderAuthenticationKind="api-key"|"delegated-oauth"|"optional-api-key";
@@ -19,8 +19,8 @@ const noSafeConfiguration:ProviderSafeConfigurationPolicy={forExecution:false,pa
 const secretConfigurationFields=new Set(["apikey","clientsecret","refreshtoken","accesstoken","authorizationcode","pkceverifier","oauthstate"]);
 export function createStringSafeConfigurationPolicy(fields:Record<string,{required?:boolean;maxLength:number;pattern?:RegExp}>,forExecution=true):ProviderSafeConfigurationPolicy{return{forExecution,parse(value){if(!value||typeof value!=="object"||Array.isArray(value))throw new Error("provider_configuration_invalid");const input=value as Record<string,unknown>,output:Record<string,string>={};for(const key of Object.keys(input)){if(secretConfigurationFields.has(key.replace(/[^a-z]/gi,"").toLowerCase())||!fields[key])throw new Error("provider_configuration_invalid");const rule=fields[key],item=input[key];if(typeof item!=="string")throw new Error("provider_configuration_invalid");const normalized=item.trim();if(!normalized||normalized.length>rule.maxLength||(rule.pattern&&!rule.pattern.test(normalized)))throw new Error("provider_configuration_invalid");output[key]=normalized}for(const [key,rule] of Object.entries(fields))if(rule.required&&!output[key])throw new Error("provider_configuration_invalid");return output}}}
 export function normalizeProviderSafeConfiguration(policy:Pick<ProviderConnectionTypePolicy,"safeConfiguration">,value:unknown){return policy.safeConfiguration.parse(value)}
-const openAIModel={required:true,discovery:true,discoveryGuidance:"Search the models available to this authenticated OpenAI project."} as const;
-const anthropicModel={required:true,discovery:true,discoveryGuidance:"Load models available to this authenticated Anthropic account or workspace."} as const;
+const openAIModel={required:true,discovery:true,discoveryGuidance:"Search models available to this OpenAI project. Availability alone does not confirm API, tool or setting support."} as const;
+const anthropicModel={required:true,discovery:true,discoveryGuidance:"Load models available to this Anthropic account or workspace. Availability alone does not confirm tool or setting support."} as const;
 const anthropicConfigurationBase=createStringSafeConfigurationPolicy({workspaceId:{maxLength:128,pattern:/^wrkspc_[A-Za-z0-9_-]+$/}});
 const anthropicSafeConfiguration:ProviderSafeConfigurationPolicy={forExecution:true,parse(value){if(value===undefined)return undefined;const parsed=anthropicConfigurationBase.parse(value)!;return Object.keys(parsed).length?parsed:undefined}};
 const guid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -31,10 +31,10 @@ const types:Record<ProviderConnectionTypeId,ProviderConnectionType>={
  "openai-agents":{id:"openai-agents",provider:"openai",label:"OpenAI Agents (ADT Runtime)",catalogueLabel:"OpenAI Agents / ADT Runtime",endpoint:"https://api.openai.com/v1",authentication:"api-key",model:openAIModel,capabilities:{asynchronous:false,cancellation:false,agentTools:true,runtimeSecurity:true},execution:"adt-runtime",agentSettings:"openai-model",safeConfiguration:noSafeConfiguration},
  "anthropic-messages":{id:"anthropic-messages",provider:"anthropic",label:"Anthropic",catalogueLabel:"Anthropic",endpoint:"https://api.anthropic.com",authentication:"api-key",model:anthropicModel,capabilities:{asynchronous:false,cancellation:false,agentTools:true,runtimeSecurity:true},execution:"adt-runtime",agentSettings:"anthropic-messages",safeConfiguration:anthropicSafeConfiguration},
  "work-iq-rest":{id:"work-iq-rest",provider:"microsoft-work-iq",label:"Microsoft Work IQ",catalogueLabel:"Microsoft Work IQ",endpoint:"https://workiq.svc.cloud.microsoft",authentication:"delegated-oauth",model:{required:false,discovery:false},capabilities:{asynchronous:false,cancellation:false},execution:"adt-runtime",agentSettings:"work-iq-rest",safeConfiguration:workIqSafeConfiguration},
- "ollama-chat":{id:"ollama-chat",provider:"ollama",label:"Ollama (ADT Runtime)",catalogueLabel:"Ollama (ADT Runtime)",authentication:"optional-api-key",model:{required:true,discovery:true,location:"adt-runtime",discoveryGuidance:"Load models through ADT Runtime from the operator-approved Ollama endpoint."},capabilities:{asynchronous:false,cancellation:false,agentTools:true,runtimeSecurity:true},execution:"adt-runtime",agentSettings:"ollama-chat",safeConfiguration:ollamaSafeConfiguration},
+ "ollama-chat":{id:"ollama-chat",provider:"ollama",label:"Ollama (ADT Runtime)",catalogueLabel:"Ollama (ADT Runtime)",authentication:"optional-api-key",model:{required:true,discovery:true,location:"adt-runtime",discoveryGuidance:"Load models from the operator-approved Ollama endpoint. Tool support is checked separately when tools are offered."},capabilities:{asynchronous:false,cancellation:false,agentTools:true,runtimeSecurity:true},execution:"adt-runtime",agentSettings:"ollama-chat",safeConfiguration:ollamaSafeConfiguration},
 };
 
-export function getProviderConnectionType(value:string):ProviderConnectionType|undefined{return types[value as ProviderConnectionTypeId]}
+export function getProviderConnectionType(value:string):ProviderConnectionType|undefined{return Object.hasOwn(types,value)?types[value as ProviderConnectionTypeId]:undefined}
 export function requireProviderConnectionType(value:string):ProviderConnectionType{const type=getProviderConnectionType(value);if(!type)throw new Error("connection_unavailable");return type}
 export const providerConnectionTypes=PROVIDER_CONNECTION_TYPE_IDS.map(id=>types[id]);
 export function isExecutableGitProviderAdapter(value:string){return Boolean(getProviderConnectionType(value))}
@@ -42,13 +42,17 @@ export function usesOpenAIModelAgentSettings(policy:Pick<ProviderConnectionTypeP
 export function usesAnthropicMessagesAgentSettings(policy:Pick<ProviderConnectionTypePolicy,"agentSettings">|undefined){return policy?.agentSettings==="anthropic-messages"}
 export function usesWorkIqAgentSettings(policy:Pick<ProviderConnectionTypePolicy,"agentSettings">|undefined){return policy?.agentSettings==="work-iq-rest"}
 export function supportsAgentTools(policy:Pick<ProviderConnectionTypePolicy,"capabilities">|undefined){return policy?.capabilities.agentTools===true}
-export class UnsupportedAgentToolModelError extends Error{
-  constructor(model:string){
-    super(`Model ${JSON.stringify(model)} has no verified tool capability. Select a supported tool-capable model.`);
-  }
+export class ProviderModelCompatibilityError extends Error {
+  readonly code:string;
+  constructor(code:string, safeMessage:string){super(safeMessage);this.code=code}
 }
-export function validateAgentToolModel(adapter:string,model:string|undefined,hasTools:boolean){
-  if(model&&agentToolModelEligibility(adapter,model,hasTools)==="ineligible")throw new UnsupportedAgentToolModelError(model);
+export function usesJournaledAgentProgression(adapter:string,agent:{tools?:readonly unknown[];securityProfileId?:string},blockVersion?:number,advisor=false){
+  return supportsAgentTools(getProviderConnectionType(adapter))&&Boolean(agent.tools?.length||agent.securityProfileId||blockVersion===4||advisor);
+}
+export function validateProviderModelCompatibility(adapter:string,model:string|undefined,options:unknown,journaled:boolean,hasTools:boolean){
+  if(!model||(adapter!=="openai-agents"&&adapter!=="openai-responses"))return;
+  const issue=openAIModelCompatibilityIssue(journaled?"chat-completions":"responses",model,(options??{}) as {reasoningEffort?:string;maxOutputTokens?:number},hasTools);
+  if(issue)throw new ProviderModelCompatibilityError(issue.category,issue.safeMessage);
 }
 export function normalizeConnectionModel(policy:Pick<ProviderConnectionTypePolicy,"model">,model?:string){const value=model?.trim();if(policy.model.required&&!value)throw new Error("model_required");return policy.model.required&&value?{model:value}:{};}
 export function connectionRequestModel(policy:Pick<ProviderConnectionTypePolicy,"model">,model:string){return normalizeConnectionModel(policy,model)}
