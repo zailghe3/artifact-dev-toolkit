@@ -72,6 +72,55 @@ test('Runtime independently enforces documented API and settings requirements be
  await assert.rejects(progressAgentModel({...request('anthropic-messages'),options:{verbosity:'high'}},'fixture-secret',new Set(),{fetcher}),{category:'unsupported_model_option'});
 });
 
+test('installed Agents SDK cannot supply implicit Luna reasoning authority, including tool-result continuation',async()=>{
+ const input={...request('openai-agents'),model:'gpt-6-luna'};
+ let entries=0,requests=0;
+ const dependencies={onProviderEntry:()=>{entries++},fetcher:async(url,init)=>{
+  requests++;
+  const body=JSON.parse(init.body);
+  assert.match(String(url),/\/chat\/completions$/);
+  assert.equal(body.reasoning_effort,'none');
+  assert.equal(body.max_completion_tokens,100);
+  assert.equal(Object.hasOwn(body,'max_tokens'),false);
+  assert.equal(body.store,false);
+  assert.equal(body.parallel_tool_calls,false);
+  assert.deepEqual(body.tools,[{type:'function',function:{name:'search',description:'Search',parameters:schema,strict:false}}]);
+  return Response.json({id:'luna-response',object:'chat.completion',created:1,model:input.model,choices:[{index:0,finish_reason:'tool_calls',message:{role:'assistant',content:null,tool_calls:[{id:'luna-call',type:'function',function:{name:'search',arguments:'{"query":"safe"}'}}]}}]});
+ }};
+ const conversation=[...input.conversation,{role:'assistant',text:'',calls:[{id:'prior-call',name:'search',arguments:{query:'prior'}}]},{role:'tool',callId:'prior-call',name:'search',text:'prior result'}];
+ for(const reasoningEffort of [undefined,'low','high'])for(const continuation of [false,true]){
+  await assert.rejects(progressAgentModel({...input,options:{maxOutputTokens:100,...(reasoningEffort?{reasoningEffort}:{})},...(continuation?{tools:[],conversation,turn:2}:{})},'fixture-secret',new Set(),dependencies),{category:'unsupported_model_option'});
+ }
+ assert.equal(entries,0);assert.equal(requests,0);
+ const result=await progressAgentModel({...input,options:{maxOutputTokens:100,reasoningEffort:'none'}},'fixture-secret',new Set(),dependencies);
+ assert.deepEqual(result.calls,[{id:'luna-call',name:'search',arguments:{query:'safe'}}]);
+ assert.equal(entries,1);assert.equal(requests,1);
+});
+
+test('installed Agents SDK usage metadata stays outside the bounded ADT model result',async()=>{
+ const usage={prompt_tokens:7,completion_tokens:3,total_tokens:10,prompt_tokens_details:{cached_tokens:2,provider_metadata:{private:'SENSITIVE_USAGE'}},completion_tokens_details:{reasoning_tokens:1,provider_metadata:['SENSITIVE_USAGE']}};
+ const fetcher=async()=>Response.json({id:'usage-response',object:'chat.completion',created:1,model:'gpt-4.1',choices:[{index:0,finish_reason:'stop',message:{role:'assistant',content:'done'}}],usage});
+ const result=await progressAgentModel(request('openai-agents'),'fixture-secret',new Set(),{fetcher});
+ assert.deepEqual(result,{version:1,text:'done',calls:[],usage:{inputTokens:7,outputTokens:3}});
+ assert.doesNotMatch(JSON.stringify(result),/SENSITIVE_USAGE|provider_metadata|reasoning_tokens/);
+ for(const counter of [-1,1.5,10_000_001]){
+  usage.prompt_tokens=counter;
+  await assert.rejects(progressAgentModel(request('openai-agents'),'fixture-secret',new Set(),{fetcher}));
+ }
+});
+
+test('installed Agents SDK rejects unsupported or uncorrelatable tool responses without retry',async()=>{
+ const call={id:'exact-call',type:'function',function:{name:'search',arguments:'{"query":"safe"}'}};
+ for(const toolCalls of [[call,call],[{...call,type:'custom',custom:{name:'search',input:'unsafe'}}],[{...call,function:{...call.function,arguments:'invalid-json'}}],[{...call,function:{...call.function,name:'ungranted'}}]]){
+  let requests=0;
+  await assert.rejects(progressAgentModel(request('openai-agents'),'fixture-secret',new Set(),{fetcher:async()=>{
+   requests++;
+   return Response.json({id:'invalid-response',object:'chat.completion',created:1,model:'gpt-4.1',choices:[{index:0,finish_reason:'tool_calls',message:{role:'assistant',content:null,tool_calls:toolCalls}}]});
+  }}));
+  assert.equal(requests,1);
+ }
+});
+
 test('provider rejections distinguish tool capability, endpoint, availability and settings without exposing payloads',async()=>{
  for(const [provider,status,body,category] of [
   ['openai-agents',400,{error:{type:'invalid_request_error',param:'tools',code:'unsupported_parameter',message:'private'}},'tool_proposals_unsupported'],
