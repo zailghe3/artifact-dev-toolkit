@@ -19,6 +19,7 @@ Next.js -> OpenNext -> Cloudflare Worker
     |       - application sessions
     |       - encrypted provider credential vault
     |       - durable Workflow run and attempt state
+    |       - Advisor knowledge proposals
     |
     +--> Cloudflare KV
     |       - disposable validated catalogue cache
@@ -35,7 +36,7 @@ Next.js -> OpenNext -> Cloudflare Worker
     |       - extensible ordinary AI provider execution and provider SDKs
     |       - bounded remote MCP Streamable HTTP client execution
     |       - fixed Runtime/Runner redeploy webhooks for authorised maintenance
-    |       - no durable ADT state or broad control-plane authority
+    |       - PostgreSQL for repository-scoped Advisor settings and Codex environment registrations
     |
     +--> independently published Adrian backend
     |       - vendored, provenance-verified upstream backend image
@@ -54,7 +55,7 @@ Exact bindings, schemas, versions, limits, identifiers, protocols, retries, and 
 
 - ADT owns the durable domain model, policy, authorisation, and recorded outcomes; framework-specific objects are replaceable implementation roles rather than the product model.
 - React Flow presents Workflow graphs; canonical Workflow v2 JSON defines semantics; LangGraph performs sequencing; provider runtimes execute AI work.
-- Git stores recoverable non-secret configuration. The encrypted ADT vault stores provider credential values. D1 stores durable application and execution state. KV is disposable acceleration.
+- Git stores recoverable non-secret configuration. The encrypted ADT vault stores provider credential values. D1 stores sessions, Workflow execution state and other operational records. Runtime owns durable Advisor settings and Codex environment registrations in PostgreSQL. KV is disposable acceleration.
 - The Cloudflare Worker is ADT's trust and durable-control plane, including user authorisation, Git authority, credential resolution, Workflow admission, and narrow privileged gateways.
 - Browsers and execution services receive only the authority needed for their role; broad GitHub, Cloudflare, vault, or infrastructure credentials remain in the control plane or the exact trusted component that needs them.
 - Keep the Cloudflare Worker lean. Execution-heavy provider SDKs and orchestration libraries belong in ADT Runtime unless they genuinely require control-plane authority.
@@ -136,7 +137,7 @@ The product invariants are in [`specs/agent-workflows.md`](specs/agent-workflows
 ### Advisor
 
 - Advisor launches an explicitly configured ordinary Workflow through the shared durable admission path; it is not a separate execution engine or privileged identity.
-- D1 stores repository-scoped Advisor settings and the run's frozen read-only context. Effective Agent and provider overrides use the existing run snapshots without rewriting Git definitions.
+- Runtime persists repository-scoped Advisor settings in PostgreSQL. D1 stores the run's frozen read-only context. Effective Agent and provider overrides use the existing run snapshots without rewriting Git definitions.
 - Native ADT metadata tools reuse the provider-neutral Agent tool journal, admission and shared security gate. The Worker checks exact frozen grants, active attempt authority and current repository identity before scoped Git or D1 reads.
 - Existing metadata projections exclude sensitive content. Independently granted deeper observability tools require exact-call human approval, frozen scope and current authority; raw errors and unsafe external payloads remain omitted.
 - Approved Advisor knowledge lives only in the configured Git repository under `advisor/knowledge/`. D1 stores account/repository-scoped proposals, expiring session-bound review consent and publication state, never an authoritative accepted-knowledge index.
@@ -157,7 +158,7 @@ The product invariants are in [`specs/agent-workflows.md`](specs/agent-workflows
 
 ### ADT Runtime
 
-- ADT Runtime is an independently deployed, replaceable compute and provider-execution service with no durable ADT state or persisted provider credentials.
+- ADT Runtime is an independently deployed compute and provider-execution service. It owns repository-scoped Advisor settings and Codex environment registrations in PostgreSQL.
 - LangGraph computes bounded Workflow progression, but durable checkpoints and executable-node admission remain behind narrowly scoped Worker gateways.
 - The Worker retains Workflow admission, durable state, credential authority, outer recovery, and repository/tool authority.
 - Provider credentials are resolved in the control plane and supplied only for the exact invocation that needs them.
@@ -191,7 +192,8 @@ Operational detail belongs in [`codex-runner/README.md`](codex-runner/README.md)
 | Artifact content and Git-backed Agent, Workflow, layout, provider connection, and Security Profile definitions | configured GitHub repository |
 | Approved Advisor knowledge | configured GitHub repository (`advisor/knowledge/`) |
 | Artifact repository layout and metadata | `docs/external-artifact-repository-contract.md` plus validation code |
-| Application sessions, encrypted provider credential vault, Advisor settings/proposals/publication state, and durable Workflow state | D1 schema, migrations, and source |
+| Application sessions, encrypted provider credential vault, Advisor proposals/publication state, and durable Workflow state | D1 schema, migrations, and source |
+| Advisor settings and Codex environment registrations | [Runtime PostgreSQL](docs/runtime-postgresql.md) |
 | Catalogue acceleration | KV cache; GitHub remains authoritative |
 | Durable Workflow orchestration | Cloudflare Workflows outer lifecycle; LangGraph sequencing in ADT Runtime; checkpoints persisted behind the control plane in D1 |
 | Ordinary AI provider execution (OpenAI Agents, Anthropic Messages, Work IQ, Ollama) | independently deployed ADT Runtime; direct OpenAI Responses remains a supported exception |
@@ -207,7 +209,7 @@ Operational detail belongs in [`codex-runner/README.md`](codex-runner/README.md)
 - D1 contains durable history and encrypted vault state; losing it may lose history and require credentials to be restored or re-entered.
 - The vault encryption key remains outside D1; loss of that key makes vault ciphertext unusable without exposing plaintext.
 - KV catalogue state may be discarded and rebuilt from Git.
-- ADT Runtime is replaceable without local durable state.
+- Runtime instances share PostgreSQL and a protected root-key export. Back up the database and its matching key separately.
 - Codex Runner owns separate operator-managed durable state for Controller jobs, Codex identity/home state, local SQLite state, and managed repository authority where configured.
 
 ## Important trust and state boundaries

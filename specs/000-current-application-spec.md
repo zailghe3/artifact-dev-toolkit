@@ -161,7 +161,7 @@
 ## 11. Advisor
 
 - Advisor is a top-level, on-demand analysis entry point backed by an explicitly selected ordinary Workflow.
-- Advisor settings persist the selected Workflow identity and optional configured provider connection/model override server-side for the authorised repository.
+- Advisor settings persist the selected Workflow identity and optional configured provider connection/model override server-side for the authorised repository. Concurrent changes are checked against the saved revision. When settings are unavailable, Advisor reports the outage and prevents a new question from launching.
 - Selection and launch validate the current Workflow, transitive composition, Agent configuration and effective provider/model compatibility after applying the Advisor override and Workflow tool restrictions. Missing dependencies and known incompatibilities fail explicitly. Capability uncertainty is resolved through the normal provider request.
 - Each question starts a fresh ordinary Workflow execution. Existing run history, progress, approvals, cancellation, retry and recovery remain authoritative.
 - The underlying Workflow stays visible and editable through ordinary editors. Advisor links to its definition and execution record and displays effective provider/model choices.

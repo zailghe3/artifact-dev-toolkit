@@ -5,7 +5,6 @@ import assert from 'node:assert/strict';
 import {mkdtemp,readFile,writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
-import {AdvisorSettingsStore} from '../lib/advisor-settings.ts';
 import {applyAdvisorOverride,assertAdvisorReadOnly,assertAdvisorRunReadOnly} from '../lib/advisor-policy.ts';
 import {validateAdvisorSelection} from '../lib/advisor-configuration.ts';
 import {InMemoryWorkflowDefinitionRepository} from '../lib/workflow-definition-repository.ts';
@@ -25,11 +24,8 @@ async function fixture(){
  const deps={getWorkflowRunStorage:async()=>storage,createWorkflowDefinitionRepository:()=>repo,listWorkflowConnectionIdentityDescriptors:async()=>[connection,{...connection,key:'override',defaultModel:'gpt-5-mini'}],readCodexRunnerCatalog:async()=>({environments:[]}),listWorkflowConnectionDescriptors:async()=>[connection],getWorkflowEnvironment:async()=>({AGENT_RUN_WORKFLOW:{create:async({id})=>{launches++;return{id}}}}),getMcpPolicyAuthority:async()=>({}),getProviderCredentialVault:async()=>({}),createToolDefinitionRepository:()=>({list:async()=>[]}),createSecurityProfileDefinitionRepository:()=>({list:async()=>[]}),getWorkflowProviderConnectionStore:async()=>({resolveForSnapshot:async(key,snapshot)=>snapshot,resolveForExecution:async(key,snapshot)=>({...snapshot,credential:'SENSITIVE_CREDENTIAL'})}),getProviderModelService:async()=>({validate:async(...args)=>modelChecks.push(args)})};
  return{storage,repo,deps,launches:()=>launches,modelChecks};
 }
-test('repository-scoped Advisor settings persist and reject stale concurrent saves',async t=>{
- const db=await database(t),store=new AdvisorSettingsStore(db);assert.deepEqual(await store.get(42),{settings:{workflowId:null,override:null},revision:0});
- assert.deepEqual(await store.save(42,settings,0),{settings,revision:1});assert.deepEqual(await new AdvisorSettingsStore(db).get(42),{settings,revision:1});assert.equal((await store.get(99)).settings.workflowId,null);
- await assert.rejects(store.save(42,{...settings,workflowId:'other'},0),/advisor_settings_conflict/);await store.save(42,{...settings,override:{connectionKey:'agents',model:'vendor-model-preview'}},1);await assert.rejects(store.save(42,settings,1),/advisor_settings_conflict/);
- await assert.rejects(store.save(42,{...settings,token:'secret'},2));
+test('a run freezes the selected Advisor provider override',async t=>{
+ const db=await database(t);
  const storage=new D1WorkflowRunStorage(db),value=run({advisorContext:{version:1,readOnly:true,override:{connectionKey:'agents',model:'gpt-5'}}});await storage.createRun(value);
  assert.deepEqual((await new D1WorkflowRunStorage(db).getRun(value.id)).run.advisorContext,value.advisorContext);
 });

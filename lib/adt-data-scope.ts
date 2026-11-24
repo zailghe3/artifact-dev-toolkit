@@ -1,7 +1,8 @@
 import type {RunRepositoryContext} from "./workflow-storage.ts";
 type Filters={workflowId?:string;status?:string;createdAfter?:string;createdBefore?:string};
-export function adtRunScope(context:RunRepositoryContext,filters:Filters={}){
+export function adtRunScope(context:RunRepositoryContext,filters:Filters={},dialect?:"postgres"){
   let sql="json_extract(CASE WHEN json_valid(r.repository_context_json) THEN r.repository_context_json ELSE '{}' END,'$.repositoryId')=? AND json_extract(CASE WHEN json_valid(r.repository_context_json) THEN r.repository_context_json ELSE '{}' END,'$.installationId')=? AND lower(json_extract(CASE WHEN json_valid(r.repository_context_json) THEN r.repository_context_json ELSE '{}' END,'$.owner'))=? AND lower(json_extract(CASE WHEN json_valid(r.repository_context_json) THEN r.repository_context_json ELSE '{}' END,'$.repository'))=? AND json_extract(CASE WHEN json_valid(r.repository_context_json) THEN r.repository_context_json ELSE '{}' END,'$.branch')=? AND json_extract(CASE WHEN json_valid(r.repository_context_json) THEN r.repository_context_json ELSE '{}' END,'$.root')=?";
+  if(dialect==="postgres")sql="r.repository_id=? AND (r.repository_context_json->>'installationId')::bigint=? AND lower(r.repository_context_json->>'owner')=? AND lower(r.repository_context_json->>'repository')=? AND r.repository_context_json->>'branch'=? AND r.repository_context_json->>'root'=?";
   const values:unknown[]=[context.repositoryId,context.installationId,context.owner.toLowerCase(),context.repository.toLowerCase(),context.branch,context.root];
   for(const [key,column,operator] of [["workflowId","workflow_id","="],["status","status","="],["createdAfter","created_at",">="],["createdBefore","created_at","<="]] as const){if(filters[key]!==undefined){sql+=` AND r.${column}${operator}?`;values.push(key==="createdAfter"||key==="createdBefore"?new Date(filters[key]!).toISOString():filters[key])}}
   return {sql,values};

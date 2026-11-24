@@ -1,15 +1,15 @@
 # ADT Runtime
 
-ADT Runtime is the independently deployed compute and provider-execution boundary for Artifact Dev Toolkit. It performs bounded LangGraph progression and execution-heavy provider work while ADT keeps durable Workflow state, admission, credentials, retries/cancellation policy, and recorded outcomes.
+ADT Runtime independently hosts provider execution, LangGraph progression and PostgreSQL-backed operational settings for Artifact Dev Toolkit. The Cloudflare application currently owns durable Workflow state, admission, credentials, retries, cancellation and recorded outcomes.
 
 ## Design boundary
 
-- Runtime has no durable application state, D1 binding, Docker socket, or broad infrastructure-control credential. It may hold only the four operator-provisioned, service-scoped Portainer redeploy webhook URLs described below.
+- Runtime owns Advisor settings and Codex environment registrations. Its infrastructure authority is limited to the optional service-scoped Portainer redeploy webhooks described below.
 - LangGraph sequencing runs in Runtime, but durable checkpoints remain behind a control-plane gateway and executable Agent-node admission remains a separate control-plane authority.
 - Runtime does not own broad repository, Cloudflare, GitHub App, Codex, Portainer API, or artifact-repository credentials.
 - Provider credentials are resolved in the control plane and encrypted to Runtime only for the exact invocation that needs them. Runtime does not persist them.
 - Work IQ OAuth remains control-plane-owned: the client secret and refresh token never enter Runtime. Only the short-lived access token enters as an encrypted invocation credential; tenant/client IDs and the vault bundle are not execution inputs.
-- Runtime may keep bounded ephemeral process state needed for protocol safety, such as replay protection, but replacement requires no local durable application volume.
+- Runtime keeps a bounded request replay cache in memory. Its PostgreSQL installation identity survives container replacement through the mounted key directory.
 - Execution-heavy AI/provider libraries that do not require broad control-plane authority belong here; control-plane-only policy and privileged mutation do not.
 - Application and Runtime revisions may roll independently through an explicit protocol/capability contract.
 - Runtime owns bounded remote MCP Streamable HTTP discovery and calls. MCP credentials are optional invocation-scoped encrypted bearer values and are never persisted.
@@ -18,13 +18,13 @@ ADT Runtime is the independently deployed compute and provider-execution boundar
 ## Operator contract
 
 - Deploy `poulti/adt-runtime:latest` using the base [`docker-stack.example.yml`](docker-stack.example.yml) or pin an immutable `poulti/adt-runtime:<git-sha>` image for explicit rollout/rollback. The base stack requires no redeploy webhook secrets.
-- Run the container as the non-root `node` user with no persistent application volume or Docker socket.
+- Run the container as the non-root `node` user with its dedicated, persistent key directory. Keep the Docker socket outside Runtime.
 - Adrian 1.1.0 installs a JSONL handler during SDK initialization. Runtime routes that output to an isolated container temporary directory and removes it after each Adrian lifecycle; `/runtime` remains non-writable to the runtime user. This local JSONL output is neither retained nor used as ADT's authoritative security evidence.
 - Keep ingress HTTPS and operator-owned. The unauthenticated `/healthz` endpoint discloses only process health.
 - Do not provision provider API keys, Cloudflare credentials, GitHub App credentials, artifact-repository credentials, Codex credentials, Portainer API credentials, Docker access, or tunnel credentials to Runtime.
 - Trusted CI publishes immutable Git-SHA tags plus `latest`; deployment remains operator-owned.
 
-Create the two required external Docker secrets:
+Create the external Docker secrets for the existing execution protocol. The database credentials are listed in the PostgreSQL deployment guide.
 
 | Secret | Content |
 | --- | --- |
@@ -58,6 +58,10 @@ Generate compatible key material with:
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out runtime-private.pem
 openssl pkey -in runtime-private.pem -pubout -out runtime-public.pem
 ```
+
+## PostgreSQL deployment
+
+The Swarm example includes a private PostgreSQL service, a dedicated database export and separate Runtime key storage. Advisor settings and Codex environment registrations require this database. Follow the [deployment and restore procedure](../docs/runtime-postgresql.md) before updating the Worker.
 
 ## Cloudflare configuration
 

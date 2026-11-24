@@ -176,6 +176,10 @@ jobs:
         if: inputs.verify_integration && !inputs.verify_runtime
         run: npm run test:workflow-runtime-integration
 
+      - name: Test Runtime PostgreSQL initialization, recovery and restore
+        if: inputs.verify_integration
+        run: adt-runtime/scripts/test-postgres.sh
+
       - name: Build and smoke-test ADT Runtime image without publishing
         if: inputs.smoke_runtime_image
         run: |

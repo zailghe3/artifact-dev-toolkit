@@ -1,3 +1,4 @@
+import { OPERATIONAL_SETTINGS_PATH, type OperationalSettingsCommand } from "../adt-runtime/src/operational-settings-contract.ts";
 import {isAdtDataTool} from "./adt-data-contract.ts";
 import type { AgentRuntime } from "./agent-runtime.ts";
 import type { AgentProviderAdapter, AdapterInvocation, AdapterResult, FailureCategory, ProviderTransportDiagnostics, ProviderTransportReason } from "./workflow-adapter.ts";
@@ -69,6 +70,32 @@ function configured(config:ADTRuntimeConfiguration):config is ADTRuntimeConfigur
 function runtimeBase(config:ADTRuntimeConfiguration){if(!transportConfigured(config))throw new Error("runtime_not_configured");const url=new URL(config.baseUrl);if(url.protocol!=="https:"&&!["localhost","127.0.0.1","::1"].includes(url.hostname))throw new Error("runtime_not_configured");return url.toString().replace(/\/$/,"")}
 
 export type RuntimeRedeployResult={state:"accepted"|"unsupported"|"rejected"|"ambiguous";message:string};
+export async function requestRuntimeOperationalSettings<T>(
+ config: ADTRuntimeConfiguration,
+ command: OperationalSettingsCommand,
+ parse: (value: unknown) => T,
+ fetcher: RuntimeFetcher = fetch,
+): Promise<T> {
+ const unavailable = () => new Error("runtime_settings_unavailable");
+ if (!transportConfigured(config)) throw unavailable();
+ const body = JSON.stringify(command);
+ let response: Response;
+ let wire: Record<string, unknown>;
+ try {
+  const headers = await signedHeaders(config.authSecret, "POST", OPERATIONAL_SETTINGS_PATH, body, nonce());
+  response = await fetcher(runtimeBase(config) + OPERATIONAL_SETTINGS_PATH, {
+   method: "POST", headers, body, redirect: "error", signal: AbortSignal.timeout(10_000),
+  });
+  wire = record(await boundedJson(response));
+ } catch {
+  throw unavailable();
+ }
+ if (wire.protocolVersion !== ADT_RUNTIME_PROTOCOL) throw unavailable();
+ if (response.status === 409 && (wire.code === "advisor_settings_conflict" || wire.code === "runtime_settings_conflict")) throw new Error(wire.code);
+ if (!response.ok || wire.ok !== true) throw unavailable();
+ try { return parse(wire.result); } catch { throw unavailable(); }
+}
+
 export async function requestRuntimeRedeploy(config:ADTRuntimeConfiguration,target:"runtime"|"runner",fetcher:RuntimeFetcher=fetch):Promise<RuntimeRedeployResult>{
  let base:string;try{base=runtimeBase(config)}catch{return{state:"unsupported",message:"Runtime-mediated redeploy is unavailable; a manual Runtime update or configuration is required."}}
  const readinessNonce=nonce(),readinessHeaders=await signedHeaders(config.authSecret!,"GET",ADT_RUNTIME_READINESS_PATH,"",readinessNonce);let readiness:Response;

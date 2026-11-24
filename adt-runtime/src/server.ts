@@ -1,3 +1,8 @@
+import { OPERATIONAL_SETTINGS_PATH, operationalSettingsCommandSchema, type OperationalSettingsCommand } from "./operational-settings-contract.js";
+import { operationalSettings, OperationalSettingsConflict, recordManagementNonce } from "./operational-settings.js";
+import { initializeRuntimeDatabase, runtimePostgresPool, RuntimeDatabaseError } from "./postgres.js";
+import { readRuntimePostgresConfiguration } from "./postgres-configuration.js";
+import { RuntimeKeyError } from "./runtime-key.js";
 import {progressAgentModel} from "./agent-models.js";
 import {AGENT_PROGRESS_CAPABILITY,AGENT_PROGRESS_PATH,AGENT_TOOL_PATH,AGENT_SECURITY_PATH,validateToolArguments,sanitizeToolResult} from "./agent-contract.js";
 import {progressWireSchema,exactToolWireSchema,securityWireSchema} from "./agent-http.js";
@@ -25,7 +30,7 @@ import {REDEPLOY_CAPABILITY,REDEPLOY_PATH,redeployAvailable,requestRedeploy,type
 export const RUNTIME_INBOUND_REQUEST_TIMEOUT_MS=60_000,RUNTIME_HEADERS_TIMEOUT_MS=10_000,RUNTIME_EXECUTION_RESPONSE_TIMEOUT_MS=150_000;
 type Logger=(event:Record<string,unknown>)=>void;
 export type AdrianRuntimeLifecycle=Pick<typeof adrian,"init"|"shutdown"|"getHandler"|"getWebSocketClient">;
-type Options={ollamaAllowedBaseUrls?:string;host:string;port:number;authSecret:string;privateKeyPem:string;revision:string;factories?:Partial<Factories>;providerHttp?:ProviderHttpDependencies;mcpFetcher?:NetworkFetch;mcpResolver?:McpNetworkDependencies["resolve"];redeployFetcher?:typeof fetch;redeploy?:RedeployConfiguration;now?:()=>number;logger?:Logger;adrianRuntime?:AdrianRuntimeLifecycle;adrianProbe?:typeof probeAdrianControlChannel};
+type Options={recordManagementNonce?:(nonce:string,timestamp:number)=>Promise<boolean>;operateSettings?:(command:OperationalSettingsCommand)=>Promise<unknown>;operationalDatabaseReady?:()=>Promise<boolean>;ollamaAllowedBaseUrls?:string;host:string;port:number;authSecret:string;privateKeyPem:string;revision:string;factories?:Partial<Factories>;providerHttp?:ProviderHttpDependencies;mcpFetcher?:NetworkFetch;mcpResolver?:McpNetworkDependencies["resolve"];redeployFetcher?:typeof fetch;redeploy?:RedeployConfiguration;now?:()=>number;logger?:Logger;adrianRuntime?:AdrianRuntimeLifecycle;adrianProbe?:typeof probeAdrianControlChannel};
 type ErrorCode="runtime_authentication_failed"|"invalid_request"|"credential_invalid"|"unsupported_operation"|"protocol_incompatible"|"capability_unavailable"|"runtime_unavailable"|"execution_failed"|"adrian_initialization_failed"|"adrian_policy_unavailable";
 const safe=(res:ServerResponse,status:number,value:unknown)=>{const body=JSON.stringify(value);res.writeHead(status,{"content-type":"application/json","content-length":Buffer.byteLength(body),"cache-control":"no-store"});res.end(body)};
 const error=(res:ServerResponse,status:number,code:ErrorCode,category:string,message:string,providerExecutionEntered=false,orchestration?:unknown)=>safe(res,status,{protocolVersion:PROTOCOL_VERSION,ok:false,error:{code,category,safeMessage:message,retryable:false,providerExecutionEntered,...(orchestration?{orchestration}:{})}});
@@ -37,12 +42,38 @@ export async function createRuntimeServer(options:Options){
  const {privateKey,keyId}=await loadWrappingKey(options.privateKeyPem),replays=new ReplayCache(),securityRuntime=options.adrianRuntime??adrian,log=options.logger??(event=>process.stdout.write(`${JSON.stringify(event)}\n`));let shuttingDown=false;
  const emit=(event:string,fields:Record<string,unknown>)=>log({event,protocolVersion:PROTOCOL_VERSION,runtimeRevision:options.revision,...fields});
  const server=createServer(async(req,res)=>{const started=Date.now();res.setHeader("x-content-type-options","nosniff");const path=new URL(req.url??"/","http://runtime.invalid").pathname,agentOperation=path===AGENT_PROGRESS_PATH?"model_progression":path===AGENT_TOOL_PATH?"tool_execution":path===AGENT_SECURITY_PATH?"security_decision":undefined,operation=agentOperation??(path===PROVIDER_MODELS_PATH?"provider_models":path===READINESS_PATH?"readiness":(path===EXECUTE_PATH||path===PROVIDER_EXECUTE_PATH)?"execute":path===SECURITY_TEST_PATH?"security_test":path===MCP_DISCOVER_PATH?"mcp_discover":path===MCP_CALL_PATH?"mcp_call":path===LANGGRAPH_EXECUTE_PATH?"langgraph_advance":path===EXECUTION_PATH_DIAGNOSTIC_PATH?"execution_path_diagnostic":path===REDEPLOY_PATH?"infrastructure_redeploy":"unsupported");
-  if(req.method==="GET"&&path==="/healthz")return safe(res,shuttingDown?503:200,{ok:!shuttingDown});
+  if(req.method==="GET"&&path==="/healthz"){
+   const ok=!shuttingDown && (await options.operationalDatabaseReady?.().catch(()=>false) ?? true);
+   return safe(res,ok?200:503,{ok});
+  }
   if(shuttingDown){emit("runtime_request_rejected",{operation,result:"runtime_unavailable",httpStatus:503,elapsedMs:Date.now()-started,providerExecutionEntered:false});return error(res,503,"runtime_unavailable","connection_unavailable","Runtime is shutting down.")}
   let raw:Buffer;try{raw=await body(req)}catch{emit("runtime_request_rejected",{operation,result:"request_too_large",httpStatus:413,elapsedMs:Date.now()-started,providerExecutionEntered:false});return error(res,413,"invalid_request","configuration_invalid","Request body exceeds the permitted size.")}
   if(!authenticate(req.headers,req.method??"",path,raw,options.authSecret,replays,options.now?.())){emit("runtime_request_rejected",{operation,result:"authentication_failed",httpStatus:401,elapsedMs:Date.now()-started,providerExecutionEntered:false});return error(res,401,"runtime_authentication_failed","authentication_failed","Runtime request authentication failed.")}
   if(req.headers["x-adt-protocol"]!==PROTOCOL_VERSION){emit("runtime_request_rejected",{operation,result:"protocol_incompatible",httpStatus:409,elapsedMs:Date.now()-started,providerExecutionEntered:false});return error(res,409,"protocol_incompatible","configuration_invalid","Runtime protocol is incompatible.")}
-  if(req.method==="GET"&&path===READINESS_PATH){const redeployTargets=(['runtime','runner'] as const).filter(target=>redeployAvailable(target,options.redeploy??{}));emit("runtime_readiness_succeeded",{operation,requestId:boundedId(req.headers["x-adt-nonce"]),httpStatus:200,elapsedMs:Date.now()-started,providerExecutionEntered:false});return safe(res,200,{protocolVersion:PROTOCOL_VERSION,runtimeRevision:options.revision,runtimeReleaseRevision:RUNTIME_RELEASE.releaseRevision,capabilities:[AGENT_PROGRESS_CAPABILITY,PROVIDER_MODELS_CAPABILITY,PROVIDER_EXECUTION_CAPABILITY,...PROVIDER_CAPABILITIES,"tool:artifact-search",MCP_DISCOVERY_CAPABILITY,MCP_CALL_CAPABILITY,LANGGRAPH_GRAPH_CAPABILITY,LANGGRAPH_APPROVAL_CAPABILITY,LANGGRAPH_CONTEXT_SELECTION_CAPABILITY,EXECUTION_PATH_DIAGNOSTIC_CAPABILITY,"execution-timeout",ADRIAN_SECURITY_CAPABILITY,ADRIAN_SECURITY_TEST_CAPABILITY,REDEPLOY_CAPABILITY],redeployTargets,credentialWrappingKeyId:keyId})}
+  if(req.method==="POST"&&path===OPERATIONAL_SETTINGS_PATH){
+   if(!options.operateSettings)return error(res,503,"runtime_unavailable","connection_unavailable","Runtime PostgreSQL is unavailable.");
+   let command:OperationalSettingsCommand;
+   try{
+    if(raw.byteLength>8192)throw new Error("request_too_large");
+    command=operationalSettingsCommandSchema.parse(JSON.parse(raw.toString("utf8")));
+   }catch{
+    return error(res,400,"invalid_request","configuration_invalid","Operational settings request is invalid.");
+   }
+   try {
+    const nonce=req.headers["x-adt-nonce"],timestamp=req.headers["x-adt-timestamp"];
+    if(options.recordManagementNonce&&typeof nonce==="string"&&typeof timestamp==="string"&&!await options.recordManagementNonce(nonce,Number(timestamp)))
+     return error(res,401,"runtime_authentication_failed","authentication_failed","Runtime request authentication failed.");
+    return safe(res,200,{protocolVersion:PROTOCOL_VERSION,ok:true,result:await options.operateSettings(command)});
+   }catch(value){
+    if(value instanceof OperationalSettingsConflict)
+     return safe(res,409,{protocolVersion:PROTOCOL_VERSION,ok:false,code:value.message});
+    return error(res,503,"runtime_unavailable","connection_unavailable","Runtime PostgreSQL is unavailable.");
+   }
+  }
+  if(req.method==="GET"&&path===READINESS_PATH){
+   if(options.operationalDatabaseReady && !await options.operationalDatabaseReady().catch(()=>false))
+    return error(res,503,"runtime_unavailable","connection_unavailable","Runtime PostgreSQL is unavailable.");
+   const redeployTargets=(['runtime','runner'] as const).filter(target=>redeployAvailable(target,options.redeploy??{}));emit("runtime_readiness_succeeded",{operation,requestId:boundedId(req.headers["x-adt-nonce"]),httpStatus:200,elapsedMs:Date.now()-started,providerExecutionEntered:false});return safe(res,200,{protocolVersion:PROTOCOL_VERSION,runtimeRevision:options.revision,runtimeReleaseRevision:RUNTIME_RELEASE.releaseRevision,capabilities:[AGENT_PROGRESS_CAPABILITY,PROVIDER_MODELS_CAPABILITY,PROVIDER_EXECUTION_CAPABILITY,...PROVIDER_CAPABILITIES,"tool:artifact-search",MCP_DISCOVERY_CAPABILITY,MCP_CALL_CAPABILITY,LANGGRAPH_GRAPH_CAPABILITY,LANGGRAPH_APPROVAL_CAPABILITY,LANGGRAPH_CONTEXT_SELECTION_CAPABILITY,EXECUTION_PATH_DIAGNOSTIC_CAPABILITY,"execution-timeout",ADRIAN_SECURITY_CAPABILITY,ADRIAN_SECURITY_TEST_CAPABILITY,REDEPLOY_CAPABILITY],redeployTargets,credentialWrappingKeyId:keyId})}
   if(req.method==="POST"&&agentOperation){
    let request;try{const value=JSON.parse(raw.toString("utf8"));request=(path===AGENT_PROGRESS_PATH?progressWireSchema:path===AGENT_TOOL_PATH?exactToolWireSchema:securityWireSchema).parse(value)}catch{
     emit("runtime_request_rejected",{operation,requestId:boundedId(req.headers["x-adt-nonce"]),result:"invalid_request",httpStatus:400,elapsedMs:Date.now()-started,providerExecutionEntered:false});
@@ -131,5 +162,103 @@ export async function createRuntimeServer(options:Options){
  return{server,keyId,replays,listen:()=>new Promise<void>((resolve,reject)=>server.listen(options.port,options.host,resolve).once("error",reject)),close:()=>new Promise<void>((resolve,reject)=>server.close(value=>value?reject(value):resolve())),shutdown(){shuttingDown=true;server.closeIdleConnections()}};
 }
 function startup(event:string,stage:string){process.stderr.write(`${JSON.stringify({event,protocolVersion:PROTOCOL_VERSION,stage})}\n`)}
-async function main(){let authSecret:string,privateKeyPem:string;try{authSecret=secretValue("ADT_RUNTIME_AUTH_SECRET")}catch{startup("runtime_startup_failed","auth_secret_missing");return process.exit(1)}if(authSecret.length<32){startup("runtime_startup_failed","auth_secret_invalid");return process.exit(1)}try{privateKeyPem=secretValue("ADT_RUNTIME_PRIVATE_KEY")}catch{startup("runtime_startup_failed","private_key_missing");return process.exit(1)}const optional=(name:string)=>{try{return secretValue(name)}catch{return undefined}},redeploy:RedeployConfiguration={runtime:optional("ADT_RUNTIME_REDEPLOY_WEBHOOK"),controller:optional("CODEX_RUNNER_CONTROLLER_REDEPLOY_WEBHOOK"),executor:optional("CODEX_RUNNER_EXECUTOR_REDEPLOY_WEBHOOK"),"repository-manager":optional("CODEX_RUNNER_REPOSITORY_MANAGER_REDEPLOY_WEBHOOK")},host=process.env.ADT_RUNTIME_HOST??"0.0.0.0",port=Number(process.env.ADT_RUNTIME_PORT??8080),revision=runtimeBuildRevision();if(!Number.isInteger(port)||port<1||port>65535||host.length>255){startup("runtime_startup_failed","listen_configuration_invalid");return process.exit(1)}let runtime;try{runtime=await createRuntimeServer({host,port,authSecret,privateKeyPem,revision,redeploy,ollamaAllowedBaseUrls:process.env.ADT_RUNTIME_OLLAMA_ALLOWED_BASE_URLS})}catch(value){const stage=value instanceof Error&&["ollama_allowlist_invalid","private_key_invalid","wrapping_key_derivation_failed","wrapping_key_import_failed"].includes(value.message)?value.message:"wrapping_key_import_failed";startup("runtime_startup_failed",stage);return process.exit(1)}try{await runtime.listen()}catch{startup("runtime_startup_failed","listen_failed");return process.exit(1)}process.stdout.write(`${JSON.stringify({event:"runtime_started",protocolVersion:PROTOCOL_VERSION,runtimeRevision:revision,port})}\n`);const stop=()=>{runtime.shutdown();setTimeout(()=>process.exit(0),30_000).unref();runtime.close().then(()=>process.exit(0),()=>process.exit(1))};process.once("SIGTERM",stop);process.once("SIGINT",stop)}
+async function main() {
+ let authSecret: string;
+ let privateKeyPem: string;
+ try {
+  authSecret = secretValue("ADT_RUNTIME_AUTH_SECRET");
+ } catch {
+  startup("runtime_startup_failed", "auth_secret_missing");
+  process.exitCode = 1;
+  return;
+ }
+ if (authSecret.length < 32) {
+  startup("runtime_startup_failed", "auth_secret_invalid");
+  process.exitCode = 1;
+  return;
+ }
+ try {
+  privateKeyPem = secretValue("ADT_RUNTIME_PRIVATE_KEY");
+ } catch {
+  startup("runtime_startup_failed", "private_key_missing");
+  process.exitCode = 1;
+  return;
+ }
+
+ const optional = (name: string) => {
+  try { return secretValue(name); } catch { return undefined; }
+ };
+ const redeploy: RedeployConfiguration = {
+  runtime: optional("ADT_RUNTIME_REDEPLOY_WEBHOOK"),
+  controller: optional("CODEX_RUNNER_CONTROLLER_REDEPLOY_WEBHOOK"),
+  executor: optional("CODEX_RUNNER_EXECUTOR_REDEPLOY_WEBHOOK"),
+  "repository-manager": optional("CODEX_RUNNER_REPOSITORY_MANAGER_REDEPLOY_WEBHOOK"),
+ };
+ const host = process.env.ADT_RUNTIME_HOST ?? "0.0.0.0";
+ const port = Number(process.env.ADT_RUNTIME_PORT ?? 8080);
+ if (!Number.isInteger(port) || port < 1 || port > 65535 || host.length > 255) {
+  startup("runtime_startup_failed", "listen_configuration_invalid");
+  process.exitCode = 1;
+  return;
+ }
+
+ let database;
+ try {
+  database = readRuntimePostgresConfiguration();
+ } catch {
+  startup("runtime_startup_failed", "postgres_configuration_invalid");
+  process.exitCode = 1;
+  return;
+ }
+ const pool = database && runtimePostgresPool(database.pool);
+ if (pool && database) {
+  try {
+   await initializeRuntimeDatabase(pool, database.keyPath);
+  } catch (value) {
+   startup("runtime_startup_failed",
+    value instanceof RuntimeKeyError || value instanceof RuntimeDatabaseError ? value.code : "postgres_unavailable");
+   await pool.end();
+   process.exitCode = 1;
+   return;
+  }
+ }
+
+ const revision = runtimeBuildRevision();
+ let runtime;
+ try {
+  runtime = await createRuntimeServer({
+   host, port, authSecret, privateKeyPem, revision, redeploy,
+   ollamaAllowedBaseUrls: process.env.ADT_RUNTIME_OLLAMA_ALLOWED_BASE_URLS,
+   operateSettings: pool && operationalSettings(pool),
+   recordManagementNonce: pool && ((nonce, timestamp) => recordManagementNonce(pool, nonce, timestamp)),
+   operationalDatabaseReady: pool && (async () => {
+    const result = await pool.query("SELECT 1 FROM installation WHERE singleton");
+    return result.rowCount === 1;
+   }),
+  });
+ } catch (value) {
+  const knownStages = ["ollama_allowlist_invalid", "private_key_invalid", "wrapping_key_derivation_failed", "wrapping_key_import_failed"];
+  startup("runtime_startup_failed", value instanceof Error && knownStages.includes(value.message) ? value.message : "runtime_configuration_invalid");
+  await pool?.end();
+  process.exitCode = 1;
+  return;
+ }
+ try {
+  await runtime.listen();
+ } catch {
+  startup("runtime_startup_failed", "listen_failed");
+  await pool?.end();
+  process.exitCode = 1;
+  return;
+ }
+ process.stdout.write(`${JSON.stringify({event:"runtime_started",protocolVersion:PROTOCOL_VERSION,runtimeRevision:revision,port})}
+`);
+ const stop = () => {
+  runtime.shutdown();
+  setTimeout(() => process.exit(1), 30_000).unref();
+  void runtime.close().then(() => pool?.end()).catch(() => { process.exitCode = 1; });
+ };
+ process.once("SIGTERM", stop);
+ process.once("SIGINT", stop);
+}
 if(process.argv[1]===new URL(import.meta.url).pathname)void main();

@@ -5,9 +5,8 @@ import {getProviderConnectionType} from "./provider-connection-types.ts";
 import type {ConnectionDescriptor} from "./workflow-connections.ts";
 import type {WorkflowRun} from "./workflow-storage.ts";
 
-const id=z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(80);
-export const advisorSettingsSchema=z.object({workflowId:id.nullable(),override:z.object({connectionKey:id,model:z.string().trim().min(1).max(120).regex(/^[^\s\x00-\x1f\x7f]+$/)}).strict().nullable()}).strict();
-export type AdvisorSettings=z.infer<typeof advisorSettingsSchema>;
+import { advisorSettingsSchema, type AdvisorSettings } from "../adt-runtime/src/operational-settings-contract.ts";
+export { advisorSettingsSchema, type AdvisorSettings };
 export const advisorRunContextSchema=z.object({version:z.literal(1),readOnly:z.literal(true),override:advisorSettingsSchema.shape.override}).strict();
 export type AdvisorRunContext=z.infer<typeof advisorRunContextSchema>;
 export const sameRepositoryContext=(a:WorkflowRun["repositoryContext"],b:WorkflowRun["repositoryContext"])=>Boolean(a&&b&&a.repositoryId===b.repositoryId&&a.installationId===b.installationId&&a.owner.toLowerCase()===b.owner.toLowerCase()&&a.repository.toLowerCase()===b.repository.toLowerCase()&&a.branch===b.branch&&a.root===b.root);

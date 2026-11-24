@@ -15,6 +15,7 @@ COPY --from=build --chown=node:node /runtime/package.json ./package.json
 COPY --from=build --chown=node:node /runtime/node_modules ./node_modules
 COPY --from=build --chown=node:node /runtime/dist ./dist
 COPY --from=build --chown=node:node /runtime/release.json ./release.json
+COPY --chown=node:node migrations ./migrations
 USER node
 EXPOSE 8080
 HEALTHCHECK --interval=15s --timeout=3s --start-period=10s --retries=3 CMD ["node","-e","fetch('http://127.0.0.1:8080/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]

@@ -16,12 +16,14 @@
     "@openai/agents": "0.22.0",
     "@secureagentics/adrian": "1.1.0",
     "openai": "7.60.0",
+    "pg": "8.23.1",
     "undici": "8.12.4",
     "ws": "^8.22.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",
+    "@types/pg": "8.23.1",
     "@types/ws": "^8.18.2",
     "typescript": "^5.9.3"
   },
