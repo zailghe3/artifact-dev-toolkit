@@ -6,19 +6,19 @@ ADT owns tool authority. OpenAI, Anthropic and tool-capable Ollama models propos
 
 ```mermaid
 flowchart TD
-    CF[Cloudflare Workflows: durable lifecycle] --> LG[LangGraph: graph sequencing]
-    LG --> W[Worker: Agent progression and admission]
-    W <--> D[(D1: conversation, invocations, approvals, events)]
-    W --> M[Runtime: one provider model turn]
-    M -->|proposals, never tool execution| W
-    W --> S[Runtime: exact-call Adrian evaluation]
+    S[Runtime: leased Workflow scheduler] --> LG[LangGraph: graph sequencing]
+    LG --> W[Runtime: Agent progression and admission]
+    W <--> D[(PostgreSQL: conversation, invocations, approvals, events)]
+    W --> M[Provider: one model turn]
+    M -->|tool proposals| W
+    W --> A[Adrian: exact-call evaluation]
     W -->|one admitted call and scoped credential| T[Runtime MCP client]
     T -->|bounded outcome| W
 ```
 
-- Git owns Agents, Workflows, tool definitions, frozen catalogues and declarative non-secret policies. Protected D1 attestations independently establish which exact policies have administrator authority.
-- D1 owns versioned conversations, call identities, budgets, decisions, execution results and reconciliation evidence.
-- Runtime has no durable execution state. Model envelopes contain schemas and model credentials, never MCP credentials or tool execution authority.
+- Git owns Agents, Workflows, tool definitions, frozen catalogues and declarative non-secret policies. Protected PostgreSQL attestations independently establish which exact policies have administrator authority.
+- PostgreSQL stores versioned conversations, call identities, budgets, decisions, execution results and reconciliation evidence.
+- Runtime persists execution state in PostgreSQL. Model envelopes contain schemas and model credentials, never MCP credentials or tool execution authority.
 - The existing explicit `approval@1` block remains a separate graph-level gate.
 
 ## Authoring
@@ -31,17 +31,17 @@ flowchart TD
 
 ## Trusted policies
 
-Configure comma-separated GitHub logins in Worker `ADT_TOOL_POLICY_ADMINS`, `ADT_TOOL_APPROVERS` and `ADT_TOOL_OPERATORS`. All three roles default to nobody and remain independent. Current repository access is required in addition to a role. A per-tool reviewer list narrows the explicitly delegated approvers; it never grants approval authority itself. The inspector exposes approval/rejection controls only to currently eligible users. Both decisions require current delegation, frozen reviewer eligibility and an active, unexpired pending invocation. Approval additionally requires applicable live reviewer restrictions and verified execution authority. When a live policy is changed, revoked, missing or unverified, an eligible frozen reviewer can still reject the call; the persisted rejection returns a correlated denial to the model without resolving credentials or authorizing execution. Expiry, cancellation and duplicate-decision safeguards still apply. Existing operator reconciliation and explicit Workflow `approval@1` remain separate permission contracts.
+Configure comma-separated GitHub logins in Runtime `ADT_TOOL_POLICY_ADMINS`, `ADT_TOOL_APPROVERS` and `ADT_TOOL_OPERATORS`. Keep the Worker policy administrator list consistent for authoring checks. All three roles default to nobody and remain independent. Current repository access is required in addition to a role. A per-tool reviewer list narrows the explicitly delegated approvers; it never grants approval authority itself. The inspector exposes approval/rejection controls only to currently eligible users. Both decisions require current delegation, frozen reviewer eligibility and an active, unexpired pending invocation. Approval additionally requires applicable live reviewer restrictions and verified execution authority. When a live policy is changed, revoked, missing or unverified, an eligible frozen reviewer can still reject the call; the persisted rejection returns a correlated denial to the model without resolving credentials or authorizing execution. Expiry, cancellation and duplicate-decision safeguards still apply. Existing operator reconciliation and explicit Workflow `approval@1` remain separate permission contracts.
 
 For a personal deployment, explicitly put your GitHub login in `ADT_TOOL_APPROVERS`. Also configure it in `ADT_TOOL_POLICY_ADMINS` to classify tools or authorize policies, and in `ADT_TOOL_OPERATORS` to reconcile uncertain execution. None of these lists implies another role.
 
 Policy administrators edit `toolPolicies` in the MCP editor after discovering the relevant tool identities. Keys are exact remote tool names. Ordinary users may make metadata updates that preserve effective trusted policy. Adding, changing, removing or indirectly invalidating a policy requires administrator authority before Git or credential mutation. A target/authentication change or bearer replacement with existing policies is rejected for non-admins. Administrators must explicitly authorize the displayed rules for the new identity; otherwise the old rules are cleared. Remote discovery never assigns trusted classifications, and cannot silently replace the schema of a policy-bearing tool; an administrator must clear/review its policy first.
 
-Git policy text is not proof of administrator authorization. Immutable D1 attestations bind the repository ID, MCP server, exact policy digests, tool names and input schemas, endpoint, authentication mode and credential generation. Every bearer identity also binds the credential reference digest, including servers without explicit policies. Credential replacement through the application invalidates earlier frozen authority and approvals even if the binding generation is unchanged. Policy-free rotation remains available to ordinary authorized users; rotation with existing policies still requires administrator review. A newly frozen invocation uses the replacement credential under its applicable approval policy and mandatory security checks. Credential lookup checks the verified secret reference so concurrent rotation cannot substitute a replacement token. No secret values enter an attestation or frozen run.
+Git policy text is not proof of administrator authorization. Immutable PostgreSQL attestations bind the repository ID, MCP server, exact policy digests, tool names and input schemas, endpoint, authentication mode and credential generation. Every bearer identity also binds the credential reference digest, including servers without explicit policies. Credential replacement through the application invalidates earlier frozen authority and approvals even if the binding generation is unchanged. Policy-free rotation remains available to ordinary authorized users; rotation with existing policies still requires administrator review. A newly frozen invocation uses the replacement credential under its applicable approval policy and mandatory security checks. Credential lookup checks the verified secret reference so concurrent rotation cannot substitute a replacement token. No secret values enter an attestation or frozen run.
 
-Both run freezing and every live authority resolution require a matching, ready attestation. Historical snapshots without a proof ID, or bearer proofs without a credential identity digest, remain readable but cannot authorize new execution; no proof is inferred or backfilled from Git. New frozen snapshots retain the original proof ID and maximum policy; current verified policies add restrictions. Execution admission and affirmative human decisions pin the verified D1 head revision. Direct Git edits to classifications, automatic exceptions, denials, reviewers, schema or target therefore cannot grant authority: missing, stale, conflicting or mismatched proof fails closed. Git commit authorship and repository write permission are never administrator proof. Name/description edits and unclassified catalogue changes may preserve a valid proof, but do not create trusted classifications or global roles.
+Both run freezing and every live authority resolution require a matching, ready attestation. Historical snapshots without a proof ID, or bearer proofs without a credential identity digest, remain readable but cannot authorize new execution; no proof is inferred or backfilled from Git. New frozen snapshots retain the original proof ID and maximum policy; current verified policies add restrictions. Execution admission and affirmative human decisions pin the verified PostgreSQL head revision. Direct Git edits to classifications, automatic exceptions, denials, reviewers, schema or target therefore cannot grant authority: missing, stale, conflicting or mismatched proof fails closed. Git commit authorship and repository write permission are never administrator proof. Name/description edits and unclassified catalogue changes may preserve a valid proof, but do not create trusted classifications or global roles.
 
-A save marks the D1 authority head unavailable before Git/credential writes. Publication verifies the exact saved definition and binding; compensation restores an earlier head only after checking coherent old state. An interrupted or ambiguous save remains unavailable, without an automatic lease takeover. A policy administrator must inspect the Git definition and credential binding, repair inconsistent state using trusted operator procedures if needed, then explicitly review and save the rules to reauthorize. Deleted servers retain a blocked authority record so recreation cannot silently discard an old denial. D1 and Worker configuration are trusted control-plane state and must be backed up/protected independently of the artifact Git repository.
+A save marks the PostgreSQL authority head unavailable before Git/credential writes. Publication verifies the exact saved definition and binding; compensation restores an earlier head only after checking coherent old state. An interrupted or ambiguous save remains unavailable, without an automatic lease takeover. A policy administrator must inspect the Git definition and credential binding, repair inconsistent state using trusted operator procedures if needed, then explicitly review and save the rules to reauthorize. Deleted servers retain a blocked authority record so recreation cannot silently discard an old denial. PostgreSQL and Runtime configuration are trusted control-plane state and must be backed up/protected independently of the artifact Git repository.
 
 Example policy:
 
@@ -72,9 +72,9 @@ Example policy:
 
 ```mermaid
 sequenceDiagram
-    participant W as Worker
-    participant D as D1
-    participant R as Runtime
+    participant W as Runtime coordinator
+    participant D as PostgreSQL
+    participant R as Runtime provider and tool executors
     participant H as Reviewer
     W->>D: Claim bounded model turn
     W->>R: Journal, schemas and model credential
@@ -120,10 +120,10 @@ stateDiagram-v2
 - Tool admission identities and conditional transitions prevent duplicate admission. A timer never reassigns an admitted call.
 - Each admission persists an absolute 30-second dispatch/execution deadline. Runtime bounds DNS, initialization, redirects, requests and result waiting by that deadline, preserves SDK cancellation, and destroys active sockets during cleanup. Existing individual MCP request timeouts remain 10 seconds. After the deadline plus 15 seconds for transport/persistence, recovery may mark the admission unknown; elapsed time never proves the remote side effect stopped.
 - An unknown admission still accepts its matching late result until an authoritative operator decision wins. Result, accounting and audit writes are atomic. Operator decisions bind both invocation and admission IDs. Unresolved decisions retain that admission; confirmed non-execution fences it before another admission is possible. Stale successes and failures cannot settle the replacement.
-- `toolResultBytes` is one aggregate budget for the entire activation, not a per-result allowance. D1 counts UTF-8 bytes of serialized ADT result envelopes, including denials, definite failures and operator-supplied results, once per authoritative outcome across all model turns and Runtime replacements. If a returned result exceeds the remaining allowance, record its outcome and byte count, omit its payload, and fail the activation. Do not invent an unknown side effect or send a fabricated result to the model. The observed byte count may exceed the allowance on that final result; further execution and continuation stop.
+- `toolResultBytes` is one aggregate budget for the entire activation, not a per-result allowance. PostgreSQL counts UTF-8 bytes of serialized ADT result envelopes, including denials, definite failures and operator-supplied results, once per authoritative outcome across all model turns and Runtime replacements. If a returned result exceeds the remaining allowance, record its outcome and byte count, omit its payload, and fail the activation. Do not invent an unknown side effect or send a fabricated result to the model. The observed byte count may exceed the allowance on that final result; further execution and continuation stop.
 - Missing tool results, transport uncertainty and failures persisting a returned result require operator reconciliation. No success or failure is invented for the model.
 - Recorded results are reused. Runtime replacement never requires completed tools to run again.
-- D1 is authoritative; Cloudflare events only wake the Workflow. Bounded event waits re-read D1 after lost or duplicate delivery.
+- PostgreSQL decisions are authoritative. Runtime rechecks paused runs and also wakes them after a recorded decision.
 - Cancellation prevents new admissions. Evidence of admitted external work remains visible; cancellation does not prove that external work stopped.
 
 ## Operator reconciliation
@@ -162,7 +162,7 @@ The security tests exercise real Adrian SDK/protobuf WebSocket handling against 
 
 Run the following against a non-production deployment for **each** provider/model/endpoint combination before commissioning it:
 
-1. Apply the final migration and coordinated Worker/Runtime cutover. Configure your GitHub login as policy administrator and operator; give the reviewer repository access and explicit `ADT_TOOL_APPROVERS` delegation. Store provider credentials through Connections, never in prompts or Git. Record source/runtime revisions and the exact provider/model/endpoint identity.
+1. Complete the [PostgreSQL cutover](runtime-postgresql.md). Configure your GitHub login as policy administrator and operator; give the reviewer repository access and explicit `ADT_TOOL_APPROVERS` delegation. Store provider credentials through Connections, never in prompts or Git. Record source/runtime revisions and the exact provider/model/endpoint identity.
 2. Register an operator-controlled HTTPS MCP server with an independent invocation audit. Supply a client tool named `read_probe` with schema `{"type":"object","properties":{"nonce":{"type":"string","minLength":1,"maxLength":64}},"required":["nonce"],"additionalProperties":false}`. Have it record each call and return `probe:<nonce>`. Use harmless test data and a fresh nonce per run. Discover and freeze the catalogue, then explicitly grant only this tool to the Agent.
 3. Select `openai-agents` with an account-accessible supported Chat Completions model (for example `gpt-4.1` if available); select an available Claude Messages model for `anthropic-messages`. For `ollama-chat`, configure the endpoint/authentication and exact `ADT_RUNTIME_OLLAMA_ALLOWED_BASE_URLS` entry, and select an installed model whose `/api/show` reports `tools`. Run connection and execution-path checks from the application. These checks alone do not prove tool calling.
 4. As policy administrator, classify `read_probe` as trusted `read_only`. Set the Agent prompt to: “Call the granted read_probe tool exactly once with nonce <fresh nonce>. After receiving its result, reply with the exact returned marker. Do not infer or invent the marker.” Launch a one-Agent Workflow. Require a journaled native model proposal, one MCP audit entry, a correlated result and final text containing that marker. A plausible final answer without a recorded tool call fails this smoke test.
@@ -176,13 +176,4 @@ A passing result applies only to the recorded model/account/server configuration
 
 ## Migration and cutover
 
-1. Stop launching tool-enabled runs. Drain or cancel existing tool-enabled/Security Profile runs and reconcile any uncertain external work before replacement. Keep completed history.
-2. Back up D1 and the vault key using existing operator procedures.
-3. Apply the final, unmerged migration `0023_add_agent_tool_journal.sql` with the normal migration runner. This PR revises that migration in place; disposable preview databases that already applied its earlier PR version must be recreated before validation. Do not reuse an earlier preview schema. It adds tables and does not rewrite historical grants or results.
-4. Deploy the Worker and Runtime release 10 as one coordinated cutover; provision the optional policy-administrator/operator login lists.
-5. Reauthorize existing Git-managed MCP definitions through the editor as a policy administrator, including definitions with no explicit rules. Do not seed trusted attestations from Git authorship or import Git policies automatically. Verify attestation status before launching runs.
-6. Test Runtime readiness, provider connections, the execution path, a read-only call and an approved call before reopening launches.
-
-New plans freeze `agentExecutionContract: 1`. Historical snapshots remain readable. Historical completed Agent results are reused; historical tool-enabled activations without that contract cannot be restarted under the new rules. Launch a new run rather than editing or upgrading the old snapshot.
-
-Rollback requires draining/cancelling new-contract runs first. Keep the journal tables and evidence. An old Worker cannot decode new-contract plans or safely resume their approvals; use a compatible reader/resumer when retaining new history. A pre-cutover application/database backup is a separate recovery point, not an automatic rollback over newer execution evidence. Do not drop durable data as part of rollback.
+Follow the [PostgreSQL cutover guide](runtime-postgresql.md) to drain old runs, back up D1 and reauthorize MCP definitions. The new database starts with empty approval and tool journals. Resolve ambiguous external effects before resuming work.

@@ -1,3 +1,5 @@
+import {createHmac} from "node:crypto";
+
 export type AuthenticationConfigurationErrorCode =
   | "missing_configuration"
   | "invalid_session_secret"
@@ -56,14 +58,14 @@ export function validateTokenEncryptionKey(value: string) {
 }
 
 export function getSessionSecurityConfig() {
-  const values = requireAuthenticationValues(["SESSION_SECRET", "GITHUB_TOKEN_ENCRYPTION_KEY"] as const);
+  const values = requireAuthenticationValues(["SESSION_SECRET"] as const);
   if (values.SESSION_SECRET.length < 32) throw new AuthenticationConfigurationError("invalid_session_secret");
-  validateTokenEncryptionKey(values.GITHUB_TOKEN_ENCRYPTION_KEY);
-  return { sessionSecret: values.SESSION_SECRET, tokenEncryptionKey: values.GITHUB_TOKEN_ENCRYPTION_KEY };
+  const derive=(purpose:string)=>createHmac("sha256",values.SESSION_SECRET).update(`adt-web-session:v1:${purpose}`).digest("base64");
+  return { sessionSecret: derive("session-signature"), tokenEncryptionKey: derive("github-oauth-encryption") };
 }
 
 export async function validateProductionAuthReadiness() {
-  const values = requireAuthenticationValues(["ARTIFACT_REPOSITORY", "GITHUB_APP_ID", "GITHUB_APP_CLIENT_ID", "GITHUB_APP_CLIENT_SECRET", "GITHUB_APP_PRIVATE_KEY", "GITHUB_TOKEN_ENCRYPTION_KEY", "GITHUB_ARTIFACT_REPOSITORY_OWNER", "GITHUB_ARTIFACT_REPOSITORY_NAME", "SESSION_SECRET"] as const);
+  const values = requireAuthenticationValues(["ARTIFACT_REPOSITORY", "GITHUB_APP_ID", "GITHUB_APP_CLIENT_ID", "GITHUB_APP_CLIENT_SECRET", "GITHUB_APP_PRIVATE_KEY", "GITHUB_ARTIFACT_REPOSITORY_OWNER", "GITHUB_ARTIFACT_REPOSITORY_NAME", "SESSION_SECRET"] as const);
   if (values.ARTIFACT_REPOSITORY !== "github") throw new AuthenticationConfigurationError("invalid_repository_backend");
   getOAuthExchangeConfig();
   getSessionSecurityConfig();

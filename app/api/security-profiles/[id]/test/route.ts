@@ -2,9 +2,10 @@ import {NextResponse} from "next/server";
 import {requireApiRepositoryAccess} from "@/lib/auth";
 import {noStoreHeaders} from "@/lib/auth-core";
 import {workflowError} from "@/lib/workflow-http";
-import {createSecurityProfileDefinitionRepository,getProviderCredentialVault,getWorkflowEnvironment} from "@/lib/workflow-services";
-import {RemoteOpenAIAgentsRuntime,RemoteRuntimeFailure} from "@/lib/adt-runtime-client";
+import {createSecurityProfileDefinitionRepository,workflowRuntimeCommand} from "@/lib/workflow-services";
+import {RemoteRuntimeFailure} from "@/lib/adt-runtime-client";
 import {resolveRuntimeReleaseFreshness} from "@/lib/infrastructure-freshness-live";
+import type {ProviderDiagnosticFailure} from "@/lib/runtime-provider-management";
 import {securityProfileTestMessage} from "@/lib/security-profile-test-presentation";
 
 const sourceFor=(code:string|undefined)=>code?.startsWith("adrian_")||code==="execution_failed"?"adrian":"adt-runtime";
@@ -13,8 +14,15 @@ export async function POST(request:Request,{params}:{params:Promise<{id:string}>
   const started=Date.now(),auth=await requireApiRepositoryAccess(request);if(auth instanceof Response)return auth;
   try {
     const id=(await params).id,profile=await createSecurityProfileDefinitionRepository(auth.access).get(id);if(!profile)throw new Error("security_profile_missing");
-    const vault=await getProviderCredentialVault(),binding=await vault.currentSecurityProfileCredentialBinding(auth.access.repositoryId,id,profile.definition.endpointUrl),credential=await vault.resolveSecurityProfileCredential(auth.access.repositoryId,binding.bindingId,profile.definition.endpointUrl),rawEnv=await getWorkflowEnvironment(),env=rawEnv as unknown as Record<string,string|undefined>,runtime=new RemoteOpenAIAgentsRuntime({baseUrl:env.ADT_RUNTIME_BASE_URL,authSecret:env.ADT_RUNTIME_AUTH_SECRET,wrappingPublicKey:env.ADT_RUNTIME_WRAPPING_PUBLIC_KEY});
-    const result=await runtime.testSecurityProfile(profile.definition,credential);
+    const wire=await workflowRuntimeCommand<
+      { ok: true; result: { runtimeRevision?: string; runtimeReleaseRevision?: number } } | { ok: false; failure: ProviderDiagnosticFailure }
+    >({operation:"security.test",repositoryId:auth.access.repositoryId,definition:profile.definition});
+    if(!wire.ok){
+      const fail=wire.failure;
+      throw new RemoteRuntimeFailure(fail.category,"Security enforcement is unavailable.",undefined,fail.runtimeCode,
+        undefined,fail.runtimeRevision,fail.securityDiagnostic,fail.runtimeReleaseRevision);
+    }
+    const result=wire.result;
     const freshness=resolveRuntimeReleaseFreshness(result),runtimeFreshness=freshness.state;
     return NextResponse.json({state:"ready",provider:"adrian",profileId:id,source:"adrian",stage:"ready",safeCode:"ready",policyMode:"block",runtimeRevision:result.runtimeRevision,runtimeReleaseRevision:result.runtimeReleaseRevision,expectedRuntimeReleaseRevision:freshness.expectedReleaseRevision,runtimeFreshness,elapsedMs:Date.now()-started},{headers:noStoreHeaders});
   } catch(error) {

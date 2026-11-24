@@ -53,11 +53,19 @@ test('publication reuses same-job Runtime build and only skips integration after
   assert.match(workflow, /integration_already_verified:[\s\S]*default: false/);
 });
 
-test('operator service remains stateless, bounded, external-secret based, and non-root', () => {
+test('Runtime runs as non-root and PostgreSQL uses a private network and single-writer updates', () => {
   assert.match(stack, /image: poulti\/adt-runtime:latest/);
   assert.match(stack, /external: true/);
   assert.match(stack, /limits:/);
-  assert.doesNotMatch(stack, /volumes:|docker\.sock|provider.*key/i);
+  assert.doesNotMatch(stack, /docker\.sock|provider.*key/i);
+  const databaseService = stack.slice(stack.indexOf('  postgres:'), stack.indexOf('\nsecrets:'));
+  assert.match(databaseService, /image: postgres:\d+\.\d+-alpine@sha256:[a-f0-9]{64}/);
+  assert.doesNotMatch(databaseService, /ports:|ingress/);
+  assert.match(databaseService, /networks: \[database\]/);
+  assert.match(databaseService, /replicas: 1[\s\S]*node.labels.adt-postgres[\s\S]*order: stop-first/);
+  assert.match(stack, /database: \{driver: overlay, internal: true\}/);
+  assert.match(stack, /runtime-keys:\/runtime-keys/);
+  assert.match(stack, /postgres-data:\/var\/lib\/postgresql\/data/);
   assert.match(dockerfile, /USER node/);
   assert.doesNotMatch(dockerfile, /VOLUME|ghcr\.io/);
 });
@@ -66,7 +74,8 @@ test('image revision is build-owned and Runtime key identity needs no separately
   assert.match(dockerfile, /printf '%s' "\$ADT_RUNTIME_REVISION" > \/runtime\/REVISION/);
   assert.doesNotMatch(dockerfile, /ENV ADT_RUNTIME_REVISION/);
   assert.doesNotMatch(stack, /ADT_RUNTIME_REVISION|ADT_RUNTIME_KEY_ID|adt_runtime_key_id/);
-  assert.equal((stack.match(/external: true/g) ?? []).length, 3);
+  assert.equal((stack.match(/external: true/g) ?? []).length, 7);
+  assert.doesNotMatch(stack, /ADT_RUNTIME_PRIVATE_KEY|adt_runtime_private_key/);
   assert.doesNotMatch(stack, /REDEPLOY_WEBHOOK|redeploy_webhook/i);
   assert.match(workflow, /smoke-image\.sh adt-runtime:verified "\$\{\{ steps\.source\.outputs\.source_sha \}\}"/);
 });

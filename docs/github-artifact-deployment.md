@@ -124,6 +124,8 @@ Diagnostics is observational unless the user explicitly invokes a supported reco
 
 ### Runtime publication reconciliation
 
+- During the [PostgreSQL cutover](runtime-postgresql.md), trusted main publishes the new Runtime image while `ADT_POSTGRES_CUTOVER_READY` is unset. The operator provisions Runtime and deploys the Worker manually before enabling normal automatic deployment.
+
 - After successful eligible main Cloudflare operations and production OAuth smoke, the main lifecycle invokes the existing trusted Runtime publisher even for application-only changes. Failed or freshness-skipped operations cannot reconcile. Runtime-only publication remains independent.
 - Reconciliation builds the current Runtime inputs using the immutable main commit that last changed those inputs as the image revision and SHA tag. Application-only repairs do not invent another identity for an existing Runtime release.
 - Publication validates build-owned release/source metadata against trusted main history and requires consistent SHA, release, and `latest` digests. An already-published current release is a validated no-op; a newer trusted `latest` never moves backwards.

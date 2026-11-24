@@ -7,7 +7,7 @@ const unavailable:ConnectionTestResult={ok:false,category:"connection_unavailabl
 const resolverMessages:Partial<Record<FailureCategory,string>>={authentication_failed:"Microsoft authentication failed; reconnect the account.",permission_denied:"Microsoft denied permission. Check tenant enablement and administrator consent.",rate_limited:"Microsoft identity service rate limited the request.",provider_unavailable:"Microsoft identity service is temporarily unavailable.",provider_timeout:"Microsoft identity service timed out.",malformed_response:"Microsoft identity service returned an invalid response.",configuration_invalid:"The delegated connection configuration is invalid."};
 
 /** Resolves a credential transiently and invokes only an adapter's diagnostic capability. */
-export async function testWorkflowConnection(connectionKey:string,store:WorkflowProviderConnectionStore,adapters:Map<string,AgentProviderAdapter>,models?:Pick<ProviderModelService,"validateForPolicy">):Promise<ConnectionTestResult>{
+export async function testWorkflowConnection(connectionKey:string,store:Pick<WorkflowProviderConnectionStore,"resolveForExecution">,adapters:Map<string,AgentProviderAdapter>,models?:Pick<ProviderModelService,"validateForPolicy">):Promise<ConnectionTestResult>{
   let connection;
   try{connection=await store.resolveForExecution(connectionKey);}catch(error){const category=error&&typeof error==="object"&&"category" in error&&typeof error.category==="string"?error.category as FailureCategory:undefined;return category&&resolverMessages[category]?{ok:false,category,safeMessage:resolverMessages[category]!}:unavailable;}
   const type=getProviderConnectionType(connection.adapter);

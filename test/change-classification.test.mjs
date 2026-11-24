@@ -19,7 +19,7 @@ test('documentation and feature-request-only changes avoid executable verificati
   assert.equal(feature.deploy_cloudflare, false);
 });
 
-test('app and control-plane changes verify and deploy only the Cloudflare application', () => {
+test('app-only changes deploy the Worker and shared execution code also publishes Runtime', () => {
   const app = classifyChanges([{ filename: 'app/page.tsx' }]);
   assert.equal(app.verify_root, true);
   assert.equal(app.verify_app, true);
@@ -34,7 +34,7 @@ test('app and control-plane changes verify and deploy only the Cloudflare applic
   assert.equal(library.verify_app, true);
   assert.equal(library.verify_integration, true);
   assert.equal(library.deploy_worker, true);
-  assert.equal(library.publish_runtime, false);
+  assert.equal(library.publish_runtime, true);
 });
 
 test('migrations apply schema without pretending to alter the Worker image', () => {

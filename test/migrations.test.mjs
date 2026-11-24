@@ -4,10 +4,10 @@ import test from 'node:test';
 
 const migration0001 = readFileSync('migrations/0001_create_auth_sessions.sql', 'utf8');
 const migration0002 = readFileSync('migrations/0002_rebuild_auth_sessions.sql', 'utf8');
-const migration0009 = readFileSync('migrations/0009_create_provider_credential_vault.sql', 'utf8');
-const migration0019 = readFileSync('migrations/0019_add_work_iq_oauth_state.sql', 'utf8');
-const migration0020 = readFileSync('migrations/0020_add_workflow_run_mcp_snapshots.sql', 'utf8');
-const migration0021 = readFileSync('migrations/0021_add_security_profile_authority.sql', 'utf8');
+const migration0009 = readFileSync('test-fixtures/legacy-operational-migrations/0009_create_provider_credential_vault.sql', 'utf8');
+const migration0019 = readFileSync('test-fixtures/legacy-operational-migrations/0019_add_work_iq_oauth_state.sql', 'utf8');
+const migration0020 = readFileSync('test-fixtures/legacy-operational-migrations/0020_add_workflow_run_mcp_snapshots.sql', 'utf8');
+const migration0021 = readFileSync('test-fixtures/legacy-operational-migrations/0021_add_security_profile_authority.sql', 'utf8');
 
 test('0001 retains original AUTH-001 schema', () => {
   assert.match(migration0001, /revoked_at INTEGER\n\);/);

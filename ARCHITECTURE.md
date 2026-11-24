@@ -17,25 +17,17 @@ Next.js -> OpenNext -> Cloudflare Worker
     |
     +--> Cloudflare D1
     |       - application sessions
-    |       - encrypted provider credential vault
-    |       - durable Workflow run and attempt state
     |
     +--> Cloudflare KV
     |       - disposable validated catalogue cache
     |
-    +--> Cloudflare Workflows
-    |       - durable outer launch, recovery, and human-event lifecycle
-    |
-    +--> OpenAI
-    |       - direct Responses execution path
-    |
     +--> authenticated ADT Runtime
-    |       - LangGraph Workflow sequencing
-    |       - OpenAI Agents, Anthropic Messages, Microsoft Work IQ, and Ollama execution
-    |       - extensible ordinary AI provider execution and provider SDKs
-    |       - bounded remote MCP Streamable HTTP client execution
-    |       - fixed Runtime/Runner redeploy webhooks for authorised maintenance
-    |       - no durable ADT state or broad control-plane authority
+    |       - leased Workflow scheduling, recovery and LangGraph sequencing
+    |       - PostgreSQL run, checkpoint, approval, tool and operational state
+    |       - encrypted provider credential vault and Work IQ OAuth exchanges
+    |       - provider and bounded MCP client execution
+    |       - scoped GitHub credentials brokered by the Worker
+    |       - fixed Runtime and Runner redeploy webhooks
     |
     +--> independently published Adrian backend
     |       - vendored, provenance-verified upstream backend image
@@ -54,12 +46,12 @@ Exact bindings, schemas, versions, limits, identifiers, protocols, retries, and 
 
 - ADT owns the durable domain model, policy, authorisation, and recorded outcomes; framework-specific objects are replaceable implementation roles rather than the product model.
 - React Flow presents Workflow graphs; canonical Workflow v2 JSON defines semantics; LangGraph performs sequencing; provider runtimes execute AI work.
-- Git stores recoverable non-secret configuration. The encrypted ADT vault stores provider credential values. D1 stores durable application and execution state. KV is disposable acceleration.
-- The Cloudflare Worker is ADT's trust and durable-control plane, including user authorisation, Git authority, credential resolution, Workflow admission, and narrow privileged gateways.
+- Git stores recoverable non-secret configuration. The encrypted ADT vault stores provider credential values. D1 stores web sessions. Runtime owns operational state and the credential vault in PostgreSQL. KV is disposable acceleration.
+- The Cloudflare Worker is ADT's control plane for user authorisation, Git authority, Workflow admission and scoped GitHub credentials.
 - Browsers and execution services receive only the authority needed for their role; broad GitHub, Cloudflare, vault, or infrastructure credentials remain in the control plane or the exact trusted component that needs them.
 - Keep the Cloudflare Worker lean. Execution-heavy provider SDKs and orchestration libraries belong in ADT Runtime unless they genuinely require control-plane authority.
 - ADT Runtime is the extensible AI execution plane; Codex Runner remains a separate trust boundary for model-directed command execution.
-- Tool integrations are distinct from provider Connections. Built-in tools may retain control-plane gateways, while external tool protocol clients that need no control-plane authority belong in ADT Runtime.
+- Tool integrations are distinct from provider Connections. Runtime runs built-in and remote tools through a shared policy gate. GitHub access uses the Worker credential broker.
 
 ## Major product domains
 
@@ -96,10 +88,10 @@ Current product behaviour is defined by [`specs/agent-workflows.md`](specs/agent
 ### Durable Workflow execution
 
 - Runs snapshot the definitions used for one execution, including resolved reusable Workflow composition.
-- Cloudflare Workflows owns the durable outer lifecycle; LangGraph sequencing runs in ADT Runtime; checkpoints are persisted behind the control plane in D1.
+- Runtime schedules and recovers runs with PostgreSQL leases and advances LangGraph from durable checkpoints.
 - New runs freeze an ADT-owned versioned graph execution plan.
-- A provider-neutral AgentRuntime boundary delegates model work to the selected provider implementation. Tool-enabled OpenAI, Anthropic and Ollama Agents progress through an application-owned D1 conversation and tool journal.
-- D1 persists durable run, attempt, approval, retry, cancellation, provider-safety, and reconciliation state.
+- A provider-neutral AgentRuntime boundary delegates model work to the selected provider implementation. Tool-enabled OpenAI, Anthropic and Ollama Agents progress through a PostgreSQL-backed conversation and tool journal.
+- PostgreSQL persists durable run, attempt, approval, retry, cancellation, provider-safety, and reconciliation state.
 - Successful output is persisted before later work depends on it.
 - Ambiguous external work is reconciled rather than blindly recreated.
 
@@ -111,11 +103,11 @@ The product invariants are in [`specs/agent-workflows.md`](specs/agent-workflows
 - Git-managed provider connection types centrally define their safe configuration, authentication family, model policy, Agent option family, execution path, and capabilities; unsupported types and authentication lifecycles fail closed.
 - Git definitions under `connections/` are authoritative for validated non-secret connection configuration; only explicitly execution-safe provider fields may enter run snapshots.
 - Provider credential values live in the permanent encrypted ADT vault and are never stored in Agent or Workflow definitions.
-- Microsoft delegated OAuth occurs in the control plane. Work IQ client secrets and refresh tokens remain in the encrypted provider vault. Short-lived access tokens may enter ADT Runtime only as invocation-scoped encrypted credentials and are never persisted or supplied to Codex Runner.
-- OpenAI Agents, Anthropic Messages, Work IQ, and Ollama Workflow Agents execute through ADT Runtime. OpenAI Responses retains its direct asynchronous control-plane path; Codex Runner remains separate.
-- OpenAI/Anthropic model commissioning and delegated OAuth remain control-plane concerns. Ollama model commissioning runs through authenticated ADT Runtime because its endpoint may exist only on the Runtime Docker/LAN network.
+- The Worker handles the Work IQ browser redirect. Runtime owns the OAuth exchange, encrypted client secrets and refresh tokens, and call-scoped access tokens.
+- OpenAI Agents, Anthropic Messages, Work IQ, and Ollama Workflow Agents execute through ADT Runtime. Runtime also coordinates asynchronous OpenAI Responses work and delegates Codex jobs to Codex Runner.
+- Runtime handles model discovery, model validation and connection diagnostics for OpenAI, Anthropic, Ollama and Work IQ as applicable. The Worker receives model lists, credential status and safe diagnostics. Workflow admission uses scoped credential references. Stored credential values stay within Runtime.
 - Ollama follows Cloudflare → ADT Runtime → exact operator-approved endpoint. Its safe base URL and explicit authentication mode are immutable connection identity and frozen with each run. Runtime rejects endpoints outside its operator allowlist before network access and never follows redirects.
-- Unauthenticated Ollama connections have no vault identity. Optional bearer credentials remain ADT-vault-owned and enter Runtime only in an encrypted invocation envelope; Runtime never persists them. Ollama has no direct compatibility fallback.
+- Unauthenticated Ollama connections have no vault identity. Runtime resolves optional bearer credentials from its vault for the exact invocation. Ollama has no direct compatibility fallback.
 - Historical provider rows or retired credential sources may remain physically present but are not current execution inputs.
 - Live provider readiness is distinct from saved configuration.
 - Provider creation, polling, retry, cancellation, and ambiguous outcomes are trust and billing boundaries.
@@ -123,23 +115,23 @@ The product invariants are in [`specs/agent-workflows.md`](specs/agent-workflows
 ### Tools
 
 - Tools is the Workflow-area domain for Agent tool integrations; MCP is the first configurable external integration type and remains separate from provider Connections.
-- Git definitions under `tools/` hold non-secret MCP configuration, discovered catalogues and policy declarations. Protected D1 attestations independently authorize trusted policy against exact repository, tool, target and credential identities; Git write access alone never grants policy-administrator authority. Bearer values remain in the encrypted ADT vault.
+- Git definitions under `tools/` hold non-secret MCP configuration, discovered catalogues and policy declarations. Protected PostgreSQL attestations independently authorize trusted policy against exact repository, tool, target and credential identities; Git write access alone never grants policy-administrator authority. Bearer values remain in the encrypted ADT vault.
 - Agent definitions grant an MCP server stable ID and explicitly selected remote tool names. New Workflow runs freeze the selected non-secret execution contract, so later catalogue or server edits affect future runs only.
-- The Worker authorises discovery and execution, admits only credential-binding generations tied to the frozen configured endpoint, resolves the current vault credential for the frozen repository identity plus generation, and sends only frozen definitions with invocation-scoped encrypted credentials to ADT Runtime. Credentials never enter run snapshots.
+- Runtime admits only credential-binding generations tied to the frozen endpoint and repository, and resolves credentials for the exact invocation. Credentials never enter run snapshots.
 - ADT Runtime alone owns the MCP client. It exposes authorised tools through collision-safe aliases derived from server ID and remote name, applies the shared tool security gate and call budget, and calls the unchanged remote name.
 - Normal Agent execution never discovers or refreshes an MCP catalogue. Agent-tool eligibility follows provider capability policy.
 
-- The Worker verifies protected policy authority at run freezing and live consumption. Explicitly delegated tool approvers remain distinct from repository users, policy administrators and reconciliation operators.
-- The Worker journals complete tool proposals before policy, approval or execution. Models receive schemas without tool credentials. Each Runtime tool request contains one admitted invocation and scoped credentials.
+- The Worker verifies protected policy through Runtime at run admission. Runtime revalidates policy at execution. Explicitly delegated tool approvers remain distinct from repository users, policy administrators and reconciliation operators.
+- Runtime journals complete tool proposals before policy, approval or execution. Models receive schemas without tool credentials. Each Runtime tool request contains one admitted invocation and scoped credentials.
 - Unknown external outcomes suspend Agent progression for operator reconciliation; timers never retry admitted uncertain calls. See [Agent tools and recovery](docs/agent-tools-and-recovery.md) for policies, continuation and cutover.
 
 ### Advisor
 
 - Advisor launches an explicitly configured ordinary Workflow through the shared durable admission path; it is not a separate execution engine or privileged identity.
-- D1 stores repository-scoped Advisor settings and the run's frozen read-only context. Effective Agent and provider overrides use the existing run snapshots without rewriting Git definitions.
-- Native ADT metadata tools reuse the provider-neutral Agent tool journal, admission and shared security gate. The Worker checks exact frozen grants, active attempt authority and current repository identity before scoped Git or D1 reads.
+- Runtime persists repository-scoped Advisor settings and frozen run contexts in PostgreSQL. Effective Agent and provider overrides use the existing run snapshots without rewriting Git definitions.
+- Native ADT metadata tools reuse the provider-neutral Agent tool journal, admission and shared security gate. Runtime checks exact frozen grants, active attempt authority and current repository identity before scoped Git or PostgreSQL reads.
 - Existing metadata projections exclude sensitive content. Independently granted deeper observability tools require exact-call human approval, frozen scope and current authority; raw errors and unsafe external payloads remain omitted.
-- Approved Advisor knowledge lives only in the configured Git repository under `advisor/knowledge/`. D1 stores account/repository-scoped proposals, expiring session-bound review consent and publication state, never an authoritative accepted-knowledge index.
+- Approved Advisor knowledge lives only in the configured Git repository under `advisor/knowledge/`. PostgreSQL stores account/repository-scoped proposals, expiring session-bound review consent and publication state, never an authoritative accepted-knowledge index.
 - The trusted browser/application boundary alone can publish reviewed knowledge through short-lived GitHub App authority and optimistic concurrency. Consent is consumed once per mutation; uncertain writes are never replayed. Model tools and ADT Runtime cannot access this publication authority.
 - Advisor's backend allowlist includes the explicitly granted native readers and excludes external tools, Codex and publication even through composed Workflows.
 
@@ -157,12 +149,10 @@ The product invariants are in [`specs/agent-workflows.md`](specs/agent-workflows
 
 ### ADT Runtime
 
-- ADT Runtime is an independently deployed, replaceable compute and provider-execution service with no durable ADT state or persisted provider credentials.
-- LangGraph computes bounded Workflow progression, but durable checkpoints and executable-node admission remain behind narrowly scoped Worker gateways.
-- The Worker retains Workflow admission, durable state, credential authority, outer recovery, and repository/tool authority.
-- Provider credentials are resolved in the control plane and supplied only for the exact invocation that needs them.
-- Invocation-scoped external-tool credentials follow the same encrypted Runtime boundary and are neither persisted nor exposed by Runtime.
-- Runtime and application revisions may roll independently through explicit protocol and capability compatibility. Authenticated readiness from an older compatible Runtime permits the temporary direct Anthropic/Work IQ bridge; generic execution selection never falls back after failure.
+- ADT Runtime owns Workflow scheduling, recovery, approvals, provider and tool credentials, tool policies, Advisor settings and Codex registrations in PostgreSQL.
+- The Worker authenticates users, freezes validated Git definitions, and brokers short-lived credentials scoped to the repository and operation.
+- Runtime resolves credentials for the exact provider or tool invocation. The Worker retains broad GitHub App authority.
+- Runtime and the Worker authenticate protocol operations and reject incompatible capabilities.
 - Execution-heavy AI/provider libraries that do not need broad control-plane authority belong here.
 - Runtime may hold only four operator-provisioned, narrowly scoped Portainer webhook URLs for Runtime and split Runner redeployment. Portainer remains private; these URLs never enter Cloudflare or browser state, and Runtime receives no Portainer API credential or Docker socket.
 
@@ -191,10 +181,12 @@ Operational detail belongs in [`codex-runner/README.md`](codex-runner/README.md)
 | Artifact content and Git-backed Agent, Workflow, layout, provider connection, and Security Profile definitions | configured GitHub repository |
 | Approved Advisor knowledge | configured GitHub repository (`advisor/knowledge/`) |
 | Artifact repository layout and metadata | `docs/external-artifact-repository-contract.md` plus validation code |
-| Application sessions, encrypted provider credential vault, Advisor settings/proposals/publication state, and durable Workflow state | D1 schema, migrations, and source |
+| Application sessions | D1 schema and auth migrations |
+| Encrypted vault, Advisor proposals and durable Workflow state | Runtime PostgreSQL schema and migrations |
+| Advisor settings and Codex environment registrations | [Runtime PostgreSQL](docs/runtime-postgresql.md) |
 | Catalogue acceleration | KV cache; GitHub remains authoritative |
-| Durable Workflow orchestration | Cloudflare Workflows outer lifecycle; LangGraph sequencing in ADT Runtime; checkpoints persisted behind the control plane in D1 |
-| Ordinary AI provider execution (OpenAI Agents, Anthropic Messages, Work IQ, Ollama) | independently deployed ADT Runtime; direct OpenAI Responses remains a supported exception |
+| Durable Workflow orchestration | Runtime leases, LangGraph and PostgreSQL checkpoints |
+| Ordinary AI provider execution (OpenAI Agents, Anthropic Messages, Work IQ, Ollama) | independently deployed ADT Runtime |
 | Codex authentication and model-directed command execution | Codex Runner Executor |
 | Managed Git authority | Codex Runner Repository Manager |
 | Runner jobs, idempotency, and emergency latch | Codex Runner Controller |
@@ -204,19 +196,19 @@ Operational detail belongs in [`codex-runner/README.md`](codex-runner/README.md)
 ## Recovery characteristics
 
 - Git is the durable recovery source for non-secret ADT configuration.
-- D1 contains durable history and encrypted vault state; losing it may lose history and require credentials to be restored or re-entered.
-- The vault encryption key remains outside D1; loss of that key makes vault ciphertext unusable without exposing plaintext.
+- PostgreSQL contains durable history and encrypted vault state. Recovery requires a database backup and matching vault root.
+- Runtime pins the vault root fingerprint in PostgreSQL and keeps the root in a protected key directory.
 - KV catalogue state may be discarded and rebuilt from Git.
-- ADT Runtime is replaceable without local durable state.
+- Runtime instances share PostgreSQL and a protected root-key export. Back up the database and its matching key separately.
 - Codex Runner owns separate operator-managed durable state for Controller jobs, Codex identity/home state, local SQLite state, and managed repository authority where configured.
 
 ## Important trust and state boundaries
 
 - **Browser -> application:** treat browser input as untrusted; authentication and authorisation remain server-side.
 - **Application -> GitHub:** validate exact repository targets, revisions, permissions, and mutation intent; use short-lived operation-scoped authority.
-- **Application -> D1/KV/Workflows:** durable transitions must remain deterministic and safe under retries, interruption, and stale observations.
+- **Runtime -> PostgreSQL:** fenced state transitions remain safe under retries, interruption and stale observations.
 - **Application -> provider APIs:** provider work may be billable or side-effecting; ambiguous outcomes must not cause blind duplicate work.
-- **Application -> ADT Runtime:** authenticate protocol operations, keep durable state and broad credentials out of Runtime, and fail closed on replay, incompatibility, missing capability, or ambiguous outcomes. Authorised maintenance sends only a fixed Runtime/Runner target; Runtime alone dispatches its private scoped webhooks.
+- **Application -> ADT Runtime:** authenticate narrowly scoped operations, keep GitHub App credentials in the Worker and fail closed on replay, incompatibility or missing authority. Authorised maintenance sends only a fixed Runtime/Runner target; Runtime alone dispatches its private scoped webhooks.
 - **Application -> Codex Runner:** expose bounded configuration and diagnostics; never transfer the Runner's Codex credential to ADT.
 - **Runner Controller -> Executor/Repository Manager:** Controller alone holds internal signing authority; execution and Git roles receive verifier material only.
 - **Executor -> workspace/Internet:** model-directed access is constrained by the container, mounts, isolated overlays, and restricted executor egress.

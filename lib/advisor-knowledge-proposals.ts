@@ -28,21 +28,38 @@ export class KnowledgeProposalStore{
   if(result.meta?.changes!==1)throw Error("knowledge_conflict");
   return {proposal:await this.get(id),reviewToken:token,expiresAt:expires};
  }
- async publish(id:string,revision:number,reviewToken:string,publisher:(document:KnowledgeDocument,expectedSha:string|null,actor:string)=>Promise<unknown>){
+ async claimPublication(id:string,revision:number,reviewToken:string){
   const row=await this.row(id);
   if(row.state!=="reviewed"||row.revision!==revision||row.review_digest!==agentDigest(reviewToken)||row.review_session!==agentDigest(this.actor.sessionId)||!row.review_expires_at||row.review_expires_at<=this.now())throw Error("knowledge_review_required");
   const result=await this.db.prepare("UPDATE advisor_knowledge_proposals SET state='publishing',review_digest=NULL,review_session=NULL,review_expires_at=NULL,updated_at=? WHERE id=? AND repository_scope=? AND owner_id=? AND revision=? AND state='reviewed' AND review_digest=? AND review_session=? AND review_expires_at>?").bind(this.now(),id,this.scope,this.actor.githubId,revision,row.review_digest,row.review_session,this.now()).run();
   if(result.meta?.changes!==1)throw Error("knowledge_review_required");
-  // A claim consumes consent even when a write fails. Never retries publishing/uncertain claims.
-  try{
-   const publication=await publisher(view(row).document,row.expected_sha,this.actor.login);
-   const saved=await this.db.prepare("UPDATE advisor_knowledge_proposals SET state='published',publication_json=?,updated_at=? WHERE id=? AND repository_scope=? AND owner_id=? AND state='publishing'").bind(JSON.stringify(publication),this.now(),id,this.scope,this.actor.githubId).run();
-   if(saved.meta?.changes!==1)throw Error("knowledge_publish_uncertain");
-   return this.get(id);
-  }catch(error){
-   const conflict=error instanceof Error&&error.message==="knowledge_conflict",secretRejected=error instanceof Error&&error.message==="knowledge_secret_rejected";
-   await this.db.prepare("UPDATE advisor_knowledge_proposals SET state=?,updated_at=? WHERE id=? AND repository_scope=? AND owner_id=? AND state='publishing'").bind(secretRejected?"draft":conflict?"conflict":"uncertain",this.now(),id,this.scope,this.actor.githubId).run();
-   throw Error(secretRejected?"knowledge_secret_rejected":conflict?"knowledge_conflict":"knowledge_publish_uncertain");
-  }
+  return {document:view(row).document,expectedSha:row.expected_sha,actor:this.actor.login};
  }
+ async finishPublication(id:string,input:{state:"published"|"draft"|"conflict"|"uncertain";publication?:unknown}){
+  if(!["published","draft","conflict","uncertain"].includes(input.state))throw Error("knowledge_publish_uncertain");
+  const result=await this.db.prepare("UPDATE advisor_knowledge_proposals SET state=?,publication_json=?,updated_at=? WHERE id=? AND repository_scope=? AND owner_id=? AND state='publishing'")
+   .bind(input.state,input.publication===undefined?null:JSON.stringify(input.publication),this.now(),id,this.scope,this.actor.githubId).run();
+  if(result.meta?.changes!==1)throw Error("knowledge_publish_uncertain");
+  return this.get(id);
+ }
+ async publish(id:string,revision:number,reviewToken:string,publisher:(document:KnowledgeDocument,expectedSha:string|null,actor:string)=>Promise<unknown>){
+  return publishClaimedKnowledge(this,id,revision,reviewToken,publisher);
+ }
+}
+
+export async function publishClaimedKnowledge(
+ store:Pick<KnowledgeProposalStore,"claimPublication"|"finishPublication">,id:string,revision:number,reviewToken:string,
+ publisher:(document:KnowledgeDocument,expectedSha:string|null,actor:string)=>Promise<unknown>,
+){
+ const claim=await store.claimPublication(id,revision,reviewToken);
+ let publication:unknown;
+ try {
+  publication=await publisher(claim.document,claim.expectedSha,claim.actor);
+ } catch(error) {
+  const code=error instanceof Error?error.message:"";
+  const state=code==="knowledge_secret_rejected"?"draft":code==="knowledge_conflict"?"conflict":"uncertain";
+  await store.finishPublication(id,{state});
+  throw Error(state==="draft"?"knowledge_secret_rejected":state==="conflict"?"knowledge_conflict":"knowledge_publish_uncertain");
+ }
+ return store.finishPublication(id,{state:"published",publication});
 }

@@ -4,28 +4,105 @@ services:
     image: poulti/adt-runtime:latest
     environment:
       ADT_RUNTIME_AUTH_SECRET_FILE: /run/secrets/adt_runtime_auth
-      ADT_RUNTIME_PRIVATE_KEY_FILE: /run/secrets/adt_runtime_private_key
-      # Optional exact operator-approved Ollama origins, e.g. http://ollama:11434
+      ADT_RUNTIME_DB_HOST: postgres
+      ADT_RUNTIME_DB_NAME: adt
+      ADT_RUNTIME_DB_USER: adt_runtime
+      ADT_RUNTIME_DB_PASSWORD_FILE: /run/secrets/adt_postgres_app_password
+      ADT_RUNTIME_ROOT_KEY_FILE: /runtime-keys/root.json
       ADT_RUNTIME_OLLAMA_ALLOWED_BASE_URLS: ""
+      ADT_RUNTIME_WORKER_URL: https://fpo-adt.florian-pouchet.workers.dev
+      CODEX_RUNNER_BASE_URL: https://cr.pouchet.net
+      CODEX_RUNNER_ACCESS_CLIENT_ID_FILE: /run/secrets/adt_runner_access_client_id
+      CODEX_RUNNER_ACCESS_CLIENT_SECRET_FILE: /run/secrets/adt_runner_access_client_secret
+      CODEX_RUNNER_SHARED_SECRET_FILE: /run/secrets/adt_runner_shared_secret
+      ADT_TOOL_APPROVERS: ""
+      ADT_TOOL_OPERATORS: ""
+      ADT_TOOL_POLICY_ADMINS: ""
     secrets:
       - adt_runtime_auth
-      - adt_runtime_private_key
-    networks: [ingress]
+      - adt_runner_access_client_id
+      - adt_runner_access_client_secret
+      - adt_runner_shared_secret
+      - source: adt_postgres_app_password
+        uid: "1000"
+        gid: "1000"
+        mode: 0400
+    networks: [ingress, database]
+    volumes:
+      - runtime-keys:/runtime-keys
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 15s
-      timeout: 3s
+      timeout: 8s
       retries: 3
-      start_period: 10s
+      start_period: 45s
     deploy:
       replicas: 1
       restart_policy: {condition: on-failure, delay: 5s}
-      update_config: {parallelism: 1, order: start-first, failure_action: rollback, monitor: 30s}
+      update_config: {parallelism: 1, order: stop-first, failure_action: pause, monitor: 60s}
       resources:
         limits: {cpus: "1.0", memory: 1G}
         reservations: {cpus: "0.25", memory: 256M}
+  postgres:
+    image: postgres:17.10-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    environment:
+      POSTGRES_DB: adt
+      POSTGRES_USER: adt_bootstrap
+      POSTGRES_PASSWORD_FILE: /run/secrets/adt_postgres_bootstrap_password
+      PGDATA: /var/lib/postgresql/data/pgdata
+    secrets:
+      - source: adt_postgres_bootstrap_password
+        uid: "70"
+        gid: "70"
+        mode: 0400
+      - source: adt_postgres_app_password
+        uid: "70"
+        gid: "70"
+        mode: 0400
+    configs:
+      - source: adt_postgres_init_v1
+        target: /docker-entrypoint-initdb.d/01-adt-role.sh
+        mode: 0444
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks: [database]
+    stop_grace_period: 60s
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U adt_bootstrap -d adt"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.labels.adt-postgres == true]
+      update_config: {parallelism: 1, order: stop-first, failure_action: pause, monitor: 60s}
+      rollback_config: {parallelism: 1, order: stop-first}
+      restart_policy: {condition: on-failure, delay: 5s}
 secrets:
   adt_runtime_auth: {external: true}
-  adt_runtime_private_key: {external: true}
+  adt_runner_access_client_id: {external: true}
+  adt_runner_access_client_secret: {external: true}
+  adt_runner_shared_secret: {external: true}
+  adt_postgres_bootstrap_password: {external: true}
+  adt_postgres_app_password: {external: true}
+configs:
+  adt_postgres_init_v1:
+    file: ./scripts/init-postgres.sh
 networks:
   ingress: {external: true, name: replace-with-ingress-network}
+  database: {driver: overlay, internal: true}
+volumes:
+  postgres-data:
+    driver: local
+    driver_opts:
+      type: nfs
+      o: addr=replace-with-nfs-server,nfsvers=4.2,hard,timeo=600
+      device: ":/replace-with-adt-postgres-export"
+  runtime-keys:
+    driver: local
+    driver_opts:
+      type: nfs
+      o: addr=replace-with-nfs-server,nfsvers=4.2,hard,timeo=600
+      device: ":/replace-with-adt-runtime-keys-export"

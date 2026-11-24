@@ -30,6 +30,7 @@ export function isSensitivePath(path) {
     || p.startsWith('scripts/')
     || p.startsWith('lib/')
     || p === 'test/integration/workflow-runtime-integration.test.mjs'
+    || p === 'test/integration/postgres-runtime-integration.test.mjs'
     || exactSensitive.has(p)
     || /^open-next\.config\..+$/.test(p);
 }
@@ -105,6 +106,7 @@ function isIntegrationPath(path) {
   return p.startsWith('lib/')
     || isRuntimePath(p)
     || p === 'test/integration/workflow-runtime-integration.test.mjs'
+    || p === 'test/integration/postgres-runtime-integration.test.mjs'
     || p === 'package.json'
     || p === 'package-lock.json'
     || p === '.nvmrc';

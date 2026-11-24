@@ -15,7 +15,7 @@ const pkcs8 = pair.privateKey.export({ type: "pkcs8", format: "pem" }).toString(
 const pkcs1 = pair.privateKey.export({ type: "pkcs1", format: "pem" }).toString();
 const requiredEnvironment = {
   ARTIFACT_REPOSITORY: "github", GITHUB_APP_ID: "123", GITHUB_APP_CLIENT_ID: "client-value", GITHUB_APP_CLIENT_SECRET: "client-secret-value",
-  GITHUB_APP_PRIVATE_KEY: pkcs8, GITHUB_TOKEN_ENCRYPTION_KEY: Buffer.alloc(32).toString("base64"),
+  GITHUB_APP_PRIVATE_KEY: pkcs8,
   GITHUB_ARTIFACT_REPOSITORY_OWNER: "zailghe3", GITHUB_ARTIFACT_REPOSITORY_NAME: "fpo-artifacts", SESSION_SECRET: "s".repeat(48),
 };
 
@@ -30,10 +30,20 @@ test("production readiness validates every setting, secret shape, backend, and p
   for (const name of Object.keys(requiredEnvironment)) await withEnvironment({ [name]: undefined }, async () => {
     await assert.rejects(config.validateProductionAuthReadiness(), error => error instanceof config.AuthenticationConfigurationError && error.missingNames.includes(name));
   });
-  for (const values of [{ SESSION_SECRET: "short-secret" }, { GITHUB_TOKEN_ENCRYPTION_KEY: "not base64!" }, { GITHUB_TOKEN_ENCRYPTION_KEY: Buffer.alloc(31).toString("base64") }, { GITHUB_APP_PRIVATE_KEY: "bad-pem" }]) {
+  for (const values of [{ SESSION_SECRET: "short-secret" }, { GITHUB_APP_PRIVATE_KEY: "bad-pem" }]) {
     await withEnvironment(values, () => assert.rejects(config.validateProductionAuthReadiness(), config.AuthenticationConfigurationError));
   }
   await withEnvironment({ ARTIFACT_REPOSITORY: "file" }, () => assert.rejects(config.validateProductionAuthReadiness(), error => error.code === "invalid_repository_backend" && error.missingNames === undefined));
+});
+
+test("session signing and GitHub OAuth encryption derive distinct keys from the session root", async () => {
+  const original = await withEnvironment({}, () => config.getSessionSecurityConfig());
+  assert.equal(config.validateTokenEncryptionKey(original.tokenEncryptionKey).length, 32);
+  assert.notEqual(original.sessionSecret, original.tokenEncryptionKey);
+  assert.deepEqual(await withEnvironment({}, () => config.getSessionSecurityConfig()), original);
+  const rotated = await withEnvironment({ SESSION_SECRET: "r".repeat(48) }, () => config.getSessionSecurityConfig());
+  assert.notEqual(rotated.sessionSecret, original.sessionSecret);
+  assert.notEqual(rotated.tokenEncryptionKey, original.tokenEncryptionKey);
 });
 
 test("encryption key validation is typed, strict, and trims whitespace", () => {
@@ -71,7 +81,7 @@ test("OAuth start route redirects safely for valid, configuration, malformed, an
   const valid = routes.createOAuthStartRouteHandler({ createOAuthStart: async () => new URL("https://github.com/login/oauth/authorize?client_id=id&state=state&code_challenge=pkce"), logger: value => logs.push(value) });
   let response = await valid(new Request("https://service.test/auth/github/start?returnTo=%2Fartifacts%2Fone"));
   assert.equal(response.status, 307); assert.equal(location(response).origin, "https://github.com");
-  const failures = ["ARTIFACT_REPOSITORY", "GITHUB_APP_ID", "GITHUB_APP_CLIENT_ID", "GITHUB_APP_CLIENT_SECRET", "GITHUB_APP_PRIVATE_KEY", "GITHUB_TOKEN_ENCRYPTION_KEY", "GITHUB_ARTIFACT_REPOSITORY_OWNER", "GITHUB_ARTIFACT_REPOSITORY_NAME", "SESSION_SECRET"];
+  const failures = ["ARTIFACT_REPOSITORY", "GITHUB_APP_ID", "GITHUB_APP_CLIENT_ID", "GITHUB_APP_CLIENT_SECRET", "GITHUB_APP_PRIVATE_KEY", "GITHUB_ARTIFACT_REPOSITORY_OWNER", "GITHUB_ARTIFACT_REPOSITORY_NAME", "SESSION_SECRET"];
   for (const name of failures) {
     const handler = routes.createOAuthStartRouteHandler({ createOAuthStart: async () => { throw new config.AuthenticationConfigurationError("missing_configuration", [name]); }, logger: value => logs.push(value) });
     response = await handler(new Request("https://service.test/auth/github/start?returnTo=%2Fartifacts%2Fone"));
@@ -126,18 +136,15 @@ test("OAuth smoke retries transient failures, exhausts deterministically, times 
 
 test("Wrangler structurally declares exactly the intended secrets and production repository", () => {
   const wrangler = JSON.parse(readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8"));
-  assert.deepEqual(wrangler.secrets.required, ["GITHUB_APP_ID", "GITHUB_APP_CLIENT_ID", "GITHUB_APP_CLIENT_SECRET", "GITHUB_APP_PRIVATE_KEY", "GITHUB_TOKEN_ENCRYPTION_KEY", "WORKFLOW_PROVIDER_SECRET_ENCRYPTION_KEY", "SESSION_SECRET", "CODEX_RUNNER_ACCESS_CLIENT_ID", "CODEX_RUNNER_ACCESS_CLIENT_SECRET", "CODEX_RUNNER_SHARED_SECRET", "ADT_RUNTIME_AUTH_SECRET", "ADT_INTERNAL_AUTHORITY_SECRET"]);
+  assert.deepEqual(wrangler.secrets.required, ["GITHUB_APP_CLIENT_SECRET", "GITHUB_APP_PRIVATE_KEY", "SESSION_SECRET", "ADT_RUNTIME_AUTH_SECRET"]);
   assert.deepEqual(wrangler.vars, {
     ARTIFACT_REPOSITORY: "github",
     GITHUB_ARTIFACT_REPOSITORY_OWNER: "zailghe3",
     GITHUB_ARTIFACT_REPOSITORY_NAME: "fpo-artifacts",
-    CODEX_RUNNER_BASE_URL: "https://cr.pouchet.net",
     ADT_RUNTIME_BASE_URL: "https://adt-runtime.pouchet.net",
-    ADT_TOOL_GATEWAY_URL: "https://fpo-adt.florian-pouchet.workers.dev/api/runtime-tools/artifact-search",
-    ADT_CHECKPOINT_GATEWAY_URL: "https://fpo-adt.florian-pouchet.workers.dev/api/runtime-checkpoints",
-    ADT_GRAPH_NODE_GATEWAY_URL: "https://fpo-adt.florian-pouchet.workers.dev/api/runtime-graph-node",
-    ADT_RUNTIME_WRAPPING_PUBLIC_KEY: "-----BEGIN PUBLIC KEY-----\nMIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEA0FGdSN2hqom6catymMcX\niEaUtmzwb4bEExz65//R1GWH9Fg2S4WfonqjXnwzapgN64U4YXt3zyHHzeEVv91A\nGGuvMSjYIh2mahbQIsbU1WX2Ei3Fr19ZtkHzt0qSjVdbKVNvGatWdNFNocL6tiiY\nQhxzLcoVrPuP2JtAgFu+7vd8q9EyPjnQePqeyetK3tlxcsZMbYxD9ptFmNX0j0fE\nQDR48zHbzFfHrG02ZeUzrjpzXe24YXr0BSymDvXOCuOd+1irHWGAypaP8d+bSlk+\ndZUIJYFZRhGx/88oqSGIr8GxJoQRYDk5AwSwp8yoY4vupdFuWAY4wBZmmTN2omwZ\nI4Jcbb9AuKn/aCuQo4U8DJJDET9zABYcRj5PW465luvWDJhvqHevuMeA7QAZOq4b\nQb4IEeKhAkeLlyr2IjM+9o/v9xr9mWkb9j5vxLXk1bzMJYAU25zukgVuP1Wv0YXo\ndoXnV/4tkKpER9IHqkqTpDcolRy8GRcNzyZOIWYqT9bNAgMBAAE=\n-----END PUBLIC KEY-----",
   });
+  assert.deepEqual(wrangler.d1_databases.map(db => db.binding), ["AUTH_SESSIONS_DB"]);
+  assert.equal(wrangler.workflows, undefined);
   assert.ok(Array.isArray(wrangler.kv_namespaces));
   assert.equal(wrangler.kv_namespaces.length, 1);
   const [catalogueCache] = wrangler.kv_namespaces;

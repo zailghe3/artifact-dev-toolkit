@@ -14,18 +14,19 @@ import {resolveFrozenSecurityProfile} from "./security-profile-authority.ts";
 import {D1ProviderCredentialVault,type ProviderCredentialVaultDatabase} from "./provider-credential-vault.ts";
 import {providerCredentialVaultV1KeyResolver} from "./provider-credential-vault-crypto.ts";
 import {hasArtifactSearchGrant,type AgentDefinitionV1} from "./workflow-definitions.ts";
-import type {RunDetail,StepAttempt,WorkflowRunStorage} from "./workflow-storage.ts";
+import type {RunDetail,RunRepositoryContext,StepAttempt,WorkflowRunStorage} from "./workflow-storage.ts";
 import type {WorkflowD1Database} from "./workflow-d1-storage.ts";
 import type {GraphNodeAuthorityScope} from "./langgraph-checkpoints.ts";
 import type {ConnectionDescriptor,ResolvedConnection} from "./workflow-connections.ts";
 import {providerExecutionTimeoutMs} from "./provider-execution-timeouts.ts";
+import {GitHubArtifactRepository} from "./artifact-repository.ts";
 import {boundedArtifactSearch} from "./artifact-search-tool.ts";
-import {createGitHubAppJwt,mintInstallationToken} from "./github-app.ts";
+import {createGitHubAppJwt,mintInstallationToken,type RepositoryCredential} from "./github-app.ts";
 import type {RepositoryAccessContext} from "./repository-authorization.ts";
 import {blockToolsSchema,grantKey,type ModelProgress} from "../adt-runtime/src/agent-contract.ts";
 
-export async function executeJournaledWorkflowAgent(input:{env:CloudflareEnv;scope:GraphNodeAuthorityScope;inputText:string;detail:RunDetail;attempt:StepAttempt;agent:AgentDefinitionV1;restrictions?:unknown;storage:WorkflowRunStorage;configuration:ADTRuntimeConfiguration;nativeData?:NativeAdtDataAccess;toolRepository?:Pick<import("./tool-definition-repository.ts").ToolDefinitionRepository,"get">;runtime?:Pick<RemoteOpenAIAgentsRuntime,"agentOperation">;resolveConnection:(key:string,snapshot?:ConnectionDescriptor)=>Promise<ResolvedConnection>}){
- const {env,scope,storage,agent}=input,values=env as unknown as Record<string,string>,database=env.AUTH_SESSIONS_DB as unknown as WorkflowD1Database,journal=new AgentJournal(database,undefined,values),detail=input.detail;
+export async function executeJournaledWorkflowAgent(input:{env:import("./workflow-worker-runtime.ts").WorkflowExecutionEnvironment;scope:GraphNodeAuthorityScope;inputText:string;detail:RunDetail;attempt:StepAttempt;agent:AgentDefinitionV1;restrictions?:unknown;storage:WorkflowRunStorage;configuration:ADTRuntimeConfiguration;vault?:D1ProviderCredentialVault;nativeData?:NativeAdtDataAccess;database?:WorkflowD1Database;repositoryCredential?:(context:RunRepositoryContext)=>Promise<RepositoryCredential>;toolRepository?:Pick<import("./tool-definition-repository.ts").ToolDefinitionRepository,"get">;runtime?:Pick<RemoteOpenAIAgentsRuntime,"agentOperation">;resolveConnection:(key:string,snapshot?:ConnectionDescriptor)=>Promise<ResolvedConnection>}){
+ const {env,scope,storage,agent}=input,values=env as unknown as Record<string,string>,database=input.database??env.AUTH_SESSIONS_DB as unknown as WorkflowD1Database,journal=new AgentJournal(database,undefined,values),detail=input.detail;
  assertAdvisorRunReadOnly(detail.run);
  if(detail.run.cancelRequestedAt||["cancelled","cancelling"].includes(detail.run.status))return{state:"cancelled" as const};
  if(input.attempt.status==="succeeded")return{state:"completed" as const,outputText:input.attempt.outputText??""};
@@ -62,12 +63,12 @@ export async function executeJournaledWorkflowAgent(input:{env:CloudflareEnv;sco
  try{
   const snapshot=detail.run.connectionSnapshots[agent.connectionKey],connection=await input.resolveConnection(agent.connectionKey,snapshot);if(!snapshot||!connection.enabled||connection.adapter!==snapshot.adapter)throw Error("connection_unavailable");
   const repository=detail.run.repositoryContext;if(!repository&&agent.tools?.length)throw Error("tool_repository_context_missing");
-  const vault=new D1ProviderCredentialVault(database as unknown as ProviderCredentialVaultDatabase,providerCredentialVaultV1KeyResolver(env.WORKFLOW_PROVIDER_SECRET_ENCRYPTION_KEY)),remote=input.runtime??new RemoteOpenAIAgentsRuntime(input.configuration),restrictions=blockToolsSchema.parse(input.restrictions??{}),grantKeys=(agent.tools??[]).map(grantKey),frozen=detail.run.mcpToolSnapshots?.[agent.id]??[];
+  const vault=input.vault??new D1ProviderCredentialVault(database as unknown as ProviderCredentialVaultDatabase,providerCredentialVaultV1KeyResolver(env.WORKFLOW_PROVIDER_SECRET_ENCRYPTION_KEY)),remote=input.runtime??new RemoteOpenAIAgentsRuntime(input.configuration),restrictions=blockToolsSchema.parse(input.restrictions??{}),grantKeys=(agent.tools??[]).map(grantKey),frozen=detail.run.mcpToolSnapshots?.[agent.id]??[];
   const expected=(agent.tools??[]).filter(grant=>typeof grant!=="string"&&grant.type==="mcp");if(expected.length!==frozen.length||expected.some(grant=>typeof grant!=="string"&&grant.type==="mcp"&&!frozen.some(tool=>tool.serverId===grant.serverId&&tool.tool.name===grant.toolName)))throw Error("mcp_run_snapshot_missing");
-  const nativeData=input.nativeData??createNativeAdtDataAccess(database,values);
+  const nativeData=input.nativeData??createNativeAdtDataAccess(database,values,input.repositoryCredential);
   const tools:AgentTool[]=[...nativeAdtToolDefinitions(agent.tools),...(hasArtifactSearchGrant(agent.tools)?[builtinSearchTool]:[]),...frozen.map(tool=>({key:`mcp:${tool.serverId}:${tool.tool.name}`,alias:tool.alias,description:tool.tool.description??tool.tool.name,schema:tool.tool.inputSchema,target:tool.server.url,policy:tool.policy??defaultToolPolicy(),frozen:tool}))];
   if(restrictions.allowlist?.some(key=>!grantKeys.includes(key)))throw Error("workflow_tool_expansion");
-  const access=():RepositoryAccessContext=>{if(!repository)throw Error("repository_missing");return{ok:true,owner:repository.owner,repo:repository.repository,login:"agent-tool",githubId:0,repositoryId:repository.repositoryId,installationId:repository.installationId,checkedAt:Date.now(),installationCredentialProvider:async capability=>mintInstallationToken(repository.installationId,repository.repositoryId,await createGitHubAppJwt(values.GITHUB_APP_ID,values.GITHUB_APP_PRIVATE_KEY),capability)}};
+  const access=():RepositoryAccessContext=>{if(!repository)throw Error("repository_missing");return{ok:true,owner:repository.owner,repo:repository.repository,login:"agent-tool",githubId:0,repositoryId:repository.repositoryId,installationId:repository.installationId,checkedAt:Date.now(),installationCredentialProvider:async capability=>{if(input.repositoryCredential){if(capability!=="read")throw Error("permission_denied");return input.repositoryCredential(repository)}return mintInstallationToken(repository.installationId,repository.repositoryId,await createGitHubAppJwt(values.GITHUB_APP_ID,values.GITHUB_APP_PRIVATE_KEY),capability)}}};
   const policyAuthority=new D1McpPolicyAuthority(database),admissionAuthorities=new Map<string,McpAdmissionAuthority>();
   const {GitHubToolDefinitionRepository}=await import("./tool-definition-repository.ts");
   const toolRepository=input.toolRepository??new GitHubToolDefinitionRepository(async(path,init)=>{const credential=await access().installationCredentialProvider("read"),url=new URL(`https://api.github.com/repos/${repository!.owner}/${repository!.repository}${path}`);url.searchParams.set("ref",repository!.branch);return fetch(url,{...init,headers:{accept:"application/vnd.github+json",authorization:`Bearer ${credential.token}`,"user-agent":"artifact-dev-toolkit"}})});
@@ -87,7 +88,7 @@ export async function executeJournaledWorkflowAgent(input:{env:CloudflareEnv;sco
    execute:async(tool,call,admissionId)=>{
     const current=await storage.getRun(scope.runId);if(!current)throw Error("run_not_active");assertAdvisorRunReadOnly(current.run);
     if(isAdtDataTool(tool.key)){const context=authorizeNativeAdtTool(current,scope,tool.key,repository);if(Date.now()>=call.execution_deadline_at!)throw Error("tool_dispatch_deadline");if(isSensitiveAdtTool(tool.key))await requireSensitiveReadApproval(journal,call,admissionId);return nativeData.execute(tool.key,JSON.parse(call.arguments_json),context)}
-    if(tool.key==="artifact_search"){const {getArtifactsForRepositoryContext}=await import("./artifacts.ts");const artifacts=await getArtifactsForRepositoryContext(access(),repository!);if(Date.now()>=call.execution_deadline_at!)throw Error("tool_dispatch_deadline");return boundedArtifactSearch(artifacts,JSON.parse(call.arguments_json))}
+    if(tool.key==="artifact_search"){const selected=access(),artifacts=await new GitHubArtifactRepository({owner:selected.owner,repo:selected.repo,branch:repository!.branch,rootPath:repository!.root,credentialProvider:selected.installationCredentialProvider}).list();if(Date.now()>=call.execution_deadline_at!)throw Error("tool_dispatch_deadline");return boundedArtifactSearch(artifacts,JSON.parse(call.arguments_json))}
     const grants=await resolveFrozenMcpTools(repository!.repositoryId,agent,detail.run.mcpToolSnapshots,vault,{repository:toolRepository,policies:policyAuthority}),grant=grants.find(value=>value.alias===tool.alias);if(!grant||JSON.stringify(grant.authorityGuard)!==JSON.stringify(admissionAuthorities.get(tool.alias)))throw Error("tool_revoked");
     return remote.agentOperation("/v1/agents/tool",{admissionId,executionDeadlineAt:call.execution_deadline_at,invocationId:call.id,fingerprint:call.fingerprint,server:grant.server,tool:grant.tool,arguments:JSON.parse(call.arguments_json)},grant.credential);
    }

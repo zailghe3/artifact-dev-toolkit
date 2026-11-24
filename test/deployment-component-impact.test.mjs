@@ -16,7 +16,7 @@ const samples = [
   ['package.json'],
   ['adt-runtime/README.md'],
   ['codex-runner/README.md'],
-  ['migrations/0010_example.sql'],
+  ['test-fixtures/legacy-operational-migrations/0010_example.sql'],
   ['future-system/config.xyz'],
   ['components/AppHeader.tsx', 'adt-runtime/src/server.ts', 'codex-runner/src/server.ts'],
 ];
@@ -48,4 +48,18 @@ test('OpenAI model policy changes verify and publish both consumers',()=>{
   assert.equal(classified.deploy_worker,true);
   assert.equal(classified.publish_runtime,true);
   assert.equal(classified.verify_integration,true);
+});
+
+test('Runtime migrations and the shared settings contract select the required checks and publications', () => {
+  const migration = classifyChanges([{filename:'adt-runtime/migrations/0001_operational_state.sql',status:'modified'}]);
+  assert.equal(migration.publish_runtime, true);
+  assert.equal(migration.smoke_runtime_image, true);
+  assert.equal(migration.deploy_cloudflare, false);
+  const contract = classifyChanges([{filename:'adt-runtime/src/operational-settings-contract.ts',status:'modified'}]);
+  assert.equal(contract.deploy_worker, true);
+  assert.equal(contract.publish_runtime, true);
+  assert.equal(contract.verify_integration, true);
+  const postgresTest = classifyChanges([{filename:'test/integration/postgres-runtime-integration.test.mjs',status:'modified'}]);
+  assert.equal(postgresTest.verify_integration, true);
+  assert.equal(postgresTest.publish_runtime, false);
 });

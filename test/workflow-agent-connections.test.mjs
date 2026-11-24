@@ -32,7 +32,7 @@ test('Agent POST and PUT preserve granular fail-closed Codex validation for disa
  for(const route of routes){
   assert.match(route,/!connection\|\|\(!connection\.enabled&&connection\.adapter!=="codex-runner"\)/);
   assert.match(route,/connection\.adapter==="codex-runner"\)await validateCodexRunnerAgentOptions/);
-  assert.ok(route.indexOf('validateAgentForConnection')<route.indexOf('validateCodexRunnerAgentOptions(definition.adapterOptions)'));
+  assert.ok(route.indexOf('validateAgentForConnection')<route.indexOf('validateCodexRunnerAgentOptions(definition.adapterOptions,auth.access.repositoryId)'));
  }
 });
 

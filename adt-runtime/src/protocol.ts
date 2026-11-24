@@ -102,4 +102,4 @@ export async function decryptCredential(envelope:z.infer<typeof envelopeSchema>,
     const credential=new TextDecoder().decode(clear);if(!credential||credential.length>8192)throw new Error();return credential;
   }catch{throw new Error("credential_envelope_invalid");}
 }
-export function secretValue(name:string){const file=process.env[`${name}_FILE`];const value=file?readFileSync(file,"utf8").trim():process.env[name]?.trim();if(!value)throw new Error(`${name.toLowerCase()}_missing`);return value;}
+export function secretValue(name:string,environment=process.env){const file=environment[`${name}_FILE`];const value=file?readFileSync(file,"utf8").trim():environment[name]?.trim();if(!value)throw new Error(`${name.toLowerCase()}_missing`);return value;}

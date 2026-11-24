@@ -77,7 +77,7 @@
 ## 5. Durable execution
 
 - Runs persist current state and execution history.
-- Cloudflare Workflows provides the durable outer lifecycle; current graph sequencing is reconstructed from the frozen v2 plan through ADT Runtime.
+- ADT Runtime owns the durable run lifecycle. It restores graph sequencing from the frozen v2 plan and PostgreSQL checkpoints.
 - Durable graph state, Agent admission, provider-safety state, and recorded outcomes remain controlled by the application rather than by an execution service.
 - A repeated request for work that is already durably successful reuses the recorded result rather than repeating it.
 - Successful output is persisted before downstream work can depend on it.
@@ -142,7 +142,7 @@
 - Agent saves, Workflow authoring and new-run admission check known incompatibilities with the selected provider API and settings. Workflow checks use each block’s effective tool restrictions.
 - Provider discovery establishes account or endpoint availability. Unknown model capabilities and optional setting support can be checked by the provider during normal execution. Runtime independently enforces known API requirements and checks advertised tool support where available. Tool-free work requires only the selected API and settings.
 - Frozen runs remain readable and recover under their saved execution contract.
-- Artifact Search remains a built-in ADT tool and uses the authorised application gateway.
+- Artifact Search remains a built-in ADT tool and uses the Worker broker for repository-scoped read credentials.
 - Runtime evaluates a provider-independent security boundary after a model requests a tool and before execution.
 - ADT Runtime can discover and invoke bounded remote MCP tools over Streamable HTTP using no authentication or an invocation-scoped bearer credential.
 - MCP discovery returns only bounded tool names, descriptions, and input schemas.
@@ -191,8 +191,8 @@
 - Agents are tool-free by default. An Agent may explicitly enable `artifact_search`, which returns bounded content and safe metadata only from the authorised snapshotted Artifact Library context.
 - Tool authority is limited to the exact active run attempt and repository snapshot and is not available as broad repository authority inside Runtime.
 - ADT Runtime performs bounded graph computation and execution-heavy provider work but owns no durable Workflow state, admission policy, broad repository authority, or persisted provider credentials.
-- Durable checkpoints and executable Agent-node admission stay behind narrow control-plane gateways. Runtime replacement requires no local persistent application state.
-- Structured Runtime failures cross durable boundaries only as bounded, validated, non-sensitive data. Runtime transport and callback-gateway evidence remain distinguishable.
+- ADT Runtime persists checkpoints and executable Agent-node admission in PostgreSQL. Replacement instances use the same database and key directory.
+- Structured Runtime failures cross durable boundaries only as bounded, validated, non-sensitive data. Runtime transport, database and broker failures remain distinguishable.
 - Graph progression is recoverable through durable checkpoints and admission state. A synchronous provider invocation whose outcome becomes ambiguous after provider entry is not automatically repeated because there is no durable provider task identity to reconcile.
 - Runtime readiness, protocol compatibility, capability availability, execution-path readiness, provider connection readiness, and provider execution failure are distinct conditions.
 - Authorised users may explicitly test the Runtime callback path without creating Workflow state, resolving provider credentials, invoking an Agent/provider, searching Artifact content, or accessing GitHub.
@@ -215,7 +215,7 @@
 - Agent execution and model commissioning run only through ADT Runtime. A private/Docker/LAN endpoint must exactly match the Runtime operator's endpoint allowlist; ADT never calls it directly from Cloudflare or falls back to direct execution.
 - Connections require an explicitly discovered selected model. Refresh, creation, editing, and provider testing validate model availability without generating text or pulling a model.
 - The endpoint and authentication mode are immutable after creation. Name and model may change, and a bearer credential may be rotated or recovered. Changing the endpoint or authentication mode requires a new connection identity.
-- Authentication is explicitly None or Bearer API key. The official direct-cloud origin `https://ollama.com` requires Bearer; custom HTTP/HTTPS endpoints support either mode. None creates no vault entry or credential reference and sends no Authorization header. Bearer requires an encrypted vault credential, resolved only for commissioning or exact execution and encrypted in transit to Runtime.
+- Authentication is explicitly None or Bearer API key. The official direct-cloud origin `https://ollama.com` requires Bearer; custom HTTP/HTTPS endpoints support either mode. None creates no vault entry or credential reference and sends no Authorization header. Runtime resolves Bearer credentials from the encrypted vault for commissioning and exact calls.
 - Runs freeze the selected model, validated base URL, authentication mode, credential reference when required, and Ollama Agent settings. Later connection changes cannot replace a historical endpoint or credential identity. Revoked bearer credentials fail closed.
 - Each invocation sends the resolved Agent prompt unchanged as a system message and the Workflow handoff unchanged as one user message, including an empty handoff. Only textual message content becomes Workflow output; thinking and timing metadata are not retained.
 - Agent controls expose only a positive maximum output-token count and execution timeout. Defaults are 4096 tokens and 300 seconds; supported ranges are 1–32768 tokens and 5–900 seconds.
@@ -226,7 +226,7 @@
 
 - Microsoft Work IQ is a normal Git-managed provider connection that reuses the provider-neutral connection, safe-configuration, vault, Agent, and run-snapshot contracts.
 - One connection represents one Entra application and one delegated Microsoft 365 work or school account. Every Agent sharing it acts with that connected account's Microsoft 365 permissions.
-- Tenant and client IDs are safe Git OAuth configuration and are not Runtime execution inputs. Client secrets and refresh tokens remain control-plane/vault-only; ADT never selects or stores a Work IQ model.
+- Git holds tenant and client IDs. Runtime uses the encrypted client secret and refresh token for the delegated exchange. The Worker sees connection status and the opaque authorization context. Work IQ has no selectable model.
 - The control plane validates the snapshotted delegated authorization context, resolves the vault bundle, redeems and revision-safely rotates refresh tokens, and revalidates the context before execution. Only the resulting short-lived access token may cross the authenticated encrypted Runtime boundary for that invocation; Runtime never persists it.
 - A Work IQ Agent stores one explicit IANA time zone and whether web grounding is allowed. The saved time zone does not change with the browser's later location.
 - ADT frames the resolved Agent prompt and Workflow input, unchanged, into one Work IQ user message. It does not represent the Agent prompt as a provider system message or grounding context.

@@ -13,5 +13,5 @@ export async function validateAdvisorDependencies(access:RepositoryAccessContext
     if(resolved.artifact.type!=="prompt")throw new Error("prompt_not_prompt_artifact");
     if(resolved.artifact.body.length>AGENT_MASTER_PROMPT_MAX_LENGTH)throw new Error("prompt_too_large");
   }));
-  if(agents.some(agent=>agent.securityProfileId))await freezeSecurityProfiles(access.repositoryId,agents,createSecurityProfileDefinitionRepository(access),await getProviderCredentialVault());
+  if(agents.some(agent=>agent.securityProfileId))await freezeSecurityProfiles(access.repositoryId,agents,createSecurityProfileDefinitionRepository(access),await getProviderCredentialVault(access.repositoryId));
 }
