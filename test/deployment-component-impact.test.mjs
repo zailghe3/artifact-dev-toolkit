@@ -16,7 +16,7 @@ const samples = [
   ['package.json'],
   ['adt-runtime/README.md'],
   ['codex-runner/README.md'],
-  ['migrations/0010_example.sql'],
+  ['test-fixtures/legacy-operational-migrations/0010_example.sql'],
   ['future-system/config.xyz'],
   ['components/AppHeader.tsx', 'adt-runtime/src/server.ts', 'codex-runner/src/server.ts'],
 ];

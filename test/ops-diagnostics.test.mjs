@@ -92,7 +92,7 @@ test('all declared read operational categories are reachable without leaking sou
 import { catalogueRefreshAvailability } from '../lib/diagnostics-model.ts';
 
 const baseDiagnostics = (overrides = {}) => ({
-  configuration: { backend: 'github', owner: 'owner', repository: 'repo', branch: 'main', artifactRoot: 'artifacts', cacheBinding: 'configured', authSecrets: Object.fromEntries(['GITHUB_APP_ID', 'GITHUB_APP_CLIENT_ID', 'GITHUB_APP_CLIENT_SECRET', 'GITHUB_APP_PRIVATE_KEY', 'GITHUB_TOKEN_ENCRYPTION_KEY', 'SESSION_SECRET'].map(name => [name, 'configured'])) },
+  configuration: { backend: 'github', owner: 'owner', repository: 'repo', branch: 'main', artifactRoot: 'artifacts', cacheBinding: 'configured', authSecrets: Object.fromEntries(['GITHUB_APP_ID', 'GITHUB_APP_CLIENT_ID', 'GITHUB_APP_CLIENT_SECRET', 'GITHUB_APP_PRIVATE_KEY', 'SESSION_SECRET'].map(name => [name, 'configured'])) },
   authorization: { storedState: 'authorized', lastCheckedAt: '2026-01-01T00:00:00.000Z', repositoryMatches: true, repositoryIdPresent: true, installationIdPresent: true, liveState: 'authorized' },
   permissions: { contentsRead: { effective: true, reason: 'granted' }, contentsWrite: { effective: true, reason: 'granted' }, pullRequestsWrite: { effective: true, reason: 'granted' } },
   ...overrides,

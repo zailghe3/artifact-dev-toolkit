@@ -57,9 +57,8 @@ export function diagnosticContributors(d: RepositoryDiagnostics, limit = 5): Dia
   if (d.configuration.backend === "invalid" || (d.configuration.backend === "github" && (!d.configuration.owner || !d.configuration.repository))) add("repository-configuration", "Required repository configuration is missing or invalid.");
   const invalidSettings = Object.entries(d.configuration.authSecrets).filter(([, value]) => value !== "configured").map(([name]) => name);
   if (invalidSettings.some(name => name.startsWith("GITHUB_APP_"))) add("github-app-configuration", "A required GitHub App setting is missing or invalid.", "repository-configuration");
-  if (invalidSettings.includes("GITHUB_TOKEN_ENCRYPTION_KEY")) add("token-encryption-configuration", "The token-encryption configuration is missing or invalid.", "repository-configuration");
   if (invalidSettings.includes("SESSION_SECRET")) add("session-configuration", "The session configuration is missing or invalid.", "repository-configuration");
-  if (invalidSettings.some(name => !name.startsWith("GITHUB_APP_") && name !== "GITHUB_TOKEN_ENCRYPTION_KEY" && name !== "SESSION_SECRET")) add("application-configuration", "A required application setting is missing or invalid.", "repository-configuration");
+  if (invalidSettings.some(name => !name.startsWith("GITHUB_APP_") && name !== "SESSION_SECRET")) add("application-configuration", "A required application setting is missing or invalid.", "repository-configuration");
   if (d.authorization.repositoryMatches === false) add("authorization", "The configured repository does not match the stored authorization.");
   else if (d.authorization.repositoryMatches === "unknown") add("authorization", "The repository authorization match could not be verified.");
   if (d.authorization.liveState === "denied") add("authorization", "Live repository authorization was denied.");

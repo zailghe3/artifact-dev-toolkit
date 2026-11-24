@@ -1,10 +1,9 @@
 #!/bin/sh
 set -eu
 image=${1:?image required}; expected_revision=${2:?expected revision required}; expected_release_revision=${3:?expected release revision required}; tmp=$(mktemp -d); container="adt-runtime-smoke-$$"; cleanup(){ docker rm -f "$container" >/dev/null 2>&1 || true; rm -rf "$tmp"; }; trap cleanup EXIT
-openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$tmp/private.pem" >/dev/null 2>&1
 printf '%s' 'runtime-smoke-authentication-secret-0000000000000000' > "$tmp/auth"
-chmod 0444 "$tmp/private.pem" "$tmp/auth"
-docker run -d --name "$container" -p 127.0.0.1::8080 -e ADT_RUNTIME_AUTH_SECRET_FILE=/run/secrets/auth -e ADT_RUNTIME_PRIVATE_KEY_FILE=/run/secrets/private --mount type=bind,src="$tmp/auth",dst=/run/secrets/auth,readonly --mount type=bind,src="$tmp/private.pem",dst=/run/secrets/private,readonly "$image" >/dev/null
+chmod 0444 "$tmp/auth"
+docker run -d --name "$container" -p 127.0.0.1::8080 -e ADT_RUNTIME_AUTH_SECRET_FILE=/run/secrets/auth --mount type=bind,src="$tmp/auth",dst=/run/secrets/auth,readonly "$image" >/dev/null
 port=$(docker port "$container" 8080/tcp | sed 's/.*://'); i=0; until curl -fsS "http://127.0.0.1:$port/healthz" >/dev/null; do i=$((i+1)); [ "$i" -lt 30 ] || { docker logs "$container"; exit 1; }; sleep 1; done
 docker exec -i -e EXPECTED_REVISION="$expected_revision" -e EXPECTED_RELEASE_REVISION="$expected_release_revision" "$container" node --input-type=module <<'NODE'
 import {createHash,createHmac,randomBytes} from 'node:crypto';import {readFileSync} from 'node:fs';
@@ -12,6 +11,6 @@ const protocol='adt-runtime-v1',path='/v1/readiness',timestamp=String(Date.now()
 const response=await fetch(`http://127.0.0.1:8080${path}`,{headers:{'x-adt-protocol':protocol,'x-adt-timestamp':timestamp,'x-adt-nonce':nonce,'x-adt-content-sha256':digest,'x-adt-signature':signature}}),value=await response.json();if(!response.ok||value.runtimeRevision!==process.env.EXPECTED_REVISION||value.runtimeReleaseRevision!==Number(process.env.EXPECTED_RELEASE_REVISION)||value.protocolVersion!==protocol||!['provider-execution','openai-agents','anthropic-messages','work-iq-rest','ollama-chat','provider-model-discovery'].every(capability=>value.capabilities.includes(capability))||!value.capabilities.includes('tool:artifact-search')||!value.capabilities.includes('langgraph:graph')||!value.credentialWrappingKeyId)process.exit(1);
 NODE
 test "$(docker inspect -f '{{.Config.User}}' "$container")" = node
-test "$(docker inspect -f '{{json .Mounts}}' "$container" | grep -o '"RW":false' | wc -l)" -eq 2
+test "$(docker inspect -f '{{json .Mounts}}' "$container" | grep -o '"RW":false' | wc -l)" -eq 1
 test "$(docker image inspect -f '{{json .Config.Volumes}}' "$image")" = null
-echo "ADT Runtime image is healthy, build-and-release-truthful, non-root, stateless, and uses read-only secret inputs."
+echo "ADT Runtime image is healthy, reports its built revision and release, runs as non-root, and uses a read-only service secret."

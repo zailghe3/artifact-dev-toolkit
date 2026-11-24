@@ -3,7 +3,6 @@ import { decryptUserAccessToken } from "./auth.ts";
 import { getRepositoryAuthorizationConfig, verifyRepositoryAuthorization, type RepositoryAccessContext } from "./repository-authorization.ts";
 import { getArtifactBaseRevision, getArtifactRepositoryDiagnostics, inspectArtifactCatalogueCache, inspectCatalogueCacheBinding } from "./artifacts.ts";
 import { validateGitHubAppPrivateKey } from "./github-app.ts";
-import { validateTokenEncryptionKey } from "./auth-configuration.ts";
 import { getPublicRepositoryConfiguration, storedRepositoryMatchesPublicConfiguration } from "./public-repository-configuration.ts";
 import { ArtifactRepositoryAccessError, ArtifactRepositoryUnavailableError } from "./artifact-repository.ts";
 import { classifyCapabilityResult, unknownPermissionCheck as unknownCheck, type PermissionCheck } from "./diagnostics-model.ts";
@@ -29,10 +28,9 @@ export type RepositoryDiagnostics = {
 function presence(name: string): SettingState { return process.env[name]?.trim() ? "configured" : "missing"; }
 async function safeConfiguration() {
   const publicConfig = getPublicRepositoryConfiguration();
-  const names = ["GITHUB_APP_ID", "GITHUB_APP_CLIENT_ID", "GITHUB_APP_CLIENT_SECRET", "GITHUB_APP_PRIVATE_KEY", "GITHUB_TOKEN_ENCRYPTION_KEY", "SESSION_SECRET"] as const;
+  const names = ["GITHUB_APP_ID", "GITHUB_APP_CLIENT_ID", "GITHUB_APP_CLIENT_SECRET", "GITHUB_APP_PRIVATE_KEY", "SESSION_SECRET"] as const;
   const authSecrets = Object.fromEntries(names.map((name) => [name, presence(name)])) as Record<string, SettingState>;
   if (authSecrets.SESSION_SECRET === "configured" && process.env.SESSION_SECRET!.trim().length < 32) authSecrets.SESSION_SECRET = "invalid";
-  if (authSecrets.GITHUB_TOKEN_ENCRYPTION_KEY === "configured") try { validateTokenEncryptionKey(process.env.GITHUB_TOKEN_ENCRYPTION_KEY!); } catch { authSecrets.GITHUB_TOKEN_ENCRYPTION_KEY = "invalid"; }
   if (authSecrets.GITHUB_APP_PRIVATE_KEY === "configured") try { await validateGitHubAppPrivateKey(process.env.GITHUB_APP_PRIVATE_KEY!); } catch { authSecrets.GITHUB_APP_PRIVATE_KEY = "invalid"; }
   return { backend: publicConfig.backend, ...(publicConfig.owner ? { owner: publicConfig.owner } : {}), ...(publicConfig.repository ? { repository: publicConfig.repository } : {}), branch: publicConfig.branch, artifactRoot: publicConfig.root, cacheBinding: await inspectCatalogueCacheBinding(), authSecrets };
 }

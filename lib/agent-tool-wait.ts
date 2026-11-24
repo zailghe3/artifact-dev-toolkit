@@ -2,10 +2,9 @@ import {AgentJournal} from "./agent-journal.ts";
 import type {WorkflowD1Database} from "./workflow-d1-storage.ts";
 import type {WorkflowRunStorage} from "./workflow-storage.ts";
 export const agentWakeType=(runId:string)=>`agent-${runId}`;
-/** Wake events carry no authority. A bounded wait always checks D1 again. */
-export async function waitForAgentTools(input:{runId:string;db:WorkflowD1Database;storage:WorkflowRunStorage;wait:(name:string,type:string,seconds:number)=>Promise<unknown>}){
+type WaitContext={runId:string;db:WorkflowD1Database;storage:WorkflowRunStorage};
+export async function checkAgentToolWait(input:WaitContext) {
  const journal=new AgentJournal(input.db);
- for(let occurrence=0;;occurrence++){
   const run=await input.storage.getRun(input.runId);if(!run||run.run.cancelRequestedAt||["cancelling","cancelled","failed","succeeded"].includes(run.run.status)){await journal.cancelPending(input.runId);return}
   if(run.run.failureCode)await input.db.batch([
    input.db.prepare("UPDATE agent_tool_approvals SET status='cancelled',decided_at=? WHERE status='pending' AND invocation_id IN (SELECT i.id FROM agent_tool_invocations i JOIN agent_continuations c ON c.id=i.continuation_id WHERE c.run_id=?)").bind(Date.now(),input.runId),
@@ -18,6 +17,14 @@ export async function waitForAgentTools(input:{runId:string;db:WorkflowD1Databas
   if(runnable)return;
   await input.db.prepare("UPDATE workflow_runs SET status='waiting_approval',updated_at=? WHERE id=? AND status IN ('queued','running') AND cancel_requested_at IS NULL").bind(new Date().toISOString(),input.runId).run();
   const seconds=Math.max(1,Math.min(3600,Math.ceil(((waiting.expires_at??Date.now()+3600000)-Date.now())/1000)));
-  try{await input.wait(`agent-tool-wait-${waiting.id}-${occurrence}`,agentWakeType(input.runId),seconds)}catch{/* Lost wakeups are recovered by re-reading durable state. */}
+  return {id:waiting.id,seconds};
+}
+
+/** Wake events carry no authority. Each wake rechecks persisted state. */
+export async function waitForAgentTools(input:WaitContext&{wait:(name:string,type:string,seconds:number)=>Promise<unknown>}){
+ for(let occurrence=0;;occurrence++){
+  const waiting=await checkAgentToolWait(input);
+  if(!waiting)return;
+  try{await input.wait(`agent-tool-wait-${waiting.id}-${occurrence}`,agentWakeType(input.runId),waiting.seconds)}catch{/* Recheck durable state. */}
  }
 }

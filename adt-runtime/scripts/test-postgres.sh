@@ -33,6 +33,7 @@ until docker exec -e PGPASSWORD=disposable-app-test-password "$container" \
 done
 
 docker exec "$container" createdb -U adt_bootstrap -O adt_runtime adt_restore
+docker exec "$container" createdb -U adt_bootstrap -O adt_runtime adt_coordinator
 endpoint=$(docker port "$container" 5432/tcp)
 cd "$repo"
 ADT_TEST_POSTGRES_CONTAINER="$container" \

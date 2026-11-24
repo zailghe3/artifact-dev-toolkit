@@ -34,7 +34,7 @@ test('contributors are operationally ordered, deduplicated, bounded, and safe', 
   assert.deepEqual(diagnosticContributors({ ...diagnostics, overall: 'healthy' }), { contributors: [], omittedCount: 0 });
 });
 
-const configuredSecrets = Object.fromEntries(['GITHUB_APP_ID', 'GITHUB_APP_CLIENT_ID', 'GITHUB_APP_CLIENT_SECRET', 'GITHUB_APP_PRIVATE_KEY', 'GITHUB_TOKEN_ENCRYPTION_KEY', 'SESSION_SECRET'].map(name => [name, 'configured']));
+const configuredSecrets = Object.fromEntries(['GITHUB_APP_ID', 'GITHUB_APP_CLIENT_ID', 'GITHUB_APP_CLIENT_SECRET', 'GITHUB_APP_PRIVATE_KEY', 'SESSION_SECRET'].map(name => [name, 'configured']));
 const healthyDiagnostics = () => ({
   overall: 'healthy',
   configuration: { backend: 'github', owner: 'owner', repository: 'repo', authSecrets: { ...configuredSecrets } },

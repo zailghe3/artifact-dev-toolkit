@@ -10,8 +10,6 @@ import {resolveWorkflowRunConnectionSnapshot} from "./workflow-run-connection-sn
 import * as services from "./workflow-services.ts";
 import {workflowError} from "./workflow-http.ts";
 import {getArtifactWithRevision} from "./artifacts.ts";
-import {isLegacyRunReadOnly} from "./workflow-run-legacy.ts";
-import {reconcileWorkflowLaunch} from "./workflow-launch.ts";
 import {freezeSecurityProfiles} from "./security-profile-authority.ts";
 import {freezeAuthorizedMcpTools} from "./mcp-tool-authority.ts";
 import {noStoreHeaders} from "./auth-core.ts";
@@ -35,12 +33,10 @@ export async function validateAdvisorOverrideModel(settings:AdvisorSettings,iden
 export async function launchWorkflowRun(access:RepositoryAccessContext,body:WorkflowStartInput,advisor?:AdvisorSettings,dependencies:Dependencies={}){
   const service={...defaults,...dependencies};
   try{
-    const storage=await service.getWorkflowRunStorage(),existing=await storage.findRunByIdempotencyKey(body.idempotencyKey);
+    const storage=await service.getWorkflowRunStorage(access.repositoryId),existing=await storage.findRunByIdempotencyKey(body.idempotencyKey);
     if(existing){
       assertWorkflowReplay(existing.run,access,body,advisor);
-      if(isLegacyRunReadOnly(existing.run))return NextResponse.json({runId:existing.run.id,url:`/workflows/runs/${existing.run.id}`},{status:200,headers:noStoreHeaders});
-      const launch=await reconcileWorkflowLaunch(storage,(await service.getWorkflowEnvironment()).AGENT_RUN_WORKFLOW,existing);
-      return NextResponse.json({runId:existing.run.id,url:`/workflows/runs/${existing.run.id}`,...(launch?{launchState:launch.state}:{})},{status:launch?.state==="in_progress"?202:200,headers:noStoreHeaders});
+      return NextResponse.json({runId:existing.run.id,url:`/workflows/runs/${existing.run.id}`,launchState:"accepted"},{status:200,headers:noStoreHeaders});
     }
     const repo=service.createWorkflowDefinitionRepository(access),allWorkflows=await repo.listWorkflows(),versioned=allWorkflows.find(item=>item.definition.id===body.workflowId);
     if(!versioned)throw new Error(advisor?"advisor_workflow_invalid":"missing_workflow");
@@ -48,7 +44,7 @@ export async function launchWorkflowRun(access:RepositoryAccessContext,body:Work
     const versions=await Promise.all(workflowAgentReferences(definition).map(agentId=>repo.getAgent(agentId)));
     if(versions.some(item=>!item))throw new Error("missing_agent");
     let agents=versions.map(item=>item!);
-    const catalog=advisor?undefined:await service.readCodexRunnerCatalog();
+    const catalog=advisor?undefined:await service.readCodexRunnerCatalog(access.repositoryId);
     let identities=advisor?await service.listWorkflowConnectionIdentityDescriptors(access):await service.listWorkflowConnectionDescriptors(catalog,access);
     if(advisor){
       if(advisor.workflowId!==body.workflowId)throw new Error("advisor_workflow_invalid");
@@ -73,10 +69,10 @@ export async function launchWorkflowRun(access:RepositoryAccessContext,body:Work
     }));
     const managedCodeRepositoryContexts=Object.fromEntries(await Promise.all(validated.filter(item=>available.find(connection=>connection.key===item.definition.connectionKey)?.adapter==="codex-runner"&&(item.definition.adapterOptions as {managedGit?:boolean}).managedGit===true).map(async item=>{
       const environmentKey=(item.definition.adapterOptions as {environmentKey:string}).environmentKey;
-      return [item.definition.id,await service.resolveManagedCodeRepository(environmentKey)];
+      return [item.definition.id,await service.resolveManagedCodeRepository(environmentKey,access.repositoryId)];
     })));
-    const vault=await service.getProviderCredentialVault();
-    const mcpToolSnapshots=await freezeAuthorizedMcpTools(access.repositoryId,validated.map(item=>item.definition),service.createToolDefinitionRepository(access),vault,await service.getMcpPolicyAuthority());
+    const vault=await service.getProviderCredentialVault(access.repositoryId);
+    const mcpToolSnapshots=await freezeAuthorizedMcpTools(access.repositoryId,validated.map(item=>item.definition),service.createToolDefinitionRepository(access),vault,await service.getMcpPolicyAuthority(access.repositoryId));
     const securityProfileSnapshots=await freezeSecurityProfiles(access.repositoryId,validated.map(item=>item.definition),service.createSecurityProfileDefinitionRepository(access),vault);
     const providerStore=await service.getWorkflowProviderConnectionStore(access);
     const connections=await Promise.all([...new Set(validated.map(item=>item.definition.connectionKey))].map(key=>resolveWorkflowRunConnectionSnapshot(available.find(connection=>connection.key===key)!,providerStore)));
@@ -90,7 +86,6 @@ export async function launchWorkflowRun(access:RepositoryAccessContext,body:Work
     }));
     // Concurrent idempotency collisions must not attach a different execution.
     assertWorkflowReplay(created.run,access,body,advisor);
-    const launch=await reconcileWorkflowLaunch(storage,(await service.getWorkflowEnvironment()).AGENT_RUN_WORKFLOW,created);
-    return NextResponse.json({runId:created.run.id,url:`/workflows/runs/${created.run.id}`,launchState:launch?.state},{status:launch?.state==="in_progress"?202:201,headers:noStoreHeaders});
+    return NextResponse.json({runId:created.run.id,url:`/workflows/runs/${created.run.id}`,launchState:"accepted"},{status:201,headers:noStoreHeaders});
   }catch(error){return workflowError(error)}
 }

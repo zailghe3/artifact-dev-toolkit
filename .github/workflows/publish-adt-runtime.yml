@@ -115,7 +115,7 @@ jobs:
       - name: Build and smoke-test exact image
         run: |
           set -euo pipefail
-          docker build --build-arg ADT_RUNTIME_REVISION="${{ steps.source.outputs.source_sha }}" -t adt-runtime:verified adt-runtime
+          docker build -f adt-runtime/Dockerfile --build-arg ADT_RUNTIME_REVISION="${{ steps.source.outputs.source_sha }}" -t adt-runtime:verified .
           adt-runtime/scripts/smoke-image.sh adt-runtime:verified "${{ steps.source.outputs.source_sha }}" "$(node -p 'require("./adt-runtime/release.json").releaseRevision')"
 
       - name: Authenticate to Docker Hub

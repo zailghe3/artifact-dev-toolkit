@@ -3,11 +3,11 @@ import {hasToolRole} from "./agent-tool-roles.ts";
 import {isAdtDataTool} from "./adt-data-contract.ts";
 import type {AgentJournal,ToolApproval} from "./agent-journal.ts";
 import type {FrozenMcpTool} from "./mcp-tool-authority.ts";
-import type {D1McpPolicyAuthority,McpPolicyVault} from "./mcp-policy-authority.ts";
+import type {McpPolicyAuthority,McpPolicyVault} from "./mcp-policy-authority.ts";
 import type {ToolDefinitionRepository} from "./tool-definition-repository.ts";
 
 /** Rejection needs frozen reviewer authority; approval additionally needs live execution authority. */
-export async function toolApprovalAuthority(input:{journal:AgentJournal;runId:string;invocationId:string;decision:"approved"|"rejected";actor:string;repositoryId:number;repository:Pick<ToolDefinitionRepository,"get">;policies:D1McpPolicyAuthority;vault:McpPolicyVault}){
+export async function toolApprovalAuthority(input:{journal:AgentJournal;runId:string;invocationId:string;decision:"approved"|"rejected";actor:string;repositoryId:number;repository:Pick<ToolDefinitionRepository,"get">;policies:McpPolicyAuthority;vault:McpPolicyVault}){
  const {journal,actor}=input;
  if(!hasToolRole(actor,"approver",journal.environment))throw Error("permission_denied");
  const call=await journal.call(input.invocationId),c=call&&await journal.get(call.continuation_id);if(!call||!c||c.run_id!==input.runId)throw Error("approval_not_pending");

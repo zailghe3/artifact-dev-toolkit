@@ -58,25 +58,38 @@ const OPERATIONAL_WRITE_LOCK = 1_104_528_374;
 export class PostgresWorkflowDatabase {
   readonly dialect = "postgres" as const;
 
-  constructor(private readonly pool: Pool) {}
+  constructor(private readonly pool: Pool, private readonly checkFence?: (client: PoolClient) => Promise<void>, private readonly connection?: PoolClient) {}
 
   prepare(sql: string) {
     return new Statement(this, sql);
   }
 
   async execute<T>(statement: Statement, sql: string) {
+    if (this.connection) return statement.execute<T>(this.connection);
     if (/^\s*SELECT\b/i.test(sql)) return statement.execute<T>(this.pool);
     return inTransaction(this.pool, async client => {
       await client.query("SELECT pg_advisory_xact_lock($1)", [OPERATIONAL_WRITE_LOCK]);
+      await this.checkFence?.(client);
       return statement.execute<T>(client);
     });
   }
 
-  async batch<T>(statements: Statement[]) {
+  async transaction<T>(work: (database: PostgresWorkflowDatabase) => Promise<T>): Promise<T> {
+    if (this.connection) return work(this);
     return inTransaction(this.pool, async client => {
       await client.query("SELECT pg_advisory_xact_lock($1)", [OPERATIONAL_WRITE_LOCK]);
+      await this.checkFence?.(client);
+      return work(new PostgresWorkflowDatabase(this.pool, undefined, client));
+    });
+  }
+
+  async batch<T>(statements: unknown[]) {
+    return this.transaction(async database => {
       const results: StatementResult<T>[] = [];
-      for (const statement of statements) results.push(await statement.execute<T>(client));
+      for (const statement of statements) {
+        if (!(statement instanceof Statement)) throw new Error("postgres_invalid_statement");
+        results.push(await statement.execute<T>(database.connection!));
+      }
       return results;
     });
   }

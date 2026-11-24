@@ -183,7 +183,7 @@ jobs:
       - name: Build and smoke-test ADT Runtime image without publishing
         if: inputs.smoke_runtime_image
         run: |
-          docker build --build-arg ADT_RUNTIME_REVISION="${{ inputs.ref }}" -t adt-runtime:pr-verified adt-runtime
+          docker build -f adt-runtime/Dockerfile --build-arg ADT_RUNTIME_REVISION="${{ inputs.ref }}" -t adt-runtime:pr-verified .
           adt-runtime/scripts/smoke-image.sh adt-runtime:pr-verified "${{ inputs.ref }}" "$(node -p 'require("./adt-runtime/release.json").releaseRevision')"
 
       - name: Summarize selected verification

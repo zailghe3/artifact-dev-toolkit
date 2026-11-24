@@ -11,8 +11,8 @@ export function run(extra={}){return newLangGraphWorkflowRun({id:crypto.randomUU
 export async function database(t){
  const mf=new Miniflare(convertV4MiniflareOptions({modules:true,script:'export default {fetch(){return new Response("ok")}}',d1Databases:{DB:crypto.randomUUID()}}));t.after(()=>mf.dispose());
  const db=await mf.getD1Database('DB');
- for(const name of (await readdir('migrations')).filter(name=>name.endsWith('.sql')).sort()){
-  const sql=await readFile(`migrations/${name}`,'utf8');await db.batch(sql.split(';').map(s=>s.trim()).filter(Boolean).map(s=>db.prepare(s)));
+ for(const name of (await readdir('test-fixtures/legacy-operational-migrations')).filter(name=>name.endsWith('.sql')).sort()){
+  const sql=await readFile(`test-fixtures/legacy-operational-migrations/${name}`,'utf8');await db.batch(sql.split(';').map(s=>s.trim()).filter(Boolean).map(s=>db.prepare(s)));
  }
  return db;
 }

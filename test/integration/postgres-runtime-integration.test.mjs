@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { initializeRuntimeDatabase, runtimePostgresPool } from '../../adt-runtime/dist/postgres.js';
 import { PostgresWorkflowDatabase } from '../../adt-runtime/dist/workflow-database.js';
+import { workflowLeases, WorkflowLeaseLost } from '../../adt-runtime/dist/workflow-leases.js';
 import { D1ProviderCredentialVault } from '../../lib/provider-credential-vault.ts';
 import { D1WorkflowRunStorage } from '../../lib/workflow-d1-storage.ts';
 import { D1WorkflowApprovalStore } from '../../lib/workflow-approvals.ts';
@@ -189,4 +190,140 @@ test('Runtime initializes PostgreSQL and retains its scoped vault and Workflow j
     assert.equal(restoredRun.attempts[0].outputText, result.outputText);
     assert.deepEqual(await operationalSettings(restoredPool)(current), { settings, revision: 1 });
   }
+});
+
+test('signed launches run inside PostgreSQL-backed Runtime and approvals survive replacement', {
+  skip: !connectionString && 'Set ADT_TEST_POSTGRES_URL to a disposable PostgreSQL database',
+  timeout: 60_000,
+}, async t => {
+  const { createServer } = await import('node:http');
+  const { createRuntimeApplication } = await import('../../adt-runtime/dist/workflow-application.js');
+  const { runtimeControl } = await import('../../lib/runtime-service-client.ts');
+  const { run, agent, connection, context, workflow } = await import('../support/advisor-fixtures.mjs');
+  const { compileWorkflowV2ExecutionPlan, workflowDefinitionV2Schema } = await import('../../lib/workflow-definitions.ts');
+  const directory = await mkdtemp(join(tmpdir(), 'adt-coordinator-'));
+  // The test script provides a fresh second database after the backup verification.
+  const primary = new URL(connectionString);
+  primary.pathname = '/adt_coordinator';
+  const pool = runtimePostgresPool({ connectionString: primary.href });
+  t.after(async () => { await pool.end(); await rm(directory, { recursive: true }); });
+  const installation = await initializeRuntimeDatabase(pool, join(directory, 'root.json'));
+  const authSecret = 'postgres-execution-runtime-auth'.repeat(2);
+  const keys = generateKeyPairSync('rsa', {
+    modulusLength: 2048, privateKeyEncoding: { format: 'pem', type: 'pkcs8' },
+    publicKeyEncoding: { format: 'pem', type: 'spki' },
+  });
+  let brokerRequests = 0;
+  const broker = createServer(async (request, response) => {
+    let body = '';
+    for await (const chunk of request) body += chunk;
+    const value = JSON.parse(body);
+    assert.equal(value.purpose, 'artifacts');
+    assert.deepEqual(value.context, context);
+    brokerRequests++;
+    response.setHeader('content-type', 'application/json');
+    response.end(JSON.stringify({ protocolVersion: 'adt-runtime-v1', ok: true, result: {
+      token: 'test-installation-read-token', expiresAt: new Date(Date.now() + 60_000).toISOString(), permissions: { contents: 'read' },
+    } }));
+  });
+  await new Promise(resolve => broker.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => broker.close(resolve)));
+  const stages = [];
+  const env = { ADT_RUNTIME_WORKER_URL: `http://127.0.0.1:${broker.address().port}`,
+    ADT_RUNTIME_AUTH_SECRET: authSecret, ADT_RUNTIME_WRAPPING_PUBLIC_KEY: keys.publicKey };
+  const applicationOptions = { pool, ...installation, env, onError: stage => stages.push(stage) };
+  let application = createRuntimeApplication(applicationOptions);
+  let turns = 0;
+  const runtime = await createRuntimeServer({
+    host: '127.0.0.1', port: 0, authSecret, privateKeyPem: keys.privateKey,
+    revision: 'postgres-coordinator', control: command => application.store(command),
+    recordManagementNonce: (nonce, timestamp) => recordManagementNonce(pool, nonce, timestamp), logger() {},
+    providerHttp: { fetcher: async (_url, init) => {
+      const body = JSON.parse(init.body);
+      turns++;
+      const tool = turns === 1;
+      if (turns === 2) assert.match(JSON.stringify(body), /"?tokens/);
+      return Response.json({ id: `chat-${turns}`, object: 'chat.completion', created: 1, model: 'gpt-5',
+        usage: { prompt_tokens: 12, completion_tokens: 3 }, choices: [{ index: 0, finish_reason: tool ? 'tool_calls' : 'stop',
+          message: tool ? { role: 'assistant', content: null, tool_calls: [{ id: 'call-1', type: 'function',
+            function: { name: 'adt_execution_metrics', arguments: '{}' } }] } :
+            { role: 'assistant', content: 'Analysis completed with recorded metrics.' } }] });
+    } },
+  });
+  await runtime.listen();
+  t.after(async () => { await application.stop(); await runtime.close(); });
+  env.ADT_RUNTIME_BASE_URL = `http://127.0.0.1:${runtime.server.address().port}`;
+  const config = { baseUrl: env.ADT_RUNTIME_BASE_URL, authSecret };
+  const secret = await runtimeControl(config, {
+    operation: 'vault', repositoryId: context.repositoryId, method: 'create', arguments: ['test-provider-key'],
+  });
+  const selected = { ...agent, tools: ['adt_execution_metrics'] };
+  const value = run({ agents: [selected], connections: [{ ...connection, credentialSecretRef: secret }],
+    executionPlan: compileWorkflowV2ExecutionPlan(workflow, [selected]), clientIdempotencyKey: 'advisor-runtime-only',
+    advisorContext: { version: 1, readOnly: true, override: null } });
+  await runtimeControl(config, { operation: 'runs.launch', repositoryId: context.repositoryId, snapshot: value });
+  await assert.rejects(runtimeControl(config, { operation: 'vault', repositoryId: context.repositoryId + 1,
+    method: 'resolve', arguments: [secret] }), /vault_secret_unavailable/);
+  const leases = workflowLeases(pool);
+  const interrupted = await leases.claim();
+  assert.equal(interrupted.id, value.id);
+  assert.equal(await leases.claim(), undefined);
+  await pool.query("UPDATE workflow_runs SET execution_lease_until=clock_timestamp() WHERE id=$1", [value.id]);
+  const recovery = await leases.claim();
+  assert.equal(recovery.id, value.id);
+  assert.notEqual(recovery.fence, interrupted.fence);
+  const stale = new PostgresWorkflowDatabase(pool, client => leases.guard(client, interrupted));
+  await assert.rejects(stale.prepare("UPDATE workflow_runs SET status='failed' WHERE id=?").bind(value.id).run(), WorkflowLeaseLost);
+  await leases.release(interrupted, 0);
+  assert.equal(await leases.claim(), undefined);
+  await leases.release(recovery, 0);
+  application.start();
+
+  async function waitFor(id, statuses) {
+    let detail;
+    for (let attempts = 0; attempts < 100; attempts++) {
+      await new Promise(resolve => setTimeout(resolve, 120));
+      detail = await runtimeControl(config, { operation: 'runs.detail', repositoryId: context.repositoryId, runId: id });
+      if (statuses.includes(detail.run.status) || detail.run.status === 'failed') break;
+    }
+    return detail;
+  }
+  const detail = await waitFor(value.id, ['succeeded']);
+  assert.equal(detail.run.status, 'succeeded', JSON.stringify({ stages, detail, turns }));
+  assert.equal(detail.run.finalOutput, 'Analysis completed with recorded metrics.');
+  assert.equal(turns, 2);
+  assert.equal(brokerRequests, 2);
+  assert.equal(await runtimeControl(config, { operation: 'runs.detail', repositoryId: context.repositoryId + 1, runId: value.id }), null);
+
+  const approvalWorkflow = workflowDefinitionV2Schema.parse({
+    ...workflow, id: 'approval-flow',
+    nodes: [workflow.nodes[0], { id: 'approve', blockType: 'approval', blockVersion: 1, config: { message: 'Continue?' } },
+      { ...workflow.nodes[0], id: 'finish' }],
+    edges: [{ id: 'to-approve', source: 'analyse', target: 'approve' }, { id: 'to-finish', source: 'approve', target: 'finish' }],
+  });
+  const approvalPlan = compileWorkflowV2ExecutionPlan(approvalWorkflow, [selected]);
+  const approvalRuns = ['approve-after-restart', 'cancel-after-restart'].map(clientIdempotencyKey =>
+    run({ workflow: approvalWorkflow, agents: [selected], connections: [{ ...connection, credentialSecretRef: secret }],
+      executionPlan: approvalPlan, clientIdempotencyKey }));
+  const command = (operation, id, fields = {}) => runtimeControl(config, {
+    operation, repositoryId: context.repositoryId, runId: id, ...fields,
+  });
+  await Promise.all(approvalRuns.map(snapshot => runtimeControl(config, {
+    operation: 'runs.launch', repositoryId: context.repositoryId, snapshot,
+  })));
+  const waiting = await Promise.all(approvalRuns.map(({ id }) => waitFor(id, ['waiting_approval'])));
+  for (const detail of waiting) assert.equal(detail.run.status, 'waiting_approval', JSON.stringify({ stages, detail }));
+  await application.stop();
+  const inspection = await command('runs.inspection', approvalRuns[0].id, { actor: 'reviewer' });
+  await command('runs.approval', approvalRuns[0].id, { approvalRequestId: inspection.approval.requestId });
+  await command('runs.cancel', approvalRuns[1].id);
+  application = createRuntimeApplication(applicationOptions);
+  application.start();
+  const [approved, cancelled] = await Promise.all([
+    waitFor(approvalRuns[0].id, ['succeeded']), waitFor(approvalRuns[1].id, ['cancelled']),
+  ]);
+  assert.equal(approved.run.status, 'succeeded', JSON.stringify({ stages, approved }));
+  assert.equal(cancelled.run.status, 'cancelled', JSON.stringify({ stages, cancelled }));
+  assert.equal(turns, 5);
+
 });

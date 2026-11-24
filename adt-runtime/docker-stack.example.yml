@@ -4,16 +4,25 @@ services:
     image: poulti/adt-runtime:latest
     environment:
       ADT_RUNTIME_AUTH_SECRET_FILE: /run/secrets/adt_runtime_auth
-      ADT_RUNTIME_PRIVATE_KEY_FILE: /run/secrets/adt_runtime_private_key
       ADT_RUNTIME_DB_HOST: postgres
       ADT_RUNTIME_DB_NAME: adt
       ADT_RUNTIME_DB_USER: adt_runtime
       ADT_RUNTIME_DB_PASSWORD_FILE: /run/secrets/adt_postgres_app_password
       ADT_RUNTIME_ROOT_KEY_FILE: /runtime-keys/root.json
       ADT_RUNTIME_OLLAMA_ALLOWED_BASE_URLS: ""
+      ADT_RUNTIME_WORKER_URL: https://fpo-adt.florian-pouchet.workers.dev
+      CODEX_RUNNER_BASE_URL: https://cr.pouchet.net
+      CODEX_RUNNER_ACCESS_CLIENT_ID_FILE: /run/secrets/adt_runner_access_client_id
+      CODEX_RUNNER_ACCESS_CLIENT_SECRET_FILE: /run/secrets/adt_runner_access_client_secret
+      CODEX_RUNNER_SHARED_SECRET_FILE: /run/secrets/adt_runner_shared_secret
+      ADT_TOOL_APPROVERS: ""
+      ADT_TOOL_OPERATORS: ""
+      ADT_TOOL_POLICY_ADMINS: ""
     secrets:
       - adt_runtime_auth
-      - adt_runtime_private_key
+      - adt_runner_access_client_id
+      - adt_runner_access_client_secret
+      - adt_runner_shared_secret
       - source: adt_postgres_app_password
         uid: "1000"
         gid: "1000"
@@ -73,7 +82,9 @@ services:
       restart_policy: {condition: on-failure, delay: 5s}
 secrets:
   adt_runtime_auth: {external: true}
-  adt_runtime_private_key: {external: true}
+  adt_runner_access_client_id: {external: true}
+  adt_runner_access_client_secret: {external: true}
+  adt_runner_shared_secret: {external: true}
   adt_postgres_bootstrap_password: {external: true}
   adt_postgres_app_password: {external: true}
 configs:

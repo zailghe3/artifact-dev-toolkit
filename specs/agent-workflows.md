@@ -77,7 +77,7 @@
 ## 5. Durable execution
 
 - Runs persist current state and execution history.
-- Cloudflare Workflows provides the durable outer lifecycle; current graph sequencing is reconstructed from the frozen v2 plan through ADT Runtime.
+- ADT Runtime owns the durable run lifecycle. It restores graph sequencing from the frozen v2 plan and PostgreSQL checkpoints.
 - Durable graph state, Agent admission, provider-safety state, and recorded outcomes remain controlled by the application rather than by an execution service.
 - A repeated request for work that is already durably successful reuses the recorded result rather than repeating it.
 - Successful output is persisted before downstream work can depend on it.
@@ -142,7 +142,7 @@
 - Agent saves, Workflow authoring and new-run admission check known incompatibilities with the selected provider API and settings. Workflow checks use each block’s effective tool restrictions.
 - Provider discovery establishes account or endpoint availability. Unknown model capabilities and optional setting support can be checked by the provider during normal execution. Runtime independently enforces known API requirements and checks advertised tool support where available. Tool-free work requires only the selected API and settings.
 - Frozen runs remain readable and recover under their saved execution contract.
-- Artifact Search remains a built-in ADT tool and uses the authorised application gateway.
+- Artifact Search remains a built-in ADT tool and uses the Worker broker for repository-scoped read credentials.
 - Runtime evaluates a provider-independent security boundary after a model requests a tool and before execution.
 - ADT Runtime can discover and invoke bounded remote MCP tools over Streamable HTTP using no authentication or an invocation-scoped bearer credential.
 - MCP discovery returns only bounded tool names, descriptions, and input schemas.
@@ -191,8 +191,8 @@
 - Agents are tool-free by default. An Agent may explicitly enable `artifact_search`, which returns bounded content and safe metadata only from the authorised snapshotted Artifact Library context.
 - Tool authority is limited to the exact active run attempt and repository snapshot and is not available as broad repository authority inside Runtime.
 - ADT Runtime performs bounded graph computation and execution-heavy provider work but owns no durable Workflow state, admission policy, broad repository authority, or persisted provider credentials.
-- Durable checkpoints and executable Agent-node admission stay behind narrow control-plane gateways. Runtime replacement requires no local persistent application state.
-- Structured Runtime failures cross durable boundaries only as bounded, validated, non-sensitive data. Runtime transport and callback-gateway evidence remain distinguishable.
+- ADT Runtime persists checkpoints and executable Agent-node admission in PostgreSQL. Replacement instances use the same database and key directory.
+- Structured Runtime failures cross durable boundaries only as bounded, validated, non-sensitive data. Runtime transport, database and broker failures remain distinguishable.
 - Graph progression is recoverable through durable checkpoints and admission state. A synchronous provider invocation whose outcome becomes ambiguous after provider entry is not automatically repeated because there is no durable provider task identity to reconcile.
 - Runtime readiness, protocol compatibility, capability availability, execution-path readiness, provider connection readiness, and provider execution failure are distinct conditions.
 - Authorised users may explicitly test the Runtime callback path without creating Workflow state, resolving provider credentials, invoking an Agent/provider, searching Artifact content, or accessing GitHub.

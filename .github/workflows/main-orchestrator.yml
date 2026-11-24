@@ -126,6 +126,7 @@ jobs:
       always() &&
       needs.verify-main.result == 'success' &&
       needs.classify.outputs.deploy_cloudflare == 'true' &&
+      vars.ADT_POSTGRES_CUTOVER_READY == 'true' &&
       (needs.classify.outputs.deploy_worker != 'true' || needs.resolve-deployment-metadata.result == 'success')
     uses: ./.github/workflows/reusable-deploy-cloudflare.yml
     with:
@@ -147,6 +148,7 @@ jobs:
       (needs.classify.outputs.publish_runtime == 'true' || needs.classify.outputs.deploy_cloudflare == 'true') &&
       (
         needs.classify.outputs.deploy_cloudflare != 'true' ||
+        (vars.ADT_POSTGRES_CUTOVER_READY != 'true' && needs.classify.outputs.publish_runtime == 'true' && needs.verify-main.result == 'success') ||
         (
           needs.verify-main.result == 'success' &&
           needs.deploy.result == 'success' &&
@@ -203,6 +205,8 @@ jobs:
       contents: read
     steps:
       - name: Write lifecycle summary
+        env:
+          POSTGRES_CUTOVER_READY: ${{ vars.ADT_POSTGRES_CUTOVER_READY }}
         run: |
           {
             echo '## Main lifecycle summary'
@@ -219,6 +223,8 @@ jobs:
             echo '- Feature issue creation: `${{ needs.create-feature-issues.result }}`'
             if [[ '${{ needs.classify.outputs.deploy_cloudflare }}' != true ]]; then
               echo '- Cloudflare operation: skipped — Worker and migration inputs unchanged'
+            elif [[ "${POSTGRES_CUTOVER_READY}" != true ]]; then
+              echo '- Cloudflare operation: waiting for operator PostgreSQL cutover. See docs/runtime-postgresql.md.'
             else
               echo '- Cloudflare operation: `${{ needs.deploy.result }}`'
             fi

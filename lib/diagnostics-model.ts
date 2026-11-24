@@ -12,7 +12,7 @@ export function catalogueRefreshAvailability(diagnostics: Pick<RepositoryDiagnos
   if (configuration.backend === "file") return { available: false, reason: "local_backend" };
   if (configuration.backend !== "github" || !configuration.owner || !configuration.repository || !configuration.branch || !configuration.artifactRoot) return { available: false, reason: "configuration_invalid" };
   if (configuration.cacheBinding !== "configured") return { available: false, reason: "cache_binding_missing" };
-  const requiredRefreshSettings = ["GITHUB_APP_ID", "GITHUB_APP_CLIENT_ID", "GITHUB_APP_CLIENT_SECRET", "GITHUB_APP_PRIVATE_KEY", "GITHUB_TOKEN_ENCRYPTION_KEY"];
+  const requiredRefreshSettings = ["GITHUB_APP_ID", "GITHUB_APP_CLIENT_ID", "GITHUB_APP_CLIENT_SECRET", "GITHUB_APP_PRIVATE_KEY"];
   if (requiredRefreshSettings.some((name) => configuration.authSecrets[name] !== "configured")) return { available: false, reason: "configuration_invalid" };
   if (!authorization.repositoryIdPresent) return { available: false, reason: "repository_identity_missing" };
   if (!authorization.installationIdPresent) return { available: false, reason: "installation_identity_missing" };

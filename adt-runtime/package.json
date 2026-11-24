@@ -4,10 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/bundle-application.mjs",
     "start": "node dist/server.js",
     "test": "npm run build && node --test test/*.test.mjs",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "bundle:inputs": "node scripts/bundle-application.mjs --update-inputs"
   },
   "dependencies": {
     "@langchain/langgraph": "^1.5.0",
@@ -15,6 +16,7 @@
     "@modelcontextprotocol/sdk": "1.32.2",
     "@openai/agents": "0.22.0",
     "@secureagentics/adrian": "1.1.0",
+    "gray-matter": "4.0.3",
     "openai": "7.60.0",
     "pg": "8.23.1",
     "undici": "8.12.4",
@@ -25,6 +27,7 @@
     "@types/node": "^24.19.2",
     "@types/pg": "8.23.1",
     "@types/ws": "^8.18.2",
+    "esbuild": "0.28.1",
     "typescript": "^5.9.3"
   },
   "engines": {

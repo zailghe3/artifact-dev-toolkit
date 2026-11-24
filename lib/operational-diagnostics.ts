@@ -27,7 +27,6 @@ export function authenticationDiagnosticChecks(d: RepositoryDiagnostics): Diagno
     { id: "permissions-write", label: "Contents write", status: permissionStatusPresentation(d.permissions.contentsWrite) },
     { id: "github-app-configuration", label: "GitHub App configuration", status: groupedConfiguration(d, ["GITHUB_APP_ID", "GITHUB_APP_CLIENT_ID", "GITHUB_APP_CLIENT_SECRET", "GITHUB_APP_PRIVATE_KEY"]) },
     { id: "session-configuration", label: "Session configuration", status: groupedConfiguration(d, ["SESSION_SECRET"]) },
-    { id: "token-encryption-configuration", label: "Token-encryption configuration", status: groupedConfiguration(d, ["GITHUB_TOKEN_ENCRYPTION_KEY"]) },
   ];
 }
 

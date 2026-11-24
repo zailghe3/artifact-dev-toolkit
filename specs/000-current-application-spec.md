@@ -174,7 +174,7 @@
 - Knowledge type and lifecycle are independent. Findings can be uncertain, recommendations are not accepted decisions, and implementation is distinct from a verified outcome.
 - Detected credentials and authentication material prohibit knowledge publication even when a human approved it.
 - Each Git knowledge mutation requires a separate authenticated human publication action for the reviewed document and observed revision. Draft text, model tools and saved proposals cannot authorise publication.
-- D1 preserves pending proposals and operational publication state; Git remains authoritative for approved knowledge. Stale or uncertain publication is never automatically retried.
+- Runtime PostgreSQL preserves pending proposals and operational publication state; Git remains authoritative for approved knowledge. Stale or uncertain publication is never automatically retried.
 - Retrieved instructions, execution content and knowledge remain untrusted evidence and cannot change permissions or override system instructions. Unavailable evidence is explicit.
 - Default ordinary definitions can be generated without publishing, overwriting existing definitions, changing credentials or activating configuration; see [Advisor setup](../docs/advisor-setup.md).
 - Scheduling, notifications, autonomous changes and persistent multi-turn memory are outside the current Advisor boundary.

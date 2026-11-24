@@ -20,9 +20,9 @@ const requireTsx=installTsxHook(),{launchWorkflowRun}=requireTsx('../lib/workflo
 const access={...context,repo:context.repository,login:'user',githubId:1,checkedAt:Date.now(),ok:true};
 const settings={workflowId:workflow.id,override:null};
 async function fixture(){
- const storage=new InMemoryWorkflowRunStorage(),repo=new InMemoryWorkflowDefinitionRepository();await repo.createAgent(agent);await repo.createWorkflow(workflow);let launches=0,modelChecks=[];
- const deps={getWorkflowRunStorage:async()=>storage,createWorkflowDefinitionRepository:()=>repo,listWorkflowConnectionIdentityDescriptors:async()=>[connection,{...connection,key:'override',defaultModel:'gpt-5-mini'}],readCodexRunnerCatalog:async()=>({environments:[]}),listWorkflowConnectionDescriptors:async()=>[connection],getWorkflowEnvironment:async()=>({AGENT_RUN_WORKFLOW:{create:async({id})=>{launches++;return{id}}}}),getMcpPolicyAuthority:async()=>({}),getProviderCredentialVault:async()=>({}),createToolDefinitionRepository:()=>({list:async()=>[]}),createSecurityProfileDefinitionRepository:()=>({list:async()=>[]}),getWorkflowProviderConnectionStore:async()=>({resolveForSnapshot:async(key,snapshot)=>snapshot,resolveForExecution:async(key,snapshot)=>({...snapshot,credential:'SENSITIVE_CREDENTIAL'})}),getProviderModelService:async()=>({validate:async(...args)=>modelChecks.push(args)})};
- return{storage,repo,deps,launches:()=>launches,modelChecks};
+ const storage=new InMemoryWorkflowRunStorage(),repo=new InMemoryWorkflowDefinitionRepository();await repo.createAgent(agent);await repo.createWorkflow(workflow);const modelChecks=[];
+ const deps={getWorkflowRunStorage:async()=>storage,createWorkflowDefinitionRepository:()=>repo,listWorkflowConnectionIdentityDescriptors:async()=>[connection,{...connection,key:'override',defaultModel:'gpt-5-mini'}],readCodexRunnerCatalog:async()=>({environments:[]}),listWorkflowConnectionDescriptors:async()=>[connection],getMcpPolicyAuthority:async()=>({}),getProviderCredentialVault:async()=>({}),createToolDefinitionRepository:()=>({list:async()=>[]}),createSecurityProfileDefinitionRepository:()=>({list:async()=>[]}),getWorkflowProviderConnectionStore:async()=>({resolveForSnapshot:async(key,snapshot)=>snapshot,resolveForExecution:async(key,snapshot)=>({...snapshot,credential:'SENSITIVE_CREDENTIAL'})}),getProviderModelService:async()=>({validate:async(...args)=>modelChecks.push(args)})};
+ return{storage,repo,deps,countRuns:async()=>(await storage.listRuns()).length,modelChecks};
 }
 test('a run freezes the selected Advisor provider override',async t=>{
  const db=await database(t);
@@ -42,7 +42,7 @@ test('Advisor launches through ordinary admission and freezes override choices f
  const f=await fixture(),override={workflowId:'review',override:{connectionKey:'override',model:'gpt-5'}},body={workflowId:'review',initialInput:'Where is review weak?',idempotencyKey:crypto.randomUUID()};
  const response=await launchWorkflowRun(access,body,override,f.deps);assert.equal(response.status,201,await response.clone().text());const {runId}=await response.json(),detail=await f.storage.getRun(runId);
  assert.equal(detail.run.workflowRevision,(await f.repo.getWorkflow('review')).fileSha);assert.equal(detail.run.advisorContext.readOnly,true);assert.equal(detail.run.agentSnapshots.analyst.connectionKey,'override');assert.equal(detail.run.connectionSnapshots.override.defaultModel,'gpt-5');assert.equal((await f.repo.getAgent('analyst')).definition.connectionKey,'agents');assert.equal(f.modelChecks.length,1);assert.equal(f.modelChecks[0][2],'gpt-5');assert.doesNotMatch(JSON.stringify(detail),/SENSITIVE_CREDENTIAL/);
- assert.equal(f.launches(),1);assert.equal((await launchWorkflowRun(access,body,override,f.deps)).status,200);assert.equal(f.launches(),1);
+ assert.equal(await f.countRuns(),1);assert.equal((await launchWorkflowRun(access,body,override,f.deps)).status,200);assert.equal(await f.countRuns(),1);
  assert.equal((await launchWorkflowRun(access,{...body,initialInput:'different'},override,f.deps)).status,409);
  assert.equal((await launchWorkflowRun({...access,repositoryId:99},body,override,f.deps)).status,409);
  assert.equal((await launchWorkflowRun(access,body,undefined,f.deps)).status,409);
@@ -54,12 +54,12 @@ test('selection and launch reject deleted workflows, stale definitions, tool esc
  await assert.rejects(validateAdvisorSelection({...settings,workflowId:null,override:{connectionKey:'agents',model:'gpt-5'}},f.repo,[connection]),/advisor_workflow_required/);
  for(const tools of [['artifact_search'],[{type:'mcp',serverId:'external',toolName:'read_only_claim'}]]){
   const old=await f.repo.getAgent('analyst');await f.repo.updateAgent({...old.definition,tools},old.fileSha);await assert.rejects(validateAdvisorSelection(settings,f.repo,[connection]),/advisor_read_only_required/);
-  const response=await launchWorkflowRun(access,{workflowId:'review',initialInput:'question',idempotencyKey:crypto.randomUUID()},settings,f.deps);assert.equal(response.status,422);assert.equal(f.launches(),0);
+  const response=await launchWorkflowRun(access,{workflowId:'review',initialInput:'question',idempotencyKey:crypto.randomUUID()},settings,f.deps);assert.equal(response.status,422);assert.equal(await f.countRuns(),0);
  }
  const stale=await f.repo.getWorkflow('review');await f.repo.deleteWorkflow('review',stale.fileSha);assert.equal((await launchWorkflowRun(access,{workflowId:'review',initialInput:'q',idempotencyKey:crypto.randomUUID()},settings,f.deps)).status,422);
  const fresh=await fixture();fresh.deps.getProviderModelService=async()=>({validate:async()=>{throw Error('model_unavailable')}});
  const unavailable=await launchWorkflowRun(access,{workflowId:'review',initialInput:'q',idempotencyKey:crypto.randomUUID()},{...settings,override:{connectionKey:'override',model:'vendor-model-preview'}},fresh.deps);
- assert.equal(unavailable.status,422);assert.equal((await unavailable.json()).code,'model_unavailable');assert.equal(fresh.launches(),0);
+ assert.equal(unavailable.status,422);assert.equal((await unavailable.json()).code,'model_unavailable');assert.equal(await fresh.countRuns(),0);
 });
 test('read-only admission expands reusable workflows and blocks indirect MCP, Codex and publication escalation',()=>{
  const leaf={...workflow,id:'leaf',exposableAsBlock:true},root={...workflow,nodes:[{id:'nested',blockType:'subworkflow',blockVersion:1,config:{workflowId:'leaf'}}]};
@@ -139,7 +139,7 @@ test('Workflow and Advisor admission reject incompatible effective models before
   assert.equal(await f.storage.findRunByIdempotencyKey(body.idempotencyKey),undefined);
  }
  assert.equal(f.modelChecks.length,0);
- assert.equal(f.launches(),0);
+ assert.equal(await f.countRuns(),0);
 });
 
 test('Workflow admission allows a model when every activation removes its tools',async()=>{
@@ -161,7 +161,7 @@ test('Workflow admission allows a model when every activation removes its tools'
  const rejected=await launchWorkflowRun(access,{...body,idempotencyKey:crypto.randomUUID()},undefined,f.deps);
  assert.equal(rejected.status,422);
  assert.equal((await rejected.json()).code,'unsupported_model_option');
- assert.equal(f.launches(),1);
+ assert.equal(await f.countRuns(),1);
 });
 
 test('frozen Advisor runs with a historically accepted model remain readable and idempotent',async t=>{

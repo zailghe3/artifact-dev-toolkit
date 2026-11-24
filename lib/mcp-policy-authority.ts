@@ -6,7 +6,8 @@ import type {WorkflowD1Database} from "./workflow-d1-storage.ts";
 import type {D1ProviderCredentialVault} from "./provider-credential-vault.ts";
 
 type PolicyEnvironment=Record<string,string|undefined>;
-export type McpPolicyContext={authority:D1McpPolicyAuthority;actor:string;environment:PolicyEnvironment};
+export type McpPolicyAuthority=Pick<D1McpPolicyAuthority,"head"|"attestation"|"verify"|"verifyFrozen"|"begin"|"publish"|"settle"|"inspect">;
+export type McpPolicyContext={authority:McpPolicyAuthority;actor:string;environment:PolicyEnvironment};
 export type PolicyHead={repository_id:number;server_id:string;revision:number;state:"ready"|"updating"|"blocked";authority_id:string|null;mutation_id:string|null};
 type Scope={url:string;authenticationMode:"none"|"bearer";bindingId?:string;credentialDigest?:string;schemas:Record<string,string>};
 type Attestation={id:string;repository_id:number;server_id:string;scope_json:string;policies_digest:string;tool_digests_json:string;administrator:number;actor:string;created_at:number};

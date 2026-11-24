@@ -2,8 +2,18 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {installTsxHook} from './render-tsx.mjs';
 import {fixture} from './helpers/agent-tool-fixture.mjs';
+import {operateRuntimeTools} from '../lib/runtime-tool-decisions.ts';
+import {AgentJournal} from '../lib/agent-journal.ts';
+import {D1McpPolicyAuthority} from '../lib/mcp-policy-authority.ts';
 const require=installTsxHook(),Module=require('node:module'),original=Module._load;let context;
-Module._load=function(request,...rest){if(request==='@/lib/auth')return{requireApiRepositoryAccess:async()=>context.authorized?{access:{repositoryId:42},session:{login:context.actor}}:new Response(null,{status:401})};if(request==='@/lib/workflow-services')return{getMcpPolicyAuthority:async()=>({}),createToolDefinitionRepository:()=>({}),getProviderCredentialVault:async()=>({}),getWorkflowEnvironment:async()=>({AUTH_SESSIONS_DB:context.f.db,ADT_TOOL_OPERATORS:'operator',ADT_TOOL_APPROVERS:context.approvers??'reviewer',AGENT_RUN_WORKFLOW:{get:async()=>({sendEvent:async()=>{context.wakes++}})}}),getWorkflowRunStorage:async()=>({getRun:async()=>({run:{repositoryContext:{repositoryId:context.repositoryId},workflowInstanceId:'workflow'}})})};return original.call(this,request,...rest)};
+Module._load=function(request,...rest){if(request==='@/lib/auth')return{requireApiRepositoryAccess:async()=>context.authorized?{access:{repositoryId:42},session:{login:context.actor}}:new Response(null,{status:401})};if(request==='@/lib/workflow-services')return{workflowRuntimeCommand:async command=>{
+ assert.equal(command.operation,'runs.tools');assert.equal(command.repositoryId,42);assert.equal(command.actor,context.actor);
+ if(command.repositoryId!==context.repositoryId||command.runId!==context.f.options.runId)throw new Error('run_not_found');
+ const env={ADT_TOOL_OPERATORS:'operator',ADT_TOOL_APPROVERS:context.approvers??'reviewer'};
+ return operateRuntimeTools({...command,journal:new AgentJournal(context.f.db,undefined,env),repository:{get:async()=>undefined},
+  vault:context.f.vault,policies:new D1McpPolicyAuthority(context.f.db),
+  env,wake:async()=>{context.wakes++}});
+}};return original.call(this,request,...rest)};
 let route;try{route=require('../app/api/workflow-runs/[runId]/tools/route.ts')}finally{Module._load=original}
 const request=(body,origin='https://adt.example')=>new Request('https://adt.example/api/workflow-runs/id/tools',{method:'POST',headers:{origin,'content-type':'application/json'},body:JSON.stringify(body)});
 async function pending(t){const f=await fixture(t);f.tool.key="artifact_search";f.tool.frozen={type:"builtin",name:"artifact_search"};await f.step();await f.step();const{approval,call}=await f.approval();await f.db.prepare('UPDATE agent_tool_approvals SET expires_at=? WHERE id=?').bind(Date.now()+60000,approval.id).run();context={f,actor:'reviewer',authorized:true,repositoryId:42,wakes:0};return{f,approval,call,params:{params:Promise.resolve({runId:f.options.runId})}}}
@@ -35,7 +45,7 @@ for(const boundary of ['delegation','frozen_reviewers','expired','cancelled','ge
  if(boundary==='cancelled')await f.db.prepare("UPDATE workflow_runs SET cancel_requested_at='now' WHERE id=?").bind(f.options.runId).run();
  if(boundary==='generation')await f.db.prepare('UPDATE workflow_runs SET workflow_generation=2 WHERE id=?').bind(f.options.runId).run();
  const target=boundary==='wrong_run'?{params:Promise.resolve({runId:crypto.randomUUID()})}:params;
- const response=await route.POST(request({action:'approval',approvalId:approval.id,decisionId:crypto.randomUUID(),decision:'rejected'}),target);assert.equal(response.status,['delegation','frozen_reviewers'].includes(boundary)?403:409);assert.equal((await f.approval()).approval.status,'pending');assert.equal(f.executions,0);
+ const response=await route.POST(request({action:'approval',approvalId:approval.id,decisionId:crypto.randomUUID(),decision:'rejected'}),target);assert.equal(response.status,boundary==='wrong_run'?404:['delegation','frozen_reviewers'].includes(boundary)?403:409);assert.equal((await f.approval()).approval.status,'pending');assert.equal(f.executions,0);
  const view=await(await route.GET(new Request('https://adt.example'),params)).json();if(boundary!=='wrong_run')assert.equal(view.tools[0].approval.canReject,false);
 });
 

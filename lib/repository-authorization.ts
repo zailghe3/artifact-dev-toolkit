@@ -38,7 +38,7 @@ export const repositoryAccessDeniedMessages: Record<RepositoryAuthorizationFailu
 export function parseAllowedGitHubLogins(value = process.env.GITHUB_ARTIFACT_ALLOWED_LOGINS ?? "") { return value.split(",").map((login) => login.trim().toLowerCase()).filter(Boolean); }
 
 export function getRepositoryAuthorizationConfig(): GitHubAppConfig {
-  const required = ["GITHUB_APP_ID", "GITHUB_APP_CLIENT_ID", "GITHUB_APP_CLIENT_SECRET", "GITHUB_APP_PRIVATE_KEY", "GITHUB_TOKEN_ENCRYPTION_KEY", "GITHUB_ARTIFACT_REPOSITORY_OWNER", "GITHUB_ARTIFACT_REPOSITORY_NAME"] as const;
+  const required = ["GITHUB_APP_ID", "GITHUB_APP_CLIENT_ID", "GITHUB_APP_CLIENT_SECRET", "GITHUB_APP_PRIVATE_KEY", "GITHUB_ARTIFACT_REPOSITORY_OWNER", "GITHUB_ARTIFACT_REPOSITORY_NAME"] as const;
   const values = requireAuthenticationValues(required);
   return { appId: values.GITHUB_APP_ID, clientId: values.GITHUB_APP_CLIENT_ID, clientSecret: values.GITHUB_APP_CLIENT_SECRET, privateKey: values.GITHUB_APP_PRIVATE_KEY, owner: values.GITHUB_ARTIFACT_REPOSITORY_OWNER, repo: values.GITHUB_ARTIFACT_REPOSITORY_NAME, branch: process.env.GITHUB_ARTIFACT_REPOSITORY_BRANCH?.trim() || "main", rootPath: DEFAULT_ARTIFACT_ROOT, allowedLogins: parseAllowedGitHubLogins() };
 }

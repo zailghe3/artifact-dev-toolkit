@@ -97,6 +97,8 @@ export async function initializeRuntimeDatabase(pool: Pool, keyPath: string, dir
     if (fresh) {
       await client.query("INSERT INTO installation (root_key_fingerprint, active_key_version) VALUES ($1, 1)", [fingerprint]);
     }
-    return { rootKey };
+    return { rootKey, activeKeyVersion: existing?.active_key_version ?? 1 };
   });
 }
+
+export type { Pool } from "pg";

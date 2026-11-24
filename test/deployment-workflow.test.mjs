@@ -141,22 +141,22 @@ test('mixed control-plane and Runtime changes share integration before either pr
 
 // This workflow condition uses only GitHub's boolean/string expression subset,
 // which can be evaluated directly to test publication decisions across outcomes.
-function runtimePublicationAllowed(impact, { verification = 'success', deployment = 'success', worker = '', migrations = '', classification = 'success' } = {}) {
+function runtimePublicationAllowed(impact, { verification = 'success', deployment = 'success', worker = '', migrations = '', classification = 'success', cutoverReady = 'true' } = {}) {
   const expression = parse(main).jobs['publish-runtime'].if.replace(/\bneeds\.([\w-]+)/g, 'needs["$1"]');
   const needs = {
     classify: { result: classification, outputs: Object.fromEntries(Object.entries(impact).map(([key, value]) => [key, String(value)])) },
     'verify-main': { result: verification },
     deploy: { result: deployment, outputs: { worker_deployed: worker, migrations_applied: migrations } },
   };
-  return Function('needs', 'always', `return (${expression});`)(needs, () => true);
+  return Function('needs', 'always', 'vars', `return (${expression});`)(needs, () => true, {ADT_POSTGRES_CUTOVER_READY: cutoverReady});
 }
 
 test('Runtime publication waits for every required Cloudflare operation and rejects skipped or stale outcomes', () => {
   const runtimeFile = { filename: 'adt-runtime/src/server.ts' };
   for (const files of [
     [{ filename: 'app/page.tsx' }, runtimeFile],
-    [{ filename: 'migrations/0022_add_checkpoint_write_task_paths.sql' }, runtimeFile],
-    [{ filename: 'app/page.tsx' }, { filename: 'migrations/0022_add_checkpoint_write_task_paths.sql' }, runtimeFile],
+    [{ filename: 'migrations/0003_auth_only.sql' }, runtimeFile],
+    [{ filename: 'app/page.tsx' }, { filename: 'migrations/0003_auth_only.sql' }, runtimeFile],
   ]) {
     const impact = classifyChanges(files);
     assert.equal(impact.deploy_cloudflare, true);
@@ -170,6 +170,13 @@ test('Runtime publication waits for every required Cloudflare operation and reje
     if (impact.apply_migrations) for (const migrations of ['', 'false']) assert.equal(runtimePublicationAllowed(impact, { ...completed, migrations }), false);
     assert.equal(runtimePublicationAllowed(impact, { ...completed, classification: 'failure' }), false);
   }
+});
+
+test('the clean cutover allows verified Runtime publication while automatic Worker deployment is paused', () => {
+  const impact = classifyChanges([{ filename: 'app/page.tsx' }, { filename: 'adt-runtime/src/server.ts' }]);
+  assert.equal(runtimePublicationAllowed(impact, { deployment: 'skipped', cutoverReady: '' }), true);
+  assert.equal(runtimePublicationAllowed(impact, { verification: 'failure', deployment: 'skipped', cutoverReady: '' }), false);
+  assert.match(parse(main).jobs.deploy.if, /vars\.ADT_POSTGRES_CUTOVER_READY == 'true'/);
 });
 
 test('Runtime-only publication remains available when Cloudflare and its shared gate are skipped', () => {
@@ -215,7 +222,7 @@ test('main lifecycle always calls Adrian with source publication semantics, incl
 });
 
 test('migration-only Cloudflare operation skips Worker metadata, build, and publish', () => {
-  const result = classifyChanges([{ filename: 'migrations/0018_example.sql' }]);
+  const result = classifyChanges([{ filename: 'migrations/0003_auth_only.sql' }]);
   assert.equal(result.deploy_worker, false);
   assert.equal(result.apply_migrations, true);
   assert.match(reusableDeploy, /deploy_worker:[\s\S]*default: true/);

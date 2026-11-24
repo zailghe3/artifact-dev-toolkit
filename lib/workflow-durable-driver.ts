@@ -33,6 +33,27 @@ export async function durableInvocation(detail:RunDetail,attempt:StepAttempt,res
  const source=attempt.conversationSource?detail.attempts.find(value=>value.runId===attempt.conversationSource!.runId&&value.stepId===attempt.conversationSource!.stepId&&value.graphActivationId===attempt.conversationSource!.activationId&&value.iteration===attempt.conversationSource!.iteration&&value.attempt===attempt.conversationSource!.attempt):undefined;if(attempt.conversationSource&&(!source||source.status!=="succeeded"||!source.providerTaskId))throw Object.assign(new Error("conversation unavailable"),{category:"conversation_unavailable",safeMessage:"The selected Codex conversation is no longer available to continue.",retryable:false});
  return {runId:detail.run.id,stepId:attempt.stepId,iteration:attempt.iteration,attempt:attempt.attempt,providerPollCount:attempt.providerPollCount,idempotencyKey:`${detail.run.id}:${attempt.stepId}:${attempt.iteration}:${attempt.attempt}`,agentName:agent.name,masterPrompt:agent.masterPrompt,inputText:attempt.inputText??"",tools:agent.tools,...(authorizedMcpTools?{authorizedMcpTools}:{}),...(runtimeSecurity?{runtimeSecurity}:{}),repositoryContext:detail.run.repositoryContext,managedCodeRepositoryContext:detail.run.managedCodeRepositoryContexts?.[attempt.agentId],connection:{...snapshot,credential:live.credential,serverConfiguration:live.serverConfiguration,privateOptions:{...(live.privateOptions&&typeof live.privateOptions==="object"?live.privateOptions:{}),providerState:attempt.providerState,outputText:attempt.outputText}},providerOptions:agent.adapterOptions,...(source?.providerTaskId?{conversationRef:source.providerTaskId}:{})};
 }
+export async function cancelDurableWorkflow(input: {
+ detail: RunDetail;
+ storage: WorkflowRunStorage;
+ runtimes: AgentRuntimeResolver;
+ resolveConnection: Parameters<typeof durableInvocation>[2];
+}) {
+ const {detail,storage,runtimes,resolveConnection}=input;
+ const active=detail.attempts.filter(item=>item.status==="starting"||item.status==="waiting_provider");
+ const outcomes=await Promise.all(active.map(async item=>{
+  if(!item.providerTaskId)return "safe_failure" as const;
+  try{
+   const invocation=await durableInvocation(detail,item,resolveConnection);
+   const runtime=runtimes.resolve(invocation.connection.adapter);
+   return runtime?await runtime.cancel(item.providerTaskId,invocation):"unsupported" as const;
+  }catch{return "safe_failure" as const;}
+ }));
+ const outcome=(["cancellation_pending","safe_failure","unsupported","cancelled"] as const).find(value=>outcomes.includes(value))??"already_terminal";
+ await storage.recordCancellationResult(detail.run.id,outcome);
+ if(outcome!=="cancellation_pending")await storage.cancelRun(detail.run.id);
+ return outcome;
+}
 export type GraphNodeTurnResult={state:"completed"|"pending"|"failed"|"cancelled";outputText?:string;safeMessage?:string;retryAfterMs?:number};
 const graphRetryDelay=(attempt:number)=>attempt===1?10_000:30_000;
 async function reconcileFailedGraphRun(input:{runId:string;attempt:StepAttempt;detail:RunDetail;storage:WorkflowRunStorage;runtimes:AgentRuntimeResolver;resolveConnection:(key:string,snapshot?:import("./workflow-connections.ts").ConnectionDescriptor)=>Promise<ResolvedConnection>;now:()=>number}):Promise<GraphNodeTurnResult>{
@@ -54,7 +75,10 @@ export async function executeDurableGraphNodeTurn(input:{runId:string;nodeId:str
  if(now()-Date.parse(detail.run.createdAt)>MAX_WORKFLOW_RUN_MS){await storage.failRun(runId,"provider_timeout","The workflow run exceeded its time limit.");return{state:"failed",safeMessage:"The workflow run exceeded its time limit."}}
  let attempt=input.activationId?detail.attempts.filter(item=>item.stepId===nodeId&&item.graphActivationId===input.activationId).at(-1):detail.attempts.filter(item=>item.stepId===nodeId).at(-1);if(!attempt)throw new Error("invalid_graph_node");
 
- if(detail.run.status==="cancelling"||detail.run.cancelRequestedAt){const admitted=detail.attempts.filter(item=>item.providerTaskId&&["starting","waiting_provider"].includes(item.status)),outcomes=await Promise.all(admitted.map(async item=>{try{const call=await durableInvocation(detail!,item,resolveConnection),runtime=runtimes.resolve(call.connection.adapter);return runtime?await runtime.cancel(item.providerTaskId!,call):"unsupported" as const}catch{return "safe_failure" as const}})),outcome=outcomes.includes("cancellation_pending")?"cancellation_pending":outcomes.includes("safe_failure")?"safe_failure":outcomes.includes("unsupported")?"unsupported":outcomes.includes("cancelled")?"cancelled":"already_terminal";await storage.recordCancellationResult(runId,outcome);if(outcome!=="cancellation_pending")await storage.cancelRun(runId);return{state:outcome==="cancellation_pending"?"pending":"cancelled",retryAfterMs:outcome==="cancellation_pending"?Math.min(5000,clampPollDelay(attempt.nextPollDelayMs)):undefined}}
+ if(detail.run.status==="cancelling"||detail.run.cancelRequestedAt){
+  const outcome=await cancelDurableWorkflow({detail,storage,runtimes,resolveConnection});
+  return {state:outcome==="cancellation_pending"?"pending":"cancelled",retryAfterMs:outcome==="cancellation_pending"?Math.min(5000,clampPollDelay(attempt.nextPollDelayMs)):undefined};
+ }
  if(detail.run.failureCode)return reconcileFailedGraphRun({runId,attempt,detail,storage,runtimes,resolveConnection,now});
  const deferFailure=async(category:FailureCategory,safeMessage:string)=>{await storage.recordGraphFailure(runId,category,safeMessage);return executeDurableGraphNodeTurn(input)};
  if(attempt.status==="succeeded")return{state:"completed",outputText:attempt.outputText??""};

@@ -20,7 +20,7 @@ function cloudflare(interveningImpact, overrides = {}) {
 }
 
 test('Worker target is not superseded by a later migration-only change', () => {
-  assert.equal(cloudflare(impact('migrations/0019_later.sql')).current, true);
+  assert.equal(cloudflare(impact('test-fixtures/legacy-operational-migrations/0019_later.sql')).current, true);
 });
 
 test('Worker target is superseded by a later Worker input', () => {
@@ -32,7 +32,7 @@ test('migration-only target is superseded by a later migration', () => {
     operation: 'cloudflare',
     targetDeployWorker: false,
     targetApplyMigrations: true,
-    interveningImpact: impact('migrations/0019_later.sql'),
+    interveningImpact: impact('migrations/0003_auth_only.sql'),
   });
   assert.equal(result.current, false);
 });
@@ -63,7 +63,7 @@ test('unclassified successor fails closed for every production operation', () =>
 
 test('shared Runner release barrier preserves the exact Worker obligation across unrelated later Worker or migration changes', () => {
   const laterWorker = cloudflare(impact('app/page.tsx'), { targetRunnerReleaseBarrier: true });
-  const laterMigration = cloudflare(impact('migrations/0019_later.sql'), { targetRunnerReleaseBarrier: true });
+  const laterMigration = cloudflare(impact('test-fixtures/legacy-operational-migrations/0019_later.sql'), { targetRunnerReleaseBarrier: true });
   assert.equal(laterWorker.current, true);
   assert.equal(laterMigration.current, true);
 });
