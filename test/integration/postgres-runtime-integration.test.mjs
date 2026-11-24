@@ -313,11 +313,14 @@ test('signed launches run inside PostgreSQL-backed Runtime and approvals survive
   })));
   const waiting = await Promise.all(approvalRuns.map(({ id }) => waitFor(id, ['waiting_approval'])));
   for (const detail of waiting) assert.equal(detail.run.status, 'waiting_approval', JSON.stringify({ stages, detail }));
+  const brokerClaim = { operation: 'broker.claim', nonce: 'a-broker-nonce-for-replay-test', timestamp: Date.now() };
+  assert.equal(await runtimeControl(config, brokerClaim), true);
   await application.stop();
   const inspection = await command('runs.inspection', approvalRuns[0].id, { actor: 'reviewer' });
   await command('runs.approval', approvalRuns[0].id, { approvalRequestId: inspection.approval.requestId });
   await command('runs.cancel', approvalRuns[1].id);
   application = createRuntimeApplication(applicationOptions);
+  assert.equal(await runtimeControl(config, brokerClaim), false);
   application.start();
   const [approved, cancelled] = await Promise.all([
     waitFor(approvalRuns[0].id, ['succeeded']), waitFor(approvalRuns[1].id, ['cancelled']),

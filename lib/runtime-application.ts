@@ -1,4 +1,6 @@
 import { PostgresWorkflowDatabase } from "../adt-runtime/src/workflow-database.ts";
+import { recordManagementNonce } from "../adt-runtime/src/operational-settings.ts";
+import { AUTH_WINDOW_MS } from "../adt-runtime/src/protocol.ts";
 import type { Pool } from "../adt-runtime/src/postgres.ts";
 import type { RuntimeRootKey } from "../adt-runtime/src/runtime-key.ts";
 import { managedContextSchema, repositoryContextSchema, type RuntimeControlCommand } from "../adt-runtime/src/runtime-control-contract.ts";
@@ -65,6 +67,10 @@ export function createRuntimeApplication(options: RuntimeApplicationOptions) {
 
   const coordinator = createWorkflowCoordinator({ pool, env, vaultFor, credential, managedCredential, onError: options.onError });
   async function store(command: RuntimeControlCommand) {
+    if(command.operation==="broker.claim"){
+      if(Math.abs(Date.now()-command.timestamp)>AUTH_WINDOW_MS)return false;
+      return recordManagementNonce(pool,`broker:${command.nonce}`,command.timestamp);
+    }
     if(command.operation==="runner.release")return getCodexRunnerClient(env).capabilities();
     if(command.operation==="runner"){
       try{

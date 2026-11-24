@@ -1,4 +1,21 @@
-import test from 'node:test';import assert from 'node:assert/strict';import {mutateVaultCredential} from '../lib/provider-vault-connection-mutations.ts';
+import test from 'node:test';import assert from 'node:assert/strict';import {mutateVaultCredential, recoverConnectionCredential} from '../lib/provider-vault-connection-mutations.ts';
 const a=`sec_${'a'.repeat(43)}`,b=`sec_${'b'.repeat(43)}`,definition=ref=>({definition:{schemaVersion:2,id:'openai',name:'OpenAI',runtime:'openai-agents',provider:'openai',model:'gpt-5',credential:{source:'adt-vault',secretRef:ref}},fileSha:'R2'});
 test('stale recover, replace, and delete cannot touch either old or current vault references',async()=>{const calls=[],vault={recover:async(...x)=>calls.push(['recover',...x]),replace:async(...x)=>calls.push(['replace',...x]),delete:async(...x)=>calls.push(['delete',...x])};for(const operation of ['recover','replace','delete'])await assert.rejects(mutateVaultCredential(definition(b),'R1',vault,operation,'new-secret'),/revision_conflict/);assert.deepEqual(calls,[]);assert.notEqual(a,b)});
 test('credential lifecycle derives the current reference and never returns plaintext',async()=>{const calls=[],vault={recover:async(...x)=>calls.push(['recover',...x]),replace:async(...x)=>calls.push(['replace',...x]),delete:async(...x)=>calls.push(['delete',...x])};for(const operation of ['recover','replace','delete']){const result=await mutateVaultCredential(definition(a),'R2',vault,operation,operation==='delete'?undefined:'plaintext-sentinel');assert.equal(result,a)}assert.deepEqual(calls.map(x=>[x[0],x[1]]),[['recover',a],['replace',a],['delete',a]]);assert.equal(JSON.stringify(calls).includes('plaintext-sentinel'),true)});
+
+test('cutover credential recovery preserves connection identity and only writes the new vault reference to Git', async () => {
+  const current = definition(a), writes = [], deleted = [];
+  const vault = {
+    resolve: async ref => { assert.equal(ref, a); throw new Error('vault_secret_unavailable'); },
+    create: async value => { assert.equal(value, 'replacement-value'); return b; },
+    delete: async ref => deleted.push(ref),
+  };
+  const repository = { updateConnection: async (value, revision) => writes.push([value, revision]) };
+  assert.equal(await recoverConnectionCredential(current, 'R2', 'replacement-value', vault, repository), b);
+  assert.deepEqual(writes, [[definition(b).definition, 'R2']]);
+  assert.deepEqual(current, definition(a));
+  assert.deepEqual(deleted, []);
+  repository.updateConnection = async () => { throw new Error('definition_conflict'); };
+  await assert.rejects(recoverConnectionCredential(current, 'R2', 'replacement-value', vault, repository), /definition_conflict/);
+  assert.deepEqual(deleted, [b]);
+});

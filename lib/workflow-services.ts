@@ -64,7 +64,7 @@ export async function getWorkflowCodexEnvironmentStore(repositoryId:number){
  };
 }
 export function getWorkflowAdapterRegistry(){return createWorkflowAdapterRegistry();}
-export function adtRuntimeConfiguration(env:Record<string,unknown>):ADTRuntimeConfiguration{return{baseUrl:typeof env.ADT_RUNTIME_BASE_URL==="string"?env.ADT_RUNTIME_BASE_URL:undefined,authSecret:typeof env.ADT_RUNTIME_AUTH_SECRET==="string"?env.ADT_RUNTIME_AUTH_SECRET:undefined,wrappingPublicKey:typeof env.ADT_RUNTIME_WRAPPING_PUBLIC_KEY==="string"?env.ADT_RUNTIME_WRAPPING_PUBLIC_KEY:undefined}}
+export function adtRuntimeConfiguration(env:Record<string,unknown>):ADTRuntimeConfiguration{return{baseUrl:typeof env.ADT_RUNTIME_BASE_URL==="string"?env.ADT_RUNTIME_BASE_URL:undefined,authSecret:typeof env.ADT_RUNTIME_AUTH_SECRET==="string"?env.ADT_RUNTIME_AUTH_SECRET:undefined}}
 export async function diagnoseADTRuntime(){const env=await getWorkflowEnvironment();return new RemoteOpenAIAgentsRuntime(adtRuntimeConfiguration(env as unknown as Record<string,unknown>)).diagnose()}
 export async function diagnoseADTRuntimeExecutionPath(access:RepositoryAccessContext):Promise<ExecutionPathDiagnostic>{
  const started=Date.now();

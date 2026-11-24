@@ -82,6 +82,8 @@ export const runtimeControlSchema = z.discriminatedUnion("operation", [
   z.object({ operation: z.literal("runs.inspection"), repositoryId, runId, actor }).strict(),
   z.object({ operation: z.literal("runs.tools"), repositoryId, runId, actor, decision: toolDecisionSchema.optional() }).strict(),
   publicationInput.extend({ operation: z.literal("runs.publish"), repositoryId }).strict(),
+  z.object({ operation: z.literal("broker.claim"), nonce: z.string().regex(/^[A-Za-z0-9_-]{16,128}$/),
+    timestamp: z.number().int().positive().max(Number.MAX_SAFE_INTEGER) }).strict(),
   z.object({ operation: z.literal("runner.release") }).strict(),
   z.object({ operation: z.literal("runner"), repositoryId, method: z.enum(runnerOperations),
     arguments: z.array(z.union([z.string().max(120),z.number().int()])).max(1) }).strict(),
