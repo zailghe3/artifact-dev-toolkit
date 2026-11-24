@@ -5,13 +5,12 @@ export async function mutateVaultCredential(current:VersionedConnectionDefinitio
 
 export async function recoverConnectionCredential(
  current:VersionedConnectionDefinition,expectedRevision:string,credential:string,
- vault:Pick<D1ProviderCredentialVault,"create"|"delete"|"resolve">,
+ vault:Pick<D1ProviderCredentialVault,"create"|"delete"|"hasCredential">,
  repository:Pick<import("./workflow-connection-definition-repository.ts").WorkflowConnectionDefinitionRepository,"updateConnection">,
 ){
  const oldRef=vaultReferenceAtRevision(current,expectedRevision);
  if(!repository.updateConnection)throw Error("connection_repository_unavailable");
- try{await vault.resolve(oldRef);throw Error("vault_secret_exists")}
- catch(error){if(!(error instanceof Error)||error.message!=="vault_secret_unavailable")throw error}
+ if(await vault.hasCredential(oldRef))throw Error("vault_secret_exists");
  const secretRef=await vault.create(credential);
  try{
   await repository.updateConnection({...current.definition,credential:{source:"adt-vault",secretRef}},expectedRevision);

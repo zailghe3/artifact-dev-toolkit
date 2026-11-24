@@ -4,10 +4,9 @@ import {approvalPolicySchema} from "../adt-runtime/src/agent-contract.ts";
 import {mcpCatalogueToolSchema,mcpServerDefinitionSchema,safeMcpServer,type McpServerDefinition} from "./tool-definitions.ts";
 import type {ToolDefinitionRepository} from "./tool-definition-repository.ts";
 import type {D1ProviderCredentialVault} from "./provider-credential-vault.ts";
-import type {RemoteOpenAIAgentsRuntime} from "./adt-runtime-client.ts";
 import {z} from "zod";
 
-type Vault=Pick<D1ProviderCredentialVault,"create"|"resolve"|"delete"|"ensureMcpServerCredentialBinding"|"rotateMcpServerCredential"|"replaceMcpServerCredentialBinding"|"restoreMcpServerCredentialBinding"|"revokeMcpServerCredentialBinding"|"currentMcpServerCredentialBinding">;
+type Vault=Pick<D1ProviderCredentialVault,"create"|"hasCredential"|"delete"|"ensureMcpServerCredentialBinding"|"rotateMcpServerCredential"|"replaceMcpServerCredentialBinding"|"restoreMcpServerCredentialBinding"|"revokeMcpServerCredentialBinding"|"currentMcpServerCredentialBinding">;
 export const mcpServerInputSchema=z.object({id:mcpServerDefinitionSchema.shape.id,name:mcpServerDefinitionSchema.shape.name,endpointUrl:mcpServerDefinitionSchema.shape.endpointUrl,authenticationMode:z.enum(["none","bearer"]),bearerToken:z.string().max(8192).optional(),toolPolicies:z.record(z.string(),approvalPolicySchema).optional()}).strict();
 const cleanupSecret=async(vault:Vault,secretId:string|undefined)=>{if(secretId)await vault.delete(secretId).catch(()=>undefined)};
 
@@ -23,8 +22,7 @@ async function existingBearerBinding(repositoryId:number,definition:McpServerDef
  const ref=definition.authentication.credentialSecretRef;
  try{return await vault.ensureMcpServerCredentialBinding(repositoryId,definition.id,definition.endpointUrl,ref)}
  catch(error){
-  try{await vault.resolve(ref)}
-  catch(missing){if(missing instanceof Error&&missing.message==="vault_secret_unavailable")return;throw missing}
+  if(!await vault.hasCredential(ref))return;
   throw error;
  }
 }
@@ -46,7 +44,7 @@ async function updateMcpServerUnchecked(repositoryId:number,input:z.infer<typeof
 }
 
 async function deleteMcpServerUnchecked(repositoryId:number,id:string,fileSha:string,repo:ToolDefinitionRepository,vault:Vault){const old=await repo.get(id);if(!old)throw new Error("tool_not_found");if(old.fileSha!==fileSha)throw Error("definition_conflict");const auth=old.definition.authentication,bindingId=await existingBearerBinding(repositoryId,old.definition,vault);await repo.delete(id,fileSha);if(auth.mode!=="bearer")return;try{await vault.revokeMcpServerCredentialBinding(repositoryId,id,bindingId!)}catch(error){let authorityRestored=false;try{await vault.restoreMcpServerCredentialBinding(repositoryId,id,bindingId!,old.definition.endpointUrl,auth.credentialSecretRef);authorityRestored=true}catch{}let gitRestored=false;try{await repo.create(old.definition);gitRestored=true}catch{}if(!authorityRestored||!gitRestored)await cleanupSecret(vault,auth.credentialSecretRef);throw error}await cleanupSecret(vault,auth.credentialSecretRef)}
-async function discoverMcpServerUnchecked(id:string,fileSha:string,repo:ToolDefinitionRepository,vault:Vault,runtime:Pick<RemoteOpenAIAgentsRuntime,"discoverMcp">,now=()=>new Date()){const old=await repo.get(id);if(!old)throw new Error("tool_not_found");if(old.fileSha!==fileSha)throw new Error("definition_conflict");const credential=old.definition.authentication.mode==="bearer"?await vault.resolve(old.definition.authentication.credentialSecretRef):undefined;const tools=z.array(mcpCatalogueToolSchema).max(128).parse(await runtime.discoverMcp({url:old.definition.endpointUrl,transport:"streamable-http"},credential));return repo.update({...old.definition,catalogue:{tools,refreshedAt:now().toISOString()}},fileSha)}
+async function discoverMcpServerUnchecked(id:string,fileSha:string,repo:ToolDefinitionRepository,runtime:{discoverMcp(definition:McpServerDefinition):Promise<unknown>},now=()=>new Date()){const old=await repo.get(id);if(!old)throw new Error("tool_not_found");if(old.fileSha!==fileSha)throw new Error("definition_conflict");const tools=z.array(mcpCatalogueToolSchema).max(128).parse(await runtime.discoverMcp(old.definition));return repo.update({...old.definition,catalogue:{tools,refreshedAt:now().toISOString()}},fileSha)}
 export const safeVersionedMcp=(value:{definition:McpServerDefinition;fileSha:string})=>({definition:safeMcpServer(value.definition),fileSha:value.fileSha});
 
 export async function validateAgentMcpGrants(agent:import("./workflow-definitions.ts").AgentDefinitionV1,repo:Pick<ToolDefinitionRepository,"list">){const {mcpToolGrants}=await import("./workflow-definitions.ts"),grants=mcpToolGrants(agent.tools);if(!grants.length)return agent;const servers=new Map((await repo.list()).map(item=>[item.definition.id,item.definition]));for(const grant of grants){const server=servers.get(grant.serverId);if(!server?.catalogue?.tools.some(tool=>tool.name===grant.toolName))throw new Error("mcp_grant_unavailable")}return agent}
@@ -80,10 +78,10 @@ async function mutateMcp<T>(repositoryId:number,id:string,repo:ToolDefinitionRep
 export async function createMcpServer(repositoryId:number,input:z.infer<typeof mcpServerInputSchema>,repo:ToolDefinitionRepository,vault:Vault,context:McpPolicyContext){const value=mcpServerInputSchema.parse(input);return mutateMcp(repositoryId,value.id,repo,vault,context,"create",value,()=>createMcpServerUnchecked(repositoryId,value,repo,vault))}
 export async function updateMcpServer(repositoryId:number,input:z.infer<typeof mcpServerInputSchema>&{fileSha:string},repo:ToolDefinitionRepository,vault:Vault,context:McpPolicyContext){const value=mcpServerInputSchema.parse(Object.fromEntries(Object.entries(input).filter(([key])=>key!=="fileSha")));return mutateMcp(repositoryId,value.id,repo,vault,context,"update",input,policies=>updateMcpServerUnchecked(repositoryId,{...value,toolPolicies:policies,fileSha:input.fileSha},repo,vault))}
 export async function deleteMcpServer(repositoryId:number,id:string,fileSha:string,repo:ToolDefinitionRepository,vault:Vault,context:McpPolicyContext){return mutateMcp(repositoryId,id,repo,vault,context,"delete",{fileSha},()=>deleteMcpServerUnchecked(repositoryId,id,fileSha,repo,vault))}
-export async function discoverMcpServer(repositoryId:number,id:string,fileSha:string,repo:ToolDefinitionRepository,vault:Vault,runtime:Pick<RemoteOpenAIAgentsRuntime,"discoverMcp">,context:McpPolicyContext,now=()=>new Date()){
+export async function discoverMcpServer(repositoryId:number,id:string,fileSha:string,repo:ToolDefinitionRepository,vault:Vault,runtime:{discoverMcp(definition:McpServerDefinition):Promise<unknown>},context:McpPolicyContext,now=()=>new Date()){
  return mutateMcp(repositoryId,id,repo,vault,context,"discover",{fileSha},async()=>{
   const old=(await repo.get(id))!,scope=await mcpPolicyScope(repositoryId,old.definition,vault);
   const checked={...repo,get:repo.get.bind(repo),update:async(value:McpServerDefinition,sha:string)=>{if(mcpPolicyDigest(await mcpPolicyScope(repositoryId,value,vault))!==mcpPolicyDigest(scope))throw Error("mcp_policy_tool_unavailable");return repo.update(value,sha)}};
-  return discoverMcpServerUnchecked(id,fileSha,checked as ToolDefinitionRepository,vault,runtime,now);
+  return discoverMcpServerUnchecked(id,fileSha,checked as ToolDefinitionRepository,runtime,now);
  });
 }

@@ -90,7 +90,7 @@ Current product behaviour is defined by [`specs/agent-workflows.md`](specs/agent
 - Runs snapshot the definitions used for one execution, including resolved reusable Workflow composition.
 - Runtime schedules and recovers runs with PostgreSQL leases and advances LangGraph from durable checkpoints.
 - New runs freeze an ADT-owned versioned graph execution plan.
-- A provider-neutral AgentRuntime boundary delegates model work to the selected provider implementation. Tool-enabled OpenAI, Anthropic and Ollama Agents progress through an PostgreSQL-backed conversation and tool journal.
+- A provider-neutral AgentRuntime boundary delegates model work to the selected provider implementation. Tool-enabled OpenAI, Anthropic and Ollama Agents progress through a PostgreSQL-backed conversation and tool journal.
 - PostgreSQL persists durable run, attempt, approval, retry, cancellation, provider-safety, and reconciliation state.
 - Successful output is persisted before later work depends on it.
 - Ambiguous external work is reconciled rather than blindly recreated.
@@ -105,7 +105,7 @@ The product invariants are in [`specs/agent-workflows.md`](specs/agent-workflows
 - Provider credential values live in the permanent encrypted ADT vault and are never stored in Agent or Workflow definitions.
 - The Worker handles the Work IQ browser redirect. Runtime owns the OAuth exchange, encrypted client secrets and refresh tokens, and call-scoped access tokens.
 - OpenAI Agents, Anthropic Messages, Work IQ, and Ollama Workflow Agents execute through ADT Runtime. Runtime also coordinates asynchronous OpenAI Responses work and delegates Codex jobs to Codex Runner.
-- The Worker serves OpenAI and Anthropic model commissioning, using repository-scoped credential access. Ollama model commissioning runs through authenticated ADT Runtime because its endpoint may exist only on the Runtime Docker/LAN network.
+- Runtime handles model discovery, model validation and connection diagnostics for OpenAI, Anthropic, Ollama and Work IQ as applicable. The Worker receives model lists, credential status and safe diagnostics. Workflow admission uses scoped credential references. Stored credential values stay within Runtime.
 - Ollama follows Cloudflare → ADT Runtime → exact operator-approved endpoint. Its safe base URL and explicit authentication mode are immutable connection identity and frozen with each run. Runtime rejects endpoints outside its operator allowlist before network access and never follows redirects.
 - Unauthenticated Ollama connections have no vault identity. Runtime resolves optional bearer credentials from its vault for the exact invocation. Ollama has no direct compatibility fallback.
 - Historical provider rows or retired credential sources may remain physically present but are not current execution inputs.

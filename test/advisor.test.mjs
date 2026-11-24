@@ -21,7 +21,7 @@ const access={...context,repo:context.repository,login:'user',githubId:1,checked
 const settings={workflowId:workflow.id,override:null};
 async function fixture(){
  const storage=new InMemoryWorkflowRunStorage(),repo=new InMemoryWorkflowDefinitionRepository();await repo.createAgent(agent);await repo.createWorkflow(workflow);const modelChecks=[];
- const deps={getWorkflowRunStorage:async()=>storage,createWorkflowDefinitionRepository:()=>repo,listWorkflowConnectionIdentityDescriptors:async()=>[connection,{...connection,key:'override',defaultModel:'gpt-5-mini'}],readCodexRunnerCatalog:async()=>({environments:[]}),listWorkflowConnectionDescriptors:async()=>[connection],getMcpPolicyAuthority:async()=>({}),getProviderCredentialVault:async()=>({}),createToolDefinitionRepository:()=>({list:async()=>[]}),createSecurityProfileDefinitionRepository:()=>({list:async()=>[]}),getWorkflowProviderConnectionStore:async()=>({resolveForSnapshot:async(key,snapshot)=>snapshot,resolveForExecution:async(key,snapshot)=>({...snapshot,credential:'SENSITIVE_CREDENTIAL'})}),getProviderModelService:async()=>({validate:async(...args)=>modelChecks.push(args)})};
+ const deps={getWorkflowRunStorage:async()=>storage,createWorkflowDefinitionRepository:()=>repo,listWorkflowConnectionIdentityDescriptors:async()=>[connection,{...connection,key:'override',defaultModel:'gpt-5-mini'}],readCodexRunnerCatalog:async()=>({environments:[]}),listWorkflowConnectionDescriptors:async()=>[connection],getMcpPolicyAuthority:async()=>({}),getProviderCredentialVault:async()=>({}),createToolDefinitionRepository:()=>({list:async()=>[]}),createSecurityProfileDefinitionRepository:()=>({list:async()=>[]}),getWorkflowProviderConnectionStore:async()=>({resolveForSnapshot:async(key,snapshot)=>snapshot}),getProviderModelService:async()=>({validateSaved:async(...args)=>modelChecks.push(args)})};
  return{storage,repo,deps,countRuns:async()=>(await storage.listRuns()).length,modelChecks};
 }
 test('a run freezes the selected Advisor provider override',async t=>{
@@ -57,7 +57,7 @@ test('selection and launch reject deleted workflows, stale definitions, tool esc
   const response=await launchWorkflowRun(access,{workflowId:'review',initialInput:'question',idempotencyKey:crypto.randomUUID()},settings,f.deps);assert.equal(response.status,422);assert.equal(await f.countRuns(),0);
  }
  const stale=await f.repo.getWorkflow('review');await f.repo.deleteWorkflow('review',stale.fileSha);assert.equal((await launchWorkflowRun(access,{workflowId:'review',initialInput:'q',idempotencyKey:crypto.randomUUID()},settings,f.deps)).status,422);
- const fresh=await fixture();fresh.deps.getProviderModelService=async()=>({validate:async()=>{throw Error('model_unavailable')}});
+ const fresh=await fixture();fresh.deps.getProviderModelService=async()=>({validateSaved:async()=>{throw Error('model_unavailable')}});
  const unavailable=await launchWorkflowRun(access,{workflowId:'review',initialInput:'q',idempotencyKey:crypto.randomUUID()},{...settings,override:{connectionKey:'override',model:'vendor-model-preview'}},fresh.deps);
  assert.equal(unavailable.status,422);assert.equal((await unavailable.json()).code,'model_unavailable');assert.equal(await fresh.countRuns(),0);
 });

@@ -6,7 +6,7 @@ test('credential lifecycle derives the current reference and never returns plain
 test('cutover credential recovery preserves connection identity and only writes the new vault reference to Git', async () => {
   const current = definition(a), writes = [], deleted = [];
   const vault = {
-    resolve: async ref => { assert.equal(ref, a); throw new Error('vault_secret_unavailable'); },
+    hasCredential: async ref => { assert.equal(ref, a); return false; },
     create: async value => { assert.equal(value, 'replacement-value'); return b; },
     delete: async ref => deleted.push(ref),
   };

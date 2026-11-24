@@ -47,7 +47,7 @@ The first rollout requires an operator to deploy the new Runtime image and mount
 
 ## PostgreSQL deployment
 
-The base Swarm stack includes private PostgreSQL, a database export and a separate Runtime key export. Runtime provisions both its vault and wrapping keys. Follow the [cutover and restore guide](../docs/runtime-postgresql.md) before deploying the Worker.
+Runtime requires PostgreSQL and initializes the operational schema before it reports ready. Use the [Runtime-only stack](docker-stack.existing-postgres.example.yml) with an existing service, or the [standalone stack](docker-stack.example.yml) for a new private PostgreSQL service. Both use a separate Runtime key export. Runtime provisions both its vault and wrapping keys. Follow the [cutover and restore guide](../docs/runtime-postgresql.md) before deploying the Worker.
 
 ## Cloudflare configuration
 
@@ -74,7 +74,7 @@ Commission Runtime without trial-running a provider invocation:
 1. Confirm the container healthcheck is healthy.
 2. Use **Test ADT Runtime** to confirm reachability, request authentication, protocol compatibility, required capabilities, and wrapping-key compatibility.
 3. On the unified Diagnostics page, explicitly run **Test execution path** when Workflow execution is being commissioned. It verifies the PostgreSQL tables and the scoped GitHub broker without invoking providers or mutating a Workflow.
-4. Run the separate provider **Test connection** for the credential/model. OpenAI/Anthropic commissioning remains direct in the control plane; Ollama commissioning uses Runtime. Neither proves actual Agent inference.
+4. Run the separate provider **Test connection** for the credential/model. Provider commissioning runs in Runtime. The Worker receives safe connection status and diagnostics.
 5. Only after the applicable checks pass, run a real Workflow.
 
 The execution-path diagnostic is non-mutating: it does not create Workflow/checkpoint state, resolve provider credentials, invoke an Agent/provider, or search Artifact contents. The broker check mints a scoped read credential.
@@ -96,7 +96,7 @@ For a journaled Agent failure, use the inspector's client request ID to find the
 - Authenticated `POST /v1/providers/models` uses the additive `provider-model-discovery` capability and a strict `ollama-chat` branch. It carries only correlation identity, safe connection configuration, and an optional encrypted credential. It never receives a prompt, Workflow state, tools, or repository authority.
 - Readiness advertises `ollama-chat`, generic provider execution, and provider model discovery independently of allowlist contents. Missing capability and rejected endpoint configuration are distinct failures; an empty allowlist does not hide protocol support.
 - Deploy Runtime release 8 or later and configure the allowlist before commissioning Ollama. In the application, create an Ollama connection, load available models, select an advertised model, and save. Use **Test connection** to recheck that model through Runtime without inference. Use **Test ADT Runtime** separately for the Runtime boundary.
-- Old Workers retain existing execution endpoints and capabilities, including the legacy OpenAI alias. New Workers fail closed for Ollama on an older Runtime, with no direct Cloudflare fallback. Existing Anthropic/Work IQ rollout compatibility remains unchanged.
+- Old Workers retain existing execution endpoints and capabilities, including the legacy OpenAI alias. New Workers fail closed for Ollama on an older Runtime, with no direct Cloudflare fallback. Deploy Runtime before enabling provider discovery and validation in the Worker.
 
 ## Release identity
 

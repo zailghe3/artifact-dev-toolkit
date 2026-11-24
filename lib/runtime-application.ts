@@ -24,12 +24,23 @@ import { KnowledgeProposalStore } from "./advisor-knowledge-proposals.ts";
 import { CodexRunnerError, getCodexRunnerClient } from "./codex-runner-client.ts";
 import { managedPublicationTaskId, publishManagedPullRequest } from "./managed-pull-request-publication.ts";
 
+import { manageProviderConnection, providerDiagnosticFailure } from "./runtime-provider-management.ts";
+import { RemoteOpenAIAgentsRuntime, RemoteRuntimeFailure } from "./adt-runtime-client.ts";
+import { ProviderModelService } from "./provider-model-service.ts";
+import { listOpenAIModels, validateOpenAIModel } from "./openai-models.ts";
+import { listAnthropicModels, validateAnthropicModel } from "./anthropic-models.ts";
+import { createWorkflowAdapterRegistry } from "./agent-runtime.ts";
+import { securityProfileDefinitionSchema } from "./security-profile-definitions.ts";
+import { assertWorkIqConfigurationMutable, parseWorkIqPrivateBundle, serializeWorkIqPrivateBundle, createWorkIqPrivateBundle } from "./work-iq-auth.ts";
+import { z } from "zod";
+
 export type RuntimeApplicationOptions = {
   pool: Pool;
   rootKey: RuntimeRootKey;
   activeKeyVersion: number;
   env: Record<string, string | undefined>;
   onError?(stage: string): void;
+  providerFetcher?: typeof fetch;
 };
 
 export function createRuntimeApplication(options: RuntimeApplicationOptions) {
@@ -65,6 +76,15 @@ export function createRuntimeApplication(options: RuntimeApplicationOptions) {
     });
   }
 
+  const providerRuntime = new RemoteOpenAIAgentsRuntime({ baseUrl: env.ADT_RUNTIME_BASE_URL, authSecret: env.ADT_RUNTIME_AUTH_SECRET,
+    wrappingPublicKey: env.ADT_RUNTIME_WRAPPING_PUBLIC_KEY });
+  const models = new ProviderModelService({
+    listRuntimeModels: (configuration, credential) => providerRuntime.discoverProviderModels(configuration, credential),
+    listOpenAIModels: credential => listOpenAIModels(credential, options.providerFetcher),
+    validateOpenAIModel: (credential, model) => validateOpenAIModel(credential, model, options.providerFetcher),
+    listAnthropicModels: (credential, configuration) => listAnthropicModels(credential, configuration, options.providerFetcher),
+    validateAnthropicModel: (credential, model, configuration) => validateAnthropicModel(credential, model, configuration, options.providerFetcher),
+  });
   const coordinator = createWorkflowCoordinator({ pool, env, vaultFor, credential, managedCredential, onError: options.onError });
   async function store(command: RuntimeControlCommand) {
     if(command.operation==="broker.claim"){
@@ -93,6 +113,30 @@ export function createRuntimeApplication(options: RuntimeApplicationOptions) {
         const method = vault[command.method] as (...parameters: unknown[]) => Promise<unknown>;
         return await Reflect.apply(method, vault, command.arguments) ?? null;
       }
+      case "provider":
+        return manageProviderConnection(command.request, vault, models, () => createWorkflowAdapterRegistry(options.providerFetcher));
+      case "mcp.discover": {
+        const definition = mcpServerDefinitionSchema.parse(command.definition);
+        let credential: string | undefined;
+        if (definition.authentication.mode === "bearer") {
+          const ref = definition.authentication.credentialSecretRef;
+          const binding = await vault.currentMcpServerCredentialBinding(command.repositoryId, definition.id, definition.endpointUrl, ref);
+          credential = await vault.resolveMcpServerCredential(command.repositoryId, binding, ref);
+        }
+        const result = await providerRuntime.discoverMcp({ url: definition.endpointUrl, transport: "streamable-http" }, credential);
+        if (credential && JSON.stringify(result).includes(JSON.stringify(credential).slice(1,-1))) throw new Error("malformed_response");
+        return result;
+      }
+      case "security.test": {
+        const definition = securityProfileDefinitionSchema.parse(command.definition);
+        const binding = await vault.currentSecurityProfileCredentialBinding(command.repositoryId, definition.id, definition.endpointUrl);
+        const credential = await vault.resolveSecurityProfileCredential(command.repositoryId, binding.bindingId, definition.endpointUrl);
+        try { return { ok: true, result: await providerRuntime.testSecurityProfile(definition, credential) }; }
+        catch (error) {
+          if (error instanceof RemoteRuntimeFailure) return { ok: false, failure: providerDiagnosticFailure(error) };
+          throw error;
+        }
+      }
       case "policy": {
         const authority=new D1McpPolicyAuthority(db),[first,second,third,fourth]=command.arguments;
         const repositoryId=command.repositoryId;
@@ -117,6 +161,17 @@ export function createRuntimeApplication(options: RuntimeApplicationOptions) {
           case "begin":return (await beginWorkIqOAuth(first as Parameters<typeof beginWorkIqOAuth>[0],state,vault)).href;
           case "lookup":return {connectionKey:(await state.lookup(String(first),String(second))).connection_key};
           case "discard":await state.discard(String(first),String(second),vault);return null;
+          case "checkConfiguration":await assertWorkIqConfigurationMutable(String(first),vault);return null;
+          case "updateClientSecret":
+          case "disconnect": {
+            const ref=z.string().min(1).max(48).parse(first);
+            const current=await vault.resolveWithRevision(ref);
+            const bundle=parseWorkIqPrivateBundle(current.value);
+            const value=command.method==="disconnect"?createWorkIqPrivateBundle(bundle.clientSecret):
+              serializeWorkIqPrivateBundle({...bundle,clientSecret:z.string().trim().min(1).max(8192).parse(second)});
+            if(!await vault.replaceIfRevision(ref,current.revision,value))throw new Error("connection_revision_conflict");
+            return null;
+          }
           case "complete":await completeWorkIqOAuth(first as Parameters<typeof completeWorkIqOAuth>[0],state,vault);return null;
         }
         break;

@@ -3,7 +3,7 @@ import { RUNTIME_CONTROL_PATH, RUNTIME_CONTROL_BYTES, RUNTIME_REPOSITORY_BROKER_
   type RuntimeControlCommand, type RepositoryBrokerRequest } from "../adt-runtime/src/runtime-control-contract.ts";
 import { signedHeaders, boundedJson, type ADTRuntimeConfiguration } from "./adt-runtime-client.ts";
 
-async function serviceRequest(base: string | undefined, secret: string | undefined, path: string, input: unknown, max: number) {
+async function serviceRequest(base: string | undefined, secret: string | undefined, path: string, input: unknown, max: number, timeoutMs = 30_000) {
   if (!base || !secret || secret.length < 32) throw new Error("runtime_not_configured");
   const target = new URL(path, base);
   if (target.protocol !== "https:" && !["localhost", "127.0.0.1", "[::1]"].includes(target.hostname)) {
@@ -14,11 +14,13 @@ async function serviceRequest(base: string | undefined, secret: string | undefin
   const headers = await signedHeaders(secret, "POST", path, body, crypto.randomUUID().replaceAll("-", ""));
   let response: Response;
   try {
-    response = await fetch(target, { method: "POST", headers, body, redirect: "error", signal: AbortSignal.timeout(30_000) });
+    response = await fetch(target, { method: "POST", headers, body, redirect: "error", signal: AbortSignal.timeout(timeoutMs) });
   } catch {
     throw new Error("runtime_unavailable");
   }
-  const wire = await boundedJson(response, max) as { protocolVersion?: string; ok?: boolean; result?: unknown; code?: unknown };
+  let wire: { protocolVersion?: string; ok?: boolean; result?: unknown; code?: unknown };
+  try { wire = await boundedJson(response, max) as typeof wire; }
+  catch { throw new Error("runtime_unavailable"); }
   if (wire?.protocolVersion !== "adt-runtime-v1") throw new Error("runtime_unavailable");
   if (response.ok && wire.ok) return wire.result;
   if (typeof wire.code === "string" && /^[a-z][a-z0-9_]{2,79}$/.test(wire.code)) throw new Error(wire.code);
@@ -26,7 +28,7 @@ async function serviceRequest(base: string | undefined, secret: string | undefin
 }
 
 export async function runtimeControl<T>(config: ADTRuntimeConfiguration, input: RuntimeControlCommand): Promise<T> {
-  return await serviceRequest(config.baseUrl, config.authSecret, RUNTIME_CONTROL_PATH, input, RUNTIME_CONTROL_BYTES) as T;
+  return await serviceRequest(config.baseUrl, config.authSecret, RUNTIME_CONTROL_PATH, input, RUNTIME_CONTROL_BYTES, input.operation === "provider" ? 120_000 : undefined) as T;
 }
 
 const credentialSchema = z.object({

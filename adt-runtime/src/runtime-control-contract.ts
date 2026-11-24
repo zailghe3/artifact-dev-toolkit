@@ -47,12 +47,12 @@ export const toolDecisionSchema = z.discriminatedUnion("action", [
 ]);
 
 export const vaultOperations = [
-  "create", "resolve", "resolveWithRevision", "replace", "replaceIfRevision", "delete", "recover",
+  "create", "hasCredential", "replace", "delete", "recover",
   "currentMcpServerCredentialBinding", "ensureMcpServerCredentialBinding", "rotateMcpServerCredential",
-  "replaceMcpServerCredentialBinding", "restoreMcpServerCredentialBinding", "resolveMcpServerCredential",
+  "replaceMcpServerCredentialBinding", "restoreMcpServerCredentialBinding",
   "revokeMcpServerCredentialBinding", "createSecurityProfileCredentialBinding", "recoverSecurityProfileCredentialBinding",
   "rotateSecurityProfileCredential", "replaceSecurityProfileCredentialBinding", "currentSecurityProfileCredentialBinding",
-  "resolveSecurityProfileCredential", "revokeSecurityProfileCredentialBinding",
+  "revokeSecurityProfileCredentialBinding",
 ] as const;
 
 const runId = z.string().uuid();
@@ -62,12 +62,47 @@ const publicationInput = z.object({
   body: z.string().max(65_536), draft: z.boolean(),
 });
 export const policyOperations = ["head","attestation","verify","verifyFrozen","begin","publish","settle","inspect"] as const;
-export const workIqOperations = ["begin","lookup","discard","complete"] as const;
+export const workIqOperations = ["begin","lookup","discard","complete","checkConfiguration","updateClientSecret","disconnect"] as const;
 export const knowledgeOperations = ["get","list","save","review","claim","finish"] as const;
 
 export const runnerOperations = ["capabilities","managedRepository","environments","workspaceDiagnostics","sandboxDiagnostics",
  "models","authStatus","authEnvironmentDiagnostics","sqliteStorage","createSqliteBackup","restoreSqliteBackup","testCodex",
  "jobs","controlStatus","emergencyStop","resume","startDeviceAuth","logout"] as const;
+
+const providerKey = z.string().min(1).max(120);
+const providerSecretRef = z.string().regex(/^sec_[A-Za-z0-9_-]{43}$/);
+const suppliedCredential = z.string().min(1).max(8192);
+
+export const providerConnectionSnapshotSchema = z.object({
+  key: providerKey, name: z.string().min(1).max(120), adapter: providerKey,
+  endpoint: z.string().max(2048).optional(), defaultModel: providerKey.optional(),
+  providerConfiguration: z.record(z.string(), z.string().max(2048)).optional(),
+  authorizationContextId: providerKey.optional(), enabled: z.boolean(), configured: z.boolean().optional(),
+  management: z.literal("git"), credentialSource: z.literal("adt-vault").optional(),
+  credentialSecretRef: providerSecretRef.optional(), repositoryRevision: providerKey,
+  capabilities: z.object({ asynchronous: z.boolean(), cancellation: z.boolean(),
+    agentTools: z.boolean().optional(), runtimeSecurity: z.boolean().optional() }).strict(),
+}).strict();
+
+const modelInput = z.object({
+  connectionType: providerKey,
+  configuration: z.unknown().optional(),
+  credentials: z.discriminatedUnion("source", [
+    z.object({ source: z.literal("input"), credential: suppliedCredential.optional() }).strict(),
+    z.object({ source: z.literal("saved"), connection: providerConnectionSnapshotSchema }).strict(),
+  ]),
+});
+
+export const providerManagementSchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("describe"), connections: providerConnectionSnapshotSchema.array().max(25) }).strict(),
+  z.object({ action: z.literal("snapshot"), connection: providerConnectionSnapshotSchema }).strict(),
+  z.object({ action: z.literal("test"), connection: providerConnectionSnapshotSchema }).strict(),
+  modelInput.extend({ action: z.literal("models") }).strict(),
+  modelInput.extend({ action: z.literal("validate"), model: providerKey.optional() }).strict(),
+]);
+
+export type ProviderManagementRequest = z.infer<typeof providerManagementSchema>;
+export type ProviderReadiness = { enabled: boolean; configured: boolean; authorizationContextId?: string };
 
 export const runtimeControlSchema = z.discriminatedUnion("operation", [
   z.object({ operation: z.literal("runs.health"), repositoryId, scope: repositoryContextSchema }).strict(),
@@ -87,6 +122,9 @@ export const runtimeControlSchema = z.discriminatedUnion("operation", [
   z.object({ operation: z.literal("runner.release") }).strict(),
   z.object({ operation: z.literal("runner"), repositoryId, method: z.enum(runnerOperations),
     arguments: z.array(z.union([z.string().max(120),z.number().int()])).max(1) }).strict(),
+  z.object({ operation: z.literal("provider"), repositoryId, request: providerManagementSchema }).strict(),
+  z.object({ operation: z.literal("mcp.discover"), repositoryId, definition: z.unknown() }).strict(),
+  z.object({ operation: z.literal("security.test"), repositoryId, definition: z.unknown() }).strict(),
   z.object({ operation: z.literal("policy"), repositoryId, method: z.enum(policyOperations),
     arguments: z.array(z.unknown()).max(4) }).strict(),
   z.object({ operation: z.literal("work-iq"), repositoryId, method: z.enum(workIqOperations),

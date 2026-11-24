@@ -11,21 +11,26 @@ async function waitForDescendantTermination(pid, {readStat=()=>readFile(`/proc/$
     try {
       const stat=await readStat();
       if(stat.slice(stat.lastIndexOf(')')+2).split(' ')[0]==='Z')return;
-    } catch(error) {if(error.code==='ENOENT')return;throw error;}
+    } catch(error) {if(error.code==='ENOENT'||error.code==='ESRCH')return;throw error;}
     assert.ok(performance.now()<deadline, 'Descendant remained live after the cleanup settlement deadline');
     await delay(intervalMs);
   }
 }
 
 test('descendant settlement accepts transient live states followed by zombie or disappearance',async()=>{
-  for(const terminal of ['Z','ENOENT']){
+  for(const terminal of ['Z','ENOENT','ESRCH']){
     const states=['R','S',terminal];
-    await waitForDescendantTermination(123,{readStat:async()=>{const state=states.shift();if(state==='ENOENT')throw Object.assign(new Error('gone'),{code:'ENOENT'});return `123 (worker child) ${state} 1`}});
+    await waitForDescendantTermination(123,{readStat:async()=>{const state=states.shift();if(state==='ENOENT'||state==='ESRCH')throw Object.assign(new Error('gone'),{code:state});return `123 (worker child) ${state} 1`}});
     assert.equal(states.length,0);
   }
 });
 test('descendant settlement fails when a process genuinely remains live past its deadline',async()=>{
   await assert.rejects(waitForDescendantTermination(123,{readStat:async()=>'123 (worker child) R 1',timeoutMs:20,intervalMs:5}),/Descendant remained live/);
+});
+
+test('descendant settlement reports unexpected procfs errors',async()=>{
+  const failure=Object.assign(new Error('unreadable'),{code:'EACCES'});
+  await assert.rejects(waitForDescendantTermination(123,{readStat:async()=>{throw failure}}),error=>error===failure);
 });
 
 const fixture = mode => port => [process.execPath, '--input-type=module', '-e', `

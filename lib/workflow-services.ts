@@ -9,10 +9,8 @@ import { GitHubWorkflowDefinitionRepository } from "./workflow-definition-reposi
 import {listConnectionDescriptors,codexRunnerDescriptor,assertUniqueConnectionDescriptors} from "./workflow-connections.ts";
 import {codexEnvironmentInputSchema,type CodexEnvironmentDescriptor} from "../adt-runtime/src/operational-settings-contract.ts";
 import type {RunnerEnvironmentDescriptor,RunnerModelDescriptor} from "./codex-runner-client.ts";
-import {createWorkflowAdapterRegistry} from "./agent-runtime.ts";
 import {GitHubWorkflowConnectionDefinitionRepository} from "./workflow-connection-definition-repository.ts";
-import {GitAuthoritativeWorkflowProviderConnectionStore} from "./git-workflow-provider-connection-store.ts";
-import {ProviderModelService} from "./provider-model-service.ts";
+import {runtimeProviderClient,runtimeProviderConnectionStore} from "./runtime-provider-client.ts";
 import {RemoteOpenAIAgentsRuntime,requestRuntimeRedeploy,requestRuntimeOperationalSettings,type ADTRuntimeConfiguration,type ExecutionPathDiagnostic} from "./adt-runtime-client.ts";
 import type {D1ProviderCredentialVault} from "./provider-credential-vault.ts";
 
@@ -50,11 +48,13 @@ export async function getWorkflowRunStorage(repositoryId:number){
 export async function getProviderCredentialVault(repositoryId:number){
  const config=adtRuntimeConfiguration(await getWorkflowEnvironment() as unknown as Record<string,unknown>);
  return Object.fromEntries(vaultOperations.map(method=>[method,(...parameters:unknown[])=>runtimeControl(config,
-  {operation:"vault",method,repositoryId,arguments:parameters})])) as Pick<D1ProviderCredentialVault,keyof D1ProviderCredentialVault>;
+  {operation:"vault",method,repositoryId,arguments:parameters})])) as Pick<D1ProviderCredentialVault,(typeof vaultOperations)[number]>;
 }
 export function createWorkflowConnectionDefinitionRepository(access:RepositoryAccessContext){return new GitHubWorkflowConnectionDefinitionRepository(githubContentsRequest(access))}
-export async function getProviderModelService(){const env=await getWorkflowEnvironment();return new ProviderModelService({listRuntimeModels:(configuration,credential)=>new RemoteOpenAIAgentsRuntime(adtRuntimeConfiguration(env as unknown as Record<string,unknown>)).discoverProviderModels(configuration,credential)})}
-export async function getWorkflowProviderConnectionStore(access:RepositoryAccessContext){const providerModelService=await getProviderModelService();return new GitAuthoritativeWorkflowProviderConnectionStore(createWorkflowConnectionDefinitionRepository(access),(credential,model,connectionType,configuration)=>providerModelService.validate(connectionType??"",credential,model,configuration),await getProviderCredentialVault(access.repositoryId));}
+export async function getProviderModelService(repositoryId:number){return runtimeProviderClient(repositoryId,workflowRuntimeCommand)}
+export async function getWorkflowProviderConnectionStore(access:RepositoryAccessContext){
+ return runtimeProviderConnectionStore(createWorkflowConnectionDefinitionRepository(access),await getProviderModelService(access.repositoryId));
+}
 export async function getWorkflowCodexEnvironmentStore(repositoryId:number){
  const config=adtRuntimeConfiguration(await getWorkflowEnvironment() as unknown as Record<string,unknown>);
  return {
@@ -63,7 +63,6 @@ export async function getWorkflowCodexEnvironmentStore(repositoryId:number){
   remove:(key:string,idempotencyKey:string)=>requestRuntimeOperationalSettings(config,{operation:"codex.delete",repositoryId,idempotencyKey,key:codexEnvironmentInputSchema.shape.key.parse(key)},()=>undefined),
  };
 }
-export function getWorkflowAdapterRegistry(){return createWorkflowAdapterRegistry();}
 export function adtRuntimeConfiguration(env:Record<string,unknown>):ADTRuntimeConfiguration{return{baseUrl:typeof env.ADT_RUNTIME_BASE_URL==="string"?env.ADT_RUNTIME_BASE_URL:undefined,authSecret:typeof env.ADT_RUNTIME_AUTH_SECRET==="string"?env.ADT_RUNTIME_AUTH_SECRET:undefined}}
 export async function diagnoseADTRuntime(){const env=await getWorkflowEnvironment();return new RemoteOpenAIAgentsRuntime(adtRuntimeConfiguration(env as unknown as Record<string,unknown>)).diagnose()}
 export async function diagnoseADTRuntimeExecutionPath(access:RepositoryAccessContext):Promise<ExecutionPathDiagnostic>{

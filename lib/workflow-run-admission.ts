@@ -26,8 +26,8 @@ export async function validateAdvisorOverrideModel(settings:AdvisorSettings,iden
   if(!settings.override)return;
   const descriptor=identities.find(item=>item.key===settings.override!.connectionKey);
   if(!descriptor||!descriptor.enabled||!getProviderConnectionType(descriptor.adapter)?.capabilities.agentTools||descriptor.management!=="git")throw new Error("advisor_provider_incompatible");
-  const service={...defaults,...dependencies},store=await service.getWorkflowProviderConnectionStore(access),resolved=await store.resolveForExecution(descriptor.key,descriptor);
-  await (await service.getProviderModelService()).validate(descriptor.adapter,resolved.credential,settings.override.model,descriptor.providerConfiguration);
+  const service={...defaults,...dependencies};
+  await (await service.getProviderModelService(access.repositoryId)).validateSaved(descriptor,descriptor.adapter,settings.override.model,descriptor.providerConfiguration);
 }
 /** Shared ordinary Workflow admission, snapshotting and durable launch for every entry point. */
 export async function launchWorkflowRun(access:RepositoryAccessContext,body:WorkflowStartInput,advisor?:AdvisorSettings,dependencies:Dependencies={}){

@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
+import { createServer as createTcpServer } from 'node:net';
+import { once } from 'node:events';
 import { generateKeyPairSync, randomBytes } from 'node:crypto';
 import { mkdtemp, chmod, copyFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -20,6 +22,43 @@ import { nativeFixture } from '../support/native-adt-fixture.mjs';
 
 const connectionString = process.env.ADT_TEST_POSTGRES_URL;
 
+async function verifyProductionStartup(t, keyPath) {
+  const reservation = createTcpServer();
+  reservation.listen(0, '127.0.0.1');
+  await once(reservation, 'listening');
+  const { port } = reservation.address();
+  await new Promise(resolve => reservation.close(resolve));
+  const db = new URL(connectionString);
+  const authSecret = 'postgres-production-startup-test'.repeat(2);
+  const child = spawn(process.execPath, [new URL('../../adt-runtime/dist/server.js', import.meta.url).pathname], { env: {
+    ADT_RUNTIME_HOST: '127.0.0.1', ADT_RUNTIME_PORT: String(port), ADT_RUNTIME_AUTH_SECRET: authSecret,
+    ADT_RUNTIME_DB_HOST: db.hostname, ADT_RUNTIME_DB_PORT: db.port, ADT_RUNTIME_DB_NAME: db.pathname.slice(1),
+    ADT_RUNTIME_DB_USER: decodeURIComponent(db.username), ADT_RUNTIME_DB_PASSWORD: decodeURIComponent(db.password),
+    ADT_RUNTIME_ROOT_KEY_FILE: keyPath,
+  } });
+  const closed = once(child, 'close');
+  t.after(() => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); });
+  let diagnostic = '';
+  for (const stream of [child.stdout, child.stderr]) stream.on('data', chunk => { diagnostic = (diagnostic + chunk.toString()).slice(-8192); });
+  const baseUrl = `http://127.0.0.1:${port}`;
+  try {
+    let ready = false;
+    for (let attempt = 0; attempt < 160 && child.exitCode === null; attempt++) {
+      ready = await fetch(`${baseUrl}/healthz`, { signal: AbortSignal.timeout(500) }).then(response => response.ok, () => false);
+      if (ready) break;
+      await new Promise(resolve => setTimeout(resolve, 150));
+    }
+    assert.equal(ready, true, diagnostic);
+    const { runtimeControl } = await import('../../lib/runtime-service-client.ts');
+    assert.deepEqual(await runtimeControl({ baseUrl, authSecret }, { operation: 'runs.list', repositoryId: 123, limit: 1 }), []);
+  } finally {
+    child.kill('SIGTERM');
+    const timer = setTimeout(() => child.kill('SIGKILL'), 4000);
+    await closed;
+    clearTimeout(timer);
+  }
+}
+
 test('Runtime initializes PostgreSQL and retains its scoped vault and Workflow journals over restart', {
   skip: !connectionString && 'Set ADT_TEST_POSTGRES_URL to a disposable empty PostgreSQL database',
 }, async t => {
@@ -37,6 +76,7 @@ test('Runtime initializes PostgreSQL and retains its scoped vault and Workflow j
   ]);
   assert.equal(installation.rootKey.fingerprint(), concurrent.rootKey.fingerprint());
   assert.equal((await stat(keyPath)).mode & 0o777, 0o600);
+  await verifyProductionStartup(t, keyPath);
   const openVault = (root, repositoryId, version = 1) =>
     new D1ProviderCredentialVault(new PostgresWorkflowDatabase(pool),
       keyVersion => root.vaultKey(repositoryId, keyVersion), version, undefined, undefined, repositoryId);
@@ -231,7 +271,29 @@ test('signed launches run inside PostgreSQL-backed Runtime and approvals survive
   const stages = [];
   const env = { ADT_RUNTIME_WORKER_URL: `http://127.0.0.1:${broker.address().port}`,
     ADT_RUNTIME_AUTH_SECRET: authSecret, ADT_RUNTIME_WRAPPING_PUBLIC_KEY: keys.publicKey };
-  const applicationOptions = { pool, ...installation, env, onError: stage => stages.push(stage) };
+  const providerRequests = [];
+  const storedOpenAI = 'stored-openai-integration-credential';
+  const storedAnthropic = 'stored-anthropic-integration-credential';
+  const applicationOptions = { pool, ...installation, env, onError: stage => stages.push(stage),
+    providerFetcher: async (url, init) => {
+      const target = new URL(url), headers = new Headers(init.headers);
+      providerRequests.push(target.hostname + target.pathname);
+      if (target.hostname === 'api.openai.com') {
+        assert.equal(headers.get('authorization'), `Bearer ${storedOpenAI}`);
+        if (target.pathname === '/v1/responses') {
+          return Response.json({ status: 'completed', output: [{ type: 'message', role: 'assistant',
+            content: [{ type: 'output_text', text: storedOpenAI }] }] });
+        }
+        assert.equal(target.pathname, '/v1/models');
+        return Response.json({ data: [{ id: 'gpt-5' }, { id: storedOpenAI }] });
+      }
+      assert.equal(target.hostname, 'api.anthropic.com');
+      assert.equal(headers.get('authorization'), `Bearer ${storedAnthropic}`);
+      if (target.pathname === '/v1/models/claude-sonnet-4-5') return Response.json({ id: 'claude-sonnet-4-5' });
+      assert.equal(target.pathname, '/v1/models');
+      return Response.json({ data: [{ id: 'claude-sonnet-4-5' }, { id: storedAnthropic }], has_more: false });
+    },
+  };
   let application = createRuntimeApplication(applicationOptions);
   let turns = 0;
   const runtime = await createRuntimeServer({
@@ -240,6 +302,7 @@ test('signed launches run inside PostgreSQL-backed Runtime and approvals survive
     recordManagementNonce: (nonce, timestamp) => recordManagementNonce(pool, nonce, timestamp), logger() {},
     providerHttp: { fetcher: async (_url, init) => {
       const body = JSON.parse(init.body);
+      assert.equal(new Headers(init.headers).get("authorization"), `Bearer ${storedOpenAI}`);
       turns++;
       const tool = turns === 1;
       if (turns === 2) assert.match(JSON.stringify(body), /"?tokens/);
@@ -254,16 +317,59 @@ test('signed launches run inside PostgreSQL-backed Runtime and approvals survive
   t.after(async () => { await application.stop(); await runtime.close(); });
   env.ADT_RUNTIME_BASE_URL = `http://127.0.0.1:${runtime.server.address().port}`;
   const config = { baseUrl: env.ADT_RUNTIME_BASE_URL, authSecret };
-  const secret = await runtimeControl(config, {
-    operation: 'vault', repositoryId: context.repositoryId, method: 'create', arguments: ['test-provider-key'],
+  const { runtimeProviderClient, runtimeProviderConnectionStore } = await import('../../lib/runtime-provider-client.ts');
+  const { resolveWorkflowRunConnectionSnapshot } = await import('../../lib/workflow-run-connection-snapshots.ts');
+  const { createWorkIqPrivateBundle, parseWorkIqPrivateBundle, serializeWorkIqPrivateBundle } = await import('../../lib/work-iq-auth.ts');
+  const createCredential = credential => runtimeControl(config, {
+    operation: 'vault', repositoryId: context.repositoryId, method: 'create', arguments: [credential],
   });
+  const secret = await createCredential(storedOpenAI);
+  const anthropicSecret = await createCredential(storedAnthropic);
+  const workIqSecret = await createCredential(serializeWorkIqPrivateBundle({
+    ...parseWorkIqPrivateBundle(createWorkIqPrivateBundle('stored-work-iq-client-secret')),
+    refreshToken: 'stored-work-iq-refresh-token', authorizationContextId: `ctx_${'x'.repeat(43)}`,
+  }));
+  const definitions = [
+    { fileSha: 'openai-sha', definition: { id: connection.key, name: 'Agents', runtime: 'openai-agents', model: 'gpt-5',
+      credential: { secretRef: secret } } },
+    { fileSha: 'anthropic-sha', definition: { id: 'anthropic', name: 'Anthropic', runtime: 'anthropic-messages', model: 'claude-sonnet-4-5',
+      credential: { secretRef: anthropicSecret } } },
+    { fileSha: 'work-iq-sha', definition: { id: 'work-iq', name: 'Work IQ', runtime: 'work-iq-rest',
+      configuration: { tenantId: '11111111-1111-4111-8111-111111111111', clientId: '22222222-2222-4222-8222-222222222222' }, credential: { secretRef: workIqSecret } } },
+  ];
+  const client = runtimeProviderClient(context.repositoryId, async command => {
+    assert.equal(command.repositoryId, context.repositoryId);
+    assert.doesNotMatch(JSON.stringify(command), /stored-(openai|anthropic|work-iq)/);
+    const result = await runtimeControl(config, command);
+    assert.doesNotMatch(JSON.stringify(result), /stored-(openai|anthropic|work-iq)/);
+    return result;
+  });
+  const store = runtimeProviderConnectionStore({
+    listConnections: async () => definitions,
+    getConnection: async key => definitions.find(item => item.definition.id === key),
+  }, client);
+  const [openai, anthropic, workIq] = await store.listSafeDescriptors();
+  for (const item of [openai, anthropic, workIq]) assert.equal(item.enabled, true);
+  assert.deepEqual(await client.listSaved(openai, openai.adapter), ['gpt-5']);
+  assert.deepEqual(await client.listSaved(anthropic, anthropic.adapter), ['claude-sonnet-4-5']);
+  await client.validateSaved(openai, openai.adapter, 'gpt-5');
+  await client.validateSaved(anthropic, anthropic.adapter, 'claude-sonnet-4-5');
+  assert.deepEqual(await store.testConnection(openai.key), { ok: true, outputText: 'Provider connection verified.' });
+  assert.equal(providerRequests.filter(path => path === 'api.anthropic.com/v1/models/claude-sonnet-4-5').length, 2);
+  assert.equal((await resolveWorkflowRunConnectionSnapshot(workIq, store)).authorizationContextId, workIq.authorizationContextId);
+  const foreign = await runtimeControl(config, { operation: 'provider', repositoryId: context.repositoryId + 1,
+    request: { action: 'describe', connections: [openai] } });
+  assert.deepEqual(foreign, [{ enabled: false, configured: false }]);
+  for (const method of ['resolve', 'resolveWithRevision', 'resolveMcpServerCredential', 'resolveSecurityProfileCredential']) {
+    await assert.rejects(runtimeControl(config, { operation: 'vault', repositoryId: context.repositoryId,
+      method, arguments: [secret] }), /invalid_request/);
+  }
   const selected = { ...agent, tools: ['adt_execution_metrics'] };
-  const value = run({ agents: [selected], connections: [{ ...connection, credentialSecretRef: secret }],
+  const frozen = await resolveWorkflowRunConnectionSnapshot(openai, store);
+  const value = run({ agents: [selected], connections: [frozen],
     executionPlan: compileWorkflowV2ExecutionPlan(workflow, [selected]), clientIdempotencyKey: 'advisor-runtime-only',
     advisorContext: { version: 1, readOnly: true, override: null } });
   await runtimeControl(config, { operation: 'runs.launch', repositoryId: context.repositoryId, snapshot: value });
-  await assert.rejects(runtimeControl(config, { operation: 'vault', repositoryId: context.repositoryId + 1,
-    method: 'resolve', arguments: [secret] }), /vault_secret_unavailable/);
   const leases = workflowLeases(pool);
   const interrupted = await leases.claim();
   assert.equal(interrupted.id, value.id);

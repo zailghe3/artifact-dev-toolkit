@@ -6,7 +6,7 @@ import { OPERATIONAL_SETTINGS_PATH, operationalSettingsCommandSchema, type Opera
 import { operationalSettings, OperationalSettingsConflict, recordManagementNonce } from "./operational-settings.js";
 import { initializeRuntimeDatabase, runtimePostgresPool, RuntimeDatabaseError } from "./postgres.js";
 import { readRuntimePostgresConfiguration } from "./postgres-configuration.js";
-import { RuntimeKeyError, loadRuntimeWrappingPrivateKey, generateRuntimeWrappingPrivateKey } from "./runtime-key.js";
+import { RuntimeKeyError, loadRuntimeWrappingPrivateKey } from "./runtime-key.js";
 import {progressAgentModel} from "./agent-models.js";
 import {AGENT_PROGRESS_CAPABILITY,AGENT_PROGRESS_PATH,AGENT_TOOL_PATH,AGENT_SECURITY_PATH,validateToolArguments,sanitizeToolResult} from "./agent-contract.js";
 import {progressWireSchema,exactToolWireSchema,securityWireSchema} from "./agent-http.js";
@@ -223,38 +223,34 @@ async function main() {
  let database;
  try {
   database = readRuntimePostgresConfiguration();
- } catch {
-  startup("runtime_startup_failed", "postgres_configuration_invalid");
+ } catch (value) {
+  startup("runtime_startup_failed", value instanceof Error && value.message==="postgres_configuration_missing" ? value.message : "postgres_configuration_invalid");
   process.exitCode = 1;
   return;
  }
- const pool = database && runtimePostgresPool(database.pool);
- let application:RuntimeApplication|undefined;
- if (pool && database) {
-  try {
-   const installation = await initializeRuntimeDatabase(pool, database.keyPath);
-   privateKeyPem=await loadRuntimeWrappingPrivateKey(database.keyPath);
-   const moduleUrl = new URL("./workflow-application.js",import.meta.url).href;
-   const {createRuntimeApplication}=await import(moduleUrl) as {createRuntimeApplication:ApplicationFactory};
-   application=createRuntimeApplication({
-    pool,...installation,
-    env:{...process.env,ADT_RUNTIME_BASE_URL:`http://127.0.0.1:${port}`,ADT_RUNTIME_AUTH_SECRET:authSecret,
-     ADT_RUNTIME_WRAPPING_PUBLIC_KEY:createPublicKey(privateKeyPem).export({type:"spki",format:"pem"}).toString(),
-     CODEX_RUNNER_ACCESS_CLIENT_ID:optional("CODEX_RUNNER_ACCESS_CLIENT_ID"),
-     CODEX_RUNNER_ACCESS_CLIENT_SECRET:optional("CODEX_RUNNER_ACCESS_CLIENT_SECRET"),
-     CODEX_RUNNER_SHARED_SECRET:optional("CODEX_RUNNER_SHARED_SECRET"),
-    },
-    onError:stage=>startup("workflow_progression_error",stage),
-   });
-  } catch (value) {
-   startup("runtime_startup_failed",
-    value instanceof RuntimeKeyError || value instanceof RuntimeDatabaseError ? value.code : "postgres_unavailable");
-   await pool.end();
-   process.exitCode = 1;
-   return;
-  }
- } else {
-  privateKeyPem=await generateRuntimeWrappingPrivateKey();
+ const pool = runtimePostgresPool(database.pool);
+ let application:RuntimeApplication;
+ try {
+  const installation = await initializeRuntimeDatabase(pool, database.keyPath);
+  privateKeyPem=await loadRuntimeWrappingPrivateKey(database.keyPath);
+  const moduleUrl = new URL("./workflow-application.js",import.meta.url).href;
+  const {createRuntimeApplication}=await import(moduleUrl) as {createRuntimeApplication:ApplicationFactory};
+  application=createRuntimeApplication({
+   pool,...installation,
+   env:{...process.env,ADT_RUNTIME_BASE_URL:`http://127.0.0.1:${port}`,ADT_RUNTIME_AUTH_SECRET:authSecret,
+    ADT_RUNTIME_WRAPPING_PUBLIC_KEY:createPublicKey(privateKeyPem).export({type:"spki",format:"pem"}).toString(),
+    CODEX_RUNNER_ACCESS_CLIENT_ID:optional("CODEX_RUNNER_ACCESS_CLIENT_ID"),
+    CODEX_RUNNER_ACCESS_CLIENT_SECRET:optional("CODEX_RUNNER_ACCESS_CLIENT_SECRET"),
+    CODEX_RUNNER_SHARED_SECRET:optional("CODEX_RUNNER_SHARED_SECRET"),
+   },
+   onError:stage=>startup("workflow_progression_error",stage),
+  });
+ } catch (value) {
+  startup("runtime_startup_failed",
+   value instanceof RuntimeKeyError || value instanceof RuntimeDatabaseError ? value.code : "postgres_unavailable");
+  await pool.end();
+  process.exitCode = 1;
+  return;
  }
 
  const revision = runtimeBuildRevision();
@@ -263,18 +259,18 @@ async function main() {
   runtime = await createRuntimeServer({
    host, port, authSecret, privateKeyPem, revision, redeploy,
    ollamaAllowedBaseUrls: process.env.ADT_RUNTIME_OLLAMA_ALLOWED_BASE_URLS,
-   control:application?.store,
-   operateSettings: pool && operationalSettings(pool),
-   recordManagementNonce: pool && ((nonce, timestamp) => recordManagementNonce(pool, nonce, timestamp)),
-   operationalDatabaseReady: pool && (async () => {
+   control:application.store,
+   operateSettings: operationalSettings(pool),
+   recordManagementNonce: (nonce, timestamp) => recordManagementNonce(pool, nonce, timestamp),
+   operationalDatabaseReady: async () => {
     const result = await pool.query("SELECT 1 FROM installation WHERE singleton");
     return result.rowCount === 1;
-   }),
+   },
   });
  } catch (value) {
   const knownStages = ["ollama_allowlist_invalid", "private_key_invalid", "wrapping_key_derivation_failed", "wrapping_key_import_failed"];
   startup("runtime_startup_failed", value instanceof Error && knownStages.includes(value.message) ? value.message : "runtime_configuration_invalid");
-  await pool?.end();
+  await pool.end();
   process.exitCode = 1;
   return;
  }
@@ -282,19 +278,19 @@ async function main() {
   await runtime.listen();
  } catch {
   startup("runtime_startup_failed", "listen_failed");
-  await pool?.end();
+  await pool.end();
   process.exitCode = 1;
   return;
  }
- application?.start();
+ application.start();
  process.stdout.write(`${JSON.stringify({event:"runtime_started",protocolVersion:PROTOCOL_VERSION,runtimeRevision:revision,port})}
 `);
  const stop = () => {
   void (async()=>{
-   await application?.stop();
+   await application.stop();
    runtime.shutdown();
    await runtime.close();
-   await pool?.end();
+   await pool.end();
   })().catch(()=>{process.exitCode=1;});
   setTimeout(() => process.exit(1), 30_000).unref();
 
