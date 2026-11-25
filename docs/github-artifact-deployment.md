@@ -12,7 +12,6 @@ GITHUB_APP_ID
 GITHUB_APP_CLIENT_ID
 GITHUB_APP_CLIENT_SECRET
 GITHUB_APP_PRIVATE_KEY
-GITHUB_TOKEN_ENCRYPTION_KEY
 GITHUB_ARTIFACT_REPOSITORY_OWNER=zailghe3
 GITHUB_ARTIFACT_REPOSITORY_NAME=fpo-artifacts
 SESSION_SECRET
@@ -40,11 +39,10 @@ GitHub-downloaded PKCS#1 and PKCS#8 private keys are supported. Encrypted keys, 
 
 Configure required Worker secrets through the Cloudflare dashboard or Wrangler.
 
-Generate independent secrets for user-token encryption and server-side session protection, for example:
+Generate `SESSION_SECRET` for server-side session protection and GitHub OAuth encryption.
 
 ```bash
-openssl rand -base64 32 # GITHUB_TOKEN_ENCRYPTION_KEY
-openssl rand -base64 48 # SESSION_SECRET
+openssl rand -base64 48
 ```
 
 Production validation checks required secret configuration before deployment.
@@ -124,8 +122,7 @@ Diagnostics is observational unless the user explicitly invokes a supported reco
 
 ### Runtime publication reconciliation
 
-- During the [PostgreSQL cutover](runtime-postgresql.md), trusted main publishes the new Runtime image while `ADT_POSTGRES_CUTOVER_READY` is unset. The operator provisions Runtime and deploys the Worker manually before enabling normal automatic deployment.
-
+- Main lifecycle automatically deploys eligible Worker changes. For recovery, run **Manual Cloudflare deployment** with `ref` set to the exact merged SHA and an optional `pull_request_number` for deployment metadata. See [PostgreSQL operations](runtime-postgresql.md) for Runtime checks and rollback.
 - After successful eligible main Cloudflare operations and production OAuth smoke, the main lifecycle invokes the existing trusted Runtime publisher even for application-only changes. Failed or freshness-skipped operations cannot reconcile. Runtime-only publication remains independent.
 - Reconciliation builds the current Runtime inputs using the immutable main commit that last changed those inputs as the image revision and SHA tag. Application-only repairs do not invent another identity for an existing Runtime release.
 - Publication validates build-owned release/source metadata against trusted main history and requires consistent SHA, release, and `latest` digests. An already-published current release is a validated no-op; a newer trusted `latest` never moves backwards.

@@ -1,13 +1,12 @@
-# PostgreSQL cutover for ADT Runtime
+# PostgreSQL operations for ADT Runtime
 
-This is a clean cutover. Runtime starts with empty operational tables. Old run history, approvals, tool journals, pending Advisor knowledge proposals, MCP attestations, settings, registrations and credential records remain in the restricted D1 backup. ADT has no import or replay step. Git-backed definitions, artifacts and published Advisor knowledge stay in Git. The Codex Runner retains its own jobs, identity and storage.
+The PostgreSQL cutover started Runtime with empty operational tables. Pre-cutover run history, approvals, tool journals, pending Advisor knowledge proposals, MCP attestations, settings, registrations and credential records remain in the restricted D1 backup. Git stores definitions, artifacts and published Advisor knowledge. The Codex Runner retains its own jobs, identity and storage.
 
 ## Prepare the stack
 
-1. Before merging, confirm a maintenance window and keep the GitHub Actions repository variable `ADT_POSTGRES_CUTOVER_READY` unset. The first merge may publish the verified Runtime image while automatic Worker deployment is paused. Keep Runtime auto-updaters paused and pin the running image until the drain.
-2. Choose a stack for the deployment. Use the Runtime-only stack below when PostgreSQL already exists. Use the [standalone Swarm stack](../adt-runtime/docker-stack.example.yml) for a new database.
-3. Configure `GITHUB_APP_ID` and `GITHUB_APP_CLIENT_ID` as ordinary Worker variables. Wrangler preserves operator-managed variables. Copy the existing values before replacing either secret binding and verify sign-in after the change.
-4. Mount the existing `adt_runtime_auth` value and the three Codex Runner service credentials listed below. Set the Worker and Runner URLs. Copy the delegated GitHub logins into Runtime's `ADT_TOOL_APPROVERS`, `ADT_TOOL_OPERATORS` and `ADT_TOOL_POLICY_ADMINS`. Keep the Worker policy-admin configuration consistent for authoring checks.
+1. Choose a stack for the deployment. Use the Runtime-only stack below when PostgreSQL already exists. Use the [standalone Swarm stack](../adt-runtime/docker-stack.example.yml) for a new database.
+2. Configure `GITHUB_APP_ID` and `GITHUB_APP_CLIENT_ID` as ordinary Worker variables. Wrangler preserves operator-managed variables. Copy the existing values before replacing either secret binding and verify sign-in after the change.
+3. Mount the existing `adt_runtime_auth` value and the three Codex Runner service credentials listed below. Set the Worker and Runner URLs. Copy the delegated GitHub logins into Runtime's `ADT_TOOL_APPROVERS`, `ADT_TOOL_OPERATORS` and `ADT_TOOL_POLICY_ADMINS`. Keep the Worker policy-admin configuration consistent for authoring checks.
 
 ### Existing PostgreSQL service
 
@@ -22,16 +21,17 @@ Use [the Runtime-only Swarm/Portainer stack](../adt-runtime/docker-stack.existin
 
 The standalone stack provisions one private PostgreSQL replica. Create `adt_postgres_bootstrap_password` and `adt_postgres_app_password` as separate Swarm secrets. Bootstrap provisions a non-superuser application role. Use distinct NFS exports for PostgreSQL and Runtime keys. Provision `pgdata` for UID 70 with mode `0700`, and use POSIX locking, hard mounts and durable `fsync`. Label exactly one node `adt-postgres=true`. Fence the old node and confirm its PostgreSQL process stopped before moving the label or mounting its files on another node.
 
-## Drain and deploy
+## Deploy and verify
 
-1. Pause browser access and automation that can launch runs or submit updates. Drain or cancel every old Workflow, including paused approvals. Check Cloudflare Workflow instance status and reconcile ambiguous provider, tool, Runner or GitHub activity. A new Runtime will only see launches made after the cutover.
-2. Export D1 with `npx wrangler d1 export AUTH_SESSIONS_DB --remote --output adt-d1-before-postgres.sql`. Restrict access to the export and securely archive the matching old vault and OAuth encryption keys. Record the Worker deployment, Runtime image SHA and old Swarm inputs for rollback.
-3. Deploy the selected Runtime stack. Runtime requires a working PostgreSQL connection and an initialized operational schema to pass health and signed readiness. Check PostgreSQL, Runtime health and signed readiness before changing the Worker.
-4. Run the **Manual Cloudflare deployment** workflow against the exact merged cutover SHA. Sign in again after deployment. Session signing and OAuth encryption now derive distinct keys from `SESSION_SECRET`, so an old session cannot resume.
-5. Restore usable configuration through ADT. Re-enter provider API keys and Adrian credentials, reconnect Work IQ, recover authenticated MCP credentials and have a policy administrator review and re-authorize each MCP contract. Save Advisor settings and register Codex environments again. Definitions with old vault references need the UI credential recovery action before they can execute.
-6. In Diagnostics, run **Test ADT Runtime** and **Test execution path**. Verify GitHub sign-in, Git-backed definitions and artifact reads, Codex Runner status, an Advisor run that uses a native tool, and an approval that resumes after restarting Runtime. Check that new history and decisions survive the restart. Then set the GitHub Actions repository variable `ADT_POSTGRES_CUTOVER_READY=true` to resume automatic Worker deployment and reopen launches.
+- Main lifecycle automatically deploys eligible Worker changes after verification. Use **Manual Cloudflare deployment** with an exact merged commit SHA for operator recovery. The workflow applies D1 migrations and deploys the Worker from that commit.
+- Runtime health and signed readiness require a working PostgreSQL connection and an initialized operational schema. After deploying the Runtime stack, run **Test ADT Runtime** and **Test execution path** in Diagnostics.
+- Verify GitHub sign-in, Git-backed definitions and artifact reads, Codex Runner status, an Advisor run that uses a native tool, and an approval that resumes after restarting Runtime. Check that new history and decisions survive the restart.
 
-If rollback is required, pause new launches, drain or recover new runs, and keep the PostgreSQL data and key pair. Restore the recorded Worker and Runtime revisions together with their old configuration. The two execution histories stay separate. Audit external side effects before retrying work on either deployment.
+## Recover from a deployment issue
+
+- For rollback, pause new launches, drain or recover new runs, and keep the PostgreSQL data and key pair. Restore the recorded Worker and Runtime revisions together with their matching configuration. Audit external side effects before retrying work on either deployment.
+- Preserve the restricted pre-cutover D1 export, its matching vault and OAuth encryption keys, the recorded Worker revision, Runtime image SHA and Swarm configuration for the rollback retention window. To back up the current D1 binding, run `npx wrangler d1 export AUTH_SESSIONS_DB --remote --output adt-sessions.sql`.
+- Recover credentials through ADT if definitions still reference the old vault. Re-enter provider API keys and Adrian credentials, reconnect Work IQ, and have a policy administrator review and re-authorize recovered authenticated MCP contracts. Restore Advisor settings and Codex environment registrations as needed.
 
 ## Retire operational tables in D1
 

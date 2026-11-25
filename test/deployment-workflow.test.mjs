@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import test from 'node:test';
 import { parse } from 'yaml';
 import { classifyChanges } from '../scripts/classify-changes.mjs';
@@ -24,10 +24,17 @@ test('modified lifecycle workflows remain valid YAML', () => {
     '.github/workflows/reusable-classify-changes.yml',
     '.github/workflows/reusable-verify.yml',
     '.github/workflows/reusable-deploy-cloudflare.yml',
+    '.github/workflows/repair-package-lock.yml',
     '.github/workflows/publish-adt-runtime.yml',
     '.github/workflows/publish-codex-runner.yml',
     '.github/workflows/publish-adrian.yml',
   ]) assert.doesNotThrow(() => parse(read(path)), path);
+});
+
+test('no workflow depends on the retired PostgreSQL cutover flag', () => {
+  for (const file of readdirSync('.github/workflows').filter(file => /\.ya?ml$/.test(file))) {
+    assert.doesNotMatch(read(`.github/workflows/${file}`), /ADT_POSTGRES_CUTOVER_READY/, file);
+  }
 });
 
 test('automatic merge remains gated by successful PR lifecycle and immutable head checks', () => {
@@ -78,7 +85,6 @@ test('PR lifecycle passes every expensive verification signal into one stable ve
 
 test('reusable verification avoids duplicate builds and gates independent Runner proxy work independently', () => {
   assert.doesNotMatch(verify, /name: Build Next\.js app/);
-  assert.match(verify, /name: Build OpenNext Cloudflare worker\s+if: inputs\.verify_app/);
   assert.match(verify, /name: Validate ADT Runtime in isolation\s+if: inputs\.verify_runtime[\s\S]*run: npm test/);
   assert.doesNotMatch(verify, /working-directory: adt-runtime[\s\S]{0,120}npm test && npm run typecheck/);
   assert.match(verify, /name: Validate Codex Runner\s+if: inputs\.verify_runner[\s\S]*run: npm test/);
@@ -87,6 +93,46 @@ test('reusable verification avoids duplicate builds and gates independent Runner
   assert.match(verify, /name: Smoke-test Codex Runner proxy policy\s+if: inputs\.smoke_runner_proxy_policy/);
   assert.match(verify, /verify_integration && inputs\.verify_runtime[\s\S]*node --test test\/integration\/workflow-runtime-integration\.test\.mjs/);
   assert.match(verify, /verify_integration && !inputs\.verify_runtime[\s\S]*test:workflow-runtime-integration/);
+});
+
+function selectedBuildCommands(job, inputs) {
+  const buildCommands = new Set(['npm ci', 'npm run typecheck', 'npm run build:worker', 'npm run test:worker-runtime']);
+  return job.steps
+    .filter(step => buildCommands.has(step.run))
+    .filter(step => !step.if || Function('inputs', `return (${step.if});`)(inputs))
+    .map(step => [step['working-directory'] ?? '.', step.run]);
+}
+
+const workerBuildCommands = [
+  ['adt-runtime', 'npm ci'],
+  ['.', 'npm ci'],
+  ['.', 'npm run build:worker'],
+];
+
+test('Cloudflare deployment installs both lockfiles before building the Worker', () => {
+  const workflow = parse(reusableDeploy);
+  const job = workflow.jobs.deploy;
+  const manualInputs = Object.fromEntries(Object.entries(workflow.on.workflow_call.inputs).map(([key, input]) => [key, input.default]));
+  assert.deepEqual(selectedBuildCommands(job, manualInputs), workerBuildCommands);
+  assert.deepEqual(selectedBuildCommands(job, { deploy_worker: true }), workerBuildCommands);
+  assert.deepEqual(selectedBuildCommands(job, { deploy_worker: false, apply_migrations: true }), [['.', 'npm ci']]);
+});
+
+test('app-only verification uses the deployment install sequence and exercises the local Worker', () => {
+  const job = parse(verify).jobs.verify;
+  assert.deepEqual(selectedBuildCommands(job, { verify_app: true, verify_runtime: false, verify_integration: false }), [
+    ...workerBuildCommands,
+    ['.', 'npm run test:worker-runtime'],
+  ]);
+});
+
+test('root-only verification installs the Runtime lockfile before type checking', () => {
+  const job = parse(verify).jobs.verify;
+  assert.deepEqual(selectedBuildCommands(job, { verify_root: true }), [
+    ['adt-runtime', 'npm ci'],
+    ['.', 'npm ci'],
+    ['.', 'npm run typecheck'],
+  ]);
 });
 
 test('README-only changes select no expensive verification or production mutation', () => {
@@ -141,14 +187,22 @@ test('mixed control-plane and Runtime changes share integration before either pr
 
 // This workflow condition uses only GitHub's boolean/string expression subset,
 // which can be evaluated directly to test publication decisions across outcomes.
-function runtimePublicationAllowed(impact, { verification = 'success', deployment = 'success', worker = '', migrations = '', classification = 'success', cutoverReady = 'true' } = {}) {
-  const expression = parse(main).jobs['publish-runtime'].if.replace(/\bneeds\.([\w-]+)/g, 'needs["$1"]');
+function lifecycleJobAllowed(job, impact, {
+  verification = 'success', deployment = 'success', worker = '', migrations = '',
+  classification = 'success', metadata = 'success',
+} = {}) {
+  const expression = parse(main).jobs[job].if.replace(/\bneeds\.([\w-]+)/g, 'needs["$1"]');
   const needs = {
     classify: { result: classification, outputs: Object.fromEntries(Object.entries(impact).map(([key, value]) => [key, String(value)])) },
     'verify-main': { result: verification },
+    'resolve-deployment-metadata': { result: metadata },
     deploy: { result: deployment, outputs: { worker_deployed: worker, migrations_applied: migrations } },
   };
-  return Function('needs', 'always', 'vars', `return (${expression});`)(needs, () => true, {ADT_POSTGRES_CUTOVER_READY: cutoverReady});
+  return Function('needs', 'always', `return (${expression});`)(needs, () => true);
+}
+
+function runtimePublicationAllowed(impact, outcomes) {
+  return lifecycleJobAllowed('publish-runtime', impact, outcomes);
 }
 
 test('Runtime publication waits for every required Cloudflare operation and rejects skipped or stale outcomes', () => {
@@ -172,11 +226,18 @@ test('Runtime publication waits for every required Cloudflare operation and reje
   }
 });
 
-test('the clean cutover allows verified Runtime publication while automatic Worker deployment is paused', () => {
-  const impact = classifyChanges([{ filename: 'app/page.tsx' }, { filename: 'adt-runtime/src/server.ts' }]);
-  assert.equal(runtimePublicationAllowed(impact, { deployment: 'skipped', cutoverReady: '' }), true);
-  assert.equal(runtimePublicationAllowed(impact, { verification: 'failure', deployment: 'skipped', cutoverReady: '' }), false);
-  assert.match(parse(main).jobs.deploy.if, /vars\.ADT_POSTGRES_CUTOVER_READY == 'true'/);
+test('main deploys verified Worker changes after metadata resolution and verified migration-only changes without it', () => {
+  const worker = classifyChanges([{ filename: '.github/workflows/reusable-deploy-cloudflare.yml' }]);
+  const migrations = classifyChanges([{ filename: 'migrations/0003_auth_only.sql' }]);
+  const runtime = classifyChanges([{ filename: 'adt-runtime/src/server.ts' }]);
+  assert.equal(lifecycleJobAllowed('deploy', worker), true);
+  assert.equal(lifecycleJobAllowed('deploy', worker, { metadata: 'failure' }), false);
+  assert.equal(lifecycleJobAllowed('deploy', migrations, { metadata: 'skipped' }), true);
+  assert.equal(lifecycleJobAllowed('deploy', runtime), false);
+  for (const verification of ['failure', 'cancelled', 'skipped']) {
+    assert.equal(lifecycleJobAllowed('deploy', worker, { verification }), false);
+    assert.equal(lifecycleJobAllowed('deploy', migrations, { verification }), false);
+  }
 });
 
 test('Runtime-only publication remains available when Cloudflare and its shared gate are skipped', () => {

@@ -45,4 +45,4 @@
 - Search scans at most 200 flat entries and 2 MiB per immutable Git revision with four concurrent blob reads. Exceeding a bound reports unavailable rather than incomplete results. Direct-ID reads still work for larger libraries; use **Open entry by ID**. The proposals panel shows your latest 50 proposals. Invalid entries are counted and excluded; validate the configured artifact checkout with `npm run artifacts:validate -- <checkout>`.
 - Execution reads page at most 20 records and enforce existing journal result/call/token budgets. Tool payload inspection requires an exact invocation ID and restricts arbitrary text. Narrow questions and explicit Workflow execution limits are preferable to loading whole histories.
 
-Deployment remains operator-owned. The [PostgreSQL cutover](runtime-postgresql.md) includes restoring Advisor settings and validating a tool-using Workflow. Published knowledge remains in Git.
+After recovering Advisor settings, validate them with a tool-using Workflow. Published knowledge remains in Git. See [PostgreSQL recovery](runtime-postgresql.md#recover-from-a-deployment-issue).

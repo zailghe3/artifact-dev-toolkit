@@ -49,6 +49,7 @@ jobs:
           test -f package-lock.json
           cp package-lock.json "${saved_lockfile}"
           rm -rf node_modules
+          npm --prefix adt-runtime ci
           npm ci
           npm run toolchain:validate
           npm test
