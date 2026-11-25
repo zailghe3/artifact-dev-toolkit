@@ -1,4 +1,4 @@
-import { CodexRunnerError, getCodexRunnerClient, type RunnerAuthEnvironmentDiagnostics, type RunnerAuthStatus, type RunnerCapabilities, type RunnerControlStatus, type RunnerEnvironmentDescriptor, type RunnerJobList, type RunnerSandboxDiagnostics, type RunnerWorkspaceDiagnostics } from "./codex-runner-client.ts";
+import { CodexRunnerError, type CodexRunnerClient, type RunnerAuthEnvironmentDiagnostics, type RunnerAuthStatus, type RunnerCapabilities, type RunnerControlStatus, type RunnerEnvironmentDescriptor, type RunnerJobList, type RunnerSandboxDiagnostics, type RunnerWorkspaceDiagnostics } from "./codex-runner-client.ts";
 import { evaluateRunnerCompatibility } from "./codex-runner-compatibility.ts";
 import type { SafeCodexConnectionStatus } from "./codex-runner-status.ts";
 
@@ -16,8 +16,8 @@ export type SafeRunnerDiagnostics = {
   authEnvironment: RunnerObservation<RunnerAuthEnvironmentDiagnostics>;
 };
 
-type RunnerDiagnosticClient = Pick<ReturnType<typeof getCodexRunnerClient>, "capabilities" | "authStatus" | "controlStatus" | "environments" | "workspaceDiagnostics" | "sandboxDiagnostics" | "jobs">;
-type Dependencies = { clientFactory?: () => RunnerDiagnosticClient; logger?: (message: string) => void };
+type RunnerDiagnosticClient = Pick<CodexRunnerClient, "capabilities" | "authStatus" | "controlStatus" | "environments" | "workspaceDiagnostics" | "sandboxDiagnostics" | "jobs">;
+type Dependencies = { clientFactory: () => RunnerDiagnosticClient | Promise<RunnerDiagnosticClient>; logger?: (message: string) => void };
 const unavailable = <T>(): RunnerObservation<T> => ({ state: "unavailable" });
 const notObserved = <T>(): RunnerObservation<T> => ({ state: "not-observed" });
 const observation = <T>(result: PromiseSettledResult<T>): RunnerObservation<T> => result.status === "fulfilled" ? { state: "available", value: result.value } : unavailable();
@@ -53,10 +53,10 @@ function connectionFrom(capabilities: RunnerCapabilityObservation, authenticatio
   return authentication.value.connected ? { state: "connected", label: "Connected to ChatGPT", capabilities: value, compatibility, auth: authentication.value } : { state: "disconnected", label: "Runner ready — ChatGPT not connected", capabilities: value, compatibility, auth: authentication.value };
 }
 
-export async function collectSafeRunnerDiagnostics(dependencies: Dependencies = {}): Promise<SafeRunnerDiagnostics> {
+export async function collectSafeRunnerDiagnostics(dependencies: Dependencies): Promise<SafeRunnerDiagnostics> {
   const logger = dependencies.logger ?? console.error;
   let client: RunnerDiagnosticClient;
-  try { client = (dependencies.clientFactory ?? getCodexRunnerClient)(); }
+  try { client = await dependencies.clientFactory(); }
   catch (error) {
     const connection: SafeCodexConnectionStatus = error instanceof CodexRunnerError && error.category === "configuration_missing" ? { state: "configuration-missing", label: "Runner configuration missing" } : { state: "unavailable", label: "Runner unavailable" };
     return { connection, capabilities: { state: "unavailable", reason: "unknown" }, authentication: unavailable(), control: unavailable(), environments: unavailable(), jobs: unavailable(), authEnvironment: notObserved() };
@@ -85,10 +85,10 @@ export async function collectSafeRunnerDiagnostics(dependencies: Dependencies = 
 /** The bounded observations needed to answer whether the Runner can accept work.
  * Workspace, job history, sandbox, storage, and network probes intentionally remain
  * behind explicit operator actions in the diagnostics UI. */
-export async function collectEssentialRunnerDiagnostics(dependencies: Dependencies = {}): Promise<SafeRunnerDiagnostics> {
+export async function collectEssentialRunnerDiagnostics(dependencies: Dependencies): Promise<SafeRunnerDiagnostics> {
   const logger = dependencies.logger ?? console.error;
   let client: RunnerDiagnosticClient;
-  try { client = (dependencies.clientFactory ?? getCodexRunnerClient)(); }
+  try { client = await dependencies.clientFactory(); }
   catch (error) {
     const connection: SafeCodexConnectionStatus = error instanceof CodexRunnerError && error.category === "configuration_missing" ? { state: "configuration-missing", label: "Runner configuration missing" } : { state: "unavailable", label: "Runner unavailable" };
     return { connection, capabilities: { state: "unavailable", reason: "unknown" }, authentication: unavailable(), control: unavailable(), environments: unavailable(), jobs: notObserved(), authEnvironment: notObserved() };

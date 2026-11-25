@@ -31,7 +31,10 @@ test("logs a safe auth-stage category for Runner shared-secret rejection",async(
  let call=0;
  const {status,log}=await probe(async()=>++call===1?Response.json(capabilities):new Response("response-body-sentinel",{status:401}));
  assert.deepEqual(log,{event:"codex_runner_status_failed",stage:"auth_status",category:"runner_unauthorized"});
- assert.deepEqual(status,{state:"unavailable",label:"Runner unavailable"});
+ assert.equal(status.state,"unavailable");
+ assert.equal(status.label,"Runner authentication status unavailable");
+ assert.equal(status.capabilities.codexAvailable,true);
+ assert.equal(status.auth,undefined);
  assert.equal(call,2);
 });
 
@@ -44,8 +47,13 @@ test("logs a safe fetch transport reason without a sensitive raw fetch error",as
 test("logs a safe timeout transport reason",async t=>{
  t.mock.timers.enable({apis:["setTimeout"]});
  const logs=[];
- const fetcher=async(_url,{signal})=>new Promise((resolve,reject)=>signal.addEventListener("abort",()=>reject(new Error("thrown-error-sentinel")),{once:true}));
+ const {promise:started,resolve:markStarted}=Promise.withResolvers();
+ const fetcher=async(_url,{signal})=>new Promise((resolve,reject)=>{
+  signal.addEventListener("abort",()=>reject(new Error("thrown-error-sentinel")),{once:true});
+  markStarted();
+ });
  const pending=getSafeCodexConnectionStatus({clientFactory:()=>new CodexRunnerClient(configuration,fetcher),logger:value=>logs.push(value)});
+ await started;
  t.mock.timers.tick(RUNNER_CAPABILITIES_TIMEOUT_MS);
  const status=await pending;
  assert.deepEqual(JSON.parse(logs[0]),{event:"codex_runner_status_failed",stage:"capabilities",category:"runner_unavailable",transport:"timeout"});
@@ -119,7 +127,10 @@ test("preserves an invalid response category during auth_status",async()=>{
  let call=0;
  const {status,log}=await probe(async()=>++call===1?Response.json(capabilities):Response.json({connected:"response-body-sentinel"}));
  assert.deepEqual(log,{event:"codex_runner_status_failed",stage:"auth_status",category:"invalid_response"});
- assert.deepEqual(status,{state:"unavailable",label:"Runner unavailable"});
+ assert.equal(status.state,"unavailable");
+ assert.equal(status.label,"Runner authentication status unavailable");
+ assert.equal(status.capabilities.codexAvailable,true);
+ assert.equal(status.auth,undefined);
 });
 
 test("logs configuration failures while preserving the safe missing state",async()=>{

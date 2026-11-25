@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { createServer as createTcpServer } from 'node:net';
+import { createServer as createHttpServer, request as httpRequest } from 'node:http';
 import { once } from 'node:events';
 import { generateKeyPairSync, randomBytes } from 'node:crypto';
 import { mkdtemp, chmod, copyFile, rename, rm, stat, writeFile } from 'node:fs/promises';
@@ -17,12 +18,32 @@ import { D1LangGraphCheckpointStore } from '../../lib/langgraph-checkpoints.ts';
 import { createRuntimeServer } from '../../adt-runtime/dist/server.js';
 import { operationalSettings, recordManagementNonce } from '../../adt-runtime/dist/operational-settings.js';
 import { advisorSettingsRecordSchema, codexEnvironmentInputSchema, OPERATIONAL_SETTINGS_PATH } from '../../adt-runtime/dist/operational-settings-contract.js';
-import { requestRuntimeOperationalSettings } from '../../lib/adt-runtime-client.ts';
+import { RemoteOpenAIAgentsRuntime, requestRuntimeOperationalSettings } from '../../lib/adt-runtime-client.ts';
+import { diagnoseRuntimeManagement, runtimeControl } from '../../lib/runtime-service-client.ts';
 import { nativeFixture } from '../support/native-adt-fixture.mjs';
 
 const connectionString = process.env.ADT_TEST_POSTGRES_URL;
 
-async function verifyProductionStartup(t, keyPath) {
+async function verifyProductionStartup(t, keyPath, pool) {
+  let brokerUp = true;
+  const runner = createHttpServer((request, response) => {
+    if (request.url === '/api/runtime-repository-credential') {
+      request.resume();
+      const value = brokerUp
+        ? { ok: true, result: { token: 'fixture-github-token', expiresAt: '2027-01-01', permissions: { contents: 'read' } } }
+        : { ok: false, code: 'github_broker_unavailable' };
+      return response.writeHead(brokerUp ? 200 : 503, { 'content-type': 'application/json' })
+        .end(JSON.stringify({ protocolVersion: 'adt-runtime-v1', ...value }));
+    }
+    if (request.headers['x-codex-runner-secret'] !== 'fixture-runner-secret') return response.writeHead(401).end();
+    const value = request.url === '/v1/capabilities'
+      ? { protocolVersion: 1, runnerVersion: 'a'.repeat(40), runnerRevision: 19, codexVersion: '0.159.3',
+          codexAvailable: false, deviceAuth: false, jobExecution: true }
+      : request.url === '/v1/auth/status' ? { connected: true, authMode: 'chatgpt' } : undefined;
+    response.writeHead(value ? 200 : 404, { 'content-type': 'application/json' }).end(JSON.stringify(value));
+  }).listen(0, '127.0.0.1');
+  await once(runner, 'listening');
+  t.after(() => runner.close());
   const reservation = createTcpServer();
   reservation.listen(0, '127.0.0.1');
   await once(reservation, 'listening');
@@ -35,12 +56,40 @@ async function verifyProductionStartup(t, keyPath) {
     ADT_RUNTIME_DB_HOST: db.hostname, ADT_RUNTIME_DB_PORT: db.port, ADT_RUNTIME_DB_NAME: db.pathname.slice(1),
     ADT_RUNTIME_DB_USER: decodeURIComponent(db.username), ADT_RUNTIME_DB_PASSWORD: decodeURIComponent(db.password),
     ADT_RUNTIME_ROOT_KEY_FILE: keyPath,
+    ADT_RUNTIME_WORKER_URL: `http://127.0.0.1:${runner.address().port}`,
+    CODEX_RUNNER_BASE_URL: `http://127.0.0.1:${runner.address().port}`,
+    CODEX_RUNNER_ACCESS_CLIENT_ID: 'fixture-client-id', CODEX_RUNNER_ACCESS_CLIENT_SECRET: 'fixture-client-secret',
+    CODEX_RUNNER_SHARED_SECRET: 'fixture-runner-secret',
   } });
   const closed = once(child, 'close');
   t.after(() => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); });
   let diagnostic = '';
   for (const stream of [child.stdout, child.stderr]) stream.on('data', chunk => { diagnostic = (diagnostic + chunk.toString()).slice(-8192); });
-  const baseUrl = `http://127.0.0.1:${port}`;
+  const target = `http://127.0.0.1:${port}`;
+  let proxyMode = 'forward';
+  const proxy = createHttpServer((request, response) => {
+    if (!request.url.startsWith('/runtime/')) return response.writeHead(404).end();
+    const path = request.url.slice('/runtime'.length);
+    if (proxyMode === 'html' && request.method === 'POST') {
+      request.resume();
+      setTimeout(() => response.writeHead(502, { 'content-type': 'text/html' }).end('<html>private upstream prompt</html>'), 30);
+      return;
+    }
+    const headers = { ...request.headers };
+    if (proxyMode === 'strip-signature' && request.method === 'POST') delete headers['x-adt-signature'];
+    const upstream = httpRequest(new URL(path, target), { headers, method: request.method }, forwarded => {
+      response.writeHead(forwarded.statusCode, forwarded.headers);
+      forwarded.pipe(response);
+    });
+    upstream.on('error', () => response.writeHead(502).end());
+    request.pipe(upstream);
+  }).listen(0, '127.0.0.1');
+  await once(proxy, 'listening');
+  const baseUrl = `http://127.0.0.1:${proxy.address().port}/runtime`;
+  const config = { baseUrl, authSecret };
+  const scope = { repositoryId: 123, installationId: 12, owner: 'fixture', repository: 'artifacts', branch: 'main', root: 'artifacts' };
+  const list = { operation: 'runs.list', repositoryId: scope.repositoryId, limit: 1 };
+  const readiness = () => new RemoteOpenAIAgentsRuntime(config).diagnose();
   try {
     let ready = false;
     for (let attempt = 0; attempt < 160 && child.exitCode === null; attempt++) {
@@ -49,9 +98,82 @@ async function verifyProductionStartup(t, keyPath) {
       await new Promise(resolve => setTimeout(resolve, 150));
     }
     assert.equal(ready, true, diagnostic);
-    const { runtimeControl } = await import('../../lib/runtime-service-client.ts');
-    assert.deepEqual(await runtimeControl({ baseUrl, authSecret }, { operation: 'runs.list', repositoryId: 123, limit: 1 }), []);
+    assert.equal((await readiness()).readinessAccepted, true);
+    assert.deepEqual(await runtimeControl(config, list), []);
+    const good = await diagnoseRuntimeManagement(config, scope);
+    assert.equal(good.management.result, 'ok');
+    assert.equal(good.management.dispatched, true);
+    assert.equal(good.dependencies.postgres.status, 'available');
+    assert.equal(good.dependencies.checkpoints.status, 'available');
+    assert.equal(good.dependencies.workflow.status, 'available');
+    assert.equal(good.dependencies.broker.status, 'available');
+    assert.doesNotMatch(JSON.stringify(good), /fixture-github-token/);
+    brokerUp = false;
+    const optionalFailure = await diagnoseRuntimeManagement(config, scope);
+    assert.equal(optionalFailure.management.result, 'ok');
+    assert.equal(optionalFailure.dependencies.workflow.status, 'available');
+    assert.equal(optionalFailure.dependencies.broker.status, 'unavailable');
+
+    const runnerCaps = await runtimeControl(config, { operation: 'runner', repositoryId: scope.repositoryId, method: 'capabilities', arguments: [] });
+    const runnerAuth = await runtimeControl(config, { operation: 'runner', repositoryId: scope.repositoryId, method: 'authStatus', arguments: [] });
+    assert.equal(runnerCaps.result.codexAvailable, false);
+    assert.equal(runnerAuth.result.connected, true);
+    await assert.rejects(runtimeControl(config, { operation: 'runs.diagnose', repositoryId: 7, scope }), error =>
+      error.message === 'permission_denied' && error.observation.httpStatus === 403 && error.observation.dispatched === true);
+
+    proxyMode = 'strip-signature';
+    const rejected = await diagnoseRuntimeManagement(config, scope);
+    assert.equal(rejected.management.result, 'authentication_failed');
+    assert.equal(rejected.management.httpStatus, 401);
+    assert.equal(rejected.management.authenticated, false);
+    assert.equal(rejected.management.dispatched, false);
+    assert.equal(rejected.dependencies.workflow.status, 'not_verified');
+    assert.equal((await readiness()).readinessAccepted, true);
+
+    proxyMode = 'html';
+    const malformed = await diagnoseRuntimeManagement(config, scope);
+    assert.equal(malformed.management.result, 'malformed_response');
+    assert.equal(malformed.management.httpStatus, 502);
+    assert.ok(malformed.management.elapsedMs >= 25);
+    assert.equal(malformed.management.authenticated, null);
+    assert.equal(malformed.dependencies.postgres.status, 'not_verified');
+    assert.doesNotMatch(JSON.stringify(malformed), /private upstream prompt/);
+    proxyMode = 'forward';
+
+    await pool.query('REVOKE INSERT ON management_request_nonces FROM CURRENT_USER');
+    try {
+      assert.equal((await readiness()).readinessAccepted, true);
+      const nonce = await diagnoseRuntimeManagement(config, scope);
+      assert.equal(nonce.management.result, 'nonce_persistence_unavailable');
+      assert.equal(nonce.management.httpStatus, 503);
+      assert.equal(nonce.management.authenticated, true);
+      assert.equal(nonce.management.protocolCompatible, true);
+      assert.equal(nonce.management.dispatched, false);
+      assert.equal(nonce.dependencies.workflow.status, 'not_verified');
+      await assert.rejects(runtimeControl(config, list), error =>
+        error.message === 'runtime_unavailable' && error.observation.result === 'nonce_persistence_unavailable');
+    } finally {
+      await pool.query('GRANT INSERT ON management_request_nonces TO CURRENT_USER');
+    }
+
+    await pool.query('REVOKE SELECT ON workflow_runs FROM CURRENT_USER');
+    try {
+      const storage = await diagnoseRuntimeManagement(config, scope);
+      assert.equal(storage.management.dispatched, true);
+      assert.equal(storage.dependencies.postgres.status, 'available');
+      assert.equal(storage.dependencies.workflow.status, 'unavailable');
+      assert.equal(storage.dependencies.workflow.result, 'storage_query_unavailable');
+      await assert.rejects(runtimeControl(config, list), error =>
+        error.message === 'runtime_unavailable' && error.observation.result === 'storage_query_unavailable');
+      assert.doesNotMatch(JSON.stringify(storage), /SELECT|permission denied for table|fixture-runner-secret|private upstream prompt/);
+    } finally {
+      await pool.query('GRANT SELECT ON workflow_runs TO CURRENT_USER');
+    }
+    assert.deepEqual(await runtimeControl(config, list), []);
+    assert.match(diagnostic, new RegExp(`"requestId":"${good.management.requestId}"`));
+    assert.doesNotMatch(diagnostic, /SELECT|permission denied for table|fixture-runner-secret|fixture-client-secret|fixture-github-token|private upstream prompt/);
   } finally {
+    proxy.close();
     child.kill('SIGTERM');
     const timer = setTimeout(() => child.kill('SIGKILL'), 4000);
     await closed;
@@ -76,7 +198,7 @@ test('Runtime initializes PostgreSQL and retains its scoped vault and Workflow j
   ]);
   assert.equal(installation.rootKey.fingerprint(), concurrent.rootKey.fingerprint());
   assert.equal((await stat(keyPath)).mode & 0o777, 0o600);
-  await verifyProductionStartup(t, keyPath);
+  await verifyProductionStartup(t, keyPath, pool);
   const openVault = (root, repositoryId, version = 1) =>
     new D1ProviderCredentialVault(new PostgresWorkflowDatabase(pool),
       keyVersion => root.vaultKey(repositoryId, keyVersion), version, undefined, undefined, repositoryId);
@@ -400,6 +522,9 @@ test('signed launches run inside PostgreSQL-backed Runtime and approvals survive
   assert.equal(turns, 2);
   assert.equal(brokerRequests, 2);
   assert.equal(await runtimeControl(config, { operation: 'runs.detail', repositoryId: context.repositoryId + 1, runId: value.id }), null);
+  const ownHistory = await runtimeControl(config, { operation: 'runs.list', repositoryId: context.repositoryId, limit: 1 });
+  assert.equal(ownHistory[0].id, value.id);
+  assert.deepEqual(await runtimeControl(config, { operation: 'runs.list', repositoryId: context.repositoryId + 1, limit: 1 }), []);
 
   const approvalWorkflow = workflowDefinitionV2Schema.parse({
     ...workflow, id: 'approval-flow',

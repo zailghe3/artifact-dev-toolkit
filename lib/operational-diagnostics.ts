@@ -1,4 +1,5 @@
 import type { ADTRuntimeDiagnostic } from "./adt-runtime-client.ts";
+import type { RuntimeManagementDiagnostic } from "../adt-runtime/src/runtime-control-contract.ts";
 import type { RunnerAuthEnvironmentDiagnostics } from "./codex-runner-client.ts";
 import type { RunnerObservation, SafeRunnerDiagnostics } from "./codex-runner-diagnostics.ts";
 import { authorizationStatusPresentation, configurationStatusPresentation, installationStatusPresentation, permissionStatusPresentation, repositoryMatchPresentation, revisionStatusPresentation, cacheStatusPresentation, validationStatusPresentation, type DiagnosticStatusPresentation } from "./diagnostics-presentation.ts";
@@ -46,10 +47,16 @@ export function runtimeDiagnosticChecks(runtime: ADTRuntimeDiagnostic): Diagnost
   const checks: DiagnosticCheck[] = [{ id: "runtime-configuration", label: "Configuration", status: status("Configured", "positive") }];
   checks.push({ id: "runtime-reachability", label: "Reachability", status: runtime.reachable ? status("Available", "positive") : status("Unavailable", "negative", "The Runtime readiness endpoint could not be reached."), ...(runtime.httpStatus ? { value: `HTTP ${runtime.httpStatus}` } : {}) });
   if (!runtime.reachable) return [...checks, unknown("runtime-authentication", "Request authentication"), unknown("runtime-protocol", "Protocol compatibility"), unknown("runtime-capability", "openai-agents capability"), unknown("runtime-graph-capability", "langgraph:graph capability"), unknown("runtime-wrapping-key", "Wrapping-key compatibility")];
-  checks.push({ id: "runtime-authentication", label: "Request authentication", status: runtime.authenticationAccepted ? status("Accepted", "positive") : status("Rejected", "negative", "Verify the independently configured application-to-Runtime authentication boundary.") });
+  checks.push({ id: "runtime-authentication", label: "Readiness authentication", status: runtime.authenticationAccepted === null
+    ? status("Not verified", "warning")
+    : runtime.authenticationAccepted ? status("Accepted", "positive") : status("Rejected", "negative") });
   if (!runtime.authenticationAccepted) return [...checks, unknown("runtime-protocol", "Protocol compatibility"), unknown("runtime-capability", "openai-agents capability"), unknown("runtime-graph-capability", "langgraph:graph capability"), unknown("runtime-wrapping-key", "Wrapping-key compatibility")];
   checks.push({ id: "runtime-protocol", label: "Protocol compatibility", status: runtime.protocolCompatible ? status("Compatible", "positive") : status("Incompatible", "negative", "Deploy a Runtime version compatible with this application.") });
   if (!runtime.protocolCompatible) return [...checks, unknown("runtime-capability", "openai-agents capability"), unknown("runtime-graph-capability", "langgraph:graph capability"), unknown("runtime-wrapping-key", "Wrapping-key compatibility")];
+  if (runtime.readinessAccepted === false) return [...checks,
+    { id: "runtime-readiness", label: "Signed readiness", status: status("Unavailable", "negative"), value: `${runtime.elapsedMs} ms` },
+    unknown("runtime-capability", "openai-agents capability"), unknown("runtime-graph-capability", "langgraph:graph capability"),
+    unknown("runtime-wrapping-key", "Wrapping-key compatibility")];
   checks.push({ id: "runtime-capability", label: "openai-agents capability", status: runtime.capabilityAvailable ? status("Available", "positive") : status("Unavailable", "negative", "The deployed Runtime does not advertise openai-agents.") });
   checks.push({ id: "runtime-graph-capability", label: "langgraph:graph capability", status: runtime.graphCapabilityAvailable ? status("Available", "positive") : status("Unavailable", "negative", "Current Workflow execution requires the generic graph capability.") });
   checks.push({ id: "runtime-adrian-capability", label: "Adrian enforcement capability", status: runtime.adrianSecurityCapabilityAvailable ? status("Available", "positive") : status("Not advertised", "neutral", "Secured Agents require this optional capability."), contributes: false });
@@ -59,6 +66,30 @@ export function runtimeDiagnosticChecks(runtime: ADTRuntimeDiagnostic): Diagnost
   checks.push({ id: "runtime-freshness", label: "Runtime version", status: freshness === "current" ? status("Current", "positive") : freshness === "superseded" ? status("Update required", "warning", "A newer Runtime-impacting change exists.") : status("Not verified", "warning", "Runtime component freshness could not be established."), value: [runtime.runtimeRevision ? `Build ${runtime.runtimeRevision.slice(0, 12)}` : undefined, runtime.runtimeReleaseRevision ? `Release ${runtime.runtimeReleaseRevision}` : "Release unavailable", runtime.expectedRuntimeReleaseRevision ? `Expected ${runtime.expectedRuntimeReleaseRevision}` : undefined].filter(Boolean).join(" · ") || undefined, contributes: false, ...(freshness === "superseded" ? { guidance: "Deploy the latest applicable ADT Runtime image." } : {}) });
   checks.push({ id: "runtime-elapsed", label: "Readiness elapsed time", status: status("Observed", "positive"), value: `${runtime.elapsedMs} ms` });
   return checks;
+}
+
+export function runtimeManagementChecks(diagnostic?: RuntimeManagementDiagnostic): DiagnosticCheck[] {
+  const unknown = status("Not verified", "warning");
+  const management = diagnostic?.management;
+  const managementStatus = !management || management.result === "not_configured" ? unknown
+    : management.result === "ok" ? status("Available", "positive") : status("Unavailable", "negative");
+  const dependencies = diagnostic?.dependencies;
+  const required = dependencies && [dependencies.postgres.status, dependencies.checkpoints.status, dependencies.workflow.status];
+  const workflowStatus = required?.includes("unavailable") ? status("Unavailable", "negative")
+    : management?.result === "ok" && required?.every(value => value === "available") ? status("Verified", "positive") : unknown;
+  return [
+    { id: "runtime-management", label: "Management API readiness", status: managementStatus },
+    { id: "runtime-workflow-storage", label: "Workflow storage readiness", status: workflowStatus },
+  ];
+}
+
+export function withRuntimeManagement(domains: DiagnosticDomain[], diagnostic?: RuntimeManagementDiagnostic): DiagnosticDomain[] {
+  return domains.map(domain => {
+    if (domain.key !== "adt-runtime") return domain;
+    const checks = [...domain.checks.filter(check => check.id !== "runtime-management" && check.id !== "runtime-workflow-storage"),
+      ...runtimeManagementChecks(diagnostic)];
+    return { ...domain, checks, state: checkState(checks) };
+  });
 }
 
 export function authEnvironmentStatusPresentation(auth: RunnerAuthEnvironmentDiagnostics): DiagnosticStatusPresentation {
@@ -91,9 +122,9 @@ export function runnerDiagnosticChecks(runner: SafeRunnerDiagnostics): Diagnosti
     checks.push({ id: "runner-reachability", label: "Reachability", status: responded ? status("Available", "positive") : runner.capabilities.reason === "unreachable" ? status("Unavailable", "negative", "Runner capabilities could not be reached.") : status("Unknown", "warning") });
     checks.push({ id: "runner-protocol", label: "Protocol compatibility", status: runner.capabilities.reason === "update-required" ? status("Update required", "negative") : status("Unknown", "warning") });
     checks.push({ id: "runner-revision", label: "Runner revision", status: status("Not verified", "warning") });
-    checks.push({ id: "runner-codex-cli", label: "Codex CLI", status: status("Not verified", "warning") });
+    checks.push({ id: "runner-codex-cli", label: "Codex CLI / App Server", status: status("Not verified", "warning") });
     checks.push({ id: "runner-device-auth", label: "Device authentication", status: status("Not verified", "warning") });
-    checks.push({ id: "runner-job-execution", label: "Job execution", status: status("Not verified", "warning") });
+    checks.push({ id: "runner-job-execution", label: "Job execution support", status: status("Not verified", "warning") });
   } else {
     const capabilities = runner.capabilities.value, compatibility = runner.connection.compatibility;
     checks.push({ id: "runner-reachability", label: "Reachability", status: status("Available", "positive") });
@@ -103,9 +134,9 @@ export function runnerDiagnosticChecks(runner: SafeRunnerDiagnostics): Diagnosti
       : compatibility?.runnerRevision === "runner_newer_than_adt" ? status("Runner newer than ADT", "warning", "Release compatibility is uncertain until ADT recognizes this Runner release.")
       : status("Unknown", "warning");
     checks.push({ id: "runner-revision", label: "Runner revision", status: revisionStatus, ...(capabilities.releaseMetadata === "current" ? { value: String(capabilities.runnerRevision) } : {}) });
-    checks.push({ id: "runner-codex-cli", label: "Codex CLI", status: !capabilities.codexAvailable ? status("Unavailable", "negative") : compatibility?.codexVersion === "current" ? status("Compatible", "positive") : status(compatibility?.codexVersion === "mismatch" ? "Version mismatch" : "Unknown", compatibility?.codexVersion === "mismatch" ? "negative" : "warning"), ...(capabilities.releaseMetadata === "current" ? { value: capabilities.codexVersion } : {}) });
+    checks.push({ id: "runner-codex-cli", label: "Codex CLI / App Server", status: !capabilities.codexAvailable ? status("Unavailable", "negative") : compatibility?.codexVersion === "current" ? status("Ready", "positive") : status(compatibility?.codexVersion === "mismatch" ? "Version mismatch" : "Unknown", compatibility?.codexVersion === "mismatch" ? "negative" : "warning"), ...(capabilities.releaseMetadata === "current" ? { value: capabilities.codexVersion } : {}) });
     checks.push({ id: "runner-device-auth", label: "Device authentication", status: capabilities.deviceAuth ? status("Available", "positive") : status("Unavailable", "negative") });
-    checks.push({ id: "runner-job-execution", label: "Job execution", status: capabilities.jobExecution ? status("Available", "positive") : status("Unavailable", "negative") });
+    checks.push({ id: "runner-job-execution", label: "Job execution support", status: capabilities.jobExecution ? status("Available", "positive") : status("Unavailable", "negative") });
   }
   checks.push({ id: "runner-authentication", label: "Codex authentication", status: runner.authentication.state !== "available" ? status("Unknown", "warning") : runner.authentication.value.connected ? status("Connected", "positive") : status("Disconnected", "warning", "Connect the Runner to ChatGPT from the existing connection interface.") });
   if (runner.control.state !== "available") checks.push({ id: "runner-control", label: "Execution boundary", status: status("Unknown", "warning") });
@@ -114,11 +145,26 @@ export function runnerDiagnosticChecks(runner: SafeRunnerDiagnostics): Diagnosti
     checks.push({ id: "runner-emergency-stop", label: "Emergency-stop latch", status: control.emergencyStopped ? status("Active", "negative") : status("Clear", "positive") });
     checks.push({ id: "runner-boundary", label: "Execution boundary", status: status(control.role === "controller" ? "Split" : "Integrated", "positive") });
     if (control.executor) checks.push({ id: "runner-executor", label: "Executor health", status: control.executor.healthy ? status("Healthy", "positive") : status("Unhealthy", "negative"), value: control.executor.activity ? `${control.executor.activity.category} activity · ${control.executor.activity.count}` : "No active execution" });
+    else if (control.role === "controller") checks.push({ id: "runner-executor", label: "Executor health", status: status("Not verified", "warning") });
     if (control.hardRestart.attempted) {
       const historicalFailure = !control.hardRestart.succeeded && !control.emergencyStopped && (!control.executor || control.executor.healthy);
       checks.push({ id: "runner-hard-restart", label: "Last hard restart", status: control.hardRestart.succeeded ? status("Succeeded", "positive") : historicalFailure ? status("Historical failure", "warning", "The current execution boundary has recovered since the retained restart result.") : status("Failed", "negative") });
     }
   }
+  const capabilities = runner.capabilities.state === "available" ? runner.capabilities.value : undefined;
+  const auth = runner.authentication.state === "available" ? runner.authentication.value.connected : undefined;
+  const control = runner.control.state === "available" ? runner.control.value : undefined;
+  const environmentReady = runner.environments.state === "available"
+    ? runner.environments.value.some(({ environment }) => environment.enabled && environment.ready) : undefined;
+  const compatibility = runner.connection.compatibility;
+  const prerequisites = [capabilities?.jobExecution, capabilities?.codexAvailable, auth,
+    control && !control.emergencyStopped, control?.role === "integrated" ? true : control?.executor?.healthy, environmentReady,
+    compatibility?.protocol === "compatible" ? true : compatibility?.protocol === "incompatible" ? false : undefined,
+    compatibility?.runnerRevision === "current" ? true : compatibility?.runnerRevision === "update_available" ? false : undefined,
+    compatibility?.codexVersion === "current" ? true : compatibility?.codexVersion === "mismatch" ? false : undefined];
+  checks.push({ id: "runner-job-readiness", label: "Job execution readiness", contributes: false,
+    status: prerequisites.includes(false) ? status("Unavailable", "negative")
+      : prerequisites.every(value => value === true) ? status("Available", "positive") : status("Not verified", "warning") });
   if (runner.environments.state !== "available") checks.push({ id: "runner-environments", label: "Environment catalogue", status: status("Unknown", "warning") });
   else {
     const enabled = runner.environments.value.filter(item => item.environment.enabled), ready = enabled.filter(item => item.environment.ready);
@@ -149,13 +195,13 @@ export function deriveOperationalDomains(repository: RepositoryDiagnostics | nul
   const authChecks = repository ? authenticationDiagnosticChecks(repository) : [unavailable("authentication-diagnostics", "Authentication diagnostics")];
   const artifactChecks = repository ? artifactLibraryDiagnosticChecks(repository) : [unavailable("artifact-library-diagnostics", "Artifact Library diagnostics")];
   const runtimeChecks = runtimeDiagnosticChecks(runtime), runnerChecks = runnerDiagnosticChecks(runner);
-  return [
+  return withRuntimeManagement([
     { key: "authentication-access", title: "Authentication & access", state: checkState(authChecks), checks: authChecks },
     { key: "artifact-library", title: "Artifact Library", state: checkState(artifactChecks), checks: artifactChecks },
     { key: "application-control-plane", title: "Application / control plane", state: "healthy", checks: [{ id: "deployment-identity", label: "Deployment identity", status: deploymentConfigured ? status("Available", "positive") : status("Development build", "neutral") }] },
     { key: "adt-runtime", title: "ADT Runtime", state: checkState(runtimeChecks), checks: runtimeChecks },
     { key: "codex-runner", title: "Codex Runner", state: runner.connection.state === "configuration-missing" ? "not-configured" : checkState(runnerChecks), checks: runnerChecks },
-  ];
+  ]);
 }
 
 export function operationalOverall(domains: DiagnosticDomain[]) {

@@ -89,6 +89,22 @@ export async function smokeWorker({ command, startupMs = 30000, requestMs = 3000
       if(response.status!==401||!/no-store/.test(response.headers.get('cache-control')||''))throw new Error(`Knowledge session boundary failed: HTTP ${response.status}`);
       await response.body?.cancel();
     }
+    for (const [path, method] of [
+      ['/api/workflow-runs?limit=1', 'GET'],
+      ['/api/workflow-connections/adt-runtime/execution-path', 'POST'],
+      ['/api/workflow-connections/codex-runner/status', 'GET'],
+      ['/api/workflow-connections/codex-runner/diagnostics', 'GET'],
+    ]) {
+      const response = await fetch(origin + path, {
+        method, redirect: 'manual', headers: { origin, 'content-type': 'application/json' },
+        ...(method === 'POST' ? { body: '{}' } : {}),
+        signal: AbortSignal.any([interrupted.signal, AbortSignal.timeout(requestMs)]),
+      });
+      if (response.status !== 401 || !/no-store/.test(response.headers.get('cache-control') ?? '')) {
+        throw new Error(`Workflow diagnostics session boundary failed: HTTP ${response.status}`);
+      }
+      await response.body?.cancel();
+    }
     alive();
     return { ok: true };
   } catch (error) {

@@ -24,8 +24,15 @@ The standalone stack provisions one private PostgreSQL replica. Create `adt_post
 ## Deploy and verify
 
 - Main lifecycle automatically deploys eligible Worker changes after verification. Use **Manual Cloudflare deployment** with an exact merged commit SHA for operator recovery. The workflow applies D1 migrations and deploys the Worker from that commit.
-- Runtime health and signed readiness require a working PostgreSQL connection and an initialized operational schema. After deploying the Runtime stack, run **Test ADT Runtime** and **Test execution path** in Diagnostics.
+- Runtime health and signed readiness require a working PostgreSQL connection and an initialized operational schema. Compare infrastructure readiness with **Test execution path** in Diagnostics after deploying the Runtime stack.
 - Verify GitHub sign-in, Git-backed definitions and artifact reads, Codex Runner status, an Advisor run that uses a native tool, and an approval that resumes after restarting Runtime. Check that new history and decisions survive the restart.
+
+## Verify Workflow management and Runner diagnostics
+
+1. In Diagnostics, confirm the expected Runtime release and signed infrastructure readiness. Run **Test execution path** and expand **Management request details**. A recovered path has HTTP 200, accepted authentication and protocol, a persisted replay nonce, a dispatched command, and available PostgreSQL, checkpoint, and repository-scoped Workflow history reads. The optional GitHub broker has its own status.
+2. In the same authenticated session, open `/api/workflow-runs?limit=1` and confirm HTTP 200 with a `runs` array. Open **Workflows** and **Workflow runs** and confirm the history or a successful empty state.
+3. For a failed probe, copy the technical report. Match its correlation ID to `worker_runtime_management_request` in Worker logs and `runtime_management_request` in Runtime logs. Compare the stage, result, status, and dispatch evidence. A Worker-only observation leaves Runtime arrival unverified. The execution-path endpoint returns the `adt.runtime-management.v1` diagnostic schema.
+4. In the Codex Runner section, gather **Auth/environment diagnostics** when the App Server is unavailable. Compare the startup category, elapsed time, and optional exit code or signal with the passive capabilities and Executor observations.
 
 ## Recover from a deployment issue
 

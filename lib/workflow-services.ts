@@ -1,4 +1,4 @@
-import { runtimeControl } from "./runtime-service-client.ts";
+import { diagnoseRuntimeManagement, RuntimeManagementError, runtimeControl } from "./runtime-service-client.ts";
 import { signManagedRepositoryAuthorities } from "./runtime-repository-authority.ts";
 import { vaultOperations, runnerOperations, type RuntimeControlCommand } from "../adt-runtime/src/runtime-control-contract.ts";
 import type { RunDetail, WorkflowRun } from "./workflow-storage.ts";
@@ -11,7 +11,7 @@ import {codexEnvironmentInputSchema,type CodexEnvironmentDescriptor} from "../ad
 import type {RunnerEnvironmentDescriptor,RunnerModelDescriptor} from "./codex-runner-client.ts";
 import {GitHubWorkflowConnectionDefinitionRepository} from "./workflow-connection-definition-repository.ts";
 import {runtimeProviderClient,runtimeProviderConnectionStore} from "./runtime-provider-client.ts";
-import {RemoteOpenAIAgentsRuntime,requestRuntimeRedeploy,requestRuntimeOperationalSettings,type ADTRuntimeConfiguration,type ExecutionPathDiagnostic} from "./adt-runtime-client.ts";
+import {RemoteOpenAIAgentsRuntime,requestRuntimeRedeploy,requestRuntimeOperationalSettings,type ADTRuntimeConfiguration} from "./adt-runtime-client.ts";
 import type {D1ProviderCredentialVault} from "./provider-credential-vault.ts";
 
 import {GitHubWorkflowLayoutRepository} from "./workflow-layout-repository.ts";
@@ -45,6 +45,16 @@ export async function getWorkflowRunStorage(repositoryId:number){
    snapshot:run as unknown as Record<string,unknown>,publicationAuthorities:await signManagedRepositoryAuthorities(run,env.SESSION_SECRET)}),
  };
 }
+export async function readWorkflowRunHistory(repositoryId: number, limit: number) {
+ try {
+  const runs = await (await getWorkflowRunStorage(repositoryId)).listRuns(limit);
+  return { status: "available" as const, runs };
+ } catch (error) {
+  if (error instanceof RuntimeManagementError && ["runtime_unavailable", "runtime_not_configured"].includes(error.message))
+   return { status: "unavailable" as const };
+  throw error;
+ }
+}
 export async function getProviderCredentialVault(repositoryId:number){
  const config=adtRuntimeConfiguration(await getWorkflowEnvironment() as unknown as Record<string,unknown>);
  return Object.fromEntries(vaultOperations.map(method=>[method,(...parameters:unknown[])=>runtimeControl(config,
@@ -65,21 +75,12 @@ export async function getWorkflowCodexEnvironmentStore(repositoryId:number){
 }
 export function adtRuntimeConfiguration(env:Record<string,unknown>):ADTRuntimeConfiguration{return{baseUrl:typeof env.ADT_RUNTIME_BASE_URL==="string"?env.ADT_RUNTIME_BASE_URL:undefined,authSecret:typeof env.ADT_RUNTIME_AUTH_SECRET==="string"?env.ADT_RUNTIME_AUTH_SECRET:undefined}}
 export async function diagnoseADTRuntime(){const env=await getWorkflowEnvironment();return new RemoteOpenAIAgentsRuntime(adtRuntimeConfiguration(env as unknown as Record<string,unknown>)).diagnose()}
-export async function diagnoseADTRuntimeExecutionPath(access:RepositoryAccessContext):Promise<ExecutionPathDiagnostic>{
- const started=Date.now();
- const targets=["checkpoint","graph-node","artifact-search"] as const;
- try{
-  const {checkpoint,workflow,broker}=await workflowRuntimeCommand<{checkpoint:boolean;workflow:boolean;broker:boolean}>({
-   operation:"runs.health",repositoryId:access.repositoryId,scope:{repositoryId:access.repositoryId,installationId:access.installationId,
-    owner:access.owner,repository:access.repo,branch:process.env.GITHUB_ARTIFACT_REPOSITORY_BRANCH??"main",root:DEFAULT_ARTIFACT_ROOT},
-  });
-  const checks=[checkpoint,workflow,broker];
-  return {state:"available",results:targets.map((target,index)=>({target,configured:true,responseReceived:true,authorityAccepted:true,
-   backendAvailable:checks[index],elapsedMs:Date.now()-started,...(!checks[index]?{failureCode:"backend_unavailable" as const}:{})}))};
- }catch{
-  return {state:"runtime_unavailable",results:targets.map(target=>({target,configured:true,responseReceived:false,authorityAccepted:null,
-   backendAvailable:null,elapsedMs:Date.now()-started}))};
- }
+export async function diagnoseADTRuntimeExecutionPath(access:RepositoryAccessContext){
+ const config=adtRuntimeConfiguration(await getWorkflowEnvironment() as unknown as Record<string,unknown>);
+ return diagnoseRuntimeManagement(config,{
+  repositoryId:access.repositoryId,installationId:access.installationId,owner:access.owner,repository:access.repo,
+  branch:process.env.GITHUB_ARTIFACT_REPOSITORY_BRANCH??"main",root:DEFAULT_ARTIFACT_ROOT,
+ });
 }
 export async function redeployInfrastructure(target:"runtime"|"runner"){const env=await getWorkflowEnvironment();return requestRuntimeRedeploy(adtRuntimeConfiguration(env as unknown as Record<string,unknown>),target)}
 

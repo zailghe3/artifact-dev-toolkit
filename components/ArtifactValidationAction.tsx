@@ -6,6 +6,7 @@ import { PendingButtonContent } from "./PendingButtonContent";
 import { DiagnosticStatusBadge } from "./DiagnosticStatusBadge";
 import type { SafeDiagnosticReportInput } from "@/lib/diagnostic-reports";
 import { DiagnosticCopyActions } from "./DiagnosticCopyActions";
+import { useRuntimeDiagnosticDomains } from "./ADTRuntimeExecutionPathDiagnostic";
 import { operationalContributors, operationalOverall, withArtifactValidation, type DiagnosticDomain } from "@/lib/operational-diagnostics";
 import type { RepositoryDiagnostics } from "@/lib/repository-diagnostics";
 import { ARTIFACT_VALIDATION_TIMEOUT_MS, withGitHubDeadline } from "@/lib/github-request";
@@ -19,11 +20,11 @@ export function ArtifactValidationProvider({initial,children}:{initial:Validatio
 }
 function useValidationDomains(domains:DiagnosticDomain[]) { const context=useContext(ValidationContext); return context ? withArtifactValidation(domains,context.validation) : domains; }
 export function ArtifactDomainStatus({domain}:{domain:DiagnosticDomain}) {
-  const observed=useValidationDomains([domain])[0];
+  const observed=useRuntimeDiagnosticDomains(useValidationDomains([domain]))[0];
   return <DiagnosticStatusBadge presentation={observed.state === "healthy" ? {label:"Healthy",tone:"positive"} : observed.state === "failed" ? {label:"Needs attention",tone:"negative"} : observed.state === "not-configured" ? {label:"Not configured",tone:"neutral"} : {label:"Degraded",tone:"warning"}} />;
 }
 export function OperationalHealthSummary({domains}:{domains:DiagnosticDomain[]}) {
-  const observed=useValidationDomains(domains), overall=operationalOverall(observed), contributors=operationalContributors(observed);
+  const observed=useRuntimeDiagnosticDomains(useValidationDomains(domains)), overall=operationalOverall(observed), contributors=operationalContributors(observed);
   return <><div className="flex flex-wrap items-center gap-2"><h2 id="overall-heading" className="text-xl font-black">Overall health</h2><DiagnosticStatusBadge presentation={overall.status}/></div><p className="mt-2 text-sm">{overall.status.description}</p>{contributors.contributors.length ? <div className="mt-4"><h3 className="font-bold">Needs attention</h3><ul className="mt-1 list-disc space-y-1 pl-5 text-sm">{contributors.contributors.map(item=><li key={item.id}><a className="underline underline-offset-2" href={item.href}>{item.message}</a></li>)}</ul>{contributors.omittedCount ? <p className="mt-2 text-sm">And {contributors.omittedCount} more diagnostic checks.</p>:null}</div>:null}</>;
 }
 export function ArtifactValidationCopyActions({report,domain}:{report:Extract<SafeDiagnosticReportInput,{domain:"artifact-library"}>;domain:DiagnosticDomain}) {
