@@ -16,11 +16,13 @@ import { D1WorkflowRunStorage } from '../../lib/workflow-d1-storage.ts';
 import { D1WorkflowApprovalStore } from '../../lib/workflow-approvals.ts';
 import { D1LangGraphCheckpointStore } from '../../lib/langgraph-checkpoints.ts';
 import { createRuntimeServer } from '../../adt-runtime/dist/server.js';
+import { signature } from '../../adt-runtime/dist/protocol.js';
 import { operationalSettings, recordManagementNonce } from '../../adt-runtime/dist/operational-settings.js';
 import { advisorSettingsRecordSchema, codexEnvironmentInputSchema, OPERATIONAL_SETTINGS_PATH } from '../../adt-runtime/dist/operational-settings-contract.js';
 import { RemoteOpenAIAgentsRuntime, requestRuntimeOperationalSettings } from '../../lib/adt-runtime-client.ts';
-import { diagnoseRuntimeManagement, runtimeControl } from '../../lib/runtime-service-client.ts';
+import { diagnoseRuntimeManagement, runtimeControl, WORKFLOW_HISTORY_LIMIT } from '../../lib/runtime-service-client.ts';
 import { nativeFixture } from '../support/native-adt-fixture.mjs';
+import { run as workflowRun } from '../support/advisor-fixtures.mjs';
 
 const connectionString = process.env.ADT_TEST_POSTGRES_URL;
 
@@ -64,7 +66,7 @@ async function verifyProductionStartup(t, keyPath, pool) {
   const closed = once(child, 'close');
   t.after(() => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); });
   let diagnostic = '';
-  for (const stream of [child.stdout, child.stderr]) stream.on('data', chunk => { diagnostic = (diagnostic + chunk.toString()).slice(-8192); });
+  for (const stream of [child.stdout, child.stderr]) stream.on('data', chunk => { diagnostic = (diagnostic + chunk.toString()).slice(-32_768); });
   const target = `http://127.0.0.1:${port}`;
   let proxyMode = 'forward';
   const proxy = createHttpServer((request, response) => {
@@ -77,6 +79,11 @@ async function verifyProductionStartup(t, keyPath, pool) {
     }
     const headers = { ...request.headers };
     if (proxyMode === 'strip-signature' && request.method === 'POST') delete headers['x-adt-signature'];
+    if (proxyMode === 'unsupported-protocol' && request.method === 'POST') {
+      headers['x-adt-protocol'] = 'adt-runtime-v2';
+      headers['x-adt-signature'] = signature(authSecret, request.method, path,
+        headers['x-adt-timestamp'], headers['x-adt-nonce'], headers['x-adt-content-sha256'], headers['x-adt-protocol']);
+    }
     const upstream = httpRequest(new URL(path, target), { headers, method: request.method }, forwarded => {
       response.writeHead(forwarded.statusCode, forwarded.headers);
       forwarded.pipe(response);
@@ -103,6 +110,8 @@ async function verifyProductionStartup(t, keyPath, pool) {
     const good = await diagnoseRuntimeManagement(config, scope);
     assert.equal(good.management.result, 'ok');
     assert.equal(good.management.dispatched, true);
+    assert.equal(good.workflowHistory.result, 'ok');
+    assert.notEqual(good.management.requestId, good.workflowHistory.requestId);
     assert.equal(good.dependencies.postgres.status, 'available');
     assert.equal(good.dependencies.checkpoints.status, 'available');
     assert.equal(good.dependencies.workflow.status, 'available');
@@ -128,7 +137,20 @@ async function verifyProductionStartup(t, keyPath, pool) {
     assert.equal(rejected.management.authenticated, false);
     assert.equal(rejected.management.dispatched, false);
     assert.equal(rejected.dependencies.workflow.status, 'not_verified');
+    assert.equal(rejected.workflowHistory.result, 'authentication_failed');
+    await assert.rejects(runtimeControl(config, list), error =>
+      error.code === 'runtime_authentication_failed' && error.observation.httpStatus === 401 &&
+      error.observation.stage === 'authentication' && /^[\w-]{32}$/.test(error.observation.requestId));
     assert.equal((await readiness()).readinessAccepted, true);
+
+    proxyMode = 'unsupported-protocol';
+    const incompatible = await diagnoseRuntimeManagement(config, scope);
+    assert.equal(incompatible.management.result, 'protocol_incompatible');
+    assert.equal(incompatible.workflowHistory.httpStatus, 409);
+    await assert.rejects(runtimeControl(config, list), error =>
+      error.code === 'protocol_incompatible' && error.observation.httpStatus === 409 &&
+      error.observation.authenticated === true && error.observation.protocolCompatible === false &&
+      /^[\w-]{32}$/.test(error.observation.requestId));
 
     proxyMode = 'html';
     const malformed = await diagnoseRuntimeManagement(config, scope);
@@ -151,7 +173,7 @@ async function verifyProductionStartup(t, keyPath, pool) {
       assert.equal(nonce.management.dispatched, false);
       assert.equal(nonce.dependencies.workflow.status, 'not_verified');
       await assert.rejects(runtimeControl(config, list), error =>
-        error.message === 'runtime_unavailable' && error.observation.result === 'nonce_persistence_unavailable');
+        error.code === 'nonce_persistence_unavailable' && error.observation.result === 'nonce_persistence_unavailable');
     } finally {
       await pool.query('GRANT INSERT ON management_request_nonces TO CURRENT_USER');
     }
@@ -163,15 +185,38 @@ async function verifyProductionStartup(t, keyPath, pool) {
       assert.equal(storage.dependencies.postgres.status, 'available');
       assert.equal(storage.dependencies.workflow.status, 'unavailable');
       assert.equal(storage.dependencies.workflow.result, 'storage_query_unavailable');
+      assert.equal(storage.workflowHistory.httpStatus, 503);
       await assert.rejects(runtimeControl(config, list), error =>
-        error.message === 'runtime_unavailable' && error.observation.result === 'storage_query_unavailable');
+        error.code === 'storage_query_unavailable' && error.observation.result === 'storage_query_unavailable');
       assert.doesNotMatch(JSON.stringify(storage), /SELECT|permission denied for table|fixture-runner-secret|private upstream prompt/);
     } finally {
       await pool.query('GRANT SELECT ON workflow_runs TO CURRENT_USER');
     }
     assert.deepEqual(await runtimeControl(config, list), []);
+    const storage = new D1WorkflowRunStorage(new PostgresWorkflowDatabase(pool), undefined, scope.repositoryId);
+    const older = { ...workflowRun({ repositoryContext: scope }), status: 'succeeded', createdAt: '2026-01-01T00:00:00Z' };
+    const newest = { ...workflowRun({ repositoryContext: scope }), status: 'succeeded', createdAt: '2026-01-02T00:00:00Z' };
+    await storage.createRun(older);
+    await storage.createRun(newest);
+    await pool.query('UPDATE workflow_runs SET agent_snapshots_json = $1 WHERE id = $2',
+      [JSON.stringify({ damaged: 'private malformed snapshot' }), older.id]);
+    try {
+      assert.deepEqual((await runtimeControl(config, list)).map(run => run.id), [newest.id]);
+      await assert.rejects(runtimeControl(config, { ...list, limit: WORKFLOW_HISTORY_LIMIT }), { code: 'storage_data_invalid' });
+      const damagedHistory = await diagnoseRuntimeManagement(config, scope);
+      assert.equal(damagedHistory.management.result, 'ok');
+      assert.equal(damagedHistory.workflowHistory.result, 'storage_data_invalid');
+      assert.equal(damagedHistory.dependencies.postgres.status, 'available');
+      assert.equal(damagedHistory.dependencies.workflow.status, 'unavailable');
+      assert.doesNotMatch(JSON.stringify(damagedHistory), /private malformed snapshot|SENSITIVE_INPUT/);
+      const isolated = await diagnoseRuntimeManagement(config, { ...scope, repositoryId: scope.repositoryId + 1 });
+      assert.equal(isolated.dependencies.workflow.status, 'available');
+    } finally {
+      await pool.query('DELETE FROM workflow_runs WHERE id IN ($1, $2)', [newest.id, older.id]);
+    }
     assert.match(diagnostic, new RegExp(`"requestId":"${good.management.requestId}"`));
-    assert.doesNotMatch(diagnostic, /SELECT|permission denied for table|fixture-runner-secret|fixture-client-secret|fixture-github-token|private upstream prompt/);
+    assert.match(diagnostic, new RegExp(`"requestId":"${good.workflowHistory.requestId}"`));
+    assert.doesNotMatch(diagnostic, /SELECT|permission denied for table|fixture-runner-secret|fixture-client-secret|fixture-github-token|private upstream prompt|private malformed snapshot|SENSITIVE_INPUT/);
   } finally {
     proxy.close();
     child.kill('SIGTERM');

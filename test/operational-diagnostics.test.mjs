@@ -67,10 +67,11 @@ test("Runtime aggregation requires an operational management and scoped storage 
   const domains = deriveOperationalDomains(repository(), runtime(), runner(), true);
   const state = diagnostic => withRuntimeManagement(domains, diagnostic).find(domain => domain.key === "adt-runtime");
   const available = { status: "available" };
-  const diagnostic = { management: { result: "ok" }, dependencies: {
+  const diagnostic = { management: { result: "ok" }, workflowHistory: { result: "ok" }, dependencies: {
     postgres: available, checkpoints: available, workflow: available, broker: { status: "unavailable" },
   } };
   assert.equal(state().state, "degraded");
+  assert.equal(state({ ...diagnostic, workflowHistory: undefined }).state, "degraded");
   assert.equal(state().checks.find(check => check.id === "runtime-workflow-storage").status.label, "Not verified");
   assert.equal(state(diagnostic).state, "healthy");
   const unavailable = state({ ...diagnostic, dependencies: { ...diagnostic.dependencies, workflow: { status: "unavailable" } } });

@@ -58,6 +58,7 @@ export function ADTRuntimeExecutionPathDiagnostic({ domain, report }: {
   const { observation } = context ?? {};
   const diagnostic = observation?.diagnostic;
   const management = diagnostic?.management;
+  const history = diagnostic?.workflowHistory;
   const checks = runtimeManagementChecks(diagnostic);
   const observed = useRuntimeDiagnosticDomains([domain])[0];
   async function run() {
@@ -109,8 +110,11 @@ export function ADTRuntimeExecutionPathDiagnostic({ domain, report }: {
             const check = diagnostic.dependencies[key];
             return <div key={key} className="contents"><dt>{labels[key]}</dt><dd>{dependencyLabels[check.status]}
               {check.elapsedMs !== undefined ? ` · ${check.elapsedMs} ms` : ""}
-              {check.result === "storage_data_invalid" ? " · Stored data could not be read" : check.result ? " · Query unavailable" : ""}</dd></div>;
+              {key === "workflow" && history && history.result !== "ok" ? ` · ${results[history.result]}`
+                : check.result === "storage_data_invalid" ? " · Stored data could not be read" : check.result ? " · Query unavailable" : ""}</dd></div>;
           })}
+          {history && <><dt>History request correlation ID</dt><dd className="break-all font-mono">{history.requestId}</dd>
+            <dt>History HTTP response</dt><dd>{history.httpStatus ?? "Not verified"}</dd></>}
         </dl>
       </details>
     </div>}

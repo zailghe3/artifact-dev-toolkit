@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
 import test from 'node:test';
 import { RemoteOpenAIAgentsRuntime } from '../lib/adt-runtime-client.ts';
-import { diagnoseRuntimeManagement, runtimeControl } from '../lib/runtime-service-client.ts';
+import { diagnoseRuntimeManagement, runtimeControl, WORKFLOW_HISTORY_LIMIT } from '../lib/runtime-service-client.ts';
 
 const scope = { repositoryId: 46, installationId: 52, owner: 'owner', repository: 'repo', branch: 'main', root: 'root' };
 const authSecret = 'local-management-test-secret'.repeat(2);
@@ -53,6 +54,60 @@ test('a non-Runtime readiness response gives no authentication or protocol evide
   assert.equal(result.protocolCompatible, false);
   assert.equal(result.readinessAccepted, false);
   assert.doesNotMatch(JSON.stringify(result), /private upstream prompt/);
+});
+
+test('the diagnostic uses the page history limit and ordinary response validation even if Runtime reports its probe healthy', async t => {
+  const operations = [];
+  const newest = { id: 'newest', workflowId: 'fixture', status: 'succeeded', createdAt: '2026-01-02T00:00:00Z' };
+  let rows = [newest, { id: 'older', privateInput: 'private older Workflow input' }];
+  let legacy = false;
+  const server = createServer(async (request, response) => {
+    const chunks = [];
+    for await (const chunk of request) chunks.push(chunk);
+    const command = JSON.parse(Buffer.concat(chunks).toString());
+    operations.push(command);
+    const protocolVersion = 'adt-runtime-v1';
+    if (legacy && command.operation === 'runs.diagnose') {
+      response.writeHead(400, { 'content-type': 'application/json' }).end(JSON.stringify({
+        protocolVersion, ok: false, code: 'invalid_request',
+      }));
+      return;
+    }
+    const requestId = createHash('sha256').update(request.headers['x-adt-nonce']).digest('base64url').slice(0, 32);
+    const available = { status: 'available' };
+    const result = command.operation === 'runs.list' ? rows.slice(0, command.limit)
+      : { postgres: available, checkpoints: available, workflow: available, broker: available };
+    response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
+      protocolVersion, ok: true, result, ...(legacy ? {} : { management: {
+        requestId, stage: 'complete', result: 'ok', authenticated: true, protocolCompatible: true,
+        noncePersisted: true, accepted: true, dispatched: true,
+      } }),
+    }));
+  }).listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  t.after(() => server.close());
+  const config = { baseUrl: `http://127.0.0.1:${server.address().port}`, authSecret };
+  const list = { operation: 'runs.list', repositoryId: scope.repositoryId, limit: WORKFLOW_HISTORY_LIMIT };
+  assert.deepEqual(await runtimeControl(config, { ...list, limit: 1 }), [newest]);
+  await assert.rejects(runtimeControl(config, list), { code: 'runtime_response_invalid' });
+  operations.length = 0;
+  const invalid = await diagnoseRuntimeManagement(config, scope);
+  assert.equal(invalid.management.result, 'ok');
+  assert.deepEqual(operations.find(command => command.operation === 'runs.list'), list);
+  assert.equal(invalid.workflowHistory.result, 'malformed_response');
+  assert.equal(invalid.workflowHistory.httpStatus, 200);
+  assert.equal(invalid.dependencies.workflow.status, 'unavailable');
+  assert.equal(invalid.dependencies.workflow.result, undefined);
+  assert.equal(invalid.dependencies.postgres.status, 'available');
+  assert.doesNotMatch(JSON.stringify(invalid), /private older Workflow input|"newest"|"older"/);
+
+  rows = [];
+  assert.equal((await diagnoseRuntimeManagement(config, scope)).dependencies.workflow.status, 'available');
+  legacy = true;
+  const release16 = await diagnoseRuntimeManagement(config, scope);
+  assert.equal(release16.management.result, 'request_rejected');
+  assert.equal(release16.workflowHistory.result, 'ok');
+  assert.deepEqual(await runtimeControl(config, list), []);
 });
 
 test('a transport failure leaves upstream authentication and storage unverified', async () => {

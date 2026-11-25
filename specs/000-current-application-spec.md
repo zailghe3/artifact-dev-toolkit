@@ -105,7 +105,7 @@
 - Authorised users can inspect the protected Diagnostics & maintenance surface as the canonical live operational dashboard.
 - Diagnostics groups overall health, authentication and access, Artifact Library, application control-plane, ADT Runtime, and Codex Runner observations into distinct operational domains.
 - Runtime and Runner readiness diagnostics remain bounded, exclude secrets and private Runner information, and do not invoke a provider or start model-directed execution.
-- An authorised user may explicitly test the signed Runtime management path, replay protection, and repository-scoped Workflow storage reads. The GitHub credential broker is an independent optional check.
+- An authorised user may explicitly test the signed Runtime management path, replay protection, and the same repository-scoped history read used by the Workflow runs page. Diagnostic reports include the read outcome and exclude Workflow data. The GitHub credential broker is an independent optional check.
 - Passive page loading observes signed infrastructure readiness and leaves management and Workflow storage readiness unverified. An active result contributes to the Runtime and overall status for the current page.
 - Overall health includes required ADT Runtime configuration and Workflow graph capability. An intentionally unconfigured optional Codex Runner does not make the application unhealthy.
 - Codex Runner operational diagnostics and connection status use Runtime's Runner connection. Release compatibility, App Server readiness, ChatGPT authentication, device authentication support, Executor health, and job execution readiness are separate observations.

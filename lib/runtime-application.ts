@@ -197,21 +197,20 @@ export function createRuntimeApplication(options: RuntimeApplicationOptions) {
           try {
             await read();
             return { status: "available", elapsedMs: Date.now() - started };
-          } catch (error) {
-            const result = error instanceof Error && error.message === "invalid_run_snapshot"
-              ? "storage_data_invalid" : "storage_query_unavailable";
-            return { status: "unavailable", elapsedMs: Date.now() - started, ...(storage ? { result } : {}) };
+          } catch {
+            return { status: "unavailable", elapsedMs: Date.now() - started,
+              ...(storage ? { result: "storage_query_unavailable" } : {}) };
           }
         };
-        const [postgres, checkpoints, workflow, broker] = await Promise.all([
+        const [postgres, checkpoints, broker] = await Promise.all([
           probe(() => pool.query("SELECT 1"), true),
           probe(() => pool.query(`SELECT 1 FROM langgraph_checkpoints AS checkpoint
             JOIN workflow_runs AS run ON run.id = checkpoint.run_id WHERE run.repository_id = $1 LIMIT 1`,
             [command.repositoryId]), true),
-          probe(() => storage.listRuns(1), true),
           probe(() => requestRepositoryCredential(service, { purpose: "artifacts", context: command.scope }, 4_000)),
         ]);
-        return { postgres, checkpoints, workflow, broker };
+        // The Worker verifies history through the ordinary runs.list response.
+        return { postgres, checkpoints, workflow: { status: "not_verified" }, broker };
       }
       case "runs.health": {
         if(command.scope.repositoryId!==command.repositoryId)throw Error("permission_denied");

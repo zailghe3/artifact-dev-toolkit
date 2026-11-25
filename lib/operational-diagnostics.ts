@@ -76,7 +76,8 @@ export function runtimeManagementChecks(diagnostic?: RuntimeManagementDiagnostic
   const dependencies = diagnostic?.dependencies;
   const required = dependencies && [dependencies.postgres.status, dependencies.checkpoints.status, dependencies.workflow.status];
   const workflowStatus = required?.includes("unavailable") ? status("Unavailable", "negative")
-    : management?.result === "ok" && required?.every(value => value === "available") ? status("Verified", "positive") : unknown;
+    : management?.result === "ok" && diagnostic?.workflowHistory?.result === "ok" && required?.every(value => value === "available")
+      ? status("Verified", "positive") : unknown;
   return [
     { id: "runtime-management", label: "Management API readiness", status: managementStatus },
     { id: "runtime-workflow-storage", label: "Workflow storage readiness", status: workflowStatus },

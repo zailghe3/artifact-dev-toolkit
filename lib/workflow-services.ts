@@ -1,4 +1,4 @@
-import { diagnoseRuntimeManagement, RuntimeManagementError, runtimeControl } from "./runtime-service-client.ts";
+import { diagnoseRuntimeManagement, isRuntimeServiceFailure, runtimeControl } from "./runtime-service-client.ts";
 import { signManagedRepositoryAuthorities } from "./runtime-repository-authority.ts";
 import { vaultOperations, runnerOperations, type RuntimeControlCommand } from "../adt-runtime/src/runtime-control-contract.ts";
 import type { RunDetail, WorkflowRun } from "./workflow-storage.ts";
@@ -50,8 +50,7 @@ export async function readWorkflowRunHistory(repositoryId: number, limit: number
   const runs = await (await getWorkflowRunStorage(repositoryId)).listRuns(limit);
   return { status: "available" as const, runs };
  } catch (error) {
-  if (error instanceof RuntimeManagementError && ["runtime_unavailable", "runtime_not_configured"].includes(error.message))
-   return { status: "unavailable" as const };
+  if (isRuntimeServiceFailure(error)) return { status: "unavailable" as const };
   throw error;
  }
 }

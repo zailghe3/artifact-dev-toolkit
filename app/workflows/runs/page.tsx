@@ -3,11 +3,12 @@ import { workflowRunName } from "@/lib/workflow-run-presentation";
 import { EmptyState, PageHeader } from "@/components/Ui";
 import { WorkflowRunsTable } from "@/components/WorkflowRunsTable";
 import { WorkflowServiceUnavailable } from "@/components/WorkflowServiceUnavailable";
+import { WORKFLOW_HISTORY_LIMIT } from "@/lib/runtime-service-client";
 import { readWorkflowRunHistory } from "@/lib/workflow-services";
 
 export default async function Page() {
   const { access } = await requireRepositoryAccess("/workflows/runs");
-  const history = await readWorkflowRunHistory(access.repositoryId, 50);
+  const history = await readWorkflowRunHistory(access.repositoryId, WORKFLOW_HISTORY_LIMIT);
   const header = <PageHeader title="Workflow runs" description="Review current and completed Workflow executions." />;
   if (history.status === "unavailable") return <>{header}<WorkflowServiceUnavailable retryPath="/workflows/runs" /></>;
   const { runs } = history;

@@ -38,6 +38,7 @@ export const managementDependenciesSchema = z.object({
 export const runtimeManagementDiagnosticSchema = z.object({
   schema: z.literal(RUNTIME_MANAGEMENT_DIAGNOSTIC_SCHEMA),
   management: managementObservationSchema,
+  workflowHistory: managementObservationSchema.optional(),
   dependencies: managementDependenciesSchema,
 }).strict();
 export type ManagementEvidence = z.infer<typeof managementEvidenceSchema>;

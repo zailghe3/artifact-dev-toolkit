@@ -3,6 +3,7 @@ import { EmptyState, PageHeader } from "@/components/Ui";
 import { WorkflowRunsTable, type WorkflowRunTableRow } from "@/components/WorkflowRunsTable";
 import { WorkflowServiceUnavailable } from "@/components/WorkflowServiceUnavailable";
 import { workflowRunName } from "@/lib/workflow-run-presentation";
+import { WORKFLOW_OVERVIEW_HISTORY_LIMIT } from "@/lib/runtime-service-client";
 import { readWorkflowRunHistory } from "@/lib/workflow-services";
 import type { WorkflowRun } from "@/lib/workflow-storage";
 
@@ -13,7 +14,7 @@ const row = (run: WorkflowRun): WorkflowRunTableRow => ({
 
 export default async function WorkflowsPage() {
   const { access } = await requireRepositoryAccess("/workflows");
-  const history = await readWorkflowRunHistory(access.repositoryId, 10);
+  const history = await readWorkflowRunHistory(access.repositoryId, WORKFLOW_OVERVIEW_HISTORY_LIMIT);
   const header = <PageHeader title="Workflows" description="Run durable, deterministic sequences of configured agents."
     action={{ href: "/workflows/definitions", label: "Start workflow" }} />;
   if (history.status === "unavailable") return <>{header}<WorkflowServiceUnavailable retryPath="/workflows" /></>;

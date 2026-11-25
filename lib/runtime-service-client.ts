@@ -3,11 +3,14 @@ import {
   managementDependenciesSchema, managementEvidenceSchema, runtimeControlErrorCodeSchema,
   RUNTIME_CONTROL_PATH, RUNTIME_CONTROL_BYTES, RUNTIME_MANAGEMENT_DIAGNOSTIC_SCHEMA,
   RUNTIME_MANAGEMENT_DIAGNOSTIC_TIMEOUT_MS, RUNTIME_REPOSITORY_BROKER_PATH,
-  type ManagementObservation, type RepositoryBrokerRequest, type RuntimeControlCommand, type RuntimeManagementDiagnostic,
+  type ManagementDependencies, type ManagementObservation, type RepositoryBrokerRequest,
+  type RuntimeControlCommand, type RuntimeManagementDiagnostic,
 } from "../adt-runtime/src/runtime-control-contract.ts";
 import { ADT_RUNTIME_PROTOCOL, signedHeaders, boundedJson, type ADTRuntimeConfiguration } from "./adt-runtime-client.ts";
 
 const encoder = new TextEncoder();
+export const WORKFLOW_OVERVIEW_HISTORY_LIMIT = 10;
+export const WORKFLOW_HISTORY_LIMIT = 50;
 
 function serviceTarget(base: string | undefined, secret: string | undefined, path: string) {
   if (!base || !secret || secret.length < 32) return;
@@ -45,17 +48,39 @@ const historySchema = z.array(z.object({
   currentStepId: z.string().optional(),
   workflowSnapshot: namedWorkflow.optional(),
   semanticWorkflowSnapshot: namedWorkflow.optional(),
-})).max(100);
+}));
+
+const runtimeServiceErrorCodes = {
+  not_configured: "runtime_not_configured",
+  unreachable: "runtime_transport_unavailable",
+  malformed_response: "runtime_response_invalid",
+  authentication_failed: "runtime_authentication_failed",
+  protocol_incompatible: "protocol_incompatible",
+  request_rejected: "runtime_request_rejected",
+  management_unavailable: "runtime_unavailable",
+  nonce_persistence_unavailable: "nonce_persistence_unavailable",
+  storage_query_unavailable: "storage_query_unavailable",
+  storage_data_invalid: "storage_data_invalid",
+} as const;
+type RuntimeServiceErrorCode = typeof runtimeServiceErrorCodes[keyof typeof runtimeServiceErrorCodes];
+type RuntimeManagementErrorCode = RuntimeServiceErrorCode | z.infer<typeof runtimeControlErrorCodeSchema> | "body_too_large";
+const serviceFailures = new Set<RuntimeManagementErrorCode>(Object.values(runtimeServiceErrorCodes));
 
 export class RuntimeManagementError extends Error {
+  readonly code: RuntimeManagementErrorCode;
   readonly observation: ManagementObservation;
-  constructor(message: string, observation: ManagementObservation) {
-    super(message);
+  constructor(code: RuntimeManagementErrorCode, observation: ManagementObservation) {
+    super(code);
+    this.code = code;
     this.observation = observation;
   }
 }
 
-export async function runtimeControl<T>(config: ADTRuntimeConfiguration, input: RuntimeControlCommand): Promise<T> {
+export function isRuntimeServiceFailure(error: unknown): error is RuntimeManagementError & { code: RuntimeServiceErrorCode } {
+  return error instanceof RuntimeManagementError && serviceFailures.has(error.code);
+}
+
+async function requestRuntimeControl<T>(config: ADTRuntimeConfiguration, input: RuntimeControlCommand, timeoutMs?: number) {
   const started = Date.now();
   const nonce = crypto.randomUUID().replaceAll("-", "");
   // The signed nonce binds the request. Its truncated hash is only a log correlation identifier.
@@ -70,8 +95,9 @@ export async function runtimeControl<T>(config: ADTRuntimeConfiguration, input: 
     console.info(JSON.stringify({ event: "worker_runtime_management_request", operation: input.operation, ...observation }));
     return observation;
   };
-  const fail = (stage: ManagementObservation["stage"], result: ManagementObservation["result"], code = "runtime_unavailable"): never => {
-    throw new RuntimeManagementError(code, observe(stage, result));
+  const fail = (stage: ManagementObservation["stage"], result: ManagementObservation["result"], code?: RuntimeManagementErrorCode): never => {
+    const fallback = runtimeServiceErrorCodes[result as keyof typeof runtimeServiceErrorCodes] ?? "runtime_unavailable";
+    throw new RuntimeManagementError(code ?? fallback, observe(stage, result));
   };
 
   const target = serviceTarget(config.baseUrl, config.authSecret, RUNTIME_CONTROL_PATH);
@@ -82,7 +108,7 @@ export async function runtimeControl<T>(config: ADTRuntimeConfiguration, input: 
   const diagnostic = input.operation === "runs.diagnose";
   let response: Response;
   try {
-    response = await post(target, headers, body, diagnostic ? RUNTIME_MANAGEMENT_DIAGNOSTIC_TIMEOUT_MS : input.operation === "provider" ? 120_000 : 30_000);
+    response = await post(target, headers, body, timeoutMs ?? (input.operation === "provider" ? 120_000 : 30_000));
   } catch {
     return fail("transport", "unreachable");
   }
@@ -102,26 +128,24 @@ export async function runtimeControl<T>(config: ADTRuntimeConfiguration, input: 
   if (wire.protocolVersion !== ADT_RUNTIME_PROTOCOL) return fail("protocol", "protocol_incompatible");
   const evidence = received.evidence = wire.management;
   if (response.ok && wire.ok === true && wire.result !== undefined) {
+    if (evidence && evidence.result !== "ok") return fail("response", "malformed_response");
     if (diagnostic) {
       const dependencies = managementDependenciesSchema.safeParse(wire.result);
       if (!dependencies.success || evidence?.result !== "ok" || !evidence.authenticated ||
         !evidence.protocolCompatible || !evidence.noncePersisted || !evidence.accepted || !evidence.dispatched)
         return fail("response", "malformed_response");
-      return {
-        schema: RUNTIME_MANAGEMENT_DIAGNOSTIC_SCHEMA, management: observe("complete", "ok"), dependencies: dependencies.data,
-      } satisfies RuntimeManagementDiagnostic as T;
+      return { result: dependencies.data as T, observation: observe("complete", "ok") };
     }
-    if (input.operation === "runs.list" && !historySchema.safeParse(wire.result).success) return fail("response", "malformed_response");
-    observe("complete", "ok");
-    return wire.result as T;
+    if (input.operation === "runs.list" && !historySchema.max(input.limit).safeParse(wire.result).success)
+      return fail("response", "malformed_response");
+    return { result: wire.result as T, observation: observe("complete", "ok") };
   }
   if (response.ok || wire.ok !== false) return fail("response", "malformed_response");
   const code = runtimeControlErrorCodeSchema.safeParse(wire.code ?? wire.error?.code).data;
   if (!code) return fail("response", "malformed_response");
   if (evidence) {
-    const serviceFailure = ["authentication_failed", "protocol_incompatible", "management_unavailable",
-      "nonce_persistence_unavailable", "storage_query_unavailable", "storage_data_invalid"].includes(evidence.result);
-    return fail(evidence.stage, evidence.result, serviceFailure && code !== "github_broker_unavailable" ? "runtime_unavailable" : code);
+    if (evidence.result === "ok") return fail("response", "malformed_response");
+    return fail(evidence.stage, evidence.result, code === "runtime_unavailable" ? undefined : code);
   }
   // Release 16 and earlier can return either error envelope. The HTTP status
   // and allowlisted code are observable. Nonce persistence and dispatch are unknown.
@@ -135,21 +159,40 @@ export async function runtimeControl<T>(config: ADTRuntimeConfiguration, input: 
   }
 }
 
+export async function runtimeControl<T>(config: ADTRuntimeConfiguration, input: RuntimeControlCommand): Promise<T> {
+  return (await requestRuntimeControl<T>(config, input)).result;
+}
+
 export async function diagnoseRuntimeManagement(
   config: ADTRuntimeConfiguration,
   scope: Extract<RuntimeControlCommand, { operation: "runs.diagnose" }>["scope"],
 ): Promise<RuntimeManagementDiagnostic> {
-  try {
-    return await runtimeControl(config, { operation: "runs.diagnose", repositoryId: scope.repositoryId, scope });
-  } catch (error) {
-    if (!(error instanceof RuntimeManagementError)) throw error;
-    const unknown = { status: "not_verified" as const };
-    return {
-      schema: RUNTIME_MANAGEMENT_DIAGNOSTIC_SCHEMA,
-      management: error.observation,
-      dependencies: { postgres: unknown, checkpoints: unknown, workflow: unknown, broker: unknown },
-    };
-  }
+  const { repositoryId } = scope;
+  const unknown = { status: "not_verified" as const };
+  const [probe, workflowHistory] = await Promise.all([
+    requestRuntimeControl<ManagementDependencies>(config, { operation: "runs.diagnose", repositoryId, scope },
+      RUNTIME_MANAGEMENT_DIAGNOSTIC_TIMEOUT_MS).catch(error => {
+      if (!(error instanceof RuntimeManagementError)) throw error;
+      return { observation: error.observation, result: { postgres: unknown, checkpoints: unknown, workflow: unknown, broker: unknown } };
+    }),
+    // Use the same limit and response validation as the full Workflow history page.
+    // Only the observation survives this read. No run data enters the report.
+    requestRuntimeControl(config, { operation: "runs.list", repositoryId, limit: WORKFLOW_HISTORY_LIMIT },
+      RUNTIME_MANAGEMENT_DIAGNOSTIC_TIMEOUT_MS).then(({ observation }) => observation, error => {
+      if (!(error instanceof RuntimeManagementError)) throw error;
+      return error.observation;
+    }),
+  ]);
+  const { result, elapsedMs, dispatched } = workflowHistory;
+  const storageFailure = result === "storage_query_unavailable" || result === "storage_data_invalid" ? result : undefined;
+  const status = result === "ok" ? "available"
+    : storageFailure || dispatched || probe.observation.result === "ok" ? "unavailable" : "not_verified";
+  return {
+    schema: RUNTIME_MANAGEMENT_DIAGNOSTIC_SCHEMA,
+    management: probe.observation,
+    workflowHistory,
+    dependencies: { ...probe.result, workflow: { status, elapsedMs, ...(storageFailure ? { result: storageFailure } : {}) } },
+  };
 }
 
 const credentialSchema = z.object({
