@@ -98,7 +98,7 @@ export function ADTRuntimeExecutionPathDiagnostic({ domain, report }: {
           <dt>Correlation ID</dt><dd className="break-all font-mono">{management.requestId}</dd>
           <dt>Stage</dt><dd>{management.stage}</dd>
           <dt>HTTP response</dt><dd>{management.httpStatus ?? "Not verified"}</dd>
-          <dt>Management endpoint</dt><dd>{management.authenticated !== null ? "Reached" :
+          <dt>Management endpoint</dt><dd>{management.accepted !== null ? "Reached" :
             management.result === "unreachable" ? "Unreachable" : "Not verified"}</dd>
           <dt>Authenticated</dt><dd>{outcome(management.authenticated)}</dd>
           <dt>Protocol compatible</dt><dd>{outcome(management.protocolCompatible)}</dd>
