@@ -37,8 +37,10 @@ test('Worker parses legacy management envelopes and rejects invalid or incompati
   assert.equal(unsafe.management.result, 'malformed_response');
   assert.doesNotMatch(JSON.stringify(unsafe), /private_token_marker|local-management-test-secret/);
   assert.doesNotMatch(JSON.stringify(logs.mock.calls.map(call => call.arguments)), /private_token_marker|local-management-test-secret/);
-  reply = { status: 200, body: { protocolVersion: 'adt-runtime-v1', ok: true, result: null } };
-  await assert.rejects(runtimeControl(config, list), error => error.observation.result === 'malformed_response');
+  for (const result of [null, [null], [{}]]) {
+    reply = { status: 200, body: { protocolVersion: 'adt-runtime-v1', ok: true, result } };
+    await assert.rejects(runtimeControl(config, list), error => error.observation.result === 'malformed_response');
+  }
 });
 
 test('a non-Runtime readiness response gives no authentication or protocol evidence', async () => {

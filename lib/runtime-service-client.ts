@@ -34,6 +34,18 @@ const wireSchema = z.object({
   error: z.object({ code: z.unknown() }).optional(),
   management: managementEvidenceSchema.optional(),
 });
+const namedWorkflow = z.object({ name: z.string() });
+const historySchema = z.array(z.object({
+  id: z.string().min(1),
+  workflowId: z.string().min(1),
+  status: z.enum(["queued", "running", "waiting_approval", "cancelling", "succeeded", "failed", "cancelled"]),
+  createdAt: z.string(),
+  startedAt: z.string().optional(),
+  completedAt: z.string().optional(),
+  currentStepId: z.string().optional(),
+  workflowSnapshot: namedWorkflow.optional(),
+  semanticWorkflowSnapshot: namedWorkflow.optional(),
+})).max(100);
 
 export class RuntimeManagementError extends Error {
   readonly observation: ManagementObservation;
@@ -99,7 +111,7 @@ export async function runtimeControl<T>(config: ADTRuntimeConfiguration, input: 
         schema: RUNTIME_MANAGEMENT_DIAGNOSTIC_SCHEMA, management: observe("complete", "ok"), dependencies: dependencies.data,
       } satisfies RuntimeManagementDiagnostic as T;
     }
-    if (input.operation === "runs.list" && !Array.isArray(wire.result)) return fail("response", "malformed_response");
+    if (input.operation === "runs.list" && !historySchema.safeParse(wire.result).success) return fail("response", "malformed_response");
     observe("complete", "ok");
     return wire.result as T;
   }
