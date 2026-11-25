@@ -63,3 +63,19 @@ test('managed publish propagates only the classified GitHub pull request error',
   assert.equal(h.db.writes.length,0);
  }
 });
+
+test('managed publish preserves Runner service access failures without consulting the response body',async()=>{
+ for(const [status,code] of [[401,'runner_unauthorized'],[403,'access_denied']]){
+  const h=harness({changed:true});
+  delete h.input.runnerGateway;
+  h.input.fetcher=async url=>{
+   assert.equal(url.pathname,'/v1/repositories/publish');
+   return new Response('private Runner response',{status});
+  };
+  await assert.rejects(publishManagedPullRequest(h.input),error=>
+   error.code===code&&error.transportDiagnostics.httpStatus===status&&!error.ambiguous);
+  assert.deepEqual(h.capabilities,['write']);
+  assert.equal(h.prCalls.length,0);
+  assert.equal(h.db.writes.length,0);
+ }
+});

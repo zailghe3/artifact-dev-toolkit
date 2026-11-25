@@ -136,6 +136,8 @@ test('Runtime management preserves known operation codes and keeps internal fail
     [release, 'runner_unauthorized', 502],
     [release, 'runner_update_required', 409],
     [release, 'invalid_response', 502],
+    [publish, 'runner_unauthorized', 502],
+    [publish, 'access_denied', 502],
     [publish, 'operation_unavailable', 409],
     [publish, 'request_too_large', 413],
     [publish, 'not_found', 404],
