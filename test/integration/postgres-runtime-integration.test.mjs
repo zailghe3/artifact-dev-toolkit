@@ -28,6 +28,7 @@ const connectionString = process.env.ADT_TEST_POSTGRES_URL;
 
 async function verifyProductionStartup(t, keyPath, pool) {
   let brokerUp = true;
+  let runnerReply;
   const runner = createHttpServer((request, response) => {
     if (request.url === '/api/runtime-repository-credential') {
       request.resume();
@@ -38,6 +39,10 @@ async function verifyProductionStartup(t, keyPath, pool) {
         .end(JSON.stringify({ protocolVersion: 'adt-runtime-v1', ...value }));
     }
     if (request.headers['x-codex-runner-secret'] !== 'fixture-runner-secret') return response.writeHead(401).end();
+    if (request.url === '/v1/capabilities' && runnerReply) {
+      return response.writeHead(runnerReply.status, { 'content-type': 'application/json', ...runnerReply.headers })
+        .end(JSON.stringify(runnerReply.body));
+    }
     const value = request.url === '/v1/capabilities'
       ? { protocolVersion: 1, runnerVersion: 'a'.repeat(40), runnerRevision: 19, codexVersion: '0.159.3',
           codexAvailable: false, deviceAuth: false, jobExecution: true }
@@ -106,6 +111,33 @@ async function verifyProductionStartup(t, keyPath, pool) {
     }
     assert.equal(ready, true, diagnostic);
     assert.equal((await readiness()).readinessAccepted, true);
+    const vault = (method, ...args) => runtimeControl(config, {
+      operation: 'vault', repositoryId: scope.repositoryId, method, arguments: args,
+    });
+    await assert.rejects(vault('hasCredential', 'private-invalid-vault-id'), error =>
+      error.code === 'vault_secret_id_invalid' && error.observation.httpStatus === 400 &&
+      error.observation.result === 'operation_rejected' && error.observation.dispatched &&
+      /^[\w-]{32}$/.test(error.observation.requestId));
+    const secret = await vault('create', 'private-vault-value');
+    try {
+      assert.equal(await vault('hasCredential', secret), true);
+      await pool.query('UPDATE provider_credential_vault SET encrypted_credential=$1 WHERE secret_id=$2',
+        ['private-corrupt-ciphertext', secret]);
+      await assert.rejects(vault('hasCredential', secret), error =>
+        error.code === 'runtime_unavailable' && error.observation.httpStatus === 503);
+    } finally {
+      await vault('delete', secret);
+    }
+
+    for (const [connectionType, configuration, code] of [
+      ['openai-responses', { unexpected: true }, 'provider_configuration_invalid'],
+      ['ollama-chat', { baseUrl: 'private-invalid-endpoint', authMode: 'none' }, 'ollama_configuration_invalid'],
+    ]) {
+      await assert.rejects(runtimeControl(config, { operation: 'provider', repositoryId: scope.repositoryId,
+        request: { action: 'models', connectionType, configuration, credentials: { source: 'input' } },
+      }), error => error.code === code && error.observation.httpStatus === 422 && error.observation.result === 'operation_rejected');
+    }
+
     assert.deepEqual(await runtimeControl(config, list), []);
     const good = await diagnoseRuntimeManagement(config, scope);
     assert.equal(good.management.result, 'ok');
@@ -127,6 +159,20 @@ async function verifyProductionStartup(t, keyPath, pool) {
     const runnerAuth = await runtimeControl(config, { operation: 'runner', repositoryId: scope.repositoryId, method: 'authStatus', arguments: [] });
     assert.equal(runnerCaps.result.codexAvailable, false);
     assert.equal(runnerAuth.result.connected, true);
+    for (const [status, body, headers, code, managementStatus] of [
+      [401, {}, {}, 'runner_unauthorized', 502],
+      [403, {}, { 'cf-ray': 'fixture' }, 'access_denied', 502],
+      [503, {}, {}, 'runner_unavailable', 503],
+      [200, {}, {}, 'invalid_response', 502],
+      [200, { protocolVersion: 2, runnerVersion: 'a'.repeat(40), codexAvailable: false, deviceAuth: false, jobExecution: true },
+        {}, 'runner_update_required', 409],
+    ]) {
+      runnerReply = { status, body, headers };
+      await assert.rejects(runtimeControl(config, { operation: 'runner.release' }), error =>
+        error.code === code && error.observation.httpStatus === managementStatus &&
+        error.observation.result === 'operation_rejected');
+    }
+    runnerReply = undefined;
     await assert.rejects(runtimeControl(config, { operation: 'runs.diagnose', repositoryId: 7, scope }), error =>
       error.message === 'permission_denied' && error.observation.httpStatus === 403 && error.observation.dispatched === true);
 
@@ -217,6 +263,7 @@ async function verifyProductionStartup(t, keyPath, pool) {
     assert.match(diagnostic, new RegExp(`"requestId":"${good.management.requestId}"`));
     assert.match(diagnostic, new RegExp(`"requestId":"${good.workflowHistory.requestId}"`));
     assert.doesNotMatch(diagnostic, /SELECT|permission denied for table|fixture-runner-secret|fixture-client-secret|fixture-github-token|private upstream prompt|private malformed snapshot|SENSITIVE_INPUT/);
+    assert.doesNotMatch(diagnostic, /private-invalid-vault-id|private-vault-value|private-corrupt-ciphertext|private-invalid-endpoint|vault_decryption_failed/);
   } finally {
     proxy.close();
     child.kill('SIGTERM');
@@ -484,6 +531,9 @@ test('signed launches run inside PostgreSQL-backed Runtime and approvals survive
   t.after(async () => { await application.stop(); await runtime.close(); });
   env.ADT_RUNTIME_BASE_URL = `http://127.0.0.1:${runtime.server.address().port}`;
   const config = { baseUrl: env.ADT_RUNTIME_BASE_URL, authSecret };
+  await assert.rejects(runtimeControl(config, { operation: 'runner.release' }), error =>
+    error.code === 'configuration_missing' && error.observation.httpStatus === 503 &&
+    error.observation.result === 'operation_rejected');
   const { runtimeProviderClient, runtimeProviderConnectionStore } = await import('../../lib/runtime-provider-client.ts');
   const { resolveWorkflowRunConnectionSnapshot } = await import('../../lib/workflow-run-connection-snapshots.ts');
   const { createWorkIqPrivateBundle, parseWorkIqPrivateBundle, serializeWorkIqPrivateBundle } = await import('../../lib/work-iq-auth.ts');

@@ -1,5 +1,6 @@
 import {createHash,createPublicKey} from "node:crypto";
-import {managementDependenciesSchema,runtimeControlSchema,runtimeControlErrorCodeSchema,RUNTIME_CONTROL_PATH,RUNTIME_CONTROL_BYTES,
+import {managementDependenciesSchema,runtimeControlSchema,runtimeControlErrorCodeSchema,runtimeControlOperationErrorResponse,
+ RUNTIME_CONTROL_PATH,RUNTIME_CONTROL_BYTES,
  type ManagementEvidence,type RuntimeControlCommand} from "./runtime-control-contract.js";
 import type {RuntimeRootKey} from "./runtime-key.js";
 import type {Pool} from "./postgres.js";
@@ -101,7 +102,8 @@ export async function createRuntimeServer(options:Options){
     }
     const code=runtimeControlErrorCodeSchema.safeParse(message).data??"runtime_unavailable";
     const unavailable=code==="runtime_unavailable"||code==="github_broker_unavailable";
-    const httpStatus=code==="permission_denied"?403:code==="run_not_found"?404:unavailable?503:409;
+    const httpStatus=runtimeControlOperationErrorResponse(code)?.status??
+     (code==="permission_denied"?403:code==="run_not_found"?404:unavailable?503:409);
     return finish(httpStatus,"dispatch",unavailable?"management_unavailable":"operation_rejected",{ok:false,code});
    }
   }

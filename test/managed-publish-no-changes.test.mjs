@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {publishManagedPullRequest,resolvePriorManagedPublication} from '../lib/managed-pull-request-publication.ts';
+import {GitHubPullRequestClient} from '../lib/github-pull-requests.ts';
 
 const runId='123e4567-e89b-42d3-a456-426614174000',artifactContext={repositoryId:1,installationId:2,owner:'zailghe3',repository:'fpo-artifacts',branch:'main'},context={environmentKey:'managed',managed:true,repositoryId:42,installationId:7,owner:'example',repository:'project',baseBranch:'main'},access={owner:'zailghe3',repo:'fpo-artifacts',repositoryId:1,installationId:2};
 function detail(continuation){return{run:{id:runId,repositoryContext:artifactContext,managedCodeRepositoryContexts:{agent:context},agentSnapshots:{agent:{adapterOptions:{environmentKey:'managed',managedGit:true,...(continuation?{continueFrom:continuation}:{})}}},connectionSnapshots:{connection:{adapter:'codex-runner'}}},attempts:[{stepId:'source',status:'succeeded',iteration:1,providerTaskId:'runner-job',agentId:'agent',connectionKey:'connection'}]}}
@@ -37,4 +38,28 @@ test('one Publish association follows the latest loop visit for recovery and con
  const {reconcileManagedPullRequestAssociation}=await import('../lib/workflow-worker-runtime.ts'),recovered=await reconcileManagedPullRequestAssociation(db,second.detail,'publish-loop','b');assert.equal(JSON.parse(recovered.outputText).commitSha,commits[1]);assert.equal(runnerCalls.length,2);
  const downstream={runId,stepId:'c',graphActivationId:'visit-c',status:'pending',iteration:1,attempt:1,agentId:'agent',connectionKey:'connection',providerPollCount:0,conversationSource:identity(second.current)},continuation=await resolvePriorManagedPublication({detail:{run:baseRun,attempts:[...attempts,downstream]},attempt:downstream,context,database:db});assert.equal(continuation.runner_job_id,jobs[1]);assert.equal(continuation.head_branch,first.result.branch);assert.equal(continuation.pull_request_number,19);
  await publish(3);const latest=table.get(`${runId}:publish-loop`);assert.equal(latest.runner_job_id,jobs[2]);assert.equal(latest.repository_task_id,runnerCalls[2].taskId);assert.equal(latest.head_branch,first.result.branch);assert.equal(latest.pull_request_number,19);assert.equal(latest.commit_sha,commits[2]);assert.equal(latest.publication_created,0);assert.equal(prCalls.length,2)
+});
+
+test('managed publish distinguishes a missing prior publication from a missing bound conversation',async()=>{
+ const priorMissing=harness({changed:true,continuation:true});
+ priorMissing.input.database=database();
+ await assert.rejects(publishManagedPullRequest(priorMissing.input),{message:'invalid_managed_continuation'});
+
+ const conversationMissing=harness({changed:true});
+ conversationMissing.input.detail.attempts[0].conversationSource={runId,stepId:'missing',iteration:1,attempt:1};
+ await assert.rejects(publishManagedPullRequest(conversationMissing.input),{message:'conversation_unavailable'});
+ for(const h of [priorMissing,conversationMissing]){
+  assert.deepEqual(h.capabilities,[]);
+  assert.equal(h.runnerCalls.length,0);
+  assert.equal(h.prCalls.length,0);
+ }
+});
+
+test('managed publish propagates only the classified GitHub pull request error',async()=>{
+ for(const [status,category] of [[403,'permission_denied'],[404,'not_found'],[409,'conflict'],[429,'rate_limited'],[503,'temporarily_unavailable'],[200,'malformed_response']]){
+  const h=harness({changed:true});
+  h.input.pullRequestClient=new GitHubPullRequestClient(async()=>new Response('private upstream pull request response',{status}));
+  await assert.rejects(publishManagedPullRequest(h.input),{message:`github_pull_request_${category}`});
+  assert.equal(h.db.writes.length,0);
+ }
 });

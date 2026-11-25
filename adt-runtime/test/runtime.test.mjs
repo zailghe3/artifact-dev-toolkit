@@ -1,5 +1,6 @@
 import expectedRelease from '../release.json' with {type:'json'};
 import {AGENT_SECURITY_PATH} from "../dist/agent-contract.js";
+import {RUNTIME_CONTROL_PATH} from "../dist/runtime-control-contract.js";
 import test from 'node:test';import {createServer as createHttpServer} from 'node:http';import assert from 'node:assert/strict';import {generateKeyPairSync,createPublicKey,webcrypto} from 'node:crypto';
 import {access} from 'node:fs/promises';import {isAbsolute} from 'node:path';
 import {Agent,ModelRefusalError,ModelTimeoutError,Runner} from '@openai/agents';import {ScriptedModel,assistantMessage,functionCall} from '@openai/agents/testing';import OpenAI from 'openai';
@@ -106,3 +107,81 @@ test('Security Profile SDK failure elapsed time covers both commissioning stages
 test('Alert and HITL SDK modes never enter secured provider execution',async t=>{for(const [mode,blockTimeout] of [['alert',()=>0],['hitl',()=>null]])await t.test(mode,async()=>{let providers=0;const lifecycle=securityLifecycle('allow');lifecycle.runtime.getWebSocketClient().blockTimeout=blockTimeout;const f=await fixtureWith({adrianRuntime:lifecycle.runtime,factories:{provider:()=>{providers++;return{getModel:async()=>new ScriptedModel([[assistantMessage('must not run')]])}}}});t.after(()=>f.runtime.close());const body=await securedBody({...request,requestId:`mode-${mode}`,idempotencyKey:`run:mode-${mode}:1:1`}),response=await fetch(f.base+AGENT_SECURITY_PATH,{method:'POST',headers:headers('POST',AGENT_SECURITY_PATH,body,`mode-${mode}-nonce-value`),body}),wire=await response.json();assert.equal(wire.error.category,'security_unavailable');assert.notEqual(wire.result?.outcome,'allow');assert.equal(providers,0)})});
 
 test('commissioning cleanup failures expose neither credentials nor raw upstream material',async t=>{const events=[],f=await fixtureWith({logger:event=>events.push(event),adrianProbe:async()=>({ok:false,stage:'upgrade',safeCode:'adrian_ws_upgrade_rejected',httpStatus:503,elapsedMs:1})});t.after(()=>f.runtime.close());const body=await securityTestBody('secret-safety-cleanup'),response=await fetch(f.base+SECURITY_TEST_PATH,{method:'POST',headers:headers('POST',SECURITY_TEST_PATH,body,'secret-safety-nonce'),body}),text=await response.text(),combined=text+JSON.stringify(events);assert.equal(response.status,503);assert.doesNotMatch(combined,/adrian-secret|Authorization|wrappedKey|ciphertext|raw payload|private close reason|private exception/)});
+
+test('Runtime management preserves known operation codes and keeps internal failures generic', async t => {
+  const vault = { operation: 'vault', repositoryId: 1, method: 'hasCredential', arguments: ['private-credential-reference'] };
+  const models = { operation: 'provider', repositoryId: 1, request: {
+    action: 'models', connectionType: 'openai-responses', credentials: { source: 'input' },
+  } };
+  const run = { repositoryId: 1, runId: crypto.randomUUID() };
+  const tools = { operation: 'runs.tools', ...run, actor: 'reviewer' };
+  const publish = { operation: 'runs.publish', ...run, stepId: 'agent', title: 'Review', body: 'private workflow input', draft: true };
+  const release = { operation: 'runner.release' };
+  const cases = [
+    [vault, 'vault_secret_id_invalid', 400],
+    [models, 'provider_configuration_invalid', 422],
+    [models, 'ollama_configuration_invalid', 422],
+    [tools, 'definition_repository_unavailable', 503],
+    [publish, 'invalid_managed_continuation', 409],
+    [publish, 'conversation_unavailable', 409],
+    [publish, 'github_pull_request_permission_denied', 502],
+    [publish, 'github_pull_request_not_found', 404],
+    [publish, 'github_pull_request_conflict', 409],
+    [publish, 'github_pull_request_rate_limited', 429],
+    [publish, 'github_pull_request_temporarily_unavailable', 503],
+    [publish, 'github_pull_request_malformed_response', 502],
+    [release, 'configuration_missing', 503],
+    [release, 'runner_unavailable', 503],
+    [release, 'access_denied', 502],
+    [release, 'runner_unauthorized', 502],
+    [release, 'runner_update_required', 409],
+    [release, 'invalid_response', 502],
+    [publish, 'operation_unavailable', 409],
+    [publish, 'request_too_large', 413],
+    [publish, 'not_found', 404],
+    [publish, 'managed_environment_unavailable', 409],
+    [publish, 'managed_task_not_found', 404],
+    [publish, 'managed_repository_identity_mismatch', 409],
+    [publish, 'repository_state_invalid', 409],
+    [publish, 'workspace_outside_root', 400],
+    [publish, 'repository_operation_failed', 409],
+    [publish, 'repository_operation_timeout', 503],
+    [publish, 'repository_manager_unavailable', 503],
+    [publish, 'repository_manager_invalid_response', 502],
+    [publish, 'repository_publish_result_unknown', 503],
+    [tools, 'permission_denied', 403],
+    [tools, 'run_not_found', 404],
+  ];
+  let failure;
+  const logs = [];
+  const f = await fixtureWith({
+    control: async () => { throw new Error(failure); },
+    recordManagementNonce: async () => true,
+    logger: event => logs.push(event),
+  });
+  t.after(() => f.runtime.close());
+  async function check(command, expected, status, classification) {
+    const body = JSON.stringify(command);
+    const nonce = crypto.randomUUID();
+    const signed = headers('POST', RUNTIME_CONTROL_PATH, body, nonce);
+    const response = await fetch(f.base + RUNTIME_CONTROL_PATH, { method: 'POST', headers: signed, body });
+    assert.equal(response.status, status, failure);
+    const wire = await response.json();
+    assert.equal(wire.code, expected, failure);
+    assert.equal(wire.ok, false);
+    assert.equal(wire.management.stage, 'dispatch');
+    assert.equal(wire.management.result, classification);
+    assert.equal(wire.management.dispatched, true);
+    assert.equal(wire.management.requestId, sha256(nonce).slice(0, 32));
+    assert.doesNotMatch(JSON.stringify(wire), /private-credential-reference|private workflow input|SELECT|internal_provider_marker/);
+  }
+  for (const [command, code, status] of cases) {
+    failure = code;
+    await check(command, code, status, 'operation_rejected');
+  }
+  for (failure of ['internal_provider_marker', 'SELECT private data with credential', 'vault_decryption_failed',
+    'conversation_source_conflict', 'provider_task_conflict', 'diagnostic_mutation_conflict', 'agent_activation_conflict', 'agent_tool_budget_exceeded']) {
+    await check(publish, 'runtime_unavailable', 503, 'management_unavailable');
+  }
+  assert.doesNotMatch(JSON.stringify(logs), /private-credential-reference|private workflow input|SELECT|internal_provider_marker/);
+});

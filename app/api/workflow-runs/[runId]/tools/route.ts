@@ -25,7 +25,7 @@ export async function POST(request:Request,{params}:{params:Promise<{runId:strin
   }catch(error){
     const code=error instanceof Error?error.message:"";
     const forbidden=code==="permission_denied";
-    if(isRuntimeServiceFailure(error)||code==="runtime_unavailable"||code==="run_not_found")return workflowError(error);
+    if(isRuntimeServiceFailure(error)||code==="runtime_unavailable"||code==="run_not_found"||code==="definition_repository_unavailable")return workflowError(error);
     return Response.json({error:forbidden?"This tool action is not authorised.":"The tool decision is invalid, expired or no longer pending."},{status:forbidden?403:409,headers:noStoreHeaders});
   }
 }

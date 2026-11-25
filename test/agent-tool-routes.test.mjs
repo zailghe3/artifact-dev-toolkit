@@ -5,14 +5,20 @@ import {fixture} from './helpers/agent-tool-fixture.mjs';
 import {operateRuntimeTools} from '../lib/runtime-tool-decisions.ts';
 import {AgentJournal} from '../lib/agent-journal.ts';
 import {D1McpPolicyAuthority} from '../lib/mcp-policy-authority.ts';
+import {GitHubToolDefinitionRepository} from '../lib/tool-definition-repository.ts';
 const require=installTsxHook(),Module=require('node:module'),original=Module._load;let context;
+const {RuntimeManagementError}=require('../lib/runtime-service-client.ts');
 Module._load=function(request,...rest){if(request==='@/lib/auth')return{requireApiRepositoryAccess:async()=>context.authorized?{access:{repositoryId:42},session:{login:context.actor}}:new Response(null,{status:401})};if(request==='@/lib/workflow-services')return{workflowRuntimeCommand:async command=>{
  assert.equal(command.operation,'runs.tools');assert.equal(command.repositoryId,42);assert.equal(command.actor,context.actor);
  if(command.repositoryId!==context.repositoryId||command.runId!==context.f.options.runId)throw new Error('run_not_found');
  const env={ADT_TOOL_OPERATORS:'operator',ADT_TOOL_APPROVERS:context.approvers??'reviewer'};
- return operateRuntimeTools({...command,journal:new AgentJournal(context.f.db,undefined,env),repository:{get:async()=>undefined},
+ return operateRuntimeTools({...command,journal:new AgentJournal(context.f.db,undefined,env),repository:context.repository??{get:async()=>undefined},
   vault:context.f.vault,policies:new D1McpPolicyAuthority(context.f.db),
-  env,wake:async()=>{context.wakes++}});
+  env,wake:async()=>{context.wakes++}}).catch(error=>{
+  if(error.message!=='definition_repository_unavailable')throw error;
+  throw new RuntimeManagementError(error.message,{requestId:'x'.repeat(32),stage:'dispatch',result:'operation_rejected',
+   httpStatus:503,authenticated:true,protocolCompatible:true,noncePersisted:true,accepted:true,dispatched:true,elapsedMs:1});
+ });
 }};return original.call(this,request,...rest)};
 let route;try{route=require('../app/api/workflow-runs/[runId]/tools/route.ts')}finally{Module._load=original}
 const request=(body,origin='https://adt.example')=>new Request('https://adt.example/api/workflow-runs/id/tools',{method:'POST',headers:{origin,'content-type':'application/json'},body:JSON.stringify(body)});
@@ -35,6 +41,19 @@ test('an unverified live MCP authority exposes rejection only and persists an id
  const body={action:'approval',approvalId:approval.id,decisionId:crypto.randomUUID(),decision:'approved'};assert.equal((await route.POST(request(body),params)).status,409);assert.equal((await f.approval()).approval.status,'pending');
  body.decision='rejected';assert.equal((await route.POST(request(body),params)).status,200);assert.equal((await route.POST(request(body),params)).status,200);assert.equal((await f.approval()).approval.status,'rejected');assert.equal(f.executions,0);
  assert.equal((await route.POST(request({...body,decision:'approved'}),params)).status,409);
+});
+
+test('a GitHub definition outage keeps an MCP approval pending and returns a safe 503',async t=>{
+ const{f,approval,call,params}=await pending(t);
+ await f.db.prepare("UPDATE agent_tool_invocations SET tool_key='mcp:docs:search',frozen_json=? WHERE id=?")
+  .bind(JSON.stringify({serverId:'docs'}),call.id).run();
+ context.repository=new GitHubToolDefinitionRepository(async()=>new Response('private upstream details',{status:503}));
+ const response=await route.POST(request({action:'approval',approvalId:approval.id,decisionId:crypto.randomUUID(),decision:'approved'}),params);
+ assert.equal(response.status,503);
+ assert.deepEqual(await response.json(),{code:'definition_repository_unavailable',error:'The definition repository is temporarily unavailable.'});
+ assert.equal((await f.approval()).approval.status,'pending');
+ assert.equal(context.wakes,0);
+ assert.equal(f.executions,0);
 });
 
 for(const boundary of ['delegation','frozen_reviewers','expired','cancelled','generation','wrong_run'])test(`safe rejection after authority loss still enforces ${boundary}`,async t=>{
