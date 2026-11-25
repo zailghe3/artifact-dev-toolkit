@@ -41,16 +41,19 @@ const fixture = mode => port => [process.execPath, '--input-type=module', '-e', 
     if (${JSON.stringify(mode)} === 'hung-request') return;
     if (${JSON.stringify(mode)} === '500') {console.error('Unexpected loadManifest(/.next/server/preview-props.json) call!');res.writeHead(500);res.end();return;}
     if (${JSON.stringify(mode)} === 'arbitrary') {res.end('ok');return;}
-    if(req.url.startsWith('/api/advisor/knowledge')){res.writeHead(401,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify({error:'Authentication required'}));return;}
+    if(req.url.startsWith('/api/advisor/knowledge')||req.url.startsWith('/api/workflow-runs?')||req.url.startsWith('/api/workflow-connections/')){
+      const allowed=${JSON.stringify(mode)}==='diagnostics-exposed'&&req.url.startsWith('/api/workflow-connections/');
+      res.writeHead(allowed?200:401,{'content-type':'application/json','cache-control':'no-store'});res.end('{}');return;
+    }
     if (req.url.startsWith('/auth/')) {
       res.writeHead(307, {location:'http://127.0.0.1:${port}/sign-in?error=configuration&returnTo=%2Fsmoke','cache-control':'no-store'});res.end();
     } else {res.writeHead(200, {'content-type':'text/html'});res.end('Sign in required <a href="/auth/github/start">GitHub</a>');}
   }).listen(${port},'127.0.0.1');
 `];
-test('smoke executes and validates both ADT route contracts', async () => {
+test('smoke executes the ADT sign-in and protected route checks', async () => {
   assert.deepEqual(await smokeWorker({command:fixture('ok'),startupMs:5000}), {ok:true});
 });
-for (const [mode, pattern] of [['500',/HTTP 500/],['arbitrary',/Unexpected ADT response/],['crash',/process stopped/],['timeout',/deadline/],['hung-request',/deadline/]]) {
+for (const [mode, pattern] of [['500',/HTTP 500/],['arbitrary',/Unexpected ADT response/],['crash',/process stopped/],['timeout',/deadline/],['hung-request',/deadline/],['diagnostics-exposed',/Workflow diagnostics session boundary failed/]]) {
   test(`smoke rejects ${mode} and cleans up`, async () => {
     await assert.rejects(smokeWorker({command:fixture(mode),startupMs:['timeout','hung-request'].includes(mode)?1000:5000,requestMs:1000}),pattern);
   });
