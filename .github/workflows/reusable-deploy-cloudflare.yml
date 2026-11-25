@@ -139,7 +139,9 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
-          cache-dependency-path: package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            adt-runtime/package-lock.json
 
       - name: Install canonical npm
         run: npm install -g "$(node -p 'require("./package.json").packageManager')"
@@ -149,7 +151,12 @@ jobs:
           echo "Node.js $(node --version)" | tee -a "$GITHUB_STEP_SUMMARY"
           echo "npm $(npm --version)" | tee -a "$GITHUB_STEP_SUMMARY"
 
-      - name: Install dependencies
+      - name: Install ADT Runtime dependencies for Worker type checking
+        if: inputs.deploy_worker
+        working-directory: adt-runtime
+        run: npm ci
+
+      - name: Install root dependencies
         run: npm ci
 
       - name: Generate deployment metadata environment

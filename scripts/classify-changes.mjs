@@ -44,7 +44,8 @@ export function isLockfileRepairRelevantPath(path) {
 }
 
 function isWorkerDeployPath(path) {
-  return isAppBuildPath(normalize(path));
+  const p = normalize(path);
+  return isAppBuildPath(p) || p === '.github/workflows/reusable-deploy-cloudflare.yml';
 }
 
 function isMigrationPath(path) {
@@ -135,7 +136,7 @@ export function classifyChanges(files) {
 
   const documentationRequestOnly = allPaths.length > 0 && allPaths.every(isDocumentationOrRequestPath);
   const verifyRoot = allPaths.some(isRootVerificationPath);
-  const verifyApp = allPaths.some(path => isAppBuildPath(path) || path === 'scripts/smoke-test-worker.mjs');
+  const verifyApp = allPaths.some(path => isWorkerDeployPath(path) || path === 'scripts/smoke-test-worker.mjs');
   const verifyRuntime = allPaths.some(isRuntimePath);
   const verifyRunner = allPaths.some(isRunnerPath);
   const verifyAdrian = allPaths.some(isAdrianPath);

@@ -20,7 +20,7 @@ ADT Runtime owns Workflow execution and operational state for Artifact Dev Toolk
 - Do not provision provider API keys, Cloudflare credentials, GitHub App credentials, artifact-repository credentials, Codex credentials, Portainer API credentials, Docker access, or tunnel credentials to Runtime.
 - Trusted CI publishes immutable Git-SHA tags plus `latest`; deployment remains operator-owned.
 
-Create the external Docker secrets listed in the [cutover guide](../docs/runtime-postgresql.md).
+Create the external Docker secrets listed in the [PostgreSQL operations guide](../docs/runtime-postgresql.md).
 
 | Secret | Content |
 | --- | --- |
@@ -47,7 +47,7 @@ The first rollout requires an operator to deploy the new Runtime image and mount
 
 ## PostgreSQL deployment
 
-Runtime requires PostgreSQL and initializes the operational schema before it reports ready. Use the [Runtime-only stack](docker-stack.existing-postgres.example.yml) with an existing service, or the [standalone stack](docker-stack.example.yml) for a new private PostgreSQL service. Both use a separate Runtime key export. Runtime provisions both its vault and wrapping keys. Follow the [cutover and restore guide](../docs/runtime-postgresql.md) before deploying the Worker.
+Runtime requires PostgreSQL and initializes the operational schema before it reports ready. Use the [Runtime-only stack](docker-stack.existing-postgres.example.yml) with an existing service, or the [standalone stack](docker-stack.example.yml) for a new private PostgreSQL service. Both use a separate Runtime key export. Runtime provisions both its vault and wrapping keys. See the [PostgreSQL operations guide](../docs/runtime-postgresql.md) for readiness checks and recovery.
 
 ## Cloudflare configuration
 
@@ -105,8 +105,6 @@ For a journaled Agent failure, use the inspector's client request ID to find the
 - Readiness reports both facts. The Worker compares release generations for freshness and never infers freshness from Git history, SHA equality, GitHub, or Docker Hub.
 - Runtime image-input changes must increment `releaseRevision` in the same pull request; CI validates this policy.
 
-The first PostgreSQL release publishes a verified Runtime image while automatic Worker deployment waits for the operator cutover. Once the operator enables `ADT_POSTGRES_CUTOVER_READY`, the normal main lifecycle resumes. See the [cutover guide](../docs/runtime-postgresql.md).
-
 ## Durable Agent tool contract
 
 - Release 10 advertises `agent:progress-v1`. `/v1/agents/progress` performs one model turn without tool credentials or execution authority. `/v1/agents/security` reconstructs exact-call Adrian context. `/v1/agents/tool` performs one exact admitted MCP invocation.
@@ -115,4 +113,4 @@ The first PostgreSQL release publishes a verified Runtime image while automatic 
 - Runtime persists proposals, approvals, budget counters, results and conversations in PostgreSQL.
 - MCP uncertainty crosses the wire explicitly. Missing results are not interpreted as non-execution.
 - Admitted tool requests carry an absolute execution deadline. MCP bounds the complete operation, preserves transport cancellation and rejects expired dispatch grants before network access.
-- See [Agent tools and recovery](../docs/agent-tools-and-recovery.md) for the complete state machine, provider/schema limits, roles, journal inspection, reconciliation and required coordinated cutover. Follow the PostgreSQL cutover guide for the initial drain and deployment.
+- See [Agent tools and recovery](../docs/agent-tools-and-recovery.md) for the complete state machine, provider and schema limits, roles, journal inspection and reconciliation.

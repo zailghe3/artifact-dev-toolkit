@@ -163,6 +163,18 @@ test('root application build inputs remain Cloudflare Worker deployment inputs',
   assert.equal(classifyChanges([{ filename: 'package.json' }]).verify_integration, true);
 });
 
+test('changes to the Worker deployment workflow exercise the build and deploy through the normal lifecycle', () => {
+  const result = classifyChanges([{ filename: '.github/workflows/reusable-deploy-cloudflare.yml' }]);
+  assert.equal(result.verify_root, true);
+  assert.equal(result.verify_app, true);
+  assert.equal(result.deploy_worker, true);
+  assert.equal(result.apply_migrations, true);
+  assert.equal(result.deploy_cloudflare, true);
+  for (const key of ['verify_runtime', 'verify_integration', 'publish_runtime', 'publish_runner', 'publish_adrian']) {
+    assert.equal(result[key], false, key);
+  }
+});
+
 test('mixed control-plane and Runtime source requires the shared integration gate and both mutations', () => {
   const result = classifyChanges([
     { filename: 'lib/adt-runtime-client.ts' },

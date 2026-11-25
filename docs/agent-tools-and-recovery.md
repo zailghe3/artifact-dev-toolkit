@@ -162,7 +162,7 @@ The security tests exercise real Adrian SDK/protobuf WebSocket handling against 
 
 Run the following against a non-production deployment for **each** provider/model/endpoint combination before commissioning it:
 
-1. Complete the [PostgreSQL cutover](runtime-postgresql.md). Configure your GitHub login as policy administrator and operator; give the reviewer repository access and explicit `ADT_TOOL_APPROVERS` delegation. Store provider credentials through Connections, never in prompts or Git. Record source/runtime revisions and the exact provider/model/endpoint identity.
+1. Verify Runtime and PostgreSQL readiness. Configure your GitHub login as policy administrator and operator. Give the reviewer repository access and explicit `ADT_TOOL_APPROVERS` delegation. Store provider credentials through Connections. Record source and Runtime revisions and the exact provider, model and endpoint identity. See [PostgreSQL deployment checks](runtime-postgresql.md#deploy-and-verify).
 2. Register an operator-controlled HTTPS MCP server with an independent invocation audit. Supply a client tool named `read_probe` with schema `{"type":"object","properties":{"nonce":{"type":"string","minLength":1,"maxLength":64}},"required":["nonce"],"additionalProperties":false}`. Have it record each call and return `probe:<nonce>`. Use harmless test data and a fresh nonce per run. Discover and freeze the catalogue, then explicitly grant only this tool to the Agent.
 3. Select `openai-agents` with an account-accessible supported Chat Completions model (for example `gpt-4.1` if available); select an available Claude Messages model for `anthropic-messages`. For `ollama-chat`, configure the endpoint/authentication and exact `ADT_RUNTIME_OLLAMA_ALLOWED_BASE_URLS` entry, and select an installed model whose `/api/show` reports `tools`. Run connection and execution-path checks from the application. These checks alone do not prove tool calling.
 4. As policy administrator, classify `read_probe` as trusted `read_only`. Set the Agent prompt to: “Call the granted read_probe tool exactly once with nonce <fresh nonce>. After receiving its result, reply with the exact returned marker. Do not infer or invent the marker.” Launch a one-Agent Workflow. Require a journaled native model proposal, one MCP audit entry, a correlated result and final text containing that marker. A plausible final answer without a recorded tool call fails this smoke test.
@@ -174,6 +174,6 @@ Run the following against a non-production deployment for **each** provider/mode
 
 A passing result applies only to the recorded model/account/server configuration. Hosted tools, thinking blocks, images, arbitrary provider metadata and unsupported schema assertions remain outside this path.
 
-## Migration and cutover
+## Pre-cutover records
 
-Follow the [PostgreSQL cutover guide](runtime-postgresql.md) to drain old runs, back up D1 and reauthorize MCP definitions. The new database starts with empty approval and tool journals. Resolve ambiguous external effects before resuming work.
+Pre-cutover approvals and tool journals are in the restricted D1 backup. Resolve ambiguous external effects before resuming work. See [PostgreSQL recovery](runtime-postgresql.md#recover-from-a-deployment-issue) for backup retention and MCP reauthorization.
