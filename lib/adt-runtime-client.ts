@@ -1,4 +1,5 @@
-import { OPERATIONAL_SETTINGS_PATH, type OperationalSettingsCommand } from "../adt-runtime/src/operational-settings-contract.ts";
+import { OPERATIONAL_SETTINGS_BYTES, OPERATIONAL_SETTINGS_PATH, isOperationalSettingsFailureCode, operationalSettingsFailures,
+ operationalSettingsResults, type OperationalSettingsCommand, type OperationalSettingsFailureCode } from "../adt-runtime/src/operational-settings-contract.ts";
 import {isAdtDataTool} from "./adt-data-contract.ts";
 import type { AgentRuntime } from "./agent-runtime.ts";
 import type { AgentProviderAdapter, AdapterInvocation, AdapterResult, FailureCategory, ProviderTransportDiagnostics, ProviderTransportReason } from "./workflow-adapter.ts";
@@ -55,6 +56,8 @@ async function digest(value:Uint8Array|string){return b64(await crypto.subtle.di
 async function hmac(secret:string,value:string){const key=await crypto.subtle.importKey("raw",encoder.encode(secret),{name:"HMAC",hash:"SHA-256"},false,["sign"]);return b64(await crypto.subtle.sign("HMAC",key,encoder.encode(value)))}
 function nonce(){return b64(crypto.getRandomValues(new Uint8Array(24)))}
 export async function signedHeaders(secret:string,method:string,path:string,body:string,requestId:string,timestamp=String(Date.now())){const bodyDigest=await digest(body),canonical=[ADT_RUNTIME_PROTOCOL,method,path,timestamp,requestId,bodyDigest].join("\n");return {"content-type":"application/json","x-adt-protocol":ADT_RUNTIME_PROTOCOL,"x-adt-timestamp":timestamp,"x-adt-nonce":requestId,"x-adt-content-sha256":bodyDigest,"x-adt-signature":await hmac(secret,canonical)}}
+// The signed nonce binds the request. Only this derived identifier goes into diagnostics.
+export const runtimeRequestId = async (nonce: string) => (await digest(nonce)).slice(0, 32);
 async function publicKey(config:string){const der=pem(config),key=await crypto.subtle.importKey("spki",der,{name:"RSA-OAEP",hash:"SHA-256"},false,["encrypt"]);return {key,keyId:await digest(der)}}
 async function envelope(credential:string,key:CryptoKey,keyId:string,aad:string){const contentKey=await crypto.subtle.generateKey({name:"AES-GCM",length:256},true,["encrypt"]),raw=await crypto.subtle.exportKey("raw",contentKey),iv=crypto.getRandomValues(new Uint8Array(12)),ciphertext=await crypto.subtle.encrypt({name:"AES-GCM",iv,additionalData:encoder.encode(aad),tagLength:128},contentKey,encoder.encode(credential)),wrapped=await crypto.subtle.encrypt({name:"RSA-OAEP"},key,raw);return{version:1,keyId,algorithm:"RSA-OAEP-256+A256GCM",wrappedKey:b64(wrapped),nonce:b64(iv),ciphertext:b64(ciphertext)}}
 export async function boundedJson(response:Response,maxBytes=MAX_RESPONSE_BYTES){
@@ -69,33 +72,100 @@ function transportConfigured(config:ADTRuntimeConfiguration):config is ADTRuntim
 const configured=transportConfigured;
 function runtimeBase(config:ADTRuntimeConfiguration){if(!transportConfigured(config))throw new Error("runtime_not_configured");const url=new URL(config.baseUrl);if(url.protocol!=="https:"&&!["localhost","127.0.0.1","::1"].includes(url.hostname))throw new Error("runtime_not_configured");return url.toString().replace(/\/$/,"")}
 
-export type RuntimeRedeployResult={state:"accepted"|"unsupported"|"rejected"|"ambiguous";message:string};
-export async function requestRuntimeOperationalSettings<T>(
- config: ADTRuntimeConfiguration,
- command: OperationalSettingsCommand,
- parse: (value: unknown) => T,
- fetcher: RuntimeFetcher = fetch,
-): Promise<T> {
- const unavailable = () => new Error("runtime_settings_unavailable");
- if (!transportConfigured(config)) throw unavailable();
- const body = JSON.stringify(command);
- let response: Response;
- let wire: Record<string, unknown>;
+export function runtimeServiceTarget(base: string | undefined, secret: string | undefined, path: string) {
+ if (!base || !secret || secret.length < 32) return;
  try {
-  const headers = await signedHeaders(config.authSecret, "POST", OPERATIONAL_SETTINGS_PATH, body, nonce());
-  response = await fetcher(runtimeBase(config) + OPERATIONAL_SETTINGS_PATH, {
-   method: "POST", headers, body, redirect: "error", signal: AbortSignal.timeout(10_000),
-  });
-  wire = record(await boundedJson(response));
- } catch {
-  throw unavailable();
- }
- if (wire.protocolVersion !== ADT_RUNTIME_PROTOCOL) throw unavailable();
- if (response.status === 409 && (wire.code === "advisor_settings_conflict" || wire.code === "runtime_settings_conflict")) throw new Error(wire.code);
- if (!response.ok || wire.ok !== true) throw unavailable();
- try { return parse(wire.result); } catch { throw unavailable(); }
+  const url = new URL(base);
+  if (url.username || url.password || url.search || url.hash) return;
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))) return;
+  // Preserve an ingress proxy's mount prefix while signing the internal path.
+  url.pathname = url.pathname.replace(/\/+$/, "") + path;
+  return url;
+ } catch { /* Invalid configuration. */ }
 }
 
+type RuntimeSettingsErrorCode = OperationalSettingsFailureCode | "runtime_settings_not_configured" |
+ "runtime_settings_transport_unavailable" | "runtime_settings_timeout" | "runtime_settings_endpoint_unavailable" |
+ "runtime_settings_response_invalid";
+export class RuntimeOperationalSettingsError extends Error {
+ readonly code: RuntimeSettingsErrorCode;
+ readonly requestId: string;
+ constructor(code: RuntimeSettingsErrorCode, requestId: string) {
+  super(code);
+  this.code = code;
+  this.requestId = requestId;
+ }
+}
+
+// Release 17 emits generic Runtime codes in the nested error envelope.
+function legacySettingsCode(status: number, code: unknown): OperationalSettingsFailureCode | undefined {
+ if (status === 401 && code === "runtime_authentication_failed") return "runtime_settings_authentication_failed";
+ if (status === 409 && code === "protocol_incompatible") return "runtime_settings_protocol_incompatible";
+ if (status === 400 && code === "invalid_request") return "runtime_settings_request_rejected";
+ if (status === 413 && code === "invalid_request") return "runtime_settings_body_too_large";
+ if (status === 503 && code === "runtime_unavailable") return "runtime_settings_unavailable";
+}
+
+type SettingsOperation = OperationalSettingsCommand["operation"];
+type SettingsResult<Operation extends SettingsOperation> = ReturnType<(typeof operationalSettingsResults)[Operation]["parse"]>;
+
+export async function requestRuntimeOperationalSettings<Command extends OperationalSettingsCommand>(
+ config: ADTRuntimeConfiguration,
+ command: Command,
+ fetcher: RuntimeFetcher = fetch,
+): Promise<SettingsResult<Command["operation"]>> {
+ const started = Date.now(), requestNonce = nonce(), requestId = await runtimeRequestId(requestNonce);
+ const operation = Object.hasOwn(operationalSettingsResults, command.operation) ? command.operation : undefined;
+ const received: { httpStatus?: number } = {};
+ const observe = (stage: string, classification: RuntimeSettingsErrorCode | "ok") => {
+  console.info(JSON.stringify({ event: "worker_runtime_operational_settings_request", operation, requestId,
+   stage, classification, ...received, elapsedMs: Date.now() - started }));
+ };
+ const fail = (stage: string, code: RuntimeSettingsErrorCode): never => {
+  observe(stage, code);
+  throw new RuntimeOperationalSettingsError(code, requestId);
+ };
+
+ const target = runtimeServiceTarget(config.baseUrl, config.authSecret, OPERATIONAL_SETTINGS_PATH);
+ if (!target) return fail("configuration", "runtime_settings_not_configured");
+ const body = JSON.stringify(command);
+ if (encoder.encode(body).byteLength > OPERATIONAL_SETTINGS_BYTES) return fail("validation", "runtime_settings_body_too_large");
+ let headers: Awaited<ReturnType<typeof signedHeaders>>;
+ try { headers = await signedHeaders(config.authSecret!, "POST", OPERATIONAL_SETTINGS_PATH, body, requestNonce); }
+ catch { return fail("signing", "runtime_settings_not_configured"); }
+
+ const signal = AbortSignal.timeout(10_000);
+ let response: Response;
+ try { response = await fetcher(target.href, { method: "POST", headers, body, redirect: "manual", cache: "no-store", signal }); }
+ catch { return fail("transport", signal.aborted ? "runtime_settings_timeout" : "runtime_settings_transport_unavailable"); }
+ const { status: httpStatus } = response;
+ received.httpStatus = httpStatus;
+ if (httpStatus === 404 || httpStatus === 405 || (httpStatus >= 300 && httpStatus < 400)) {
+  await response.body?.cancel().catch(() => undefined);
+  return fail("routing", "runtime_settings_endpoint_unavailable");
+ }
+
+ let wire: Record<string, unknown>;
+ try { wire = record(await boundedJson(response)); }
+ catch { return fail("response_validation", signal.aborted ? "runtime_settings_timeout" : "runtime_settings_response_invalid"); }
+ if (typeof wire.protocolVersion !== "string" || !/^adt-runtime-v\d{1,3}$/.test(wire.protocolVersion) ||
+     (wire.requestId !== undefined && wire.requestId !== requestId)) {
+  return fail("response_validation", "runtime_settings_response_invalid");
+ }
+ if (wire.protocolVersion !== ADT_RUNTIME_PROTOCOL) return fail("protocol", "runtime_settings_protocol_incompatible");
+ if (!response.ok && wire.ok === false) {
+  const code = isOperationalSettingsFailureCode(wire.code) && operationalSettingsFailures[wire.code].status === httpStatus
+   ? wire.code : legacySettingsCode(httpStatus, record(wire.error).code);
+  if (code) return fail(operationalSettingsFailures[code].stage, code);
+ }
+ if (httpStatus !== 200 || wire.ok !== true || !operation) return fail("response_validation", "runtime_settings_response_invalid");
+ const result = operationalSettingsResults[operation].safeParse(wire.result);
+ if (!result.success) return fail("response_validation", "runtime_settings_response_invalid");
+ observe("complete", "ok");
+ return result.data as SettingsResult<Command["operation"]>;
+}
+
+export type RuntimeRedeployResult={state:"accepted"|"unsupported"|"rejected"|"ambiguous";message:string};
 export async function requestRuntimeRedeploy(config:ADTRuntimeConfiguration,target:"runtime"|"runner",fetcher:RuntimeFetcher=fetch):Promise<RuntimeRedeployResult>{
  let base:string;try{base=runtimeBase(config)}catch{return{state:"unsupported",message:"Runtime-mediated redeploy is unavailable; a manual Runtime update or configuration is required."}}
  const readinessNonce=nonce(),readinessHeaders=await signedHeaders(config.authSecret!,"GET",ADT_RUNTIME_READINESS_PATH,"",readinessNonce);let readiness:Response;

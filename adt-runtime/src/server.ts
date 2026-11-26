@@ -4,7 +4,8 @@ import {managementDependenciesSchema,runtimeControlSchema,runtimeControlErrorCod
  type ManagementEvidence,type RuntimeControlCommand} from "./runtime-control-contract.js";
 import type {RuntimeRootKey} from "./runtime-key.js";
 import type {Pool} from "./postgres.js";
-import { OPERATIONAL_SETTINGS_PATH, operationalSettingsCommandSchema, type OperationalSettingsCommand } from "./operational-settings-contract.js";
+import { OPERATIONAL_SETTINGS_BYTES, OPERATIONAL_SETTINGS_PATH, operationalSettingsCommandSchema, operationalSettingsFailures,
+ operationalSettingsResults, type OperationalSettingsCommand, type OperationalSettingsFailureCode } from "./operational-settings-contract.js";
 import { operationalSettings, OperationalSettingsConflict, recordManagementNonce } from "./operational-settings.js";
 import { initializeRuntimeDatabase, runtimePostgresPool, RuntimeDatabaseError } from "./postgres.js";
 import { readRuntimePostgresConfiguration } from "./postgres-configuration.js";
@@ -42,7 +43,9 @@ type Options={control?:RuntimeApplication["store"];recordManagementNonce?:(nonce
 type ErrorCode="runtime_authentication_failed"|"invalid_request"|"credential_invalid"|"unsupported_operation"|"protocol_incompatible"|"capability_unavailable"|"runtime_unavailable"|"execution_failed"|"adrian_initialization_failed"|"adrian_policy_unavailable";
 const safe=(res:ServerResponse,status:number,value:unknown)=>{const body=JSON.stringify(value);res.writeHead(status,{"content-type":"application/json","content-length":Buffer.byteLength(body),"cache-control":"no-store"});res.end(body)};
 const error=(res:ServerResponse,status:number,code:ErrorCode,category:string,message:string,providerExecutionEntered=false,orchestration?:unknown)=>safe(res,status,{protocolVersion:PROTOCOL_VERSION,ok:false,error:{code,category,safeMessage:message,retryable:false,providerExecutionEntered,...(orchestration?{orchestration}:{})}});
-async function body(req:IncomingMessage,max:number){const chunks:Buffer[]=[];let size=0;for await(const value of req){size+=value.length;if(size>max)throw new Error("body_too_large");chunks.push(value)}return Buffer.concat(chunks)}
+async function body(req:IncomingMessage,max:number,destroyOnReturn=true){const chunks:Buffer[]=[];let size=0;for await(const value of req.iterator({destroyOnReturn})){size+=value.length;if(size>max)throw new Error("body_too_large");chunks.push(value)}return Buffer.concat(chunks)}
+const managementRequestId=(nonce:unknown)=>typeof nonce==="string"&&/^[A-Za-z0-9_-]{16,128}$/.test(nonce)
+ ?createHash("sha256").update(nonce).digest("base64url").slice(0,32):undefined;
 const boundedId=(value:unknown)=>typeof value==="string"&&/^[A-Za-z0-9:_-]{1,256}$/.test(value)?value:undefined;
 export function runtimeBuildRevision(environment:NodeJS.ProcessEnv=process.env,readRevision:()=>string=()=>readFileSync("/runtime/REVISION","utf8")){try{const revision=readRevision().trim();if(revision)return revision.slice(0,128)}catch{/* Local source execution has no image-owned revision file. */}return (environment.ADT_RUNTIME_REVISION??"development").slice(0,128)}
 export async function createRuntimeServer(options:Options){
@@ -58,8 +61,7 @@ export async function createRuntimeServer(options:Options){
   }
   if(path===RUNTIME_CONTROL_PATH){
    const nonce=req.headers["x-adt-nonce"];
-   const requestId=typeof nonce==="string"&&/^[A-Za-z0-9_-]{16,128}$/.test(nonce)
-    ?createHash("sha256").update(nonce).digest("base64url").slice(0,32):undefined;
+   const requestId=managementRequestId(nonce);
    const progress:Pick<ManagementEvidence,"authenticated"|"protocolCompatible"|"noncePersisted"|"accepted"|"dispatched">
     & {operation?:RuntimeControlCommand["operation"]}={
      authenticated:null,protocolCompatible:null,noncePersisted:null,accepted:false,dispatched:false,
@@ -107,30 +109,45 @@ export async function createRuntimeServer(options:Options){
     return finish(httpStatus,"dispatch",unavailable?"management_unavailable":"operation_rejected",{ok:false,code});
    }
   }
+  if(path===OPERATIONAL_SETTINGS_PATH){
+   const nonce=req.headers["x-adt-nonce"],requestId=managementRequestId(nonce);
+   const settingsEvidence:{operation?:OperationalSettingsCommand["operation"]}={};
+   const observe=(httpStatus:number,stage:string,classification:OperationalSettingsFailureCode|"ok")=>
+    emit("runtime_operational_settings_request",{...settingsEvidence,requestId,stage,classification,httpStatus,elapsedMs:Date.now()-started});
+   const fail=(code:OperationalSettingsFailureCode)=>{
+    const {status,stage}=operationalSettingsFailures[code];
+    observe(status,stage,code);
+    return safe(res,status,{protocolVersion:PROTOCOL_VERSION,ok:false,code,requestId});
+   };
+   if(shuttingDown)return fail("runtime_settings_unavailable");
+   let raw:Buffer;
+   try{raw=await body(req,OPERATIONAL_SETTINGS_BYTES,false)}
+   catch{return fail("runtime_settings_body_too_large")}
+   if(!authenticate(req.headers,req.method??"",path,raw,options.authSecret,replays,options.now?.()))
+    return fail("runtime_settings_authentication_failed");
+   if(req.headers["x-adt-protocol"]!==PROTOCOL_VERSION)return fail("runtime_settings_protocol_incompatible");
+   if(req.method!=="POST")return fail("runtime_settings_request_rejected");
+   let command:OperationalSettingsCommand;
+   try{command=operationalSettingsCommandSchema.parse(JSON.parse(raw.toString("utf8")))}
+   catch{return fail("runtime_settings_request_rejected")}
+   settingsEvidence.operation=command.operation;
+   if(!options.operateSettings||!options.recordManagementNonce)return fail("runtime_settings_unavailable");
+   try {
+    if(!await options.recordManagementNonce(String(nonce),Number(req.headers["x-adt-timestamp"])))
+     return fail("runtime_settings_replay_rejected");
+   }catch{return fail("runtime_settings_nonce_unavailable")}
+   let result:unknown;
+   try{result=await options.operateSettings(command)}
+   catch(value){return fail(value instanceof OperationalSettingsConflict?value.code:"runtime_settings_storage_unavailable")}
+   const parsed=operationalSettingsResults[command.operation].safeParse(result);
+   if(!parsed.success)return fail("runtime_settings_data_invalid");
+   observe(200,"complete","ok");
+   return safe(res,200,{protocolVersion:PROTOCOL_VERSION,ok:true,result:parsed.data,requestId});
+  }
   if(shuttingDown){emit("runtime_request_rejected",{operation,result:"runtime_unavailable",httpStatus:503,elapsedMs:Date.now()-started,providerExecutionEntered:false});return error(res,503,"runtime_unavailable","connection_unavailable","Runtime is shutting down.")}
   let raw:Buffer;try{raw=await body(req,MAX_BODY_BYTES)}catch{emit("runtime_request_rejected",{operation,result:"request_too_large",httpStatus:413,elapsedMs:Date.now()-started,providerExecutionEntered:false});return error(res,413,"invalid_request","configuration_invalid","Request body exceeds the permitted size.")}
   if(!authenticate(req.headers,req.method??"",path,raw,options.authSecret,replays,options.now?.())){emit("runtime_request_rejected",{operation,result:"authentication_failed",httpStatus:401,elapsedMs:Date.now()-started,providerExecutionEntered:false});return error(res,401,"runtime_authentication_failed","authentication_failed","Runtime request authentication failed.")}
   if(req.headers["x-adt-protocol"]!==PROTOCOL_VERSION){emit("runtime_request_rejected",{operation,result:"protocol_incompatible",httpStatus:409,elapsedMs:Date.now()-started,providerExecutionEntered:false});return error(res,409,"protocol_incompatible","configuration_invalid","Runtime protocol is incompatible.")}
-  if(req.method==="POST"&&path===OPERATIONAL_SETTINGS_PATH){
-   if(!options.operateSettings)return error(res,503,"runtime_unavailable","connection_unavailable","Runtime PostgreSQL is unavailable.");
-   let command:OperationalSettingsCommand;
-   try{
-    if(raw.byteLength>8192)throw new Error("request_too_large");
-    command=operationalSettingsCommandSchema.parse(JSON.parse(raw.toString("utf8")));
-   }catch{
-    return error(res,400,"invalid_request","configuration_invalid","Operational settings request is invalid.");
-   }
-   try {
-    const nonce=req.headers["x-adt-nonce"],timestamp=req.headers["x-adt-timestamp"];
-    if(options.recordManagementNonce&&typeof nonce==="string"&&typeof timestamp==="string"&&!await options.recordManagementNonce(nonce,Number(timestamp)))
-     return error(res,401,"runtime_authentication_failed","authentication_failed","Runtime request authentication failed.");
-    return safe(res,200,{protocolVersion:PROTOCOL_VERSION,ok:true,result:await options.operateSettings(command)});
-   }catch(value){
-    if(value instanceof OperationalSettingsConflict)
-     return safe(res,409,{protocolVersion:PROTOCOL_VERSION,ok:false,code:value.message});
-    return error(res,503,"runtime_unavailable","connection_unavailable","Runtime PostgreSQL is unavailable.");
-   }
-  }
   if(req.method==="GET"&&path===READINESS_PATH){
    if(options.operationalDatabaseReady && !await options.operationalDatabaseReady().catch(()=>false))
     return error(res,503,"runtime_unavailable","connection_unavailable","Runtime PostgreSQL is unavailable.");

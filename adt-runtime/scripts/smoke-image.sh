@@ -57,7 +57,11 @@ if(value.runtimeRevision!==process.env.EXPECTED_REVISION||value.runtimeReleaseRe
   !value.credentialWrappingKeyId)process.exit(1);
 const runs=await request('POST','/v1/management/control',JSON.stringify({operation:'runs.list',repositoryId:1,limit:1}));
 if(!runs.ok||!Array.isArray(runs.result)||runs.result.length!==0)process.exit(1);
-
+const settings=operation=>request('POST','/v1/management/settings',JSON.stringify({operation,repositoryId:1}));
+const advisor=await settings('advisor.get');
+if(!advisor.ok||advisor.result?.revision!==0||advisor.result.settings?.workflowId!==null||advisor.result.settings.override!==null)process.exit(1);
+const codex=await settings('codex.list');
+if(!codex.ok||!Array.isArray(codex.result)||codex.result.length!==0)process.exit(1);
 NODE
 test "$(docker inspect -f '{{.Config.User}}' "$container")" = node
 test "$(docker inspect -f '{{json .Mounts}}' "$container" | grep -o '"RW":false' | wc -l)" -eq 2
