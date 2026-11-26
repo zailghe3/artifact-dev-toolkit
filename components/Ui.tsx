@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ArrowUpRight } from "lucide-react";
 
 export const buttonStyles = {
   primary: "adt-button adt-button-primary",
@@ -7,22 +8,32 @@ export const buttonStyles = {
   subtle: "adt-button adt-button-subtle",
 } as const;
 
-export function PageHeader({title,description,meta,action}:{title:string;description?:React.ReactNode;meta?:React.ReactNode;action?:{href:string;label:string}|React.ReactNode}) {
-  const control=action&&(typeof action==="object"&&action!==null&&"href" in action?<Link className={buttonStyles.primary} href={action.href}>{action.label}</Link>:action);
-  return <header className="mb-5 grid gap-2" data-page-header>
-    <div className="flex flex-wrap items-start justify-between gap-3">
-      <div className="min-w-0"><h1 className="text-3xl font-black tracking-tight">{title}</h1>{meta&&<div className="mt-1 text-sm text-slate-600 dark:text-slate-300">{meta}</div>}</div>
-      {control&&<div className="shrink-0">{control}</div>}
-    </div>
-    {description&&<div className="max-w-3xl text-slate-600 dark:text-slate-300">{description}</div>}
-  </header>;
+export function PageHeader({ title, description, meta, action }: {
+  title: string;
+  description?: React.ReactNode;
+  meta?: React.ReactNode;
+  action?: { href: string; label: string } | React.ReactNode;
+}) {
+  const control = action && typeof action === "object" && "href" in action
+    ? <Link className={buttonStyles.primary} href={action.href}>{action.label}</Link>
+    : action;
+  return (
+    <header className="mb-6 flex flex-wrap items-start justify-between gap-x-6 gap-y-3" data-page-header>
+      <div className="min-w-0">
+        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{title}</h1>
+        {description && <div className="mt-1.5 max-w-3xl text-sm leading-relaxed text-muted-foreground">{description}</div>}
+        {meta && <div className="mt-1.5 text-sm text-muted-foreground">{meta}</div>}
+      </div>
+      {control && <div className="max-w-full">{control}</div>}
+    </header>
+  );
 }
 
 export function EntityCard({href,label,children,actions}:{href:string;label:string;children:React.ReactNode;actions?:React.ReactNode}) {
   return <article className="adt-entity-card" data-entity-card>
     <Link aria-label={label} className="adt-entity-card-body group" href={href} data-entity-card-link>
       <div className="min-w-0 flex-1">{children}</div>
-      <span aria-hidden="true" className="adt-entity-card-open">→</span>
+      <ArrowUpRight aria-hidden="true" className="adt-entity-card-open mt-1 size-4 text-muted-foreground" />
     </Link>
     {actions&&<div className="adt-entity-actions" data-entity-card-actions>{actions}</div>}
   </article>;
@@ -33,11 +44,11 @@ export function EntityActions({danger,children}:{danger?:React.ReactNode;childre
 }
 
 export function FormActions({danger,children,feedback,label="Form actions"}:{danger?:React.ReactNode;children:React.ReactNode;feedback?:React.ReactNode;label?:string}) {
-  return <div aria-label={label} className="grid gap-2 border-t border-slate-200 pt-4 dark:border-slate-700"><div className="flex flex-wrap items-center gap-2">{danger&&<div>{danger}</div>}<div className="ml-auto flex flex-wrap items-center justify-end gap-2">{children}</div></div>{feedback}</div>;
+  return <div aria-label={label} className="grid gap-2 border-t border-border pt-4"><div className="flex flex-wrap items-center gap-2">{danger&&<div>{danger}</div>}<div className="ml-auto flex flex-wrap items-center justify-end gap-2">{children}</div></div>{feedback}</div>;
 }
 
 export function EmptyState({title,children,action}:{title?:string;children:React.ReactNode;action?:React.ReactNode}) {
-  return <div className="adt-empty-state">{title&&<h2 className="font-bold">{title}</h2>}<div className={title?"mt-1 text-slate-600 dark:text-slate-300":"text-slate-600 dark:text-slate-300"}>{children}</div>{action&&<div className="mt-3">{action}</div>}</div>;
+  return <div className="adt-empty-state">{title&&<h2 className="font-bold">{title}</h2>}<div className={title?"mt-1 text-muted-foreground":"text-muted-foreground"}>{children}</div>{action&&<div className="mt-3">{action}</div>}</div>;
 }
 
 export function Panel({children,className="",...props}:React.ComponentPropsWithoutRef<"section">) {

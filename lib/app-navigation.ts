@@ -1,3 +1,5 @@
+export const sidebarPreference = "adt-sidebar";
+
 export const applicationIdentity = {
   name: "Artifact Toolkit",
   purpose: "Manage reusable work assets",

@@ -12,5 +12,5 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   await destroySession();
-  return NextResponse.redirect(redirectTarget(request), { headers: noStoreHeaders });
+  return NextResponse.redirect(redirectTarget(request), { status: 303, headers: noStoreHeaders });
 }

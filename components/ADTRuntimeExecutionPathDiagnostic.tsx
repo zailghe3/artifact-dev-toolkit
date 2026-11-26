@@ -1,7 +1,9 @@
 "use client";
 
-import { createContext, useContext, useState } from "react";
+import { createContext, useContext, useRef, useState } from "react";
 import { runtimeManagementDiagnosticSchema, type RuntimeManagementDiagnostic } from "@/adt-runtime/src/runtime-control-contract";
+import type { ADTRuntimeDiagnostic } from "@/lib/adt-runtime-client";
+import type { Observation as PassiveObservation } from "@/lib/diagnostic-observations";
 import type { SafeDiagnosticReportInput } from "@/lib/diagnostic-reports";
 import { runtimeManagementChecks, withRuntimeManagement, type DiagnosticDomain } from "@/lib/operational-diagnostics";
 import { DiagnosticCopyActions } from "./DiagnosticCopyActions";
@@ -9,7 +11,8 @@ import { DiagnosticStatusBadge } from "./DiagnosticStatusBadge";
 import { PendingButtonContent } from "./PendingButtonContent";
 import { buttonStyles } from "./Ui";
 
-type Observation = { diagnostic: RuntimeManagementDiagnostic; observedAt: string };
+type RuntimeScope = PassiveObservation<ADTRuntimeDiagnostic>;
+type Observation = { diagnostic: RuntimeManagementDiagnostic; observedAt: string; scope?: RuntimeScope };
 const RuntimeDiagnosticContext = createContext<{
   observation?: Observation;
   setObservation: (value?: Observation) => void;
@@ -20,9 +23,10 @@ export function RuntimeDiagnosticProvider({ children }: { children: React.ReactN
   return <RuntimeDiagnosticContext.Provider value={{ observation, setObservation }}>{children}</RuntimeDiagnosticContext.Provider>;
 }
 
-export function useRuntimeDiagnosticDomains(domains: DiagnosticDomain[]) {
+export function useRuntimeDiagnosticDomains(domains: DiagnosticDomain[], scope?: RuntimeScope) {
   const context = useContext(RuntimeDiagnosticContext);
-  return context?.observation ? withRuntimeManagement(domains, context.observation.diagnostic) : domains;
+  const observation = context?.observation;
+  return observation && observation.scope === scope ? withRuntimeManagement(domains, observation.diagnostic) : domains;
 }
 
 const results: Record<RuntimeManagementDiagnostic["management"]["result"], string> = {
@@ -48,21 +52,25 @@ const labels = {
 const dependencyLabels = { available: "Available", unavailable: "Unavailable", not_verified: "Not verified" };
 const outcome = (value: boolean | null) => value === null ? "Not verified" : value ? "Yes" : "No";
 
-export function ADTRuntimeExecutionPathDiagnostic({ domain, report }: {
+export function ADTRuntimeExecutionPathDiagnostic({ domain, report, scope }: {
   domain: DiagnosticDomain;
+  scope?: RuntimeScope;
   report: Extract<SafeDiagnosticReportInput, { domain: "adt-runtime" }>;
 }) {
   const context = useContext(RuntimeDiagnosticContext);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const { observation } = context ?? {};
+  const inFlight = useRef(false);
+  const previous = context?.observation;
+  const observation = previous?.scope === scope ? previous : undefined;
   const diagnostic = observation?.diagnostic;
   const management = diagnostic?.management;
   const history = diagnostic?.workflowHistory;
   const checks = runtimeManagementChecks(diagnostic);
-  const observed = useRuntimeDiagnosticDomains([domain])[0];
+  const observed = useRuntimeDiagnosticDomains([domain], scope)[0];
   async function run() {
-    if (busy || !context) return;
+    if (inFlight.current || !context) return;
+    inFlight.current = true;
     setBusy(true);
     setError("");
     context.setObservation(undefined);
@@ -72,10 +80,11 @@ export function ADTRuntimeExecutionPathDiagnostic({ domain, report }: {
       });
       if (!response.ok) throw new Error();
       const diagnostic = runtimeManagementDiagnosticSchema.parse(await response.json());
-      context.setObservation({ diagnostic, observedAt: new Date().toISOString() });
+      context.setObservation({ diagnostic, observedAt: new Date().toISOString(), scope });
     } catch {
       setError("The execution path diagnostic could not be completed.");
     } finally {
+      inFlight.current = false;
       setBusy(false);
     }
   }
@@ -90,6 +99,7 @@ export function ADTRuntimeExecutionPathDiagnostic({ domain, report }: {
       <PendingButtonContent pending={busy}>{busy ? "Testing execution path…" : "Test execution path"}</PendingButtonContent>
     </button>
     {error && <p role="alert" className="mt-3">{error}</p>}
+    {previous && !observation && <p className="mt-3 text-sm">The previous management check belongs to an earlier Runtime observation. Test the execution path to verify it again.</p>}
     {diagnostic && management && <div className="mt-4 text-sm" aria-live="polite">
       <p className="font-bold">{results[management.result]} · {management.elapsedMs} ms</p>
       {diagnostic.dependencies.broker.status === "unavailable" && <p>GitHub credential broker unavailable.</p>}

@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 
 test('the run page and API route delegate to the same repository-scoped Runtime loader', async () => {
   const [page, route] = await Promise.all([
-    readFile(new URL('../app/workflows/runs/[runId]/page.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../app/(application)/workflows/runs/[runId]/page.tsx', import.meta.url), 'utf8'),
     readFile(new URL('../app/api/workflow-runs/[runId]/route.ts', import.meta.url), 'utf8'),
   ]);
   assert.doesNotMatch(page,/raw provider body|authorization|cookie/i);

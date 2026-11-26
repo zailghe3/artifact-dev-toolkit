@@ -54,11 +54,14 @@
 ## 6. Diagnostics and operational experience
 
 - Authorised users have one protected Diagnostics & maintenance surface for bounded operational observations.
-- Diagnostics separates application/control-plane, repository, Runtime, Runner, and other relevant component health rather than collapsing them into one opaque status.
+- Diagnostics displays its domain headings while passive observations are in progress.
+- Authentication, Artifact Library, control-plane, Runtime, and Runner results appear as their dependencies complete. Other domains remain usable when an observation fails.
+- Overall health remains unconfirmed while required observations are pending. A previous result retains its observed time and is identified as stale when a refresh fails.
 - Passive observation, explicit active diagnostics, and state-changing maintenance actions are distinct.
 - Active diagnostics are bounded, intentional, and do not silently start model work or mutate application data unless the action explicitly says it will.
 - Component reachability, authentication, compatibility, storage readiness, provider readiness, and execution readiness remain distinguishable where that distinction affects recovery.
 - A failed re-query does not present stale observations as current.
+- Runner readiness, execution controls, and copied reports use the same current control evidence. State-dependent controls require a confirmed latch state. After an uncertain control operation, a fresh observation is required to verify the current latch state.
 - Degraded optional detail does not invalidate separately established healthy core functionality.
 - Operational failures provide concise safe recovery guidance where possible.
 - Status does not rely on colour alone.
@@ -66,7 +69,10 @@
 
 ## 7. Application interface
 
-- Protected pages share consistent application navigation and responsive behaviour.
+- Protected pages share persistent navigation for Artifacts, Workflows, Advisor, and Diagnostics.
+- Workflow navigation includes runs, definitions, Agents, Connections, Tools, and Security. Advisor navigation includes Knowledge and Settings.
+- Desktop navigation supports expanded and icon-only views and retains the chosen width. Mobile navigation opens in a dismissible drawer and closes when a destination is selected.
+- Page headings and static actions appear while slow sections load when their authorization permits. Section failures preserve access to unrelated results and navigation.
 - The application supports light and dark themes with persistent user preference.
 - Interactive controls expose accessible labels, focus states, and semantic navigation.
 - Status and warnings combine text with visual treatment and do not dominate healthy workflows.

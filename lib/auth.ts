@@ -2,6 +2,7 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { NextResponse } from "next/server";
+import { cache } from "react";
 import {
   constantTimeEqual,
   cookieNames,
@@ -163,8 +164,10 @@ export async function getSession() {
   return session;
 }
 
+export const getRenderSession = cache(getSession);
+
 export async function requireAuth(returnTo = "/") {
-  const session = await getSession();
+  const session = await getRenderSession();
   if (!session) redirect(`/sign-in?returnTo=${encodeURIComponent(returnTo)}`);
   return session;
 }
@@ -230,21 +233,27 @@ export async function requireRepositoryAccess(returnTo = "/") {
   return { session: result.session, access: result.access };
 }
 
+export function hasStoredDiagnosticsAccess(session: SessionRecord) {
+  const auth = session.repositoryAuthorization;
+  const match = storedRepositoryMatchesPublicConfiguration(auth, getPublicRepositoryConfiguration());
+  return auth.state === "authorized"
+    && Number.isSafeInteger(auth.repositoryId) && auth.repositoryId! > 0
+    && Number.isSafeInteger(auth.installationId) && auth.installationId! > 0
+    && auth.githubId === session.githubId && auth.login.toLowerCase() === session.login.toLowerCase()
+    && match !== false;
+}
+
 /** Stored-authorisation-only gate for observational diagnostics. No refresh, persistence, or revocation. */
 export async function requireDiagnosticsAccess(returnTo = "/diagnostics") {
-  const session = await requireAuth(returnTo); const auth = session.repositoryAuthorization;
-  const match = storedRepositoryMatchesPublicConfiguration(auth, getPublicRepositoryConfiguration());
-  const valid = auth.state === "authorized" && Number.isSafeInteger(auth.repositoryId) && auth.repositoryId! > 0 && Number.isSafeInteger(auth.installationId) && auth.installationId! > 0 && auth.githubId === session.githubId && auth.login.toLowerCase() === session.login.toLowerCase() && match !== false;
-  if (!valid) redirect("/access-denied");
+  const session = await requireAuth(returnTo);
+  if (!hasStoredDiagnosticsAccess(session)) redirect("/access-denied");
   return session;
 }
 
 export async function requireApiDiagnosticsAccess(request: Request): Promise<SessionRecord | Response> {
   const session = await getSession();
   if (!session) { const signInUrl = new URL("/sign-in", request.url); signInUrl.searchParams.set("returnTo", "/diagnostics"); return NextResponse.json({ error: "Authentication required", code: "authentication_required", signInUrl: signInUrl.toString() }, { status: 401, headers: noStoreHeaders }); }
-  const auth = session.repositoryAuthorization;
-  const match = storedRepositoryMatchesPublicConfiguration(auth, getPublicRepositoryConfiguration());
-  if (auth.state !== "authorized" || !Number.isSafeInteger(auth.repositoryId) || auth.repositoryId! <= 0 || !Number.isSafeInteger(auth.installationId) || auth.installationId! <= 0 || auth.githubId !== session.githubId || auth.login.toLowerCase() !== session.login.toLowerCase() || match === false) return NextResponse.json({ error: "Repository authorisation required", code: "repository_authorization_denied" }, { status: 403, headers: noStoreHeaders });
+  if (!hasStoredDiagnosticsAccess(session)) return NextResponse.json({ error: "Repository authorisation required", code: "repository_authorization_denied" }, { status: 403, headers: noStoreHeaders });
   return session;
 }
 

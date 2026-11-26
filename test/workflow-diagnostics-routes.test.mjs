@@ -7,8 +7,12 @@ import { installTsxHook } from './render-tsx.mjs';
 
 const require = installTsxHook();
 const Module = require('node:module');
-const React = require('react');
-const { renderToStaticMarkup } = require('react-dom/server');
+const { renderToReadableStream } = require('react-dom/server');
+async function renderPage(page) {
+  const stream = await renderToReadableStream(await page());
+  await stream.allReady;
+  return new Response(stream).text();
+}
 const app = 'https://adt.example';
 const access = { repositoryId: 42 };
 
@@ -45,7 +49,7 @@ Module._load = function(name, parent, isMain) {
 let pages, pathDiagnostic, runnerStatus, runnerDiagnostics, workflowRuns;
 try {
   realWorkflowServices = require('../lib/workflow-services.ts');
-  pages = ['page', 'runs/page'].map(path => require(`../app/workflows/${path}.tsx`).default);
+  pages = ['page', 'runs/page'].map(path => require(`../app/(application)/workflows/${path}.tsx`).default);
   pathDiagnostic = require('../app/api/workflow-connections/adt-runtime/execution-path/route.ts').POST;
   runnerStatus = require('../app/api/workflow-connections/codex-runner/status/route.ts').GET;
   runnerDiagnostics = require('../app/api/workflow-connections/codex-runner/diagnostics/route.ts').GET;
@@ -57,13 +61,13 @@ try {
 test('Workflow pages render the retryable outage state and show an empty history only after successful reads', async () => {
   for (const [index, page] of pages.entries()) {
     history = { status: 'unavailable' };
-    const html = renderToStaticMarkup(React.createElement(React.Fragment, null, await page()));
+    const html = await renderPage(page);
     assert.match(html, /Workflow service unavailable/);
     assert.match(html, /Retry loading history/);
     assert.match(html, new RegExp(`action="/workflows${index === 0 ? '' : '/runs'}"`));
     assert.doesNotMatch(html, /no (?:active|workflow) runs/i);
     history = { status: 'available', runs: [] };
-    const empty = renderToStaticMarkup(await page());
+    const empty = await renderPage(page);
     assert.match(empty, /no workflow runs yet/i);
     assert.doesNotMatch(empty, /Workflow service unavailable/);
   }
