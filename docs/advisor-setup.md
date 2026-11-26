@@ -1,48 +1,57 @@
 # Set up Advisor
 
-- Advisor runs an ordinary, visible Workflow. Choose an enabled OpenAI Agents, Anthropic Messages or Ollama connection with a model that supports the selected API and effective tool grants.
-- In a local checkout of the configured **artifact definition repository**, use an existing connection ID. Generate the default definitions from the application checkout:
+Advisor runs an ordinary visible Workflow under an additional read-only boundary. It does not receive a privileged identity or bypass normal Agent, tool, Security Profile, repository, or execution controls.
+
+## Configure Advisor
+
+- Choose or create a compatible provider Connection and ordinary Agent/Workflow definitions.
+- To create the default definitions in a local checkout of the configured artifact-definition repository, run:
 
   ```sh
   npm run advisor:definitions -- /path/to/artifact-definitions tool-capable-connection-id
   ```
 
-- This creates `agents/advisor.agent.json` and `workflows/advisor.workflow.json`. It refuses existing files, does not publish Git changes, and does not configure credentials or activate Advisor.
-- Review and commit the definitions through your ordinary Git-backed definition process. The provider connection ID must identify a compatible connection in that repository.
-- Deploy [Runtime PostgreSQL](runtime-postgresql.md) for Advisor settings. Open **Advisor → Advisor settings**, select the Workflow, and save. Optional overrides select an existing configured connection and a model validated for that connection; the override uses each Agent’s saved settings and block restrictions. For GPT-6 Luna with tools, set each affected Agent’s reasoning effort to **none**. Model discovery checks availability. The provider can still reject the selected API, tools or settings during a run. See [provider and schema limits](agent-tools-and-recovery.md#provider-and-schema-limits).
-- Open Advisor, ask about a named Workflow, and inspect the execution link for progress, approval, cancellation, tool decisions, recovery and the frozen provider/model choices.
-- Edit the default Agent or Workflow using the ordinary editors. New questions use current definitions; recovery retains the original execution snapshot. Failed journaled activations cannot use generic step retry; inspect recorded outcomes and explicitly start a new question when appropriate.
+- The generator creates the default Advisor Agent and Workflow only when they do not already exist. It does not publish Git changes, configure credentials, or activate Advisor.
+- Review and commit those definitions through the normal Git-backed definition process.
+- In **Advisor → Advisor settings**, select the Workflow and save. Optional execution overrides select existing compatible provider/model configuration without rewriting saved Agent or Workflow definitions.
+- Commission Runtime and the selected provider/tool/security boundaries separately before relying on Advisor.
+- New questions use current definitions; an active/recovered question keeps its frozen execution snapshot.
+
+Provider/model-specific compatibility rules belong to the provider registry, connection UI, and current validation code rather than this setup guide.
 
 ## Evidence and authority
 
-- Native ADT data tools can be assigned explicitly to any eligible ordinary Agent. Advisor itself grants no tool authority.
-- Separate grants cover Workflow lists, Workflow structure, execution lists, execution details with persisted sanitised diagnostics, and aggregate execution metrics.
-- All reads are bound to the run's repository, installation, branch and catalogue root. Runs lacking that scope are excluded.
-- Workflow reads exclude prompts, starter inputs, condition text, approval text and publication content. Execution reads exclude inputs, outputs, raw error messages and provider/tool responses.
-- Lists and attempt histories are paginated. Metrics cover at most the newest 1,000 matching runs and report truncation. Recorded status, completed duration, retry counts and partial provider-reported journal token totals are available. Zero usage may mean the provider did not report usage; cost is not recorded.
-- Advisor permits only explicitly granted native read tools, compatible provider inference and supported deterministic control/approval blocks. MCP, Artifact Search, Codex, Git publication and conversation continuation are rejected, including through reusable Workflows.
-- The existing frozen Agent/Workflow execution budgets, tool journal, approval policy and Security Profile gate still apply. The default budget permits four tool executions. A broad question may need a more focused follow-up question in a fresh run.
-- Independently enable `adt_agent_prompt_read`, `adt_execution_content_read`, `adt_execution_errors_read` or `adt_tool_execution_read` in the ordinary Agent editor when needed. No existing definition receives these sensitive grants automatically.
-- Each sensitive invocation requires an account delegated through `ADT_TOOL_APPROVERS` to approve its exact recorded arguments in the execution inspector, with an explicit acknowledgement of possible sensitive disclosure to the configured model. The server rejects sensitive approvals without this acknowledgement. Missing approver configuration fails closed. Approval never bypasses current repository authority, cancellation, the Security Profile gate or frozen budgets.
-- Prompt reads label current Git versus frozen historical instructions; historical prompt-artifact revisions were not separately recorded and are reported as unavailable. Selected content is bounded and may be omitted by size/secret-safety checks. Recognised authentication headers, credential-bearing connection strings and service access keys are rejected by the shared Artifact/knowledge secret check. Unmatched text remains unverified; detection is not proof of universal safety and does not permit automatic disclosure. External tool payloads are omitted because their disclosure safety cannot be established; payload inspection exposes only validated native target/selection arguments and selected native result metadata.
-- The newly generated default includes `adt_advisor_knowledge_search`; existing definitions remain unchanged. Add it explicitly to existing Agents. It supports text/type/status/tag/Workflow/Agent filters or direct stable-ID retrieval.
-- Scheduling, notifications and persistent conversation memory are outside this scope.
+- Advisor may use only explicitly granted native ADT read capabilities.
+- Native reads are bound to the authorised repository/run context and return bounded, sanitised observations rather than unrestricted application/database access.
+- Ordinary metadata reads exclude sensitive prompts, raw execution content, arbitrary provider/tool payloads, and unsafe error text.
+- Sensitive observability capabilities are separate explicit grants and require exact-call human approval with acknowledgement that selected content may be disclosed to the configured model.
+- Approval never bypasses repository authority, cancellation, Security Profile restrictions, or frozen Agent/Workflow budgets.
+- Retrieved instructions, execution content, diagnostics, and knowledge are untrusted model input and cannot alter technical permissions.
+- MCP, Artifact Search, Codex execution, Git publication, and conversation continuation remain unavailable to Advisor unless the current product specification explicitly changes that boundary.
+- Scheduling, notifications, autonomous configuration changes, and persistent multi-turn memory remain outside the Advisor contract.
+
+Exact native tool names, pagination/size limits, sampling bounds, and execution budgets are authoritative in source, tests, and the application UI.
 
 ## Review and publish knowledge
 
-- Open **Advisor → Browse knowledge and review proposals**. Search approved Git entries or create knowledge manually; Advisor need not be configured to use this interface.
-- Choose **Save to knowledge** on a finished analysis to create a private operational proposal. Long results become a marked excerpt with stable execution references, not a copy of the whole execution history. The Advisor run ID and its Workflow revision are investigation provenance only. The neutral draft title and empty Workflow/Agent subjects must be reviewed; explicitly enter investigated subject IDs without relying on parsed model output.
-- Edit title, type, lifecycle, tags, subject/related/superseding references, evidence revisions and Markdown. Suggested model content is untrusted; check every claim and remove secrets or unnecessary execution content.
-- **Save draft** persists the proposal in Runtime PostgreSQL. **Review publication** saves the current edit and displays the exact document, canonical Git target and observed revision. Check the approval box and choose **Approve and publish to Git** for each mutation. Detected credentials prohibit publication even after approval; remove them, save the edited draft and review again.
-- Review consent expires after five minutes, is bound to your current application session/account and draft revision, and is invalidated by edits. Both review and publication revalidate OAuth repository authority. No auto-publish option or model-callable publisher exists.
-- Select an approved entry and **Prepare update** to correct it or change lifecycle/relationships. Git optimistic concurrency rejects stale updates and duplicate creates. Refresh the Git entry and prepare a new review after a conflict.
-- Publishing/uncertain proposals are locked against replay. Inspect the current Git entry by stable ID (and Git history) before preparing another proposal. An interrupted response is never proof that publication failed.
-- See the [knowledge contract](external-artifact-repository-contract.md#advisor-knowledge) for metadata and lifecycle semantics.
+- **Browse knowledge and review proposals** shows reviewed Git knowledge and private operational proposals.
+- **Save to knowledge** creates a proposal from a finished analysis; it does not publish model output automatically.
+- Treat suggested title, subjects, relationships, evidence, and Markdown as untrusted draft content and review them explicitly.
+- Saving a draft persists operational proposal state in Runtime PostgreSQL.
+- Publication is a separate authenticated human action that displays the exact proposed document and Git target before consent.
+- Publication revalidates current repository authority and uses optimistic Git concurrency. Detected secret material cannot be published.
+- Edits after review require a new review/consent.
+- An uncertain Git publication outcome is never automatically replayed; inspect the authoritative Git entry/history before attempting another mutation.
+- Approved knowledge lives in Git and follows the [Advisor knowledge contract](external-artifact-repository-contract.md#advisor-knowledge).
 
-## Initial limits and rollout
+Runtime remains responsible for proposal/review operational state; the Worker retains the browser/repository-authorised Git mutation boundary for human publication.
 
-- The GitHub App needs existing repository Contents write permission for human publication; native readers mint only read authority. Runtime receives short-lived read credentials through the Worker broker. Human publication stays in the Worker.
-- Search scans at most 200 flat entries and 2 MiB per immutable Git revision with four concurrent blob reads. Exceeding a bound reports unavailable rather than incomplete results. Direct-ID reads still work for larger libraries; use **Open entry by ID**. The proposals panel shows your latest 50 proposals. Invalid entries are counted and excluded; validate the configured artifact checkout with `npm run artifacts:validate -- <checkout>`.
-- Execution reads page at most 20 records and enforce existing journal result/call/token budgets. Tool payload inspection requires an exact invocation ID and restricts arbitrary text. Narrow questions and explicit Workflow execution limits are preferable to loading whole histories.
+## Commissioning and recovery
 
-After recovering Advisor settings, validate them with a tool-using Workflow. Published knowledge remains in Git. See [PostgreSQL recovery](runtime-postgresql.md#recover-from-a-deployment-issue).
+- The GitHub App must have the repository Contents authority required for human knowledge publication.
+- Validate the configured artifact repository with the canonical repository validator before relying on knowledge search/publication.
+- Use focused Advisor questions and normal Workflow execution limits rather than attempting to load unbounded history/content.
+- After restoring Runtime operational state, validate Advisor settings with a representative read-only tool-using Workflow.
+- Published knowledge remains recoverable from Git independently of Runtime proposal state.
+
+Exact search/result/proposal limits, consent lifetimes, and UI pagination values are implementation details and may change without altering the Advisor authority model.
