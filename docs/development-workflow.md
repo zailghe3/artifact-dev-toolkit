@@ -123,7 +123,7 @@ Each implementation pull request should:
 - update the relevant specification in the same pull request when implemented behaviour changes;
 - identify intentional follow-up work rather than silently expanding scope.
 
-Specification maintenance is part of implementation, not a later documentation task. `$spec-sync` provides the repeatable procedure when product behaviour or a stable invariant changes.
+Documentation maintenance is part of implementation, not a later cleanup task. `$spec-sync` provides the repeatable procedure when a durable documented contract changes.
 
 Before an executable implementation or correction PR is reported complete, `$code-change-verification` provides the final verification procedure. High-risk or cross-boundary work uses `$implementation-strategy` before editing.
 
