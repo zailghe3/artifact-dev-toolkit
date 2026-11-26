@@ -6,27 +6,39 @@ import { installTsxHook } from './render-tsx.mjs';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const requireTsx = installTsxHook();
-const { InfrastructureFreshnessIndicator } = requireTsx('../components/InfrastructureFreshnessIndicator.tsx');
+const { InfrastructureFreshnessIndicator, queryInfrastructureFreshness } = requireTsx('../components/InfrastructureFreshnessIndicator.tsx');
 
 const text = node => node.findAll(item => Array.isArray(item.children)).flatMap(item => item.children).filter(item => typeof item === 'string').join(' ');
 
-async function redeployFixture(t,{target='runtime',outcome='accepted'}={}){
+function freshnessSnapshot(target, observation) {
+ const components={worker:{state:'current'},runtime:{state:'superseded',deployedRevision:'2'.repeat(40)},runner:{state:'superseded',deployedRevision:'3'.repeat(40)}};
+ components[target]={state:observation,...(observation==='unknown'?{unknownReason:'observation_unavailable'}:{deployedRevision:(observation==='current'?'4':'2').repeat(40)})};
+ return {state:'superseded',checkedAt:'2026-11-23T00:00:00.000Z',redeployTargets:['runtime','runner'],components};
+}
+
+async function redeployFixture(t,{target='runtime',outcome='accepted',cacheOnServer=false,actionResponse,actionTargets=[target]}={}){
  const previousWindow=globalThis.window,previousDocument=globalThis.document,previousFetch=globalThis.fetch;
- const timers=new Map(),calls={actions:0,freshness:0};let id=0,observation='superseded',view;
+ const timers=new Map(),calls={actions:0,freshness:0},freshnessRequests=[];let id=0,observation='superseded',view,serverSnapshot,deferredFreshness;
  globalThis.window={setTimeout(callback,milliseconds){const value=++id;timers.set(value,{callback,milliseconds});return value},clearTimeout(value){timers.delete(value)},addEventListener(){},removeEventListener(){}};
  globalThis.document={visibilityState:'visible',addEventListener(){},removeEventListener(){}};
  globalThis.fetch=async(url,init)=>{
   if(String(url).includes('infrastructure-redeploy')){
    calls.actions++;
-   assert.deepEqual(JSON.parse(init.body),{target});
+   const expectedTarget=actionTargets[calls.actions-1]??target;
+   assert.deepEqual(JSON.parse(init.body),{target:expectedTarget});
+   if(actionResponse)return actionResponse;
    if(outcome==='disconnect')throw new TypeError('private connection exception');
-   return Response.json({state:outcome,message:outcome==='accepted'?`${target} webhook request accepted. Checking update status.`:outcome==='rejected'?'Webhook request rejected.':'Webhook request outcome is uncertain. Check freshness before trying again.'},{status:outcome==='accepted'?202:502});
+   if(outcome==='signed-out')return Response.json({error:'Authentication required'},{status:401});
+   return Response.json({state:outcome,message:outcome==='accepted'?`${expectedTarget} webhook request accepted. Checking update status.`:outcome==='rejected'?'Webhook request rejected.':'Webhook request outcome is uncertain. Check freshness before trying again.'},{status:outcome==='accepted'?202:outcome==='rejected'?503:502});
   }
   calls.freshness++;
+  const refresh=new URL(String(url),'https://adt.example').searchParams.get('refresh')==='1';
+  freshnessRequests.push(refresh);
+  if(deferredFreshness){const {promise}=deferredFreshness;deferredFreshness=undefined;return promise;}
+  if(cacheOnServer&&serverSnapshot&&!refresh)return Response.json(serverSnapshot);
   if(observation==='unavailable')return new Response(null,{status:503});
-  const components={worker:{state:'current'},runtime:{state:'superseded',deployedRevision:'2'.repeat(40)},runner:{state:'superseded',deployedRevision:'3'.repeat(40)}};
-  components[target]={state:observation,...(observation==='unknown'?{unknownReason:'observation_unavailable'}:{deployedRevision:(observation==='current'?'4':'2').repeat(40)})};
-  return Response.json({state:'superseded',checkedAt:'2026-11-23T00:00:00.000Z',redeployTargets:['runtime','runner'],components});
+  serverSnapshot=freshnessSnapshot(target,observation);
+  return Response.json(serverSnapshot);
  };
  const {clearInfrastructureFreshnessClientCacheForTests}=requireTsx('../components/InfrastructureFreshnessIndicator.tsx');
  clearInfrastructureFreshnessClientCacheForTests();
@@ -44,8 +56,9 @@ async function redeployFixture(t,{target='runtime',outcome='accepted'}={}){
  };
  await act(async()=>{view=create(React.createElement(InfrastructureFreshnessIndicator))});
  await runTimer(0);
- const button=()=>view.root.findAllByType('button').find(item=>text(item).toLowerCase().includes(target));
- return{view,calls,timers,runTimer,button,setObservation:value=>{observation=value},click:async()=>{await act(async()=>{button().props.onClick();await Promise.resolve()})}};
+ const button=(forTarget=target)=>view.root.findAllByType('button').find(item=>text(item).toLowerCase().includes(forTarget));
+ const deferFreshness=()=>{deferredFreshness=Promise.withResolvers();return deferredFreshness.resolve};
+ return{view,calls,timers,runTimer,button,deferFreshness,freshnessRequests,setObservation:value=>{observation=value},click:async(forTarget=target)=>{await act(async()=>{button(forTarget).props.onClick();await Promise.resolve()})}};
 }
 
 test('footer freshness renders first, refreshes after expiry, and never polls while hidden', async () => {
@@ -250,4 +263,126 @@ test('explicit webhook rejection unlocks the action without starting redeploy fr
  assert.equal(f.calls.freshness,1);
  assert.equal(f.button().props.disabled,false);
  assert.equal([...f.timers.values()].some(timer=>timer.milliseconds===5_000),false);
+});
+
+test('rollout polling observes the replacement even while the ordinary Worker snapshot is cached', async t => {
+ const f = await redeployFixture(t, { cacheOnServer: true });
+ await f.click();
+ f.setObservation('current');
+ await f.runTimer(5_000);
+ assert.match(text(f.view.root), /Runtime update confirmed\./);
+ assert.equal(f.calls.actions, 1);
+});
+
+test('an expired session asks the operator to sign in again without starting rollout polling', async t => {
+ const f = await redeployFixture(t, { outcome: 'signed-out' });
+ await f.click();
+ assert.match(text(f.view.root), /Sign in again to request this update\./);
+ assert.equal(f.calls.actions, 1);
+ assert.equal(f.calls.freshness, 1);
+ assert.equal(f.button().props.disabled, false);
+});
+
+for (const [description, body, expected] of [
+ ['repository authorization', { error: 'Repository authorisation required', reason: 'allowlist', message: 'fixture private detail' }, /Repository access is required/],
+ ['repository authorization without a message', { error: 'Repository authorisation required' }, /Repository access is required/],
+ ['repository authorization code', { code: 'repository_authorization_denied' }, /Repository access is required/],
+ ['request origin', { state: 'rejected', message: 'Request origin is invalid.' }, /Request origin is invalid\./],
+ ['non-JSON forbidden response', 'fixture private detail', /permission to request this update/],
+]) {
+ test(`a 403 for ${description} shows safe feedback and does not start rollout polling`, async t => {
+  const actionResponse = typeof body === 'string' ? new Response(body, { status: 403 }) : Response.json(body, { status: 403 });
+  const f = await redeployFixture(t, { actionResponse });
+  await f.click();
+  assert.match(text(f.view.root), expected);
+  assert.doesNotMatch(text(f.view.root), /webhook|fixture private detail|update requested/i);
+  assert.equal(f.calls.actions, 1);
+  assert.equal(f.calls.freshness, 1);
+  assert.equal(f.button().props.disabled, false);
+  assert.equal([...f.timers.values()].some(timer => timer.milliseconds === 5_000), false);
+ });
+}
+
+async function overlapPassiveAndRollout(t, outcome) {
+ const originalNow = Date.now;
+ const now = originalNow();
+ Date.now = () => now;
+ t.after(() => { Date.now = originalNow; });
+ const f = await redeployFixture(t, { outcome });
+ Date.now = () => now + 120_001;
+ const ordinary = f.deferFreshness();
+ await f.runTimer(120_000);
+ const forced = f.deferFreshness();
+ await f.click();
+ assert.deepEqual(f.freshnessRequests, [false, false, true]);
+ return { f, ordinary, forced };
+}
+
+for (const outcome of ['accepted', 'ambiguous']) {
+ for (const newerFirst of [false, true]) {
+  test(`${outcome} rollout uses the newer observation with ${newerFirst ? 'forced' : 'ordinary'} response first`, async t => {
+   const { f, ordinary, forced } = await overlapPassiveAndRollout(t, outcome);
+   const completeOrdinary = () => act(async () => ordinary(Response.json(freshnessSnapshot('runtime', 'superseded'))));
+   const completeForced = () => act(async () => forced(Response.json(freshnessSnapshot('runtime', 'current'))));
+   if (newerFirst) {
+    await completeForced();
+    await completeOrdinary();
+   } else {
+    await completeOrdinary();
+    assert.doesNotMatch(text(f.view.root), /Runtime update confirmed/);
+    await completeForced();
+   }
+   assert.match(text(f.view.root), /Runtime update confirmed\./);
+   assert.match(text(f.view.root), /Runtime 4444444/);
+   assert.equal(f.button(), undefined);
+   assert.equal(f.calls.actions, 1);
+  });
+ }
+
+ test(`${outcome} rollout stays unconfirmed when a failed forced read is followed by an older current response`, async t => {
+  const { f, ordinary, forced } = await overlapPassiveAndRollout(t, outcome);
+  await act(async () => forced(new Response(null, { status: 503 })));
+  await act(async () => ordinary(Response.json(freshnessSnapshot('runtime', 'current'))));
+  assert.match(text(f.view.root), /Infrastructure freshness unavailable/);
+  assert.doesNotMatch(text(f.view.root), /Runtime 4444444|Runtime update confirmed/);
+  f.setObservation('current');
+  await f.runTimer(5_000);
+  assert.match(text(f.view.root), /Runtime update confirmed\./);
+  assert.equal(f.calls.actions, 1);
+ });
+}
+
+test('concurrent Runtime and Runner actions can both confirm using the newer forced observation', async t => {
+ const f = await redeployFixture(t, { actionTargets: ['runtime', 'runner'] });
+ const runtimePoll = f.deferFreshness();
+ await f.click('runtime');
+ const runnerPoll = f.deferFreshness();
+ await f.click('runner');
+ const snapshot = freshnessSnapshot('runtime', 'current');
+ snapshot.components.runner = { state: 'current' };
+ snapshot.state = 'current';
+ await act(async () => runnerPoll(Response.json(snapshot)));
+ await act(async () => runtimePoll(Response.json(freshnessSnapshot('runtime', 'superseded'))));
+ assert.match(text(f.view.root), /Runtime update confirmed\./);
+ assert.match(text(f.view.root), /Runner update confirmed\./);
+ assert.deepEqual(f.freshnessRequests, [false, true, true]);
+ assert.equal(f.calls.actions, 2);
+});
+
+test('a newer passive response cannot substitute for a superseded rollout observation', async t => {
+ const f = await redeployFixture(t);
+ const rolloutPoll = f.deferFreshness();
+ await f.click();
+ const newerForced = f.deferFreshness();
+ const forcedRead = queryInfrastructureFreshness(true);
+ newerForced(new Response(null, { status: 503 }));
+ assert.equal((await forcedRead).status, 'unavailable');
+
+ f.setObservation('current');
+ assert.equal((await queryInfrastructureFreshness()).snapshot.components.runtime.state, 'current');
+ await act(async () => rolloutPoll(Response.json(freshnessSnapshot('runtime', 'current'))));
+ assert.doesNotMatch(text(f.view.root), /Runtime update confirmed/);
+ await f.runTimer(5_000);
+ assert.match(text(f.view.root), /Runtime update confirmed\./);
+ assert.equal(f.calls.actions, 1);
 });

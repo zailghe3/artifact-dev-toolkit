@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { once } from 'node:events';
+import { createServer } from 'node:http';
 import {ADT_RUNTIME_PROTOCOL,ADT_RUNTIME_REDEPLOY_CAPABILITY,requestRuntimeRedeploy} from '../lib/adt-runtime-client.ts';
 const config={baseUrl:'https://runtime.example',authSecret:'x'.repeat(40)};
 const ready=targets=>({protocolVersion:ADT_RUNTIME_PROTOCOL,capabilities:[ADT_RUNTIME_REDEPLOY_CAPABILITY],redeployTargets:targets});
@@ -36,4 +38,49 @@ test('self-redeployment timeout or lost response body remains uncertain without 
   assert.match(result.message,/outcome is uncertain/);
   assert.doesNotMatch(JSON.stringify(result),/private/);
  }
+});
+
+test('transient readiness failures stop before dispatch and allow a later explicit attempt', async () => {
+ for (const failure of [new Response(null, { status: 503 }), new TypeError('private connection detail')]) {
+  const methods = [];
+  const result = await requestRuntimeRedeploy(config, 'runtime', async (_url, init) => {
+   methods.push(init.method);
+   if (failure instanceof Error) throw failure;
+   return failure;
+  });
+  assert.deepEqual(methods, ['GET']);
+  assert.equal(result.state, 'rejected');
+  assert.match(result.message, /readiness could not be confirmed/i);
+  assert.doesNotMatch(result.message, /private/);
+ }
+});
+
+test('signed redeploy requests do not follow Runtime ingress redirects', async t => {
+ const calls = [];
+ let redirectReadiness = true;
+ const server = createServer((request, response) => {
+  calls.push([request.method, request.url]);
+  if (request.url === '/v1/readiness' && !redirectReadiness) {
+   response.writeHead(200, { 'content-type': 'application/json' });
+   return response.end(JSON.stringify(ready(['runtime'])));
+  }
+  if (request.url !== '/redirected') response.writeHead(307, { location: '/redirected' });
+  else response.writeHead(404);
+  response.end();
+ });
+ server.listen(0, '127.0.0.1');
+ await once(server, 'listening');
+ t.after(() => new Promise(resolve => server.close(resolve)));
+ const local = { ...config, baseUrl: `http://127.0.0.1:${server.address().port}` };
+
+ const preflight = await requestRuntimeRedeploy(local, 'runtime');
+ assert.deepEqual(calls.splice(0), [['GET', '/v1/readiness']]);
+ assert.equal(preflight.state, 'rejected');
+ assert.match(preflight.message, /readiness.*redirected/i);
+
+ redirectReadiness = false;
+ const dispatch = await requestRuntimeRedeploy(local, 'runtime');
+ assert.deepEqual(calls, [['GET', '/v1/readiness'], ['POST', '/v1/infrastructure/redeploy']]);
+ assert.equal(dispatch.state, 'ambiguous');
+ assert.match(dispatch.message, /redirected.*uncertain/i);
 });

@@ -79,6 +79,7 @@
 - User-facing times use local presentation while preserving canonical timestamps where needed.
 - Safe deployment/component identity and freshness may be shown without requiring independent services to share a Git revision.
 - Confirmed component maintenance can be presented as an explicit authorised action when the owning service exposes that capability.
+- Maintenance completion requires a fresh observation that the targeted component is current.
 - Unavailable maintenance or freshness observations never block unrelated application use, and uncertain maintenance outcomes are not automatically retried.
 
 ## 8. Agent Workflows
