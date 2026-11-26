@@ -1,7 +1,5 @@
 "use client";
 
-import { use } from "react";
-
 import { CodexRunnerAdvancedDiagnostics } from "@/components/CodexRunnerAdvancedDiagnostics";
 import { CodexRunnerOperationalStatus } from "@/components/CodexRunnerOperationalStatus";
 import { DiagnosticCopyActions } from "@/components/DiagnosticCopyActions";
@@ -14,7 +12,8 @@ import { DiagnosticStatusBadge } from "@/components/DiagnosticStatusBadge";
 import {
   ObservationControls,
   useDiagnosticObservation,
-  useRepositoryObservationUpdate,
+  useAuthenticationObservation,
+  useRunnerControl,
 } from "@/components/DiagnosticsObservations";
 import { LocalizedTime } from "@/components/LocalizedTime";
 import {
@@ -42,7 +41,6 @@ import {
   diagnosticDomainTitles,
   operationalContributors,
   operationalOverall,
-  repositoryDiagnosticDomains,
   runnerDiagnosticDomain,
   runtimeDiagnosticDomain,
   runtimeDiagnosticChecks,
@@ -207,9 +205,11 @@ export function DiagnosticsOverallPanel({
 
 export function DiagnosticsOverall({
   observations,
+  authentication,
   deploymentConfigured,
 }: {
   observations: DiagnosticObservations;
+  authentication: Promise<Observation<RepositoryAuthenticationDiagnostics>>;
   deploymentConfigured: boolean;
 }) {
   const repository = useDiagnosticObservation(
@@ -218,22 +218,23 @@ export function DiagnosticsOverall({
   );
   const runtime = useDiagnosticObservation("runtime", observations.runtime);
   const runner = useDiagnosticObservation("runner", observations.runner);
-  const { authentication, artifacts } = repositoryDiagnosticDomains(
-    repository.result.value,
-  );
+  const access = useAuthenticationObservation(authentication);
+  const control = useRunnerControl(runner.original);
   const domains = useRuntimeDiagnosticDomains(useArtifactValidationDomains([
-    authentication,
-    artifacts,
+    authenticationDiagnosticDomain(access.result.value),
+    artifactLibraryDiagnosticDomain(repository.result.value),
     controlPlaneDiagnosticDomain(deploymentConfigured),
     runtimeDiagnosticDomain(runtime.result.value ?? undefined),
-    runnerDiagnosticDomain(runner.result.value ?? undefined),
-  ], repository.result.value?.repositoryRevision.value));
+    runnerDiagnosticDomain(withCurrentRunnerControl(runner.result.value, control.current)),
+  ], repository.result.value?.repositoryRevision.value), runtime.result);
   const validationPending = useArtifactValidationPending();
-  const pending = [repository, runtime, runner].filter(item => item.pending).length + Number(validationPending);
+  const pending = [repository.pending, runtime.pending, runner.pending, control.action, validationPending].filter(Boolean).length;
   const observedAt = [
+    access.result.observedAt,
     repository.result.observedAt,
     runtime.result.observedAt,
     runner.result.observedAt,
+    control.observedAt,
   ]
     .sort()
     .at(-1);
@@ -251,26 +252,22 @@ export function AuthenticationDomain({
 }: {
   initial: Promise<Observation<RepositoryAuthenticationDiagnostics>>;
 }) {
-  const original = use(initial);
-  const update = useRepositoryObservationUpdate();
-  const result = update?.result ?? original;
-  const lastGood = update?.lastGood.value ? update.lastGood : original;
-  const repository = lastGood.value;
+  const { result, lastGood, pending } = useAuthenticationObservation(initial);
+  const repository = result.value;
   const domain = authenticationDiagnosticDomain(repository);
-  const state = authenticationDiagnosticDomain(result.value).state;
   return (
     <DiagnosticDomainFrame
       id={domain.key}
-      state={update?.pending ? "refreshing" : state}
+      state={pending ? "refreshing" : domain.state}
     >
       <ObservationControls
         state={{
           result,
           lastGood: {
             ...lastGood,
-            observedAt: repository?.generatedAt ?? lastGood.observedAt,
+            observedAt: lastGood.value?.generatedAt ?? lastGood.observedAt,
           },
-          pending: update?.pending,
+          pending,
         }}
       />
       {repository ? (
@@ -405,10 +402,10 @@ export function ArtifactLibraryDomain({
   initial: DiagnosticObservations["repository"];
 }) {
   const observation = useDiagnosticObservation("repository", initial);
-  const repository = observation.lastGood.value;
+  const repository = observation.result.value;
   const domain = artifactLibraryDiagnosticDomain(repository);
   const observed = useArtifactValidationDomains(
-    [artifactLibraryDiagnosticDomain(observation.result.value)], repository?.repositoryRevision.value,
+    [domain], repository?.repositoryRevision.value,
   )[0];
   const validating = useArtifactValidationPending();
   const artifactRepositoryCheck = domain.checks.find(
@@ -424,12 +421,12 @@ export function ArtifactLibraryDomain({
     >
       <ObservationControls
         state={
-          repository
+          observation.lastGood.value
             ? {
                 ...observation,
                 lastGood: {
                   ...observation.lastGood,
-                  observedAt: repository.generatedAt,
+                  observedAt: observation.lastGood.value.generatedAt,
                 },
               }
             : observation
@@ -498,7 +495,7 @@ export function ArtifactLibraryDomain({
                     ? "No"
                     : "Unknown"}
               </p>
-              <CatalogueRefreshControls availability={refreshAvailability} />
+              {!observation.pending && <CatalogueRefreshControls availability={refreshAvailability} />}
             </Card>
           </div>
           <ArtifactValidationAction initial={repository.validation} revision={repository.repositoryRevision.value} disabled={observation.pending} />
@@ -579,9 +576,9 @@ export function ControlPlaneDomain({
 
 export function RuntimeDomain({ initial }: { initial: DiagnosticObservations["runtime"] }) {
   const observation = useDiagnosticObservation("runtime", initial);
-  const runtime = observation.lastGood.value;
+  const runtime = observation.result.value;
   const domain = runtimeDiagnosticDomain(runtime ?? undefined);
-  const state = useRuntimeDiagnosticDomains([runtimeDiagnosticDomain(observation.result.value ?? undefined)])[0].state;
+  const state = useRuntimeDiagnosticDomains([domain], observation.result)[0].state;
   const infrastructureReadiness = runtime?.readinessAccepted ? "available"
     : runtime?.httpStatus && runtime.authenticationAccepted === null ? "not_verified" : "unavailable";
   return (
@@ -600,8 +597,8 @@ export function RuntimeDomain({ initial }: { initial: DiagnosticObservations["ru
           </div>
         </details>
       )}
-      <ADTRuntimeExecutionPathDiagnostic domain={domain} report={{
-        domain: "adt-runtime", observedAt: observation.lastGood.observedAt, state: domain.state, infrastructureReadiness,
+      <ADTRuntimeExecutionPathDiagnostic domain={domain} scope={observation.result} report={{
+        domain: "adt-runtime", observedAt: observation.result.observedAt, state: domain.state, infrastructureReadiness,
         configured: runtime?.configured ?? false, reachable: runtime?.reachable ?? false,
         authenticationAccepted: runtime?.authenticationAccepted ?? null, protocolCompatible: runtime?.protocolCompatible ?? false,
         openaiAgents: runtime?.capabilityAvailable ?? false, langgraphGraph: runtime?.graphCapabilityAvailable ?? false,
@@ -615,98 +612,63 @@ export function RuntimeDomain({ initial }: { initial: DiagnosticObservations["ru
   );
 }
 
-export function RunnerDomain({
-  initial,
-  expectedDigest,
-}: {
+function withCurrentRunnerControl(
+  runner: Awaited<DiagnosticObservations["runner"]>["value"],
+  current: ReturnType<typeof useRunnerControl>["current"],
+) {
+  return runner ? { ...runner, control: current ? { state: "available" as const, value: current } : { state: "unavailable" as const } } : undefined;
+}
+
+export function RunnerDomain({ initial, expectedDigest }: {
   initial: DiagnosticObservations["runner"];
   expectedDigest?: string;
 }) {
   const observation = useDiagnosticObservation("runner", initial);
-  const runner = observation.lastGood.value;
-  const domain = runnerDiagnosticDomain(runner ?? undefined);
-  const state = runnerDiagnosticDomain(
-    observation.result.value ?? undefined,
-  ).state;
+  const control = useRunnerControl(observation.original);
+  const runner = withCurrentRunnerControl(observation.result.value, control.current);
+  const domain = runnerDiagnosticDomain(runner);
+  const pending = observation.pending || Boolean(control.action);
+  const readiness = pending ? domainBadges.pending
+    : domain.state === "healthy" ? { label: "Ready", tone: "positive" as const }
+      : domain.state === "degraded" ? { label: "Not verified", tone: "warning" as const }
+        : domainBadges[domain.state];
+
   return (
-    <DiagnosticDomainFrame
-      id={domain.key}
-      state={observation.pending ? "refreshing" : state}
-    >
-      <ObservationControls
-        state={observation}
-        onRefresh={() => observation.refresh()}
-      />
-      {runner ? (
-        <>
-          <div className="mt-4 rounded-xl border border-slate-200 p-4 dark:border-slate-700">
-            <Status
-              label="Runner operational readiness"
-              presentation={
-                domain.state === "healthy"
-                  ? { label: "Ready", tone: "positive" }
-                  : domain.state === "not-configured"
-                    ? { label: "Not configured", tone: "neutral" }
-                    : { label: "Needs attention", tone: "negative" }
-              }
-            />
-          </div>
-          <details className="mt-4 adt-panel" open={domain.state === "failed"}>
-            <summary className="cursor-pointer font-bold">
-              Observed status details
-            </summary>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {domain.checks
-                .filter((check) => check.contributes !== false || check.id === "runner-job-readiness")
-                .map((check) => (
-                  <Check key={check.id} check={check} />
-                ))}
-            </div>
-          </details>
-          <CodexRunnerOperationalStatus
-            connection={runner.connection}
-            initialControl={
-              runner.control.state === "available"
-                ? runner.control.value
-                : undefined
-            }
-            expectedDigest={expectedDigest}
-          />
-          <DiagnosticCopyActions
-            report={{
-              domain: "codex-runner",
-              observedAt: observation.lastGood.observedAt,
-              state: domain.state,
-              connection: runner.connection.state,
-              protocol: runner.connection.compatibility?.protocol ?? "unknown",
-              runnerRelease:
-                runner.connection.compatibility?.runnerRevision ?? "unknown",
-              codexVersion:
-                runner.connection.compatibility?.codexVersion ?? "unknown",
-              runnerBuild:
-                runner.connection.capabilities?.runnerVersion === "development"
-                  ? undefined
-                  : runner.connection.capabilities?.runnerVersion,
-              codexCliReady: runner.connection.capabilities?.codexAvailable ?? "unknown",
-              deviceAuthSupported: runner.connection.capabilities?.deviceAuth ?? "unknown",
-              jobExecutionSupported: runner.connection.capabilities?.jobExecution ?? "unknown",
-              chatGptAuthenticated: runner.authentication.state === "available" ? runner.authentication.value.connected : "unknown",
-              emergencyStop:
-                runner.control.state === "available"
-                  ? runner.control.value.emergencyStopped
-                  : "unknown",
-              executorHealthy:
-                runner.control.state === "available"
-                  ? (runner.control.value.executor?.healthy ?? "unknown")
-                  : "unknown",
-            }}
-          />
-        </>
-      ) : (
-        <div className="mt-4">
-          <Check check={domain.checks[0]} />
+    <DiagnosticDomainFrame id={domain.key} state={pending ? "refreshing" : domain.state}>
+      <ObservationControls state={observation} onRefresh={observation.refresh} />
+      <div className="mt-4 rounded-xl border border-slate-200 p-4 dark:border-slate-700">
+        <Status label="Runner operational readiness" presentation={readiness} />
+      </div>
+      <details className="mt-4 adt-panel" open={domain.state === "failed"}>
+        <summary className="cursor-pointer font-bold">Observed status details</summary>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {domain.checks
+            .filter(check => check.contributes !== false || check.id === "runner-job-readiness")
+            .map(check => <Check key={check.id} check={check} />)}
         </div>
-      )}
+      </details>
+      <CodexRunnerOperationalStatus
+        connection={runner?.connection ?? { state: "unavailable", label: "Runner unavailable" }}
+        runnerControl={control}
+        expectedDigest={observation.lastGood.value ? expectedDigest : undefined}
+      />
+      {runner && <DiagnosticCopyActions report={{
+        domain: "codex-runner",
+        observedAt: observation.result.observedAt,
+        state: pending ? "unknown" : domain.state,
+        connection: runner.connection.state,
+        protocol: runner.connection.compatibility?.protocol ?? "unknown",
+        runnerRelease: runner.connection.compatibility?.runnerRevision ?? "unknown",
+        codexVersion: runner.connection.compatibility?.codexVersion ?? "unknown",
+        runnerBuild: runner.connection.capabilities?.runnerVersion === "development" ? undefined : runner.connection.capabilities?.runnerVersion,
+        codexCliReady: runner.connection.capabilities?.codexAvailable ?? "unknown",
+        deviceAuthSupported: runner.connection.capabilities?.deviceAuth ?? "unknown",
+        jobExecutionSupported: runner.connection.capabilities?.jobExecution ?? "unknown",
+        chatGptAuthenticated: runner.authentication.state === "available" ? runner.authentication.value.connected : "unknown",
+        controlObservedAt: control.current ? control.observedAt : undefined,
+        emergencyStop: control.current?.emergencyStopped ?? "unknown",
+        executorHealthy: control.current?.executor?.healthy ?? "unknown",
+      }} />}
       <CodexRunnerTestDiagnostic />
       <CodexRunnerAdvancedDiagnostics />
     </DiagnosticDomainFrame>

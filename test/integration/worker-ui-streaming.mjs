@@ -62,6 +62,28 @@ try {
   assert.equal(fixture.calls.filter(call => call.operation === 'runs.diagnose' || call.runnerMethod === 'jobs').length, 0);
   assert.ok(fixture.calls.some(call => call.pathname.endsWith('/git/ref/heads/main')));
   assert.doesNotMatch(html, /mock-installation-token|mock-client-credential|BEGIN PRIVATE KEY/);
+
+  const callsBeforeRejections = fixture.calls.length;
+  const runnerOperations = '/api/workflow-connections/codex-runner';
+  const post = (path, session, origin, body) => fetch(fixture.origin + path, {
+    method: 'POST',
+    headers: { origin, 'content-type': 'application/json', ...(session ? { cookie: `__Host-adt_session=${session}` } : {}) },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(5000),
+  });
+  assert.equal((await request(`${runnerOperations}/control`)).status, 401);
+  assert.equal((await request(`${runnerOperations}/control`, fixture.deniedSession)).status, 403);
+  assert.equal((await post(`${runnerOperations}/control`, undefined, fixture.origin, { action: 'resume' })).status, 401);
+  assert.equal((await post(`${runnerOperations}/control`, fixture.deniedSession, fixture.origin, { action: 'resume' })).status, 403);
+  const crossOrigin = await post(`${runnerOperations}/control`, fixture.session, 'https://other.example.test', { action: 'emergency-stop' });
+  assert.equal(crossOrigin.status, 403);
+  assert.equal((await crossOrigin.json()).error, 'invalid_origin');
+  assert.equal((await post(`${runnerOperations}/control`, fixture.session, fixture.origin, { action: 'stop' })).status, 400);
+  assert.equal((await post(`${runnerOperations}/test`, fixture.session, 'https://other.example.test', {})).status, 403);
+  assert.equal((await post('/api/workflow-connections/adt-runtime/execution-path', undefined, fixture.origin, {})).status, 401);
+  assert.equal((await request('/api/diagnostics/repository/validation', fixture.deniedSession)).status, 403);
+  assert.ok(fixture.calls.slice(callsBeforeRejections).every(call => call.hostname !== 'runtime.example.test'), 'Rejected operations must not reach Runtime or Runner');
+
   const signOut = await fetch(fixture.origin + '/sign-out', {
     method: 'POST', headers: { cookie: `__Host-adt_session=${fixture.session}` }, redirect: 'manual',
     signal: AbortSignal.timeout(5000),

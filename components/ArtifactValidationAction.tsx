@@ -62,7 +62,14 @@ export function ArtifactValidationAction({ completed = false, initial, revision,
   const setValidation = context?.setValidation ?? setLocal;
   const [pending,setPending]=useState(false), [message,setMessage]=useState("");
   const active=useRef<AbortController|null>(null);
-  useEffect(()=>()=>{active.current?.abort();active.current=null;},[]);
+  const setGlobalPending = context?.setPending;
+  useEffect(() => () => {
+    const request = active.current;
+    if (!request) return;
+    active.current = null;
+    request.abort();
+    setGlobalPending?.(false);
+  }, [setGlobalPending]);
   async function run() {
     if(active.current)return;
     const controller=new AbortController(); active.current=controller;setPending(true);context?.setPending(true);setMessage("");

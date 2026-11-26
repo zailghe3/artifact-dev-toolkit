@@ -58,7 +58,7 @@ export default async function DiagnosticsPage({ searchParams }: { searchParams: 
         </nav>
         <div className="grid gap-4">
           <Suspense fallback={<DiagnosticsOverallPanel pending={3} />}>
-            <DiagnosticsOverall observations={observations} deploymentConfigured={!!deploymentMetadata} />
+            <DiagnosticsOverall observations={observations} authentication={authentication} deploymentConfigured={!!deploymentMetadata} />
           </Suspense>
           <Suspense fallback={<PendingDomain id="authentication-access" />}>
             <AuthenticationDomain initial={authentication} />

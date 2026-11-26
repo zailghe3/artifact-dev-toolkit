@@ -61,6 +61,7 @@
 - Active diagnostics are bounded, intentional, and do not silently start model work or mutate application data unless the action explicitly says it will.
 - Component reachability, authentication, compatibility, storage readiness, provider readiness, and execution readiness remain distinguishable where that distinction affects recovery.
 - A failed re-query does not present stale observations as current.
+- Runner readiness, execution controls, and copied reports use the same current control evidence. State-dependent controls require a confirmed latch state. After an uncertain control operation, a fresh observation is required to verify the current latch state.
 - Degraded optional detail does not invalidate separately established healthy core functionality.
 - Operational failures provide concise safe recovery guidance where possible.
 - Status does not rely on colour alone.
