@@ -1,116 +1,129 @@
 # ADT Runtime
 
-ADT Runtime owns Workflow execution and operational state for Artifact Dev Toolkit. The Cloudflare Worker handles browser sessions, user authorisation, Git-backed admission and scoped GitHub authority.
+ADT Runtime is Artifact Dev Toolkit's durable execution and private-service plane. The Cloudflare Worker remains the thin public control plane for browser sessions, user/repository authorisation, Git-backed admission, and GitHub App authority.
 
 ## Design boundary
 
-- Runtime schedules, resumes and cancels complete Workflows. PostgreSQL persists runs, approvals, attempts, tool journals, LangGraph checkpoints, settings and registrations.
-- Runtime resolves credentials from its repository-scoped encrypted vault. Work IQ OAuth exchanges and refresh tokens stay in Runtime. The Worker handles the browser redirect.
-- The Worker keeps GitHub App signing credentials. Its signed broker mints short-lived GitHub installation tokens scoped to the configured artifact repository or an admitted managed repository operation.
-- Runtime owns bounded remote MCP discovery and execution. Frozen tool contracts share the ADT approval, policy and security gate.
-- Codex Runner owns Codex identity and isolated execution. Runtime holds only credentials needed to call its service.
-- Runtime and Worker authenticate requests and negotiate protocol capabilities. PostgreSQL persists replay protection for signed operational requests.
+- Runtime schedules, resumes, cancels, and recovers complete Workflows.
+- PostgreSQL persists Workflow runs, checkpoints, attempts, approvals, tool journals, operational settings, registrations, and the encrypted repository-scoped credential vault.
+- Runtime resolves provider/tool credentials for the exact admitted operation; credential values do not enter Git-authored definitions or browser state.
+- Runtime hosts execution-heavy provider, tool, and security integrations and is the preferred boundary for capabilities that need private/homelab network access.
+- The Worker retains broad GitHub App signing authority and brokers only short-lived repository credentials required by an admitted Runtime operation.
+- Codex Runner remains a separate trust boundary for Codex identity, model-directed command execution, and managed Git authority.
+- Runtime and Worker authenticate their service boundary and negotiate compatibility explicitly.
+
+Runtime may own narrowly scoped infrastructure capabilities needed to operate services in its private environment. Those capabilities must remain in Runtime or another purpose-specific trusted homelab service rather than being transferred to Cloudflare or the browser.
 
 ## Operator contract
 
-- Deploy `poulti/adt-runtime:latest` using the base [`docker-stack.example.yml`](docker-stack.example.yml) or pin an immutable `poulti/adt-runtime:<git-sha>` image for explicit rollout/rollback. The base stack requires no redeploy webhook secrets.
-- Run the container as the non-root `node` user with its dedicated, persistent key directory. Keep the Docker socket outside Runtime.
-- Adrian 1.1.0 installs a JSONL handler during SDK initialization. Runtime routes that output to an isolated container temporary directory and removes it after each Adrian lifecycle; `/runtime` remains non-writable to the runtime user. This local JSONL output is neither retained nor used as ADT's authoritative security evidence.
-- Keep ingress HTTPS and operator-owned. The unauthenticated `/healthz` endpoint discloses only process health.
-- Do not provision provider API keys, Cloudflare credentials, GitHub App credentials, artifact-repository credentials, Codex credentials, Portainer API credentials, Docker access, or tunnel credentials to Runtime.
-- Trusted CI publishes immutable Git-SHA tags plus `latest`; deployment remains operator-owned.
+- Deploy `poulti/adt-runtime:latest` for normal tracked rollout or pin an immutable `poulti/adt-runtime:<git-sha>` image for explicit rollout/rollback.
+- Use the committed stack examples as the operator baseline; exact image pins, mounts, resource limits, network names, and healthcheck mechanics remain authoritative there.
+- Run Runtime as the non-root image user with a persistent protected Runtime key directory.
+- Keep the Docker socket and broad infrastructure credentials outside Runtime.
+- Keep ingress HTTPS and operator-owned. The unauthenticated `/healthz` endpoint exposes process health only.
+- Trusted CI publishes immutable source-SHA images plus `latest`; deployment and private infrastructure remain operator-owned.
 
-Create the external Docker secrets listed in the [PostgreSQL operations guide](../docs/runtime-postgresql.md).
+Runtime requires the external secrets and configuration documented in [PostgreSQL operations](../docs/runtime-postgresql.md). The shared `adt_runtime_auth` secret authenticates Worker/Runtime requests.
 
-| Secret | Content |
-| --- | --- |
-| `adt_runtime_auth` | Dedicated high-entropy request-authentication secret shared only with the Cloudflare application. |
+### Optional maintenance control
 
-Footer maintenance uses four additional optional external Docker secrets. Opt in by combining the base stack with [`docker-stack.maintenance.example.yml`](docker-stack.maintenance.example.yml); the maintenance overlay maps them to stable Runtime secret files. Each value is the full operator-owned private webhook URL:
+Footer maintenance may be enabled by combining the base stack with `docker-stack.maintenance.example.yml`.
 
-- `ADT_Runtime_Redeploy_Webhook`
-- `Codex_Runner_Controller_Redeploy_Webhook`
-- `Codex_Runner_Executor_Redeploy_Webhook`
-- `Codex_Runner_Repository_Manager_Redeploy_Webhook`
+- Runtime may receive only the fixed private webhook URLs for the Runtime and split Runner services it is allowed to request redeployment for.
+- The browser/Worker sends a fixed component target, not an arbitrary infrastructure URL.
+- Webhook URLs remain Runtime-only and are excluded from readiness, diagnostics, responses, and logs.
+- Missing maintenance webhooks do not prevent Runtime startup or unrelated execution.
+- Portainer/Docker authority remains private and is not added to the public Cloudflare boundary.
 
-Runtime updates are available only with the Runtime webhook. Runner updates require all three Runner webhooks. Missing or invalid optional values do not prevent Runtime startup or unrelated operations. Runtime calls these fixed endpoints directly with bounded, non-redirecting requests; the application sends only the fixed `runtime` or `runner` target. Webhook URLs never enter Cloudflare, browser state, readiness, diagnostics, responses, or logs. The existing independently mounted Executor secret in the Runner Controller remains the emergency hard-restart path.
+The same Executor redeploy secret may be mounted independently by Runner Controller for emergency hard restart and by Runtime for the explicit Runner maintenance action; each component uses it only for its own bounded purpose.
 
-Deploy the maintenance-enabled configuration only after all four external secrets exist:
+## PostgreSQL and key material
 
-```sh
-docker stack deploy -c docker-stack.example.yml -c docker-stack.maintenance.example.yml adt-runtime
-```
+Runtime requires PostgreSQL and initializes/validates its operational schema before reporting ready.
 
-The Runtime and split Runner stacks independently mount the same external `Codex_Runner_Executor_Redeploy_Webhook`. Runner Controller uses its local `executor_redeploy_webhook` alias only for emergency hard restart; Runtime uses its own mount only as the Executor step of the fixed Runner maintenance action. No duplicate credential or copied secret value is required.
+- Use `docker-stack.example.yml` for the standalone Runtime/PostgreSQL topology or `docker-stack.existing-postgres.example.yml` when PostgreSQL is operated separately.
+- Keep PostgreSQL on a private network and persist its data independently from the Runtime container.
+- Persist the Runtime key directory separately from PostgreSQL data and back up both as one recovery set.
+- Runtime generates and owns the vault root and wrapping-key material stored in that protected directory.
+- A missing or mismatched key/database pair fails closed.
 
-The first rollout requires an operator to deploy the new Runtime image and mount all four secrets manually. An older Runtime advertises no redeploy capability, so the application fails safely with manual-update guidance rather than falling back to Portainer access. Portainer remains private and must not be added to the Cloudflare tunnel.
+Deployment, backup, restore, and secret inventory are documented in [PostgreSQL operations](../docs/runtime-postgresql.md).
 
-## PostgreSQL deployment
+## Worker and private-service configuration
 
-Runtime requires PostgreSQL and initializes the operational schema before it reports ready. Use the [Runtime-only stack](docker-stack.existing-postgres.example.yml) with an existing service, or the [standalone stack](docker-stack.example.yml) for a new private PostgreSQL service. Both use a separate Runtime key export. Runtime provisions both its vault and wrapping keys. See the [PostgreSQL operations guide](../docs/runtime-postgresql.md) for readiness checks and recovery.
+The Worker needs the Runtime base URL and shared Runtime authentication secret. Runtime needs the Worker URL for the scoped GitHub credential broker.
 
-## Cloudflare configuration
+Private provider/tool services are configured according to their owning connection or operator contract:
 
-Configure `ADT_RUNTIME_BASE_URL` and the shared `ADT_RUNTIME_AUTH_SECRET` on the Worker. Configure `ADT_RUNTIME_WORKER_URL` on Runtime for the scoped GitHub broker. Authenticated readiness provides the wrapping public key and its fingerprint.
+- public-provider credentials belong in the Runtime vault, not Runtime environment variables;
+- MCP destinations follow the Runtime network-safety policy;
+- private endpoints such as Ollama must be explicitly operator-approved;
+- Codex Runner uses its own service credentials and remains a separate execution boundary;
+- Security Profile services use non-secret Git configuration plus vault-backed credentials.
 
-## Protocol and execution semantics
+Do not provision Cloudflare credentials, GitHub App private keys, browser-session secrets, Codex identity, or broad Portainer/Docker credentials to Runtime.
 
-- Readiness advertises protocol compatibility, supported execution capabilities, image revision, and wrapping-key identity. Exact capability identifiers and payload schemas are authoritative in source and tests.
-- Runtime requests are authenticated and replay-protected; malformed, stale, replayed, incompatible, or unsupported requests fail closed before provider work.
-- MCP endpoints are restricted to safe public HTTPS destinations in normal operation. Connections use only policy-validated DNS answers, and redirects remain bounded to the same origin with destination validation repeated. A narrow explicit localhost mode exists only for deterministic development and tests.
-- MCP discovery exposes bounded catalogue metadata. MCP calls consume a caller-selected frozen schema, map remote failures to safe errors, and are never automatically retried after dispatch.
-- Runtime advances one bounded LangGraph frontier at a time. Each PostgreSQL lease has a generation and fence. A replacement Runtime can take over expired work, and the previous owner cannot commit stale state.
-- Approvals persist across restarts. Runtime reads durable decisions when a run is due or an authenticated command wakes it.
-- Provider and tool attempts are journaled before dispatch. Provider task IDs support polling and cancellation where available. Ambiguous synchronous outcomes stay recorded for reconciliation.
-- Graph progression and provider execution have separate deadlines. Transport and repository broker failures use bounded diagnostics.
-- The legacy OpenAI Agents HTTP operation remains an alias of the same executor. A PostgreSQL-backed Runtime schedules Workflow graphs internally.
+## Execution and recovery semantics
 
-Exact cryptographic construction, wire fields, nonce handling, byte limits, timeout constants, and internal retry mechanics remain authoritative in source and tests.
+- Readiness advertises service compatibility, supported capabilities, image identity, and key identity without exposing secrets.
+- Authenticated service requests are replay-protected and fail closed when malformed, stale, incompatible, or unsupported.
+- Runtime advances the frozen ADT Workflow plan from durable PostgreSQL state.
+- Workflow leases/fencing prevent a stale Runtime owner from committing after authority moves to another instance.
+- Approvals and tool waits survive Runtime replacement.
+- Provider/tool work is durably journaled before later execution depends on it.
+- Durable external task identities are polled/reconciled when available.
+- Ambiguous synchronous provider/tool outcomes remain explicit and are not automatically replayed.
+- Exact protocol fields, cryptographic construction, limits, deadlines, retry counters, and internal state transitions remain authoritative in source and tests.
+
+## Tools and security
+
+- Runtime owns bounded MCP discovery and invocation.
+- New Workflow runs freeze the selected non-secret tool contract; normal Agent execution does not rediscover or broaden tool authority.
+- Model-facing tool schemas never contain tool credentials.
+- Each admitted invocation resolves only the credential and authority required for that exact call.
+- ADT policy, optional human approval, and Security Profiles are evaluated before external execution.
+- Security Profiles can only restrict already-authorised calls.
+- Unknown external outcomes suspend Agent progression for reconciliation rather than causing another call.
+- Provider/tool/security-specific limits and recovery operations are documented in [Agent tools and recovery](../docs/agent-tools-and-recovery.md).
 
 ## Diagnostics and commissioning
 
-Commission Runtime without trial-running a provider invocation:
+Commission the Runtime and each external capability separately.
 
-1. Confirm the container healthcheck is healthy.
-2. Use **Test ADT Runtime** to confirm reachability, request authentication, protocol compatibility, required capabilities, and wrapping-key compatibility.
-3. On the unified Diagnostics page, explicitly run **Test execution path** when Workflow execution is being commissioned. It verifies the PostgreSQL tables and the scoped GitHub broker without invoking providers or mutating a Workflow.
-4. Run the separate provider **Test connection** for the credential/model. Provider commissioning runs in Runtime. The Worker receives safe connection status and diagnostics.
-5. Only after the applicable checks pass, run a real Workflow.
+1. Confirm container/process health.
+2. Use **Test ADT Runtime** to verify reachability, authentication, compatibility, and required capabilities.
+3. Use **Test execution path** when commissioning Workflow execution to verify the authenticated management/storage path and scoped GitHub broker without running a provider.
+4. Test the relevant provider/tool/Security Profile connection separately.
+5. Run a real Workflow only after the required boundaries are ready.
 
-The execution-path diagnostic is non-mutating: it does not create Workflow/checkpoint state, resolve provider credentials, invoke an Agent/provider, or search Artifact contents. The broker check mints a scoped read credential.
+Passive readiness, active execution-path diagnostics, provider/tool readiness, and real execution are distinct observations.
 
-Passive readiness, execution-path readiness, provider connection readiness, and real provider execution are separate conditions and should remain separately diagnosable.
+Runtime logs use bounded structured stage/result/correlation evidence. They must not include secret values, prompts, provider payloads, arbitrary external response bodies, or raw exception text.
 
-Runtime logs are structured safe events. Use bounded stage/result/status/correlation/duration fields; do not log or compare secret values, provider payloads, prompts, callback bodies, or raw exception text.
+## Ollama/private provider endpoints
 
-For a journaled Agent failure, use the inspector's client request ID to find the Runtime receipt, provider entry, and completion or failure events. A missing response or log entry leaves provider execution unconfirmed.
+Ollama demonstrates the intended private-provider pattern:
 
-## Ollama endpoints and model commissioning
+- Runtime, not the Cloudflare Worker, reaches the configured endpoint.
+- The operator explicitly allowlists acceptable endpoint origins.
+- Connection configuration records only safe endpoint/authentication identity; bearer values remain in the Runtime vault.
+- Model discovery and execution validate the same approved destination and do not silently redirect or fall back to a different execution path.
+- Local/private network access is an intentional Runtime capability, not a general browser/Worker capability.
 
-- Configure `ADT_RUNTIME_OLLAMA_ALLOWED_BASE_URLS` with up to 32 comma-separated origin URLs, for example `http://ollama:11434,https://ollama.com`. The default empty list permits no Ollama endpoint.
-- The Worker and Runtime share strict base-URL normalization: HTTP/HTTPS only, no embedded credentials, query, fragment, or non-root path. Trailing `/` is removed. Malformed operator configuration prevents startup; endpoint lists are never logged or exposed by readiness.
-- Every discovery and execution checks an exact normalized allowlist match before network access. Scheme, host, and port must match. Private network access is intentional only for operator-approved endpoints; MCP's public-internet-only policy does not apply.
-- Runtime appends `/api/tags` for read-only discovery, `/api/show` for model tool-capability checks and `/api/chat` for bounded non-streaming model turns. Redirects are disabled, responses are bounded, and requests are never automatically retried. No model pull/create/delete operation is exposed.
-- Localhost refers to Runtime's own process/container. Use the appropriate Docker service name, host gateway, LAN address, or routed hostname, and provide network connectivity separately. This feature does not deploy Ollama.
-- Select None for an ordinary unauthenticated local server. The official direct-cloud origin `https://ollama.com` requires Bearer API key authentication; None is rejected before discovery, saving, or execution. Custom endpoints may use None or Bearer, including custom HTTPS endpoints. Select Bearer for an authenticated reverse proxy. Runtime uses a call-scoped credential resolved from the ADT vault; do not provision an Ollama API key as a Runtime environment variable.
-- Authenticated `POST /v1/providers/models` uses the additive `provider-model-discovery` capability and a strict `ollama-chat` branch. It carries only correlation identity, safe connection configuration, and an optional encrypted credential. It never receives a prompt, Workflow state, tools, or repository authority.
-- Readiness advertises `ollama-chat`, generic provider execution, and provider model discovery independently of allowlist contents. Missing capability and rejected endpoint configuration are distinct failures; an empty allowlist does not hide protocol support.
-- Deploy Runtime release 8 or later and configure the allowlist before commissioning Ollama. In the application, create an Ollama connection, load available models, select an advertised model, and save. Use **Test connection** to recheck that model through Runtime without inference. Use **Test ADT Runtime** separately for the Runtime boundary.
-- Old Workers retain existing execution endpoints and capabilities, including the legacy OpenAI alias. New Workers fail closed for Ollama on an older Runtime, with no direct Cloudflare fallback. Deploy Runtime before enabling provider discovery and validation in the Worker.
+Exact endpoint normalisation, allowlist limits, model APIs, and provider options remain authoritative in source/tests and connection UI.
 
 ## Release identity
 
-- `/runtime/REVISION` is the immutable image/source Git SHA used for operator identity.
-- `release.json` is the source-controlled monotonic Runtime release generation shared with the Worker.
-- Readiness reports both facts. The Worker compares release generations for freshness and never infers freshness from Git history, SHA equality, GitHub, or Docker Hub.
-- Runtime image-input changes must increment `releaseRevision` in the same pull request; CI validates this policy.
+- Runtime exposes immutable source/image identity and a monotonic release generation used for application compatibility/freshness.
+- Worker and Runtime Git commits do not need to match.
+- Runtime image-input changes update the source-controlled release generation under CI policy.
+- Exact release numbers and rollout ordering belong in `release.json` and trusted delivery workflows, not this document.
 
-## Durable Agent tool contract
+## Durable Agent execution contract
 
-- Release 10 advertises `agent:progress-v1`. `/v1/agents/progress` performs one model turn without tool credentials or execution authority. `/v1/agents/security` reconstructs exact-call Adrian context. `/v1/agents/tool` performs one exact admitted MCP invocation.
-- Each operation uses the existing authenticated, replay-protected transport and invocation-scoped credential wrapping. Model and tool credentials are never interchangeable durable state.
-- OpenAI uses the pinned SDK public model API with a no-op trace and Chat Completions. Anthropic and Ollama retain native protocol adapters. No provider executes a tool through an SDK Runner.
-- Runtime persists proposals, approvals, budget counters, results and conversations in PostgreSQL.
-- MCP uncertainty crosses the wire explicitly. Missing results are not interpreted as non-execution.
-- Admitted tool requests carry an absolute execution deadline. MCP bounds the complete operation, preserves transport cancellation and rejects expired dispatch grants before network access.
-- See [Agent tools and recovery](../docs/agent-tools-and-recovery.md) for the complete state machine, provider and schema limits, roles, journal inspection and reconciliation.
+- Runtime performs bounded model turns, durable tool progression, security evaluation, and exact admitted tool calls through authenticated service operations.
+- Model execution and tool execution have separate authority/credential boundaries.
+- Runtime persists conversations, proposals, approvals, budgets, results, and uncertainty needed to resume safely.
+- Missing external results never imply non-execution.
+- A replacement Runtime resumes from durable PostgreSQL state rather than replaying prior external work.
+- Provider-specific SDK/protocol choices remain implementation detail unless they form an externally visible product contract.
