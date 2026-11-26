@@ -16,12 +16,20 @@ export type InfrastructureFreshnessQueryState =
   | { status: "checking" }
   | { status: "hidden" }
   | { status: "loaded"; snapshot: InfrastructureFreshnessSnapshot }
+  | { status: "superseded" }
   | { status: "unavailable" };
 
 type CachedValue = { expiresAt: number; snapshot: InfrastructureFreshnessSnapshot };
+type FreshnessObservation = { sequence: number; refresh: boolean; result: InfrastructureFreshnessQueryState };
 let memoryCache: CachedValue | undefined;
 let inFlight: Promise<InfrastructureFreshnessQueryState> | undefined;
-export function clearInfrastructureFreshnessClientCacheForTests(){memoryCache=undefined;inFlight=undefined}
+let requestSequence = 0;
+let latestObservation: FreshnessObservation | undefined;
+export function clearInfrastructureFreshnessClientCacheForTests() {
+  memoryCache = undefined;
+  inFlight = undefined;
+  latestObservation = { sequence: ++requestSequence, refresh: false, result: { status: "superseded" } };
+}
 
 function readMemoryCache(now = Date.now()): CachedValue | undefined {
   if (memoryCache && memoryCache.expiresAt > now) return memoryCache;
@@ -41,6 +49,7 @@ export async function queryInfrastructureFreshness(refresh = false): Promise<Inf
     if (cached) return { status: "loaded", snapshot: cached.snapshot };
     if (inFlight) return inFlight;
   }
+  const sequence = ++requestSequence;
   const request = (async (): Promise<InfrastructureFreshnessQueryState> => {
     const controller = new AbortController();
     const timer = window.setTimeout(() => controller.abort(), INFRASTRUCTURE_FRESHNESS_CLIENT_TIMEOUT_MS);
@@ -58,6 +67,11 @@ export async function queryInfrastructureFreshness(refresh = false): Promise<Inf
       window.clearTimeout(timer);
     }
   })().then(next => {
+    if (latestObservation && sequence < latestObservation.sequence) {
+      // Confirmation can consume a newer forced result, but never a passive cached read.
+      return refresh && !latestObservation.refresh ? { status: "superseded" as const } : latestObservation.result;
+    }
+    latestObservation = { sequence, refresh, result: next };
     if (inFlight === request && next.status === "loaded") writeMemoryCache(next.snapshot);
     return next;
   }).finally(() => {
@@ -103,7 +117,7 @@ export function InfrastructureFreshnessIndicator() {
       if (!active || !pageVisible()) return;
       void queryInfrastructureFreshness().then((next) => {
         if (!active) return;
-        setState(next);
+        if (next.status !== "superseded") setState(next);
         if (next.status === "hidden") return;
         const cached = readMemoryCache();
         schedule(cached ? cached.expiresAt - Date.now() : INFRASTRUCTURE_FRESHNESS_CLIENT_TTL_MS);
@@ -126,7 +140,8 @@ export function InfrastructureFreshnessIndicator() {
   }, []);
 
   async function pollRedeploy(target:"runtime"|"runner",attempt=1){
-    const next=await queryInfrastructureFreshness(true);setState(next);
+    const next=await queryInfrastructureFreshness(true);
+    if(next.status!=="superseded")setState(next);
     if(next.status==="loaded"&&next.snapshot.components[target].state==="current"){setActions(value=>({...value,[target]:"idle"}));setFeedback(value=>({...value,[target]:`${target==="runtime"?"Runtime":"Runner"} update confirmed.`}));return}
     if(attempt>=12||next.status==="hidden"){setActions(value=>({...value,[target]:"idle"}));setFeedback(value=>({...value,[target]:"Update not yet confirmed; refresh to check again."}));return}
     const timer=window.setTimeout(()=>{pollTimers.current.delete(timer);void pollRedeploy(target,attempt+1)},5_000);pollTimers.current.add(timer);
@@ -136,8 +151,19 @@ export function InfrastructureFreshnessIndicator() {
     if(actions[target]!=="idle")return;setActions(value=>({...value,[target]:"submitting"}));setFeedback(value=>({...value,[target]:undefined}));
     try{
       const response=await fetch("/api/infrastructure-redeploy",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({target}),cache:"no-store"});
-      if(response.status===401){
-        setFeedback(current=>({...current,[target]:"Sign in again to request this update."}));
+      if(response.status===401||response.status===403){
+        let message="Sign in again to request this update.";
+        if(response.status===403){
+          const denial=await response.json().catch(()=>null) as {error?:unknown;code?:unknown;state?:unknown;message?:unknown}|null;
+          if(denial?.error==="Repository authorisation required"||denial?.code==="repository_authorization_denied"){
+            message="Repository access is required to request this update. Check your GitHub access or contact an administrator.";
+          }else if(denial?.state==="rejected"&&denial.message==="Request origin is invalid."){
+            message="Request origin is invalid.";
+          }else{
+            message="You do not have permission to request this update.";
+          }
+        }
+        setFeedback(current=>({...current,[target]:message}));
         setActions(current=>({...current,[target]:"idle"}));
         return;
       }
