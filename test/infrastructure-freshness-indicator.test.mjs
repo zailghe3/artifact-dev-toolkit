@@ -10,9 +10,9 @@ const { InfrastructureFreshnessIndicator } = requireTsx('../components/Infrastru
 
 const text = node => node.findAll(item => Array.isArray(item.children)).flatMap(item => item.children).filter(item => typeof item === 'string').join(' ');
 
-async function redeployFixture(t,{target='runtime',outcome='accepted'}={}){
+async function redeployFixture(t,{target='runtime',outcome='accepted',cacheOnServer=false}={}){
  const previousWindow=globalThis.window,previousDocument=globalThis.document,previousFetch=globalThis.fetch;
- const timers=new Map(),calls={actions:0,freshness:0};let id=0,observation='superseded',view;
+ const timers=new Map(),calls={actions:0,freshness:0};let id=0,observation='superseded',view,serverSnapshot;
  globalThis.window={setTimeout(callback,milliseconds){const value=++id;timers.set(value,{callback,milliseconds});return value},clearTimeout(value){timers.delete(value)},addEventListener(){},removeEventListener(){}};
  globalThis.document={visibilityState:'visible',addEventListener(){},removeEventListener(){}};
  globalThis.fetch=async(url,init)=>{
@@ -20,13 +20,17 @@ async function redeployFixture(t,{target='runtime',outcome='accepted'}={}){
    calls.actions++;
    assert.deepEqual(JSON.parse(init.body),{target});
    if(outcome==='disconnect')throw new TypeError('private connection exception');
+   if(outcome==='signed-out')return Response.json({error:'Authentication required'},{status:401});
    return Response.json({state:outcome,message:outcome==='accepted'?`${target} webhook request accepted. Checking update status.`:outcome==='rejected'?'Webhook request rejected.':'Webhook request outcome is uncertain. Check freshness before trying again.'},{status:outcome==='accepted'?202:502});
   }
   calls.freshness++;
+  const refresh=new URL(String(url),'https://adt.example').searchParams.get('refresh')==='1';
+  if(cacheOnServer&&serverSnapshot&&!refresh)return Response.json(serverSnapshot);
   if(observation==='unavailable')return new Response(null,{status:503});
   const components={worker:{state:'current'},runtime:{state:'superseded',deployedRevision:'2'.repeat(40)},runner:{state:'superseded',deployedRevision:'3'.repeat(40)}};
   components[target]={state:observation,...(observation==='unknown'?{unknownReason:'observation_unavailable'}:{deployedRevision:(observation==='current'?'4':'2').repeat(40)})};
-  return Response.json({state:'superseded',checkedAt:'2026-11-23T00:00:00.000Z',redeployTargets:['runtime','runner'],components});
+  serverSnapshot={state:'superseded',checkedAt:'2026-11-23T00:00:00.000Z',redeployTargets:['runtime','runner'],components};
+  return Response.json(serverSnapshot);
  };
  const {clearInfrastructureFreshnessClientCacheForTests}=requireTsx('../components/InfrastructureFreshnessIndicator.tsx');
  clearInfrastructureFreshnessClientCacheForTests();
@@ -250,4 +254,22 @@ test('explicit webhook rejection unlocks the action without starting redeploy fr
  assert.equal(f.calls.freshness,1);
  assert.equal(f.button().props.disabled,false);
  assert.equal([...f.timers.values()].some(timer=>timer.milliseconds===5_000),false);
+});
+
+test('rollout polling observes the replacement even while the ordinary Worker snapshot is cached', async t => {
+ const f = await redeployFixture(t, { cacheOnServer: true });
+ await f.click();
+ f.setObservation('current');
+ await f.runTimer(5_000);
+ assert.match(text(f.view.root), /Runtime update confirmed\./);
+ assert.equal(f.calls.actions, 1);
+});
+
+test('an expired session asks the operator to sign in again without starting rollout polling', async t => {
+ const f = await redeployFixture(t, { outcome: 'signed-out' });
+ await f.click();
+ assert.match(text(f.view.root), /Sign in again to request this update\./);
+ assert.equal(f.calls.actions, 1);
+ assert.equal(f.calls.freshness, 1);
+ assert.equal(f.button().props.disabled, false);
 });

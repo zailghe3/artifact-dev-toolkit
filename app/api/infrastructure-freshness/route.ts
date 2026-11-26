@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireApiDiagnosticsAccess } from "@/lib/auth";
 import { noStoreHeaders } from "@/lib/auth-core";
-import { getInfrastructureFreshnessSnapshot } from "@/lib/infrastructure-freshness-live";
+import { getFreshInfrastructureFreshnessSnapshot, getInfrastructureFreshnessSnapshot } from "@/lib/infrastructure-freshness-live";
 
 export const dynamic = "force-dynamic";
 
@@ -9,7 +9,9 @@ export async function GET(request: Request) {
   const session = await requireApiDiagnosticsAccess(request);
   if (session instanceof Response) return session;
   try {
-    return NextResponse.json(await getInfrastructureFreshnessSnapshot(), { headers: noStoreHeaders });
+    const refresh = new URL(request.url).searchParams.get("refresh") === "1";
+    const snapshot = refresh ? await getFreshInfrastructureFreshnessSnapshot() : await getInfrastructureFreshnessSnapshot();
+    return NextResponse.json(snapshot, { headers: noStoreHeaders });
   } catch {
     return NextResponse.json(
       {
