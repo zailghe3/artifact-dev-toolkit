@@ -26,6 +26,7 @@ The committed stack examples remain authoritative for exact variable names, secr
 - Runtime readiness requires a working database connection, compatible schema, and matching key material.
 - Use **Test ADT Runtime** for authenticated service compatibility.
 - Use **Test execution path** in Diagnostics to verify Runtime management/storage and the scoped GitHub broker without invoking a provider.
+- Verify that Advisor settings and the saved Codex environment list load in an authorised repository session. Fresh settings storage serves the default Advisor settings and an empty environment list.
 - Verify a representative durable Workflow operation after infrastructure changes, including persistence across a Runtime restart where practical.
 - Verify provider/tool/Runner integrations separately; one healthy dependency does not prove another is ready.
 
@@ -42,6 +43,10 @@ When Workflow history or management operations fail:
 5. Diagnose Runner or provider readiness independently when the failure belongs to those boundaries.
 
 Diagnostics report bounded status/evidence only. Raw SQL, credentials, Workflow content, upstream bodies, and internal exception text are not diagnostic output.
+
+### Diagnose settings requests
+
+For an Advisor or Codex environment settings error, match the request ID from the API response to the Worker and Runtime settings logs. Use the logged stage and classification to locate the failure in ingress routing, signed authentication, replay protection, PostgreSQL access, or response validation. Management and settings use separate signed endpoints, so confirm that ingress routes the settings endpoint when management succeeds and settings report a routing failure.
 
 ## Recover from a Runtime/PostgreSQL issue
 

@@ -2,12 +2,13 @@ import { createHash } from "node:crypto";
 import { AUTH_WINDOW_MS } from "./protocol.js";
 import { inTransaction } from "./postgres.js";
 import type { Pool } from "pg";
-import {
-  advisorSettingsRecordSchema, codexEnvironmentInputSchema,
-  type AdvisorSettings, type OperationalSettingsCommand,
-} from "./operational-settings-contract.js";
+import type { AdvisorSettings, OperationalSettingsCommand } from "./operational-settings-contract.js";
 
-export class OperationalSettingsConflict extends Error {}
+export class OperationalSettingsConflict extends Error {
+  constructor(readonly code: "advisor_settings_conflict" | "runtime_settings_conflict") {
+    super(code);
+  }
+}
 
 export function recordManagementNonce(pool: Pool, nonce: string, timestamp: number) {
   return inTransaction(pool, async client => {
@@ -26,9 +27,9 @@ export function operationalSettings(pool: Pool) {
         const result = await pool.query<{ settings: AdvisorSettings; revision: number }>(
           "SELECT settings_json AS settings, revision FROM advisor_settings WHERE repository_id = $1", [repositoryId],
         );
-        return advisorSettingsRecordSchema.parse(result.rows[0] ?? {
+        return result.rows[0] ?? {
           settings: { workflowId: null, override: null }, revision: 0,
-        });
+        };
       }
       case "advisor.save": {
         const { settings, revision } = command;
@@ -50,7 +51,7 @@ export function operationalSettings(pool: Pool) {
         const { rows } = await pool.query(`SELECT environment_key AS key, display_name AS name,
           external_environment_id AS "externalEnvironmentId", enabled = 1 AS enabled
           FROM workflow_codex_environments WHERE repository_id = $1 ORDER BY display_name, environment_key`, [repositoryId]);
-        return codexEnvironmentInputSchema.array().parse(rows);
+        return rows;
       }
       case "codex.save":
       case "codex.delete": {

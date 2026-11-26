@@ -3,7 +3,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { createServer as createTcpServer } from 'node:net';
 import { createServer as createHttpServer, request as httpRequest } from 'node:http';
 import { once } from 'node:events';
-import { generateKeyPairSync, randomBytes } from 'node:crypto';
+import { createHash, generateKeyPairSync, randomBytes } from 'node:crypto';
 import { mkdtemp, chmod, copyFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -18,13 +18,33 @@ import { D1LangGraphCheckpointStore } from '../../lib/langgraph-checkpoints.ts';
 import { createRuntimeServer } from '../../adt-runtime/dist/server.js';
 import { signature } from '../../adt-runtime/dist/protocol.js';
 import { operationalSettings, recordManagementNonce } from '../../adt-runtime/dist/operational-settings.js';
-import { advisorSettingsRecordSchema, codexEnvironmentInputSchema, OPERATIONAL_SETTINGS_PATH } from '../../adt-runtime/dist/operational-settings-contract.js';
-import { RemoteOpenAIAgentsRuntime, requestRuntimeOperationalSettings } from '../../lib/adt-runtime-client.ts';
+import { OPERATIONAL_SETTINGS_BYTES, OPERATIONAL_SETTINGS_PATH } from '../../adt-runtime/dist/operational-settings-contract.js';
+import { RemoteOpenAIAgentsRuntime, requestRuntimeOperationalSettings, signedHeaders } from '../../lib/adt-runtime-client.ts';
 import { diagnoseRuntimeManagement, runtimeControl, WORKFLOW_HISTORY_LIMIT } from '../../lib/runtime-service-client.ts';
 import { nativeFixture } from '../support/native-adt-fixture.mjs';
 import { run as workflowRun } from '../support/advisor-fixtures.mjs';
+import { installTsxHook } from '../render-tsx.mjs';
 
 const connectionString = process.env.ADT_TEST_POSTGRES_URL;
+
+function loadSettingsRoutes(getRepositoryAccess, getEnvironment) {
+  const require = installTsxHook();
+  const Module = require('node:module');
+  const originalLoad = Module._load;
+  Module._load = function(name, parent, isMain) {
+    if (name === '@/lib/auth') return { requireApiRepositoryAccess: getRepositoryAccess };
+    if (name === '@opennextjs/cloudflare') return { getCloudflareContext: () => ({ env: getEnvironment() }) };
+    return originalLoad.call(this, name, parent, isMain);
+  };
+  try {
+    return {
+      'advisor.get': require('../app/api/advisor/settings/route.ts').GET,
+      'codex.list': require('../app/api/workflow-codex-environments/route.ts').GET,
+    };
+  } finally {
+    Module._load = originalLoad;
+  }
+}
 
 async function verifyProductionStartup(t, keyPath, pool) {
   let brokerUp = true;
@@ -77,6 +97,10 @@ async function verifyProductionStartup(t, keyPath, pool) {
   const proxy = createHttpServer((request, response) => {
     if (!request.url.startsWith('/runtime/')) return response.writeHead(404).end();
     const path = request.url.slice('/runtime'.length);
+    if (proxyMode === 'settings-not-routed' && path === OPERATIONAL_SETTINGS_PATH) {
+      request.resume();
+      return response.writeHead(404).end();
+    }
     if (proxyMode === 'html' && request.method === 'POST') {
       request.resume();
       setTimeout(() => response.writeHead(502, { 'content-type': 'text/html' }).end('<html>private upstream prompt</html>'), 30);
@@ -97,11 +121,54 @@ async function verifyProductionStartup(t, keyPath, pool) {
     request.pipe(upstream);
   }).listen(0, '127.0.0.1');
   await once(proxy, 'listening');
+  t.after(() => proxy.close());
   const baseUrl = `http://127.0.0.1:${proxy.address().port}/runtime`;
   const config = { baseUrl, authSecret };
   const scope = { repositoryId: 123, installationId: 12, owner: 'fixture', repository: 'artifacts', branch: 'main', root: 'artifacts' };
   const list = { operation: 'runs.list', repositoryId: scope.repositoryId, limit: 1 };
   const readiness = () => new RemoteOpenAIAgentsRuntime(config).diagnose();
+  let admitted = true;
+  const environment = { ADT_RUNTIME_BASE_URL: baseUrl, ADT_RUNTIME_AUTH_SECRET: authSecret };
+  const routes = loadSettingsRoutes(() => admitted ? { access: scope } : Response.json({}, { status: 401 }), () => environment);
+  const getSettings = operation => routes[operation](new Request(`https://adt.example/api/${operation === 'advisor.get'
+    ? 'advisor/settings' : 'workflow-codex-environments'}?repositoryId=7`));
+  const workerEvents = [];
+  const info = console.info;
+  const workerLog = t.mock.method(console, 'info', entry => {
+    if (typeof entry === 'string' && entry.includes('worker_runtime_operational_settings_request')) workerEvents.push(JSON.parse(entry));
+    else info(entry);
+  });
+  const settingsLog = () => diagnostic.split('\n').slice(0, -1).filter(line => line.includes('runtime_operational_settings_request'));
+  const assertCorrelated = async (worker, runtimeStatus) => {
+    assert.match(worker.requestId, /^[\w-]{32}$/);
+    assert.ok(worker.elapsedMs >= 0);
+    const find = () => settingsLog().map(line => JSON.parse(line)).find(event => event.requestId === worker.requestId);
+    if (runtimeStatus === undefined) assert.equal(find(), undefined);
+    else {
+      let runtime = find();
+      for (let attempt = 0; !runtime && attempt < 50; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, 10));
+        runtime = find();
+      }
+      assert.equal(runtime?.httpStatus, runtimeStatus);
+      assert.equal(runtime.stage, worker.stage);
+      assert.equal(runtime.classification, worker.classification);
+      if (runtime.operation) assert.equal(runtime.operation, worker.operation);
+    }
+  };
+  const assertSettingsFailure = async (operation, code, stage, status, runtimeStatus) => {
+    const response = await getSettings(operation);
+    assert.equal(response.status, status);
+    const body = await response.json();
+    assert.deepEqual(Object.keys(body).sort(), ['code', 'error', 'requestId']);
+    assert.equal(body.code, code);
+    const worker = workerEvents.at(-1);
+    assert.equal(worker.requestId, body.requestId);
+    assert.equal(worker.operation, operation);
+    assert.equal(worker.classification, code);
+    assert.equal(worker.stage, stage);
+    await assertCorrelated(worker, runtimeStatus);
+  };
   try {
     let ready = false;
     for (let attempt = 0; attempt < 160 && child.exitCode === null; attempt++) {
@@ -139,6 +206,31 @@ async function verifyProductionStartup(t, keyPath, pool) {
     }
 
     assert.deepEqual(await runtimeControl(config, list), []);
+    admitted = false;
+    assert.equal((await getSettings('advisor.get')).status, 401);
+    assert.equal((await getSettings('codex.list')).status, 401);
+    assert.equal(workerEvents.length, 0);
+    admitted = true;
+    const readEmptySettings = async () => {
+      for (const [operation, expected] of [
+        ['advisor.get', { settings: { workflowId: null, override: null }, revision: 0 }],
+        ['codex.list', { environments: [] }],
+      ]) {
+        const response = await getSettings(operation);
+        assert.equal(response.status, 200);
+        assert.deepEqual(await response.json(), expected);
+        const worker = workerEvents.at(-1);
+        assert.equal(worker.operation, operation);
+        assert.equal(worker.stage, 'complete');
+        assert.equal(worker.classification, 'ok');
+        await assertCorrelated(worker, 200);
+      }
+    };
+    await readEmptySettings();
+    environment.ADT_RUNTIME_BASE_URL = `${baseUrl}///`;
+    assert.deepEqual(await runtimeControl({ ...config, baseUrl: environment.ADT_RUNTIME_BASE_URL }, list), []);
+    await readEmptySettings();
+    environment.ADT_RUNTIME_BASE_URL = baseUrl;
     const good = await diagnoseRuntimeManagement(config, scope);
     assert.equal(good.management.result, 'ok');
     assert.equal(good.management.dispatched, true);
@@ -188,6 +280,7 @@ async function verifyProductionStartup(t, keyPath, pool) {
       error.code === 'runtime_authentication_failed' && error.observation.httpStatus === 401 &&
       error.observation.stage === 'authentication' && /^[\w-]{32}$/.test(error.observation.requestId));
     assert.equal((await readiness()).readinessAccepted, true);
+    await assertSettingsFailure('advisor.get', 'runtime_settings_authentication_failed', 'authentication', 503, 401);
 
     proxyMode = 'unsupported-protocol';
     const incompatible = await diagnoseRuntimeManagement(config, scope);
@@ -197,6 +290,7 @@ async function verifyProductionStartup(t, keyPath, pool) {
       error.code === 'protocol_incompatible' && error.observation.httpStatus === 409 &&
       error.observation.authenticated === true && error.observation.protocolCompatible === false &&
       /^[\w-]{32}$/.test(error.observation.requestId));
+    await assertSettingsFailure('codex.list', 'runtime_settings_protocol_incompatible', 'protocol', 502, 409);
 
     proxyMode = 'html';
     const malformed = await diagnoseRuntimeManagement(config, scope);
@@ -206,6 +300,9 @@ async function verifyProductionStartup(t, keyPath, pool) {
     assert.equal(malformed.management.authenticated, null);
     assert.equal(malformed.dependencies.postgres.status, 'not_verified');
     assert.doesNotMatch(JSON.stringify(malformed), /private upstream prompt/);
+    await assertSettingsFailure('codex.list', 'runtime_settings_response_invalid', 'response_validation', 502);
+    proxyMode = 'settings-not-routed';
+    await assertSettingsFailure('advisor.get', 'runtime_settings_endpoint_unavailable', 'routing', 502);
     proxyMode = 'forward';
 
     await pool.query('REVOKE INSERT ON management_request_nonces FROM CURRENT_USER');
@@ -220,9 +317,27 @@ async function verifyProductionStartup(t, keyPath, pool) {
       assert.equal(nonce.dependencies.workflow.status, 'not_verified');
       await assert.rejects(runtimeControl(config, list), error =>
         error.code === 'nonce_persistence_unavailable' && error.observation.result === 'nonce_persistence_unavailable');
+      await assertSettingsFailure('advisor.get', 'runtime_settings_nonce_unavailable', 'nonce', 503, 503);
     } finally {
       await pool.query('GRANT INSERT ON management_request_nonces TO CURRENT_USER');
     }
+
+    await pool.query('REVOKE SELECT ON workflow_codex_environments FROM CURRENT_USER');
+    try {
+      assert.deepEqual(await runtimeControl(config, list), []);
+      await assertSettingsFailure('codex.list', 'runtime_settings_storage_unavailable', 'storage', 503, 503);
+    } finally {
+      await pool.query('GRANT SELECT ON workflow_codex_environments TO CURRENT_USER');
+    }
+    // The browser query parameter cannot override the repository admitted by the Worker.
+    await pool.query('INSERT INTO advisor_settings (repository_id, settings_json) VALUES ($1, $2)',
+      [scope.repositoryId, { private: 'private malformed settings value' }]);
+    try {
+      await assertSettingsFailure('advisor.get', 'runtime_settings_data_invalid', 'response_validation', 503, 503);
+    } finally {
+      await pool.query('DELETE FROM advisor_settings WHERE repository_id = $1', [scope.repositoryId]);
+    }
+    await readEmptySettings();
 
     await pool.query('REVOKE SELECT ON workflow_runs FROM CURRENT_USER');
     try {
@@ -264,7 +379,12 @@ async function verifyProductionStartup(t, keyPath, pool) {
     assert.match(diagnostic, new RegExp(`"requestId":"${good.workflowHistory.requestId}"`));
     assert.doesNotMatch(diagnostic, /SELECT|permission denied for table|fixture-runner-secret|fixture-client-secret|fixture-github-token|private upstream prompt|private malformed snapshot|SENSITIVE_INPUT/);
     assert.doesNotMatch(diagnostic, /private-invalid-vault-id|private-vault-value|private-corrupt-ciphertext|private-invalid-endpoint|vault_decryption_failed/);
+    for (const log of [settingsLog().join('\n'), JSON.stringify(workerEvents)]) {
+      assert.doesNotMatch(log, /private malformed settings value|private upstream prompt|permission denied for table|repositoryId|x-adt-(nonce|signature)/);
+      assert.ok(!log.includes(authSecret));
+    }
   } finally {
+    workerLog.mock.restore();
     proxy.close();
     child.kill('SIGTERM');
     const timer = setTimeout(() => child.kill('SIGKILL'), 4000);
@@ -312,14 +432,28 @@ test('Runtime initializes PostgreSQL and retains its scoped vault and Workflow j
   let runtime = await startRuntime();
   t.after(() => runtime.close());
   const config = { baseUrl: `http://127.0.0.1:${runtime.server.address().port}`, authSecret };
-  const advisor = (command, fetcher) => requestRuntimeOperationalSettings(config, command,
-    value => advisorSettingsRecordSchema.parse(value), fetcher);
+  const advisor = (command, fetcher) => requestRuntimeOperationalSettings(config, command, fetcher);
 
   const { status } = await fetch(config.baseUrl + OPERATIONAL_SETTINGS_PATH, { method: 'POST', body: '{}' });
   assert.equal(status, 401);
+  const oversized = ' '.repeat(OPERATIONAL_SETTINGS_BYTES + 1);
+  const oversizedResponse = await fetch(config.baseUrl + OPERATIONAL_SETTINGS_PATH, {
+    method: 'POST', body: oversized, headers: await signedHeaders(authSecret, 'POST', OPERATIONAL_SETTINGS_PATH,
+      oversized, randomBytes(24).toString('base64url')),
+  });
+  assert.equal(oversizedResponse.status, 413);
+  assert.equal((await oversizedResponse.json()).code, 'runtime_settings_body_too_large');
   const repositoryId = 42;
   const current = { operation: 'advisor.get', repositoryId };
   assert.deepEqual(await advisor(current), { settings: { workflowId: null, override: null }, revision: 0 });
+  await assert.rejects(advisor(current, async (url, init) => {
+    const upstream = await fetch(url, init);
+    assert.equal(upstream.status, 200);
+    return Response.json({ ...await upstream.json(), result: { settings: null, revision: 0 } });
+  }), { code: 'runtime_settings_response_invalid' });
+  await assert.rejects(advisor(current, async () => Response.json({ protocolVersion: 'adt-runtime-v1', ok: false,
+    error: { code: 'runtime_authentication_failed', safeMessage: 'private upstream detail' },
+  }, { status: 401 })), { code: 'runtime_settings_authentication_failed' });
   const settings = { workflowId: 'review', override: null };
   const update = { operation: 'advisor.save', repositoryId, revision: 0, settings };
   let sent;
@@ -327,26 +461,36 @@ test('Runtime initializes PostgreSQL and retains its scoped vault and Workflow j
     sent = [url, init];
     return fetch(url, init);
   }), { settings, revision: 1 });
-  assert.equal((await fetch(...sent)).status, 401);
-  assert.equal((await fetch(sent[0], { ...sent[1], body: JSON.stringify({ ...update, repositoryId: 7 }) })).status, 401);
+  const inMemoryReplay = await fetch(...sent);
+  assert.equal(inMemoryReplay.status, 401);
+  assert.equal((await inMemoryReplay.json()).code, 'runtime_settings_authentication_failed');
+  await advisor(current, async (url, init) => {
+    const tampered = await fetch(url, { ...init, body: JSON.stringify({ ...current, repositoryId: 7 }) });
+    assert.equal(tampered.status, 401);
+    return fetch(url, init);
+  });
   assert.deepEqual(await advisor(update), { settings, revision: 1 });
   await assert.rejects(advisor({ ...update, settings: { ...settings, workflowId: 'other' } }), /advisor_settings_conflict/);
-  await assert.rejects(advisor({ ...update, settings: { ...settings, token: 'unexpected-value' } }), /runtime_settings_unavailable/);
+  await assert.rejects(advisor({ ...update, settings: { ...settings, token: 'unexpected-value' } }), { code: 'runtime_settings_request_rejected' });
   assert.equal((await advisor({ ...current, repositoryId: 7 })).revision, 0);
+  const lastRevision = { ...update, repositoryId: 77, revision: 2_147_483_646 };
+  await pool.query('INSERT INTO advisor_settings (repository_id, settings_json, revision) VALUES ($1, $2, $3)',
+    [lastRevision.repositoryId, settings, lastRevision.revision]);
+  const finalRecord = { settings: { ...settings, workflowId: 'final' }, revision: 2_147_483_647 };
+  assert.deepEqual(await advisor({ ...lastRevision, settings: finalRecord.settings }), finalRecord);
+  assert.deepEqual(await advisor({ ...current, repositoryId: lastRevision.repositoryId }), finalRecord);
+  await assert.rejects(advisor({ ...lastRevision, revision: finalRecord.revision }), { code: 'runtime_settings_request_rejected' });
 
   const environment = { key: 'review', name: 'Review', externalEnvironmentId: 'runner-review', enabled: false };
-  const codex = (command, parse) => requestRuntimeOperationalSettings(config, { repositoryId, ...command }, parse);
+  const codex = command => requestRuntimeOperationalSettings(config, { repositoryId, ...command });
   const saveEnvironment = { operation: 'codex.save', environment, idempotencyKey: 'codex-save-1' };
-  const parseEnvironment = value => codexEnvironmentInputSchema.parse(value);
-  await codex(saveEnvironment, parseEnvironment);
-  await assert.rejects(codex({ ...saveEnvironment, environment: { ...environment, enabled: true } },
-    parseEnvironment), /runtime_settings_conflict/);
-  const list = value => codexEnvironmentInputSchema.array().parse(value);
-  assert.deepEqual(await codex({ operation: 'codex.list' }, list), [environment]);
-  assert.deepEqual(await codex({ operation: 'codex.list', repositoryId: 7 }, list), []);
-  await codex({ operation: 'codex.delete', key: environment.key, idempotencyKey: 'codex-delete-1' }, value => assert.equal(value, null));
-  assert.deepEqual(await codex(saveEnvironment, parseEnvironment), environment);
-  assert.deepEqual(await codex({ operation: 'codex.list' }, list), []);
+  assert.deepEqual(await codex(saveEnvironment), environment);
+  await assert.rejects(codex({ ...saveEnvironment, environment: { ...environment, enabled: true } }), /runtime_settings_conflict/);
+  assert.deepEqual(await codex({ operation: 'codex.list' }), [environment]);
+  assert.deepEqual(await codex({ operation: 'codex.list', repositoryId: 7 }), []);
+  assert.equal(await codex({ operation: 'codex.delete', key: environment.key, idempotencyKey: 'codex-delete-1' }), null);
+  assert.deepEqual(await codex(saveEnvironment), environment);
+  assert.deepEqual(await codex({ operation: 'codex.list' }), []);
 
   const vault = openVault(installation.rootKey, 17);
   const secret = await vault.create('integration-credential');
@@ -373,7 +517,13 @@ test('Runtime initializes PostgreSQL and retains its scoped vault and Workflow j
   await runtime.close();
   runtime = await startRuntime();
   config.baseUrl = `http://127.0.0.1:${runtime.server.address().port}`;
-  assert.equal((await fetch(config.baseUrl + OPERATIONAL_SETTINGS_PATH, sent[1])).status, 401);
+  const durableReplay = await fetch(config.baseUrl + OPERATIONAL_SETTINGS_PATH, sent[1]);
+  assert.equal(durableReplay.status, 401);
+  const originalNonce = sent[1].headers['x-adt-nonce'];
+  assert.deepEqual(await durableReplay.json(), {
+    protocolVersion: 'adt-runtime-v1', ok: false, code: 'runtime_settings_replay_rejected',
+    requestId: createHash('sha256').update(originalNonce).digest('base64url').slice(0, 32),
+  });
   assert.deepEqual(await advisor(current), { settings, revision: 1 });
   const rotatedVault = openVault(restarted.rootKey, 17, 2);
   assert.equal(await rotatedVault.resolve(secret), 'integration-credential');

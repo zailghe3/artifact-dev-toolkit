@@ -6,24 +6,12 @@ import {
   type ManagementDependencies, type ManagementObservation, type RepositoryBrokerRequest,
   type RuntimeControlCommand, type RuntimeManagementDiagnostic,
 } from "../adt-runtime/src/runtime-control-contract.ts";
-import { ADT_RUNTIME_PROTOCOL, signedHeaders, boundedJson, type ADTRuntimeConfiguration } from "./adt-runtime-client.ts";
+import { ADT_RUNTIME_PROTOCOL, signedHeaders, boundedJson, runtimeRequestId,
+  runtimeServiceTarget, type ADTRuntimeConfiguration } from "./adt-runtime-client.ts";
 
 const encoder = new TextEncoder();
 export const WORKFLOW_OVERVIEW_HISTORY_LIMIT = 10;
 export const WORKFLOW_HISTORY_LIMIT = 50;
-
-function serviceTarget(base: string | undefined, secret: string | undefined, path: string) {
-  if (!base || !secret || secret.length < 32) return;
-  try {
-    const url = new URL(base);
-    if (url.username || url.password || url.search || url.hash) return;
-    if (url.protocol !== "https:" && !(url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))) return;
-    // A reverse proxy may mount Runtime under a prefix. Sign the internal path
-    // and send the request to the same external base URL as signed readiness.
-    url.pathname = url.pathname.replace(/\/+$/, "") + path;
-    return url;
-  } catch { /* Invalid configuration. */ }
-}
 
 function post(target: URL, headers: Record<string, string>, body: string, timeoutMs: number) {
   return fetch(target, { method: "POST", headers, body, redirect: "manual", signal: AbortSignal.timeout(timeoutMs) });
@@ -83,9 +71,7 @@ export function isRuntimeServiceFailure(error: unknown): error is RuntimeManagem
 async function requestRuntimeControl<T>(config: ADTRuntimeConfiguration, input: RuntimeControlCommand, timeoutMs?: number) {
   const started = Date.now();
   const nonce = crypto.randomUUID().replaceAll("-", "");
-  // The signed nonce binds the request. Its truncated hash is only a log correlation identifier.
-  const digest = await crypto.subtle.digest("SHA-256", encoder.encode(nonce));
-  const requestId = Buffer.from(digest).toString("base64url").slice(0, 32);
+  const requestId = await runtimeRequestId(nonce);
   const received: { httpStatus?: number; evidence?: z.infer<typeof managementEvidenceSchema> } = {};
   const observe = (stage: ManagementObservation["stage"], result: ManagementObservation["result"]): ManagementObservation => {
     const observation = {
@@ -100,7 +86,7 @@ async function requestRuntimeControl<T>(config: ADTRuntimeConfiguration, input: 
     throw new RuntimeManagementError(code ?? fallback, observe(stage, result));
   };
 
-  const target = serviceTarget(config.baseUrl, config.authSecret, RUNTIME_CONTROL_PATH);
+  const target = runtimeServiceTarget(config.baseUrl, config.authSecret, RUNTIME_CONTROL_PATH);
   if (!target) return fail("configuration", "not_configured", "runtime_not_configured");
   const body = JSON.stringify(input);
   if (encoder.encode(body).byteLength > RUNTIME_CONTROL_BYTES) return fail("validation", "request_rejected", "body_too_large");
@@ -201,7 +187,7 @@ const credentialSchema = z.object({
 });
 export async function requestRepositoryCredential(config: { base?: string; authSecret?: string }, input: RepositoryBrokerRequest, timeoutMs = 30_000) {
   try {
-    const target = serviceTarget(config.base, config.authSecret, RUNTIME_REPOSITORY_BROKER_PATH);
+    const target = runtimeServiceTarget(config.base, config.authSecret, RUNTIME_REPOSITORY_BROKER_PATH);
     if (!target) throw new Error("runtime_not_configured");
     const body = JSON.stringify(input);
     if (encoder.encode(body).byteLength > 8192) throw new Error("body_too_large");

@@ -67,9 +67,11 @@ export async function getWorkflowProviderConnectionStore(access:RepositoryAccess
 export async function getWorkflowCodexEnvironmentStore(repositoryId:number){
  const config=adtRuntimeConfiguration(await getWorkflowEnvironment() as unknown as Record<string,unknown>);
  return {
-  list:()=>requestRuntimeOperationalSettings(config,{operation:"codex.list",repositoryId},value=>codexEnvironmentInputSchema.array().parse(value)),
-  upsert:(environment:CodexEnvironmentDescriptor,idempotencyKey:string)=>requestRuntimeOperationalSettings(config,{operation:"codex.save",repositoryId,environment,idempotencyKey},value=>codexEnvironmentInputSchema.parse(value)),
-  remove:(key:string,idempotencyKey:string)=>requestRuntimeOperationalSettings(config,{operation:"codex.delete",repositoryId,idempotencyKey,key:codexEnvironmentInputSchema.shape.key.parse(key)},()=>undefined),
+  list:()=>requestRuntimeOperationalSettings(config,{operation:"codex.list",repositoryId}),
+  upsert:(environment:CodexEnvironmentDescriptor,idempotencyKey:string)=>requestRuntimeOperationalSettings(config,{operation:"codex.save",repositoryId,environment,idempotencyKey}),
+  remove:async(key:string,idempotencyKey:string)=>{
+   await requestRuntimeOperationalSettings(config,{operation:"codex.delete",repositoryId,idempotencyKey,key:codexEnvironmentInputSchema.shape.key.parse(key)});
+  },
  };
 }
 export function adtRuntimeConfiguration(env:Record<string,unknown>):ADTRuntimeConfiguration{return{baseUrl:typeof env.ADT_RUNTIME_BASE_URL==="string"?env.ADT_RUNTIME_BASE_URL:undefined,authSecret:typeof env.ADT_RUNTIME_AUTH_SECRET==="string"?env.ADT_RUNTIME_AUTH_SECRET:undefined}}
