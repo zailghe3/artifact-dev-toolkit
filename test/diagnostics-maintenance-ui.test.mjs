@@ -27,7 +27,7 @@ test("Maintenance due includes only confirmed component-aware supersession", () 
 });
 
 test("page-level Maintenance due is wired to the on-demand freshness result", async () => {
-  const page = await readFile(new URL("../app/diagnostics/page.tsx", import.meta.url), "utf8"), control = await readFile(new URL("../components/ApplicationControlPlaneDiagnostics.tsx", import.meta.url), "utf8");
+  const page = await readFile(new URL("../app/(application)/diagnostics/page.tsx", import.meta.url), "utf8"), control = await readFile(new URL("../components/ApplicationControlPlaneDiagnostics.tsx", import.meta.url), "utf8");
   assert.match(page, /DiagnosticsMaintenanceProvider/);
   assert.match(page, /MaintenanceDuePanel/);
   assert.match(control, /setInfrastructureMaintenance\(infrastructureMaintenanceItem\(result\.snapshot\)\)/);
@@ -56,7 +56,7 @@ test("freshness re-query clears stale snapshot, revisions, copy data, and mainte
 });
 
 test("legacy Runner status route preserves query coordinates and targets canonical section", async () => {
-  const source = await readFile(new URL("../app/workflows/connections/codex-runner/status/page.tsx", import.meta.url), "utf8");
+  const source = await readFile(new URL("../app/(application)/workflows/connections/codex-runner/status/page.tsx", import.meta.url), "utf8");
   assert.match(source, /URLSearchParams/);
   assert.match(source, /\/diagnostics.*#codex-runner/);
 });

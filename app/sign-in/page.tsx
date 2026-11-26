@@ -15,12 +15,12 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
   const authorizeUrl = `/auth/github/start?returnTo=${encodeURIComponent(returnTo)}`;
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-2xl flex-col px-4 py-8 sm:px-6 lg:px-8">
+    <main className="mx-auto flex min-h-[90dvh] max-w-2xl flex-col px-4 py-8 sm:px-6 lg:px-8">
       <div className="mb-4 flex justify-end"><ThemeToggle /></div>
-      <section className="my-auto rounded-[2rem] border border-slate-200 bg-white p-8 text-center shadow-soft dark:border-slate-800 dark:bg-slate-900">
+      <section className="my-auto rounded-xl border border-border bg-card p-8 text-center">
         <p className="text-sm font-semibold uppercase tracking-[0.35em] text-sky-700 dark:text-orange-300">Artifact Library</p>
-        <h1 className="mt-4 text-4xl font-black tracking-tight text-slate-950 dark:text-slate-50">Sign in required</h1>
-        <p className="mt-3 text-slate-600 dark:text-slate-300">Sign in with GitHub to access artifact metadata, content, and protected APIs.</p>
+        <h1 className="mt-4 text-4xl font-semibold tracking-tight text-foreground">Sign in required</h1>
+        <p className="mt-3 text-muted-foreground">Sign in with GitHub to access artifact metadata, content, and protected APIs.</p>
         {params.error && params.error in oauthErrorMessages ? <p className="mt-4 rounded-xl bg-red-50 p-3 text-sm font-semibold text-red-700 dark:bg-red-950/40 dark:text-red-300">{oauthErrorMessages[params.error as OAuthErrorCode]}</p> : null}
         <Link href={authorizeUrl.toString()} className={`${buttonStyles.primary} mt-6`}>Sign in with GitHub</Link>
       </section>

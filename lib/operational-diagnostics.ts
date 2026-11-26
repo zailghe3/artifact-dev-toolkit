@@ -3,7 +3,7 @@ import type { RuntimeManagementDiagnostic } from "../adt-runtime/src/runtime-con
 import type { RunnerAuthEnvironmentDiagnostics } from "./codex-runner-client.ts";
 import type { RunnerObservation, SafeRunnerDiagnostics } from "./codex-runner-diagnostics.ts";
 import { authorizationStatusPresentation, configurationStatusPresentation, installationStatusPresentation, permissionStatusPresentation, repositoryMatchPresentation, revisionStatusPresentation, cacheStatusPresentation, validationStatusPresentation, type DiagnosticStatusPresentation } from "./diagnostics-presentation.ts";
-import type { RepositoryDiagnostics } from "./repository-diagnostics.ts";
+import type { RepositoryAuthenticationDiagnostics, RepositoryDiagnostics } from "./repository-diagnostics.ts";
 
 export type DomainKey = "authentication-access" | "artifact-library" | "application-control-plane" | "adt-runtime" | "codex-runner";
 export type DomainState = "healthy" | "degraded" | "failed" | "not-configured";
@@ -13,12 +13,12 @@ export type OperationalContributor = { id: string; message: string; href: string
 
 const status = (label: string, tone: DiagnosticStatusPresentation["tone"], description?: string): DiagnosticStatusPresentation => ({ label, tone, ...(description ? { description } : {}) });
 const checkState = (checks: DiagnosticCheck[]): DomainState => checks.some(check => check.contributes!==false&&check.status.tone === "negative") ? "failed" : checks.some(check => check.contributes!==false&&(check.status.tone === "warning" || check.status.tone === "neutral")) ? "degraded" : "healthy";
-const groupedConfiguration = (d: RepositoryDiagnostics, names: string[]) => {
+const groupedConfiguration = (d: RepositoryAuthenticationDiagnostics, names: string[]) => {
   const states = names.map(name => d.configuration.authSecrets[name]);
   return configurationStatusPresentation(states.includes("invalid") ? "invalid" : states.includes("missing") ? "missing" : "configured");
 };
 
-export function authenticationDiagnosticChecks(d: RepositoryDiagnostics): DiagnosticCheck[] {
+export function authenticationDiagnosticChecks(d: RepositoryAuthenticationDiagnostics): DiagnosticCheck[] {
   return [
     { id: "session", label: "Signed-in session", status: status("Valid", "positive"), value: `@${d.identity.login} · GitHub ID ${d.identity.githubId}` },
     { id: "repository-match", label: "Configured/stored repository", status: repositoryMatchPresentation(d.authorization.repositoryMatches) },
@@ -191,21 +191,62 @@ export function runnerDiagnosticChecks(runner: SafeRunnerDiagnostics): Diagnosti
   return checks;
 }
 
-export function deriveOperationalDomains(repository: RepositoryDiagnostics | null, runtime: ADTRuntimeDiagnostic, runner: SafeRunnerDiagnostics, deploymentConfigured: boolean): DiagnosticDomain[] {
-  const unavailable = (id: string, label: string): DiagnosticCheck => ({ id, label, status: status("Unavailable", "negative", "This domain could not be evaluated safely.") });
-  const authChecks = repository ? authenticationDiagnosticChecks(repository) : [unavailable("authentication-diagnostics", "Authentication diagnostics")];
-  const artifactChecks = repository ? artifactLibraryDiagnosticChecks(repository) : [unavailable("artifact-library-diagnostics", "Artifact Library diagnostics")];
-  const runtimeChecks = runtimeDiagnosticChecks(runtime), runnerChecks = runnerDiagnosticChecks(runner);
-  return withRuntimeManagement([
-    { key: "authentication-access", title: "Authentication & access", state: checkState(authChecks), checks: authChecks },
-    { key: "artifact-library", title: "Artifact Library", state: checkState(artifactChecks), checks: artifactChecks },
-    { key: "application-control-plane", title: "Application / control plane", state: "healthy", checks: [{ id: "deployment-identity", label: "Deployment identity", status: deploymentConfigured ? status("Available", "positive") : status("Development build", "neutral") }] },
-    { key: "adt-runtime", title: "ADT Runtime", state: checkState(runtimeChecks), checks: runtimeChecks },
-    { key: "codex-runner", title: "Codex Runner", state: runner.connection.state === "configuration-missing" ? "not-configured" : checkState(runnerChecks), checks: runnerChecks },
-  ]);
+export const diagnosticDomainTitles = {
+  "authentication-access": "Authentication & access",
+  "artifact-library": "Artifact Library",
+  "application-control-plane": "Application / control plane",
+  "adt-runtime": "ADT Runtime",
+  "codex-runner": "Codex Runner",
+} satisfies Record<DomainKey, string>;
+
+export function diagnosticDomain(key: DomainKey, checks: DiagnosticCheck[], state = checkState(checks)): DiagnosticDomain {
+  return { key, title: diagnosticDomainTitles[key], state, checks };
 }
 
-export function operationalOverall(domains: DiagnosticDomain[]) {
+function unavailableCheck(id: string, label: string): DiagnosticCheck {
+  return { id, label, status: status("Unavailable", "negative", "This domain could not be evaluated safely.") };
+}
+
+export function authenticationDiagnosticDomain(repository: RepositoryAuthenticationDiagnostics | null) {
+  return diagnosticDomain("authentication-access", repository
+    ? authenticationDiagnosticChecks(repository) : [unavailableCheck("authentication-diagnostics", "Authentication diagnostics")]);
+}
+
+export function artifactLibraryDiagnosticDomain(repository: RepositoryDiagnostics | null) {
+  return diagnosticDomain("artifact-library", repository
+    ? artifactLibraryDiagnosticChecks(repository) : [unavailableCheck("artifact-library-diagnostics", "Artifact Library diagnostics")]);
+}
+
+export function repositoryDiagnosticDomains(repository: RepositoryDiagnostics | null) {
+  return { authentication: authenticationDiagnosticDomain(repository), artifacts: artifactLibraryDiagnosticDomain(repository) };
+}
+
+export function runtimeDiagnosticDomain(runtime?: ADTRuntimeDiagnostic) {
+  const checks = runtime ? runtimeDiagnosticChecks(runtime) : [unavailableCheck("runtime-reachability", "Runtime readiness")];
+  return diagnosticDomain("adt-runtime", [...checks, ...runtimeManagementChecks()]);
+}
+
+export function runnerDiagnosticDomain(runner?: SafeRunnerDiagnostics) {
+  const checks = runner ? runnerDiagnosticChecks(runner) : [unavailableCheck("runner-reachability", "Runner readiness")];
+  return diagnosticDomain("codex-runner", checks, runner?.connection.state === "configuration-missing" ? "not-configured" : undefined);
+}
+
+export function controlPlaneDiagnosticDomain(deploymentConfigured: boolean) {
+  return diagnosticDomain("application-control-plane", [{
+    id: "deployment-identity", label: "Deployment identity",
+    status: deploymentConfigured ? status("Available", "positive") : status("Development build", "neutral"),
+  }], "healthy");
+}
+
+export function deriveOperationalDomains(repository: RepositoryDiagnostics | null, runtime: ADTRuntimeDiagnostic, runner: SafeRunnerDiagnostics, deploymentConfigured: boolean): DiagnosticDomain[] {
+  const { authentication, artifacts } = repositoryDiagnosticDomains(repository);
+  return [authentication, artifacts, controlPlaneDiagnosticDomain(deploymentConfigured), runtimeDiagnosticDomain(runtime), runnerDiagnosticDomain(runner)];
+}
+
+export function operationalOverall(domains: DiagnosticDomain[], pending = 0) {
+  if (pending > 0) {
+    return { state: "pending" as const, status: status("Checking", "neutral", "Waiting for required observations.") };
+  }
   const applicable = domains.filter(domain => domain.state !== "not-configured");
   const state: DomainState = applicable.some(domain => domain.state === "failed") ? "failed" : applicable.some(domain => domain.state === "degraded") ? "degraded" : "healthy";
   return { state, status: state === "healthy" ? status("Healthy", "positive", "All applicable operational domains are healthy.") : state === "degraded" ? status("Degraded", "warning", "One or more applicable domains require attention or could not be verified.") : status("Needs attention", "negative", "One or more applicable operational domains are unavailable or unhealthy.") };

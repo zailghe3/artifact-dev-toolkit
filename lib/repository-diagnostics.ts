@@ -2,7 +2,7 @@ import type { SessionRecord } from "./auth-core.ts";
 import { decryptUserAccessToken } from "./auth.ts";
 import { getRepositoryAuthorizationConfig, verifyRepositoryAuthorization, type RepositoryAccessContext } from "./repository-authorization.ts";
 import { getArtifactBaseRevision, getArtifactRepositoryDiagnostics, inspectArtifactCatalogueCache, inspectCatalogueCacheBinding } from "./artifacts.ts";
-import { validateGitHubAppPrivateKey } from "./github-app.ts";
+import { validateGitHubAppPrivateKey, type RepositoryCredential, type RepositoryCredentialCapability } from "./github-app.ts";
 import { getPublicRepositoryConfiguration, storedRepositoryMatchesPublicConfiguration } from "./public-repository-configuration.ts";
 import { ArtifactRepositoryAccessError, ArtifactRepositoryUnavailableError } from "./artifact-repository.ts";
 import { classifyCapabilityResult, unknownPermissionCheck as unknownCheck, type PermissionCheck } from "./diagnostics-model.ts";
@@ -35,26 +35,94 @@ async function safeConfiguration() {
   return { backend: publicConfig.backend, ...(publicConfig.owner ? { owner: publicConfig.owner } : {}), ...(publicConfig.repository ? { repository: publicConfig.repository } : {}), branch: publicConfig.branch, artifactRoot: publicConfig.root, cacheBinding: await inspectCatalogueCacheBinding(), authSecrets };
 }
 
-export async function generateRepositoryDiagnostics(session: SessionRecord, options: { includeValidation?: boolean; signal?: AbortSignal } = {}): Promise<RepositoryDiagnostics> {
-  const started = Date.now(); const generatedAt = new Date().toISOString(); const stored = session.repositoryAuthorization; const configuration = await safeConfiguration();
-  const publicConfig = getPublicRepositoryConfiguration(); const repositoryMatches = storedRepositoryMatchesPublicConfiguration(stored, publicConfig);
+export type RepositoryAuthenticationDiagnostics = Pick<RepositoryDiagnostics,
+  "generatedAt" | "identity" | "configuration" | "authorization" | "installation" | "permissions">;
+
+async function observeRepositoryAccess(session: SessionRecord) {
+  const generatedAt = new Date().toISOString();
+  const stored = session.repositoryAuthorization;
+  const configuration = await safeConfiguration();
+  const publicConfig = getPublicRepositoryConfiguration();
+  const repositoryMatches = storedRepositoryMatchesPublicConfiguration(stored, publicConfig);
   let config: ReturnType<typeof getRepositoryAuthorizationConfig> | undefined; try { config = getRepositoryAuthorizationConfig(); } catch { /* safe configuration still returned */ }
   let live: Awaited<ReturnType<typeof verifyRepositoryAuthorization>> | undefined;
   if (repositoryMatches === true && config && session.encryptedUserAccessToken && session.tokenIv && (session.userAccessTokenExpiresAt ?? 0) > Date.now()) try { live = await verifyRepositoryAuthorization({ id: session.githubId, login: session.login }, await decryptUserAccessToken(session), config); } catch { /* inconclusive */ }
   const liveState: RepositoryDiagnostics["authorization"]["liveState"] = live?.ok ? "authorized" : live ? (live.reason === "temporary_unavailable" ? "temporarily_unavailable" : "denied") : "not_checked";
   const definitiveDenial = repositoryMatches === false || (live && !live.ok && live.reason !== "temporary_unavailable");
   let access: RepositoryAccessContext | undefined = live?.ok ? live : undefined;
-  if (!access && !definitiveDenial && repositoryMatches === true && config && stored.repositoryId && stored.installationId) access = { ok: true, owner: stored.owner, repo: stored.repo, login: session.login, githubId: session.githubId, repositoryId: stored.repositoryId, installationId: stored.installationId, checkedAt: stored.checkedAt, installationCredentialProvider: async (capability) => { const { createGitHubAppJwt, mintInstallationToken } = await import("./github-app.ts"); return mintInstallationToken(stored.installationId!, stored.repositoryId!, await createGitHubAppJwt(config!.appId, config!.privateKey), capability); } };
+  if (!access && !definitiveDenial && repositoryMatches === true && config && stored.repositoryId && stored.installationId) {
+    const { appId, privateKey } = config;
+    const { repositoryId, installationId } = stored;
+    const credentials = new Map<RepositoryCredentialCapability, Promise<RepositoryCredential>>();
+    access = {
+      ok: true, owner: stored.owner, repo: stored.repo, login: session.login, githubId: session.githubId,
+      repositoryId, installationId, checkedAt: stored.checkedAt,
+      installationCredentialProvider(capability) {
+        let credential = credentials.get(capability);
+        if (!credential) {
+          credential = import("./github-app.ts").then(async ({ createGitHubAppJwt, mintInstallationToken }) =>
+            mintInstallationToken(installationId, repositoryId, await createGitHubAppJwt(appId, privateKey), capability));
+          credentials.set(capability, credential);
+        }
+        return credential;
+      },
+    };
+  }
   const permissions = { contentsRead: unknownCheck(definitiveDenial ? "prerequisite_invalid" : "not_checked"), contentsWrite: unknownCheck(definitiveDenial ? "prerequisite_invalid" : "not_checked") } as RepositoryDiagnostics["permissions"];
   if (access) { const checks = await Promise.allSettled([access.installationCredentialProvider("read"), access.installationCredentialProvider("write")]); permissions.contentsRead = classifyCapabilityResult(checks[0], [["contents", ["read", "write", "admin"]]]); permissions.contentsWrite = classifyCapabilityResult(checks[1], [["contents", ["write", "admin"]]]); permissions.checkedAt = new Date().toISOString(); }
+  const foundation: RepositoryAuthenticationDiagnostics = {
+    generatedAt,
+    identity: { login: session.login, githubId: session.githubId, sessionState: "valid" },
+    configuration,
+    authorization: {
+      storedState: "authorized", lastCheckedAt: new Date(stored.checkedAt).toISOString(),
+      repositoryMatches, repositoryIdPresent: Boolean(stored.repositoryId), installationIdPresent: Boolean(stored.installationId),
+      liveState, ...(!live?.ok && live ? { reason: live.reason } : {}),
+    },
+    installation: {
+      state: live?.ok ? "detected" : live && live.reason === "app_access" ? "missing" : liveState === "temporarily_unavailable" ? "unavailable" : "unknown",
+      repositoryId: access?.repositoryId ?? stored.repositoryId, installationId: access?.installationId ?? stored.installationId,
+    },
+    permissions,
+  };
+  return { foundation, access, definitiveDenial };
+}
+
+async function observeRepositoryCatalogue(base: ReturnType<typeof observeRepositoryAccess>, includeValidation: boolean, signal?: AbortSignal): Promise<RepositoryDiagnostics> {
+  const started = Date.now();
+  const { foundation, access, definitiveDenial } = await base;
+  const { permissions } = foundation;
   let revision: string | undefined; let revisionReason: string | undefined;
   if (access && permissions.contentsRead.effective === true) try { revision = await getArtifactBaseRevision(access); } catch (error) { revisionReason = error instanceof ArtifactRepositoryAccessError ? "access_denied" : error instanceof ArtifactRepositoryUnavailableError && error.status === 429 ? "rate_limited" : error instanceof ArtifactRepositoryUnavailableError ? "temporarily_unavailable" : "repository_revision_unavailable"; }
-  const cache = access && !definitiveDenial ? await inspectArtifactCatalogueCache(access, revision) : { configured: configuration.cacheBinding === "configured", state: "unavailable" as const, reason: definitiveDenial ? "authorization_denied" : "repository_identity_invalid" };
-  if (cache.configured) configuration.cacheBinding = "configured";
-  else if (cache.reason === "cache_binding_missing") configuration.cacheBinding = "missing";
-  let validation: RepositoryDiagnostics["validation"] = { state: options.includeValidation ? "unavailable" : "not_run", ...(definitiveDenial ? { reason: "authorization_denied" } : {}) };
-  if (options.includeValidation === true && access && revision && !definitiveDenial) try { const report = await getArtifactRepositoryDiagnostics(access, revision, options.signal); if (report) validation = { state: report.invalidCount ? "invalid" : "valid", ...report }; } catch (error) { validation = { state: "unavailable", revision, reason: error instanceof ArtifactRepositoryUnavailableError && error.status === 429 ? "rate_limited" : error instanceof ArtifactRepositoryAccessError ? "access_denied" : "repository_unavailable" }; }
-  const partial = { configuration, authorization: { storedState: "authorized" as const, lastCheckedAt: new Date(stored.checkedAt).toISOString(), repositoryMatches, repositoryIdPresent: Boolean(stored.repositoryId), installationIdPresent: Boolean(stored.installationId), liveState, ...(!live?.ok && live ? { reason: live.reason } : {}) }, installation: { state: live?.ok ? "detected" as const : live && live.reason === "app_access" ? "missing" as const : liveState === "temporarily_unavailable" ? "unavailable" as const : "unknown" as const, repositoryId: access?.repositoryId ?? stored.repositoryId, installationId: access?.installationId ?? stored.installationId }, permissions, repositoryRevision: revision ? { state: "available" as const, value: revision } : { state: access && !definitiveDenial ? "unavailable" as const : "unknown" as const, ...(revisionReason ? { reason: revisionReason } : {}) }, cache: cache as RepositoryDiagnostics["cache"], validation };
-  const result: RepositoryDiagnostics = { generatedAt, identity: { login: session.login, githubId: session.githubId, sessionState: "valid" }, ...partial, overall: deriveOverallDiagnosticsState(partial) };
+  const cache = access && !definitiveDenial ? await inspectArtifactCatalogueCache(access, revision) : { configured: foundation.configuration.cacheBinding === "configured", state: "unavailable" as const, reason: definitiveDenial ? "authorization_denied" : "repository_identity_invalid" };
+  const configuration = {
+    ...foundation.configuration,
+    cacheBinding: cache.configured ? "configured" as const
+      : cache.reason === "cache_binding_missing" ? "missing" as const : foundation.configuration.cacheBinding,
+  };
+  let validation: RepositoryDiagnostics["validation"] = { state: includeValidation ? "unavailable" : "not_run", ...(definitiveDenial ? { reason: "authorization_denied" } : {}) };
+  if (includeValidation && access && revision && !definitiveDenial) try { const report = await getArtifactRepositoryDiagnostics(access, revision, signal); if (report) validation = { state: report.invalidCount ? "invalid" : "valid", ...report }; } catch (error) { validation = { state: "unavailable", revision, reason: error instanceof ArtifactRepositoryUnavailableError && error.status === 429 ? "rate_limited" : error instanceof ArtifactRepositoryAccessError ? "access_denied" : "repository_unavailable" }; }
+  const partial = {
+    ...foundation,
+    configuration,
+    repositoryRevision: revision ? { state: "available" as const, value: revision }
+      : { state: access && !definitiveDenial ? "unavailable" as const : "unknown" as const, ...(revisionReason ? { reason: revisionReason } : {}) },
+    cache: cache as RepositoryDiagnostics["cache"],
+    validation,
+  };
+  const result: RepositoryDiagnostics = { ...partial, overall: deriveOverallDiagnosticsState(partial) };
   console.info(JSON.stringify({ event: "diagnostics_generated", overall: result.overall, durationMs: Date.now() - started, invalidCount: validation.invalidCount ?? 0 })); return result;
+}
+
+
+export function startRepositoryDiagnostics(session: SessionRecord, options: { includeValidation?: boolean } = {}) {
+  const base = observeRepositoryAccess(session);
+  return {
+    authentication: base.then(({ foundation }) => foundation),
+    report: observeRepositoryCatalogue(base, options.includeValidation === true),
+  };
+}
+
+export async function generateRepositoryDiagnostics(session: SessionRecord, options: { includeValidation?: boolean; signal?: AbortSignal } = {}) {
+  return observeRepositoryCatalogue(observeRepositoryAccess(session), options.includeValidation === true, options.signal);
 }

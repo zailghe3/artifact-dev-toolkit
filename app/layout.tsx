@@ -15,7 +15,8 @@ export const metadata: Metadata = {
 };
 
 export const viewport = {
-  themeColor: "#020617",
+  themeColor: "#111214",
+  viewportFit: "cover" as const,
 };
 
 const themeInitScript = `
@@ -25,6 +26,7 @@ const themeInitScript = `
     const theme = storedTheme === "light" || storedTheme === "dark" ? storedTheme : "dark";
     document.documentElement.classList.toggle("dark", theme === "dark");
     document.documentElement.dataset.theme = theme;
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", theme === "dark" ? "#111214" : "#fafafb");
   } catch {
     document.documentElement.classList.add("dark");
     document.documentElement.dataset.theme = "dark";
@@ -37,7 +39,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     <html lang="en" className="dark" data-theme="dark" suppressHydrationWarning>
       <Script id="theme-init" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       <body>
-        <div className="flex min-h-screen flex-col">
+        <div className="flex min-h-dvh flex-col">
           <div className="flex-1">{children}</div>
           <DeploymentFooter metadata={deploymentMetadata} />
         </div>

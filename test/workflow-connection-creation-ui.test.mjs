@@ -7,12 +7,12 @@ import {DEFINITION_ID_MAX_LENGTH} from '../lib/definition-id.ts';
 
 test('Connections exposes target-only Git and vault creation',async()=>{
  const [page,catalogue,newPage,editor]=await Promise.all([
-  readFile(new URL('../app/workflows/connections/page.tsx',import.meta.url),'utf8'),
+  readFile(new URL('../app/(application)/workflows/connections/page.tsx',import.meta.url),'utf8'),
   readFile(new URL('../components/ConnectionCatalogue.tsx',import.meta.url),'utf8'),
-  readFile(new URL('../app/workflows/connections/new/page.tsx',import.meta.url),'utf8'),
+  readFile(new URL('../app/(application)/workflows/connections/new/page.tsx',import.meta.url),'utf8'),
   readFile(new URL('../components/ProviderConnectionEditor.tsx',import.meta.url),'utf8'),
  ]);
- assert.match(page,/href:"\/workflows\/connections\/new",label:"New connection"/);
+ assert.match(page,/href:\s*"\/workflows\/connections\/new",\s*label:\s*"New connection"/);
  assert.match(newPage,/ProviderConnectionEditor/);
  assert.match(editor,/url=editing\?.*:"\/api\/workflow-connections"/s);
  assert.match(editor,/method:editing\?"PUT":"POST"/);
@@ -50,7 +50,7 @@ test('duplicate drafts remain valid at canonical ID and display-name boundaries'
 });
 
 test('legacy Codex Cloud environment management page and navigation are retired',async()=>{
- await assert.rejects(access(new URL('../app/workflows/codex-environments/page.tsx',import.meta.url)));
+ await assert.rejects(access(new URL('../app/(application)/workflows/codex-environments/page.tsx',import.meta.url)));
  const navigation=await readFile(new URL('../lib/workflow-navigation.ts',import.meta.url),'utf8');
  assert.doesNotMatch(navigation,/Codex environments|codex-environments/);
 });

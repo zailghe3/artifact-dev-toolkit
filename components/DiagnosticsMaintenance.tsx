@@ -18,8 +18,14 @@ export function DiagnosticsMaintenanceProvider({ children }: { children: React.R
 
 export function MaintenanceDuePanel() {
   const item = useDiagnosticsMaintenance().infrastructure;
-  if (!item) return null;
-  return <section aria-labelledby="maintenance-due-heading" className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 p-5 dark:border-amber-700 dark:bg-slate-900"><h2 id="maintenance-due-heading" className="text-xl font-black">Maintenance due</h2><ul className="mt-2 list-disc pl-5 text-sm"><li><a className="font-semibold underline underline-offset-2" href={item.href}>{item.message}</a></li></ul></section>;
+  return (
+    <section id="maintenance" aria-labelledby="maintenance-heading" className="adt-panel sm:p-5">
+      <h2 id="maintenance-heading" className="text-lg font-semibold tracking-tight">{item ? "Maintenance due" : "Maintenance"}</h2>
+      {item
+        ? <p className="mt-1 text-sm"><a className="font-semibold underline underline-offset-2" href={item.href}>{item.message}</a></p>
+        : <p className="mt-1 text-sm text-muted-foreground"><a className="underline underline-offset-2" href="#application-control-plane">Check infrastructure freshness</a> for available component updates.</p>}
+    </section>
+  );
 }
 
 export function useDiagnosticsMaintenance() {

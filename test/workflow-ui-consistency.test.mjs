@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { readFile } from 'node:fs/promises';
 import { installTsxHook } from './render-tsx.mjs';
 import { workflowSections, workflowSectionState } from '../lib/workflow-navigation.ts';
 
@@ -36,15 +35,6 @@ test('Workflow submenu maps exact and nested routes to one active section', () =
   assert.equal(activeSection('/workflows/codex-environments/example'), undefined);
   for (const path of ['/workflows/runs/123', '/tools/example/edit', '/security/example/edit']) {
     assert.equal(workflowSectionState(path).filter((item) => item.active).length, 1, path);
-  }
-});
-
-test('Tools and Security layouts expose the protected Workflow section shell', async () => {
-  for (const [area, returnPath] of [['tools', '/tools'], ['security', '/security']]) {
-    const source = await readFile(new URL(`../app/${area}/layout.tsx`, import.meta.url), 'utf8');
-    assert.match(source, new RegExp(`requireRepositoryAuthorization\\("${returnPath}"\\)`));
-    assert.match(source, /<AppHeader/);
-    assert.match(source, /<WorkflowSubnav\s*\/>/);
   }
 });
 

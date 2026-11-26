@@ -4,15 +4,17 @@ import {readFile} from 'node:fs/promises';
 import {validateAgentAdapterOptions} from '../lib/workflow-definitions.ts';
 
 test('Agent pages and connection API use the shared safe workflow catalogue',async()=>{
- const [create,edit,route,editor]=await Promise.all([
-  readFile(new URL('../app/workflows/agents/new/page.tsx',import.meta.url),'utf8'),
-  readFile(new URL('../app/workflows/agents/[agentId]/edit/page.tsx',import.meta.url),'utf8'),
+ const [create,edit,route,editor,support]=await Promise.all([
+  readFile(new URL('../app/(application)/workflows/agents/new/page.tsx',import.meta.url),'utf8'),
+  readFile(new URL('../app/(application)/workflows/agents/[agentId]/edit/page.tsx',import.meta.url),'utf8'),
   readFile(new URL('../app/api/workflow-connections/route.ts',import.meta.url),'utf8'),
-  readFile(new URL('../components/WorkflowAgentEditor.tsx',import.meta.url),'utf8')
+  readFile(new URL('../components/WorkflowAgentEditor.tsx',import.meta.url),'utf8'),
+  readFile(new URL('../lib/workflow-agent-editor-support.ts',import.meta.url),'utf8')
  ]);
- for(const source of [create,edit,route])assert.match(source,/listWorkflowConnectionDescriptors/);
+ for(const source of [create,edit])assert.match(source,/getWorkflowAgentEditorSupport/);
+ for(const source of [route,support])assert.match(source,/listWorkflowConnectionDescriptors/);
  assert.doesNotMatch(create,/listConnectionDescriptors/);assert.doesNotMatch(edit,/listConnectionDescriptors/);
- assert.match(edit,/if\(!value\)notFound\(\)/);assert.match(edit,/connections\.find\(c=>c\.key===value\.definition\.connectionKey\)/);
+ assert.match(edit,/if \(!value\) notFound\(\)/);assert.match(edit,/connections\.find\(connection => connection\.key === value\.definition\.connectionKey\)/);
  assert.match(editor,/disabled=\{retired\|\|!c\.enabled\}/);assert.match(editor,/\(Currently unavailable\)/);assert.match(editor,/codexBlockers\.length>0/);
  for(const source of [create,edit,route,editor])assert.doesNotMatch(source,/encrypted_credential|credential_iv|Authorization/);
 });

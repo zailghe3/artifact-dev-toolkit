@@ -129,6 +129,10 @@ jobs:
         if: inputs.verify_app
         run: npm run build:worker
 
+      - name: Report bundle sizes and verify Worker UI streaming
+        if: inputs.verify_app
+        run: node scripts/report-app-bundle.mjs --verify-streaming
+
       - name: Smoke-test local OpenNext Worker runtime
         if: inputs.verify_app
         run: npm run test:worker-runtime
