@@ -81,11 +81,4 @@ For a disposable PostgreSQL integration check, use the Runtime build plus `adt-r
 
 Do not provision browser-session secrets, GitHub App private signing keys, Codex identity, Docker socket access, or broad Portainer API credentials to Runtime.
 
-## Infrastructure boundary
-
-Runtime is expected to grow as ADT gains capabilities that require durable execution, private-network access, provider SDKs, or homelab-hosted supporting services.
-
-- Prefer adding those capabilities to Runtime or another narrowly scoped private service over expanding Cloudflare Worker authority.
-- Keep each supporting service's credentials and infrastructure authority at the narrowest private boundary that needs them.
-- Expose only authenticated, bounded application operations across the Worker/Runtime boundary.
-- Treat homelab deployment topology as replaceable operator infrastructure; ADT's product contracts should depend on capabilities and authority, not a particular orchestrator or network layout.
+Runtime's broader architectural role—including the thin-Worker/private-service direction—is tracked in [Architecture](../ARCHITECTURE.md#key-architectural-invariants). This guide is limited to current PostgreSQL/key operation and recovery.
