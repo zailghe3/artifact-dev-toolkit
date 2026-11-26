@@ -221,6 +221,7 @@
 - Agent controls expose only a positive maximum output-token count and execution timeout. Defaults are 4096 tokens and 300 seconds; supported ranges are 1–32768 tokens and 5–900 seconds.
 - Tool-free Ollama execution uses one bounded chat request. Tool-enabled runs use the common ADT tool, approval and Security Profile lifecycle. Ollama’s advertised tool support is checked when available. Streaming, images and embeddings remain unsupported. Uncertain submissions are not blindly retried.
 - A Runtime without Ollama execution/model-discovery capabilities reports the provider unavailable until upgraded. Generic Runtime diagnostics, Ollama model commissioning, and actual Agent execution remain distinct checks.
+- Workflow and Workflow runs pages preserve authorised navigation when run storage is unavailable. Both offer a retry and display empty history only after a successful read.
 
 ### Microsoft Work IQ execution
 

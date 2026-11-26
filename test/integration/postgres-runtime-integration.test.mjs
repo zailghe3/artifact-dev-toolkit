@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { createServer as createTcpServer } from 'node:net';
+import { createServer as createHttpServer, request as httpRequest } from 'node:http';
 import { once } from 'node:events';
 import { generateKeyPairSync, randomBytes } from 'node:crypto';
 import { mkdtemp, chmod, copyFile, rename, rm, stat, writeFile } from 'node:fs/promises';
@@ -15,14 +16,41 @@ import { D1WorkflowRunStorage } from '../../lib/workflow-d1-storage.ts';
 import { D1WorkflowApprovalStore } from '../../lib/workflow-approvals.ts';
 import { D1LangGraphCheckpointStore } from '../../lib/langgraph-checkpoints.ts';
 import { createRuntimeServer } from '../../adt-runtime/dist/server.js';
+import { signature } from '../../adt-runtime/dist/protocol.js';
 import { operationalSettings, recordManagementNonce } from '../../adt-runtime/dist/operational-settings.js';
 import { advisorSettingsRecordSchema, codexEnvironmentInputSchema, OPERATIONAL_SETTINGS_PATH } from '../../adt-runtime/dist/operational-settings-contract.js';
-import { requestRuntimeOperationalSettings } from '../../lib/adt-runtime-client.ts';
+import { RemoteOpenAIAgentsRuntime, requestRuntimeOperationalSettings } from '../../lib/adt-runtime-client.ts';
+import { diagnoseRuntimeManagement, runtimeControl, WORKFLOW_HISTORY_LIMIT } from '../../lib/runtime-service-client.ts';
 import { nativeFixture } from '../support/native-adt-fixture.mjs';
+import { run as workflowRun } from '../support/advisor-fixtures.mjs';
 
 const connectionString = process.env.ADT_TEST_POSTGRES_URL;
 
-async function verifyProductionStartup(t, keyPath) {
+async function verifyProductionStartup(t, keyPath, pool) {
+  let brokerUp = true;
+  let runnerReply;
+  const runner = createHttpServer((request, response) => {
+    if (request.url === '/api/runtime-repository-credential') {
+      request.resume();
+      const value = brokerUp
+        ? { ok: true, result: { token: 'fixture-github-token', expiresAt: '2027-01-01', permissions: { contents: 'read' } } }
+        : { ok: false, code: 'github_broker_unavailable' };
+      return response.writeHead(brokerUp ? 200 : 503, { 'content-type': 'application/json' })
+        .end(JSON.stringify({ protocolVersion: 'adt-runtime-v1', ...value }));
+    }
+    if (request.headers['x-codex-runner-secret'] !== 'fixture-runner-secret') return response.writeHead(401).end();
+    if (request.url === '/v1/capabilities' && runnerReply) {
+      return response.writeHead(runnerReply.status, { 'content-type': 'application/json', ...runnerReply.headers })
+        .end(JSON.stringify(runnerReply.body));
+    }
+    const value = request.url === '/v1/capabilities'
+      ? { protocolVersion: 1, runnerVersion: 'a'.repeat(40), runnerRevision: 19, codexVersion: '0.159.3',
+          codexAvailable: false, deviceAuth: false, jobExecution: true }
+      : request.url === '/v1/auth/status' ? { connected: true, authMode: 'chatgpt' } : undefined;
+    response.writeHead(value ? 200 : 404, { 'content-type': 'application/json' }).end(JSON.stringify(value));
+  }).listen(0, '127.0.0.1');
+  await once(runner, 'listening');
+  t.after(() => runner.close());
   const reservation = createTcpServer();
   reservation.listen(0, '127.0.0.1');
   await once(reservation, 'listening');
@@ -35,12 +63,45 @@ async function verifyProductionStartup(t, keyPath) {
     ADT_RUNTIME_DB_HOST: db.hostname, ADT_RUNTIME_DB_PORT: db.port, ADT_RUNTIME_DB_NAME: db.pathname.slice(1),
     ADT_RUNTIME_DB_USER: decodeURIComponent(db.username), ADT_RUNTIME_DB_PASSWORD: decodeURIComponent(db.password),
     ADT_RUNTIME_ROOT_KEY_FILE: keyPath,
+    ADT_RUNTIME_WORKER_URL: `http://127.0.0.1:${runner.address().port}`,
+    CODEX_RUNNER_BASE_URL: `http://127.0.0.1:${runner.address().port}`,
+    CODEX_RUNNER_ACCESS_CLIENT_ID: 'fixture-client-id', CODEX_RUNNER_ACCESS_CLIENT_SECRET: 'fixture-client-secret',
+    CODEX_RUNNER_SHARED_SECRET: 'fixture-runner-secret',
   } });
   const closed = once(child, 'close');
   t.after(() => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); });
   let diagnostic = '';
-  for (const stream of [child.stdout, child.stderr]) stream.on('data', chunk => { diagnostic = (diagnostic + chunk.toString()).slice(-8192); });
-  const baseUrl = `http://127.0.0.1:${port}`;
+  for (const stream of [child.stdout, child.stderr]) stream.on('data', chunk => { diagnostic = (diagnostic + chunk.toString()).slice(-32_768); });
+  const target = `http://127.0.0.1:${port}`;
+  let proxyMode = 'forward';
+  const proxy = createHttpServer((request, response) => {
+    if (!request.url.startsWith('/runtime/')) return response.writeHead(404).end();
+    const path = request.url.slice('/runtime'.length);
+    if (proxyMode === 'html' && request.method === 'POST') {
+      request.resume();
+      setTimeout(() => response.writeHead(502, { 'content-type': 'text/html' }).end('<html>private upstream prompt</html>'), 30);
+      return;
+    }
+    const headers = { ...request.headers };
+    if (proxyMode === 'strip-signature' && request.method === 'POST') delete headers['x-adt-signature'];
+    if (proxyMode === 'unsupported-protocol' && request.method === 'POST') {
+      headers['x-adt-protocol'] = 'adt-runtime-v2';
+      headers['x-adt-signature'] = signature(authSecret, request.method, path,
+        headers['x-adt-timestamp'], headers['x-adt-nonce'], headers['x-adt-content-sha256'], headers['x-adt-protocol']);
+    }
+    const upstream = httpRequest(new URL(path, target), { headers, method: request.method }, forwarded => {
+      response.writeHead(forwarded.statusCode, forwarded.headers);
+      forwarded.pipe(response);
+    });
+    upstream.on('error', () => response.writeHead(502).end());
+    request.pipe(upstream);
+  }).listen(0, '127.0.0.1');
+  await once(proxy, 'listening');
+  const baseUrl = `http://127.0.0.1:${proxy.address().port}/runtime`;
+  const config = { baseUrl, authSecret };
+  const scope = { repositoryId: 123, installationId: 12, owner: 'fixture', repository: 'artifacts', branch: 'main', root: 'artifacts' };
+  const list = { operation: 'runs.list', repositoryId: scope.repositoryId, limit: 1 };
+  const readiness = () => new RemoteOpenAIAgentsRuntime(config).diagnose();
   try {
     let ready = false;
     for (let attempt = 0; attempt < 160 && child.exitCode === null; attempt++) {
@@ -49,9 +110,162 @@ async function verifyProductionStartup(t, keyPath) {
       await new Promise(resolve => setTimeout(resolve, 150));
     }
     assert.equal(ready, true, diagnostic);
-    const { runtimeControl } = await import('../../lib/runtime-service-client.ts');
-    assert.deepEqual(await runtimeControl({ baseUrl, authSecret }, { operation: 'runs.list', repositoryId: 123, limit: 1 }), []);
+    assert.equal((await readiness()).readinessAccepted, true);
+    const vault = (method, ...args) => runtimeControl(config, {
+      operation: 'vault', repositoryId: scope.repositoryId, method, arguments: args,
+    });
+    await assert.rejects(vault('hasCredential', 'private-invalid-vault-id'), error =>
+      error.code === 'vault_secret_id_invalid' && error.observation.httpStatus === 400 &&
+      error.observation.result === 'operation_rejected' && error.observation.dispatched &&
+      /^[\w-]{32}$/.test(error.observation.requestId));
+    const secret = await vault('create', 'private-vault-value');
+    try {
+      assert.equal(await vault('hasCredential', secret), true);
+      await pool.query('UPDATE provider_credential_vault SET encrypted_credential=$1 WHERE secret_id=$2',
+        ['private-corrupt-ciphertext', secret]);
+      await assert.rejects(vault('hasCredential', secret), error =>
+        error.code === 'runtime_unavailable' && error.observation.httpStatus === 503);
+    } finally {
+      await vault('delete', secret);
+    }
+
+    for (const [connectionType, configuration, code] of [
+      ['openai-responses', { unexpected: true }, 'provider_configuration_invalid'],
+      ['ollama-chat', { baseUrl: 'private-invalid-endpoint', authMode: 'none' }, 'ollama_configuration_invalid'],
+    ]) {
+      await assert.rejects(runtimeControl(config, { operation: 'provider', repositoryId: scope.repositoryId,
+        request: { action: 'models', connectionType, configuration, credentials: { source: 'input' } },
+      }), error => error.code === code && error.observation.httpStatus === 422 && error.observation.result === 'operation_rejected');
+    }
+
+    assert.deepEqual(await runtimeControl(config, list), []);
+    const good = await diagnoseRuntimeManagement(config, scope);
+    assert.equal(good.management.result, 'ok');
+    assert.equal(good.management.dispatched, true);
+    assert.equal(good.workflowHistory.result, 'ok');
+    assert.notEqual(good.management.requestId, good.workflowHistory.requestId);
+    assert.equal(good.dependencies.postgres.status, 'available');
+    assert.equal(good.dependencies.checkpoints.status, 'available');
+    assert.equal(good.dependencies.workflow.status, 'available');
+    assert.equal(good.dependencies.broker.status, 'available');
+    assert.doesNotMatch(JSON.stringify(good), /fixture-github-token/);
+    brokerUp = false;
+    const optionalFailure = await diagnoseRuntimeManagement(config, scope);
+    assert.equal(optionalFailure.management.result, 'ok');
+    assert.equal(optionalFailure.dependencies.workflow.status, 'available');
+    assert.equal(optionalFailure.dependencies.broker.status, 'unavailable');
+
+    const runnerCaps = await runtimeControl(config, { operation: 'runner', repositoryId: scope.repositoryId, method: 'capabilities', arguments: [] });
+    const runnerAuth = await runtimeControl(config, { operation: 'runner', repositoryId: scope.repositoryId, method: 'authStatus', arguments: [] });
+    assert.equal(runnerCaps.result.codexAvailable, false);
+    assert.equal(runnerAuth.result.connected, true);
+    for (const [status, body, headers, code, managementStatus] of [
+      [401, {}, {}, 'runner_unauthorized', 502],
+      [403, {}, { 'cf-ray': 'fixture' }, 'access_denied', 502],
+      [503, {}, {}, 'runner_unavailable', 503],
+      [200, {}, {}, 'invalid_response', 502],
+      [200, { protocolVersion: 2, runnerVersion: 'a'.repeat(40), codexAvailable: false, deviceAuth: false, jobExecution: true },
+        {}, 'runner_update_required', 409],
+    ]) {
+      runnerReply = { status, body, headers };
+      await assert.rejects(runtimeControl(config, { operation: 'runner.release' }), error =>
+        error.code === code && error.observation.httpStatus === managementStatus &&
+        error.observation.result === 'operation_rejected');
+    }
+    runnerReply = undefined;
+    await assert.rejects(runtimeControl(config, { operation: 'runs.diagnose', repositoryId: 7, scope }), error =>
+      error.message === 'permission_denied' && error.observation.httpStatus === 403 && error.observation.dispatched === true);
+
+    proxyMode = 'strip-signature';
+    const rejected = await diagnoseRuntimeManagement(config, scope);
+    assert.equal(rejected.management.result, 'authentication_failed');
+    assert.equal(rejected.management.httpStatus, 401);
+    assert.equal(rejected.management.authenticated, false);
+    assert.equal(rejected.management.dispatched, false);
+    assert.equal(rejected.dependencies.workflow.status, 'not_verified');
+    assert.equal(rejected.workflowHistory.result, 'authentication_failed');
+    await assert.rejects(runtimeControl(config, list), error =>
+      error.code === 'runtime_authentication_failed' && error.observation.httpStatus === 401 &&
+      error.observation.stage === 'authentication' && /^[\w-]{32}$/.test(error.observation.requestId));
+    assert.equal((await readiness()).readinessAccepted, true);
+
+    proxyMode = 'unsupported-protocol';
+    const incompatible = await diagnoseRuntimeManagement(config, scope);
+    assert.equal(incompatible.management.result, 'protocol_incompatible');
+    assert.equal(incompatible.workflowHistory.httpStatus, 409);
+    await assert.rejects(runtimeControl(config, list), error =>
+      error.code === 'protocol_incompatible' && error.observation.httpStatus === 409 &&
+      error.observation.authenticated === true && error.observation.protocolCompatible === false &&
+      /^[\w-]{32}$/.test(error.observation.requestId));
+
+    proxyMode = 'html';
+    const malformed = await diagnoseRuntimeManagement(config, scope);
+    assert.equal(malformed.management.result, 'malformed_response');
+    assert.equal(malformed.management.httpStatus, 502);
+    assert.ok(malformed.management.elapsedMs >= 25);
+    assert.equal(malformed.management.authenticated, null);
+    assert.equal(malformed.dependencies.postgres.status, 'not_verified');
+    assert.doesNotMatch(JSON.stringify(malformed), /private upstream prompt/);
+    proxyMode = 'forward';
+
+    await pool.query('REVOKE INSERT ON management_request_nonces FROM CURRENT_USER');
+    try {
+      assert.equal((await readiness()).readinessAccepted, true);
+      const nonce = await diagnoseRuntimeManagement(config, scope);
+      assert.equal(nonce.management.result, 'nonce_persistence_unavailable');
+      assert.equal(nonce.management.httpStatus, 503);
+      assert.equal(nonce.management.authenticated, true);
+      assert.equal(nonce.management.protocolCompatible, true);
+      assert.equal(nonce.management.dispatched, false);
+      assert.equal(nonce.dependencies.workflow.status, 'not_verified');
+      await assert.rejects(runtimeControl(config, list), error =>
+        error.code === 'nonce_persistence_unavailable' && error.observation.result === 'nonce_persistence_unavailable');
+    } finally {
+      await pool.query('GRANT INSERT ON management_request_nonces TO CURRENT_USER');
+    }
+
+    await pool.query('REVOKE SELECT ON workflow_runs FROM CURRENT_USER');
+    try {
+      const storage = await diagnoseRuntimeManagement(config, scope);
+      assert.equal(storage.management.dispatched, true);
+      assert.equal(storage.dependencies.postgres.status, 'available');
+      assert.equal(storage.dependencies.workflow.status, 'unavailable');
+      assert.equal(storage.dependencies.workflow.result, 'storage_query_unavailable');
+      assert.equal(storage.workflowHistory.httpStatus, 503);
+      await assert.rejects(runtimeControl(config, list), error =>
+        error.code === 'storage_query_unavailable' && error.observation.result === 'storage_query_unavailable');
+      assert.doesNotMatch(JSON.stringify(storage), /SELECT|permission denied for table|fixture-runner-secret|private upstream prompt/);
+    } finally {
+      await pool.query('GRANT SELECT ON workflow_runs TO CURRENT_USER');
+    }
+    assert.deepEqual(await runtimeControl(config, list), []);
+    const storage = new D1WorkflowRunStorage(new PostgresWorkflowDatabase(pool), undefined, scope.repositoryId);
+    const older = { ...workflowRun({ repositoryContext: scope }), status: 'succeeded', createdAt: '2026-01-01T00:00:00Z' };
+    const newest = { ...workflowRun({ repositoryContext: scope }), status: 'succeeded', createdAt: '2026-01-02T00:00:00Z' };
+    await storage.createRun(older);
+    await storage.createRun(newest);
+    await pool.query('UPDATE workflow_runs SET agent_snapshots_json = $1 WHERE id = $2',
+      [JSON.stringify({ damaged: 'private malformed snapshot' }), older.id]);
+    try {
+      assert.deepEqual((await runtimeControl(config, list)).map(run => run.id), [newest.id]);
+      await assert.rejects(runtimeControl(config, { ...list, limit: WORKFLOW_HISTORY_LIMIT }), { code: 'storage_data_invalid' });
+      const damagedHistory = await diagnoseRuntimeManagement(config, scope);
+      assert.equal(damagedHistory.management.result, 'ok');
+      assert.equal(damagedHistory.workflowHistory.result, 'storage_data_invalid');
+      assert.equal(damagedHistory.dependencies.postgres.status, 'available');
+      assert.equal(damagedHistory.dependencies.workflow.status, 'unavailable');
+      assert.doesNotMatch(JSON.stringify(damagedHistory), /private malformed snapshot|SENSITIVE_INPUT/);
+      const isolated = await diagnoseRuntimeManagement(config, { ...scope, repositoryId: scope.repositoryId + 1 });
+      assert.equal(isolated.dependencies.workflow.status, 'available');
+    } finally {
+      await pool.query('DELETE FROM workflow_runs WHERE id IN ($1, $2)', [newest.id, older.id]);
+    }
+    assert.match(diagnostic, new RegExp(`"requestId":"${good.management.requestId}"`));
+    assert.match(diagnostic, new RegExp(`"requestId":"${good.workflowHistory.requestId}"`));
+    assert.doesNotMatch(diagnostic, /SELECT|permission denied for table|fixture-runner-secret|fixture-client-secret|fixture-github-token|private upstream prompt|private malformed snapshot|SENSITIVE_INPUT/);
+    assert.doesNotMatch(diagnostic, /private-invalid-vault-id|private-vault-value|private-corrupt-ciphertext|private-invalid-endpoint|vault_decryption_failed/);
   } finally {
+    proxy.close();
     child.kill('SIGTERM');
     const timer = setTimeout(() => child.kill('SIGKILL'), 4000);
     await closed;
@@ -76,7 +290,7 @@ test('Runtime initializes PostgreSQL and retains its scoped vault and Workflow j
   ]);
   assert.equal(installation.rootKey.fingerprint(), concurrent.rootKey.fingerprint());
   assert.equal((await stat(keyPath)).mode & 0o777, 0o600);
-  await verifyProductionStartup(t, keyPath);
+  await verifyProductionStartup(t, keyPath, pool);
   const openVault = (root, repositoryId, version = 1) =>
     new D1ProviderCredentialVault(new PostgresWorkflowDatabase(pool),
       keyVersion => root.vaultKey(repositoryId, keyVersion), version, undefined, undefined, repositoryId);
@@ -317,6 +531,9 @@ test('signed launches run inside PostgreSQL-backed Runtime and approvals survive
   t.after(async () => { await application.stop(); await runtime.close(); });
   env.ADT_RUNTIME_BASE_URL = `http://127.0.0.1:${runtime.server.address().port}`;
   const config = { baseUrl: env.ADT_RUNTIME_BASE_URL, authSecret };
+  await assert.rejects(runtimeControl(config, { operation: 'runner.release' }), error =>
+    error.code === 'configuration_missing' && error.observation.httpStatus === 503 &&
+    error.observation.result === 'operation_rejected');
   const { runtimeProviderClient, runtimeProviderConnectionStore } = await import('../../lib/runtime-provider-client.ts');
   const { resolveWorkflowRunConnectionSnapshot } = await import('../../lib/workflow-run-connection-snapshots.ts');
   const { createWorkIqPrivateBundle, parseWorkIqPrivateBundle, serializeWorkIqPrivateBundle } = await import('../../lib/work-iq-auth.ts');
@@ -400,6 +617,9 @@ test('signed launches run inside PostgreSQL-backed Runtime and approvals survive
   assert.equal(turns, 2);
   assert.equal(brokerRequests, 2);
   assert.equal(await runtimeControl(config, { operation: 'runs.detail', repositoryId: context.repositoryId + 1, runId: value.id }), null);
+  const ownHistory = await runtimeControl(config, { operation: 'runs.list', repositoryId: context.repositoryId, limit: 1 });
+  assert.equal(ownHistory[0].id, value.id);
+  assert.deepEqual(await runtimeControl(config, { operation: 'runs.list', repositoryId: context.repositoryId + 1, limit: 1 }), []);
 
   const approvalWorkflow = workflowDefinitionV2Schema.parse({
     ...workflow, id: 'approval-flow',

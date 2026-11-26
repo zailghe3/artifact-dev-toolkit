@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { installTsxHook } from "./render-tsx.mjs";
 const require = installTsxHook();
-const { authenticationDiagnosticChecks, authEnvironmentStatusPresentation, deriveOperationalDomains, operationalContributors, operationalOverall, runnerDiagnosticChecks, runtimeDiagnosticChecks } = require("../lib/operational-diagnostics.ts");
+const { authenticationDiagnosticChecks, authEnvironmentStatusPresentation, deriveOperationalDomains, operationalContributors, operationalOverall, runnerDiagnosticChecks, runtimeDiagnosticChecks, withRuntimeManagement } = require("../lib/operational-diagnostics.ts");
 const { collectSafeRunnerDiagnostics } = require("../lib/codex-runner-diagnostics.ts");
 const { CodexRunnerError } = require("../lib/codex-runner-client.ts");
 
@@ -58,9 +58,31 @@ test("Runtime requires configuration and both current-main capabilities with pre
   assert.equal(operationalOverall(deriveOperationalDomains(repository(), runtime({ configured: false }), runner(), true)).state, "failed");
   assert.equal(domain(repository(), runtime({ graphCapabilityAvailable: false }), runner(), "adt-runtime").state, "failed");
   assert.equal(domain(repository(), runtime({ capabilityAvailable: false }), runner(), "adt-runtime").state, "failed");
-  assert.equal(domain(repository(), runtime(), runner(), "adt-runtime").state, "healthy");
+  assert.equal(domain(repository(), runtime(), runner(), "adt-runtime").state, "degraded");
   const unreachable = runtimeDiagnosticChecks(runtime({ reachable: false, authenticationAccepted: null, protocolCompatible: false, capabilityAvailable: false, graphCapabilityAvailable: false, wrappingKeyMatches: false }));
   for (const id of ["runtime-authentication", "runtime-protocol", "runtime-capability", "runtime-graph-capability", "runtime-wrapping-key"]) assert.equal(unreachable.find(check => check.id === id).status.label, "Not verified");
+});
+
+test("Runtime aggregation requires an operational management and scoped storage observation", () => {
+  const domains = deriveOperationalDomains(repository(), runtime(), runner(), true);
+  const state = diagnostic => withRuntimeManagement(domains, diagnostic).find(domain => domain.key === "adt-runtime");
+  const available = { status: "available" };
+  const diagnostic = { management: { result: "ok" }, workflowHistory: { result: "ok" }, dependencies: {
+    postgres: available, checkpoints: available, workflow: available, broker: { status: "unavailable" },
+  } };
+  assert.equal(state().state, "degraded");
+  assert.equal(state({ ...diagnostic, workflowHistory: undefined }).state, "degraded");
+  assert.equal(state().checks.find(check => check.id === "runtime-workflow-storage").status.label, "Not verified");
+  assert.equal(state(diagnostic).state, "healthy");
+  const unavailable = state({ ...diagnostic, dependencies: { ...diagnostic.dependencies, workflow: { status: "unavailable" } } });
+  assert.equal(unavailable.state, "failed");
+  assert.equal(unavailable.checks.find(check => check.id === "runtime-management").status.label, "Available");
+  const rejected = state({
+    management: { result: "authentication_failed" },
+    dependencies: Object.fromEntries(Object.keys(diagnostic.dependencies).map(key => [key, { status: "not_verified" }])),
+  });
+  assert.equal(rejected.state, "failed");
+  assert.equal(rejected.checks.find(check => check.id === "runtime-workflow-storage").status.label, "Not verified");
 });
 
 test("Runner operational observations and CLI compatibility prevent false Healthy claims", () => {
@@ -77,7 +99,7 @@ test("Runner operational observations and CLI compatibility prevent false Health
   assert.equal(runnerDiagnosticChecks(cases[5]).find(check => check.id === "runner-codex-cli").status.label, "Version mismatch");
   const missing = runner({ connection: { state: "configuration-missing", label: "missing" }, capabilities: { state: "unavailable", reason: "unknown" }, authentication: { state: "unavailable" } });
   assert.equal(domain(repository(), runtime(), missing, "codex-runner").state, "not-configured");
-  assert.equal(operationalOverall(deriveOperationalDomains(repository(), runtime(), missing, true)).state, "healthy");
+  assert.equal(operationalOverall(deriveOperationalDomains(repository(), runtime(), missing, true)).state, "degraded");
 });
 
 test("Runner newer than ADT is uncertain, while an older Runner still requires update", () => {
@@ -154,7 +176,7 @@ test("intentionally unobserved active auth diagnostics do not degrade passive Ru
   const checks = runnerDiagnosticChecks(passive);
   assert.equal(checks.some(check => check.id === "runner-auth-environment"), false);
   assert.equal(domain(repository(), runtime(), passive, "codex-runner").state, "healthy");
-  assert.equal(operationalOverall(deriveOperationalDomains(repository(), runtime(), passive, true)).state, "healthy");
+  assert.equal(operationalOverall(deriveOperationalDomains(repository(), runtime(), passive, true)).state, "degraded");
 
   const failedObservation = runner({ authEnvironment: { state: "unavailable" } });
   const failedCheck = runnerDiagnosticChecks(failedObservation).find(check => check.id === "runner-auth-environment");

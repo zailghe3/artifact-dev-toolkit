@@ -1,13 +1,13 @@
-import {CodexRunnerError,getCodexRunnerClient,type RunnerAuthStatus,type RunnerCapabilities} from "./codex-runner-client";
-import {evaluateRunnerCompatibility,type RunnerCompatibility} from "./codex-runner-compatibility";
+import {CodexRunnerError,type CodexRunnerClient,type RunnerAuthStatus,type RunnerCapabilities} from "./codex-runner-client.ts";
+import {evaluateRunnerCompatibility,type RunnerCompatibility} from "./codex-runner-compatibility.ts";
 
 export type CodexConnectionState="configuration-missing"|"unavailable"|"update-required"|"disconnected"|"waiting"|"connected";
 export interface SafeCodexConnectionStatus{state:CodexConnectionState;label:string;capabilities?:RunnerCapabilities;compatibility?:RunnerCompatibility;auth?:RunnerAuthStatus}
 
 type StatusStage="configuration"|"capabilities"|"auth_status";
-type StatusClient=Pick<ReturnType<typeof getCodexRunnerClient>,"capabilities"|"authStatus">;
+type StatusClient=Pick<CodexRunnerClient,"capabilities"|"authStatus">;
 type StatusLogger=(message:string)=>void;
-type StatusDependencies={clientFactory?:()=>StatusClient;logger?:StatusLogger};
+type StatusDependencies={clientFactory:()=>StatusClient|Promise<StatusClient>;logger?:StatusLogger};
 
 function errorCategory(error:unknown){
  return error instanceof CodexRunnerError?error.category:"runner_unavailable";
@@ -23,10 +23,10 @@ function safeFailureStatus(error:unknown):SafeCodexConnectionStatus{
  return{state:"unavailable",label:"Runner unavailable"};
 }
 
-export async function getSafeCodexConnectionStatus(dependencies:StatusDependencies={}):Promise<SafeCodexConnectionStatus>{
+export async function getSafeCodexConnectionStatus(dependencies:StatusDependencies):Promise<SafeCodexConnectionStatus>{
  const logger=dependencies.logger??console.error;
  let client:StatusClient;
- try{client=(dependencies.clientFactory??getCodexRunnerClient)();}
+ try{client=await dependencies.clientFactory();}
  catch(error){logFailure(logger,"configuration",error);return safeFailureStatus(error)}
 
  let capabilities:RunnerCapabilities;
@@ -34,11 +34,11 @@ export async function getSafeCodexConnectionStatus(dependencies:StatusDependenci
  catch(error){logFailure(logger,"capabilities",error);return safeFailureStatus(error)}
 
  const compatibility=evaluateRunnerCompatibility(capabilities);
- if(!capabilities.codexAvailable)return{state:"unavailable",label:"Runner unavailable",capabilities,compatibility};
- if(!capabilities.deviceAuth)return{state:"update-required",label:"Runner update required",capabilities,compatibility};
-
- let auth:RunnerAuthStatus;
+ let auth:RunnerAuthStatus|undefined;
  try{auth=await client.authStatus();}
- catch(error){logFailure(logger,"auth_status",error);return safeFailureStatus(error)}
+ catch(error){logFailure(logger,"auth_status",error)}
+ if(!capabilities.codexAvailable)return{state:"unavailable",label:"Codex App Server unavailable",capabilities,compatibility,auth};
+ if(!capabilities.deviceAuth)return{state:"update-required",label:"Device authentication unavailable",capabilities,compatibility,auth};
+ if(!auth)return{state:"unavailable",label:"Runner authentication status unavailable",capabilities,compatibility};
  return auth.connected?{state:"connected",label:"Connected to ChatGPT",capabilities,compatibility,auth}:{state:"disconnected",label:"Runner ready — ChatGPT not connected",capabilities,compatibility,auth};
 }
