@@ -1,6 +1,6 @@
 # Architecture
 
-This document is a navigation map for the current system. It describes major domains, sources of truth, persistence boundaries, trust boundaries, and where deeper contracts live. It is not a product specification or an implementation design.
+This document is a navigation map for the current system. It describes durable component responsibilities, sources of truth, persistence, and trust boundaries. Product behaviour belongs in `specs/`; exact implementation mechanics belong in source, tests, configuration, migrations, workflows, and component/operator documentation.
 
 ## System shape
 
@@ -8,240 +8,184 @@ This document is a navigation map for the current system. It describes major dom
 Authorised browser
     |
     v
-Artifact Toolkit application
-Next.js -> OpenNext -> Cloudflare Worker
+Cloudflare application / Worker
+    - browser session and user authorisation
+    - Git-backed definition admission
+    - GitHub App authority and scoped credential brokering
+    - browser-facing coordination
     |
-    +--> GitHub App / configured artifact repository
-    |       - reusable artifacts
-    |       - Agent, Workflow, layout, and non-secret connection definitions
+    +--> configured GitHub repositories
+    |       - reusable artifacts and reviewed Advisor knowledge
+    |       - non-secret Agent, Workflow, Connection, Tool, and Security Profile definitions
     |
-    +--> Cloudflare D1
+    +--> D1
     |       - application sessions
     |
-    +--> Cloudflare KV
-    |       - disposable validated catalogue cache
+    +--> KV
+    |       - disposable catalogue acceleration
     |
     +--> authenticated ADT Runtime
-    |       - leased Workflow scheduling, recovery and LangGraph sequencing
-    |       - PostgreSQL run, checkpoint, approval, tool and operational state
-    |       - encrypted provider credential vault and Work IQ OAuth exchanges
-    |       - provider and bounded MCP client execution
-    |       - scoped GitHub credentials brokered by the Worker
-    |       - fixed Runtime and Runner redeploy webhooks
-    |
-    +--> independently published Adrian backend
-    |       - vendored, provenance-verified upstream backend image
-    |       - independently operated runtime data, models, and configuration
-    |
-    +--> independently deployed Codex Runner
-            - Controller: ADT-facing admission and durable job/control state
-            - Executor: isolated Codex execution and Codex identity
-            - Repository Manager: trusted Git authority for managed repositories
-            - separate executor and repository egress boundaries
+            - durable Workflow scheduling and execution
+            - PostgreSQL operational state and encrypted credential vault
+            - provider, tool, security, and private-service integrations
+            - private/homelab infrastructure capabilities needed by execution
+            |
+            +--> Codex Runner
+            |       - isolated model-directed command execution
+            |       - separate trusted managed-Git authority
+            |
+            +--> operator-approved private/external services
+                    - provider endpoints, MCP servers, Security Profile services,
+                      and other purpose-specific services
 ```
 
-Exact bindings, schemas, versions, limits, identifiers, protocols, retries, and deployment mechanics remain authoritative in configuration, source, tests, migrations, workflows, and component documentation.
+Independently deployed services may roll at different revisions. Compatibility is established through explicit service contracts rather than matching Git commits.
 
 ## Architectural principles
 
-- ADT owns the durable domain model, policy, authorisation, and recorded outcomes; framework-specific objects are replaceable implementation roles rather than the product model.
-- React Flow presents Workflow graphs; canonical Workflow v2 JSON defines semantics; LangGraph performs sequencing; provider runtimes execute AI work.
-- Git stores recoverable non-secret configuration. The encrypted ADT vault stores provider credential values. D1 stores web sessions. Runtime owns operational state and the credential vault in PostgreSQL. KV is disposable acceleration.
-- The Cloudflare Worker is ADT's control plane for user authorisation, Git authority, Workflow admission and scoped GitHub credentials.
-- Browsers and execution services receive only the authority needed for their role; broad GitHub, Cloudflare, vault, or infrastructure credentials remain in the control plane or the exact trusted component that needs them.
-- Keep the Cloudflare Worker lean. Execution-heavy provider SDKs and orchestration libraries belong in ADT Runtime unless they genuinely require control-plane authority.
-- ADT Runtime is the extensible AI execution plane; Codex Runner remains a separate trust boundary for model-directed command execution.
-- Tool integrations are distinct from provider Connections. Runtime runs built-in and remote tools through a shared policy gate. GitHub access uses the Worker credential broker.
+- **ADT owns its domain semantics.** Workflow JSON, run snapshots, policy, authority, and recorded outcomes are product concepts; React Flow, LangGraph, provider SDKs, security SDKs, and transport libraries are replaceable implementation mechanisms.
+- **Keep the public Worker thin.** Cloudflare owns browser authentication, repository admission, GitHub App authority, and browser-facing coordination. Durable execution, provider SDKs, long-running work, and private-network integrations belong outside the Worker.
+- **Runtime is the durable execution and private-service plane.** ADT Runtime owns Workflow operational state, execution recovery, the encrypted provider/tool credential vault, and integrations that need private or homelab reachability.
+- **Private infrastructure authority stays private.** Infrastructure credentials, local-network authority, and service-control capabilities should terminate in Runtime or another narrowly purposed trusted homelab service, not in the browser or Worker.
+- **Separate identities and privileges.** User identity, GitHub App authority, provider/tool credentials, Runtime authority, Codex identity, and managed Git authority remain distinct and are transferred only when required for an exact operation.
+- **Persist before depending on side effects.** Durable state records accepted external work and successful results before later work relies on them. Ambiguous external effects are reconciled rather than blindly recreated.
+- **Git stores reviewed non-secret configuration; databases store operational state.** Git is recoverable and reviewable. PostgreSQL holds Runtime operational state and encrypted credentials; D1 holds browser sessions; KV is disposable acceleration.
+- **Components fail closed at trust boundaries.** Missing authority, incompatible contracts, stale revisions, malformed external data, and uncertain side effects do not silently broaden capability or trigger fallback execution.
+- **Independent deployment is intentional.** Worker, Runtime, Runner, and other trusted services can evolve independently behind explicit compatibility and release contracts.
 
-## Major product domains
+## Major domains
 
 ### Artifact Library
 
-- Loads validated reusable artifacts from the configured GitHub repository.
-- Supports catalogue search, detail, copy, creation, editing, variations, deletion, refresh, and diagnostics.
-- Artifact Library Markdown has no lifecycle state; top-level `status` metadata is invalid.
-- Validated edits and deletions are direct repository mutations protected by repository revision checks.
+- GitHub is authoritative for reusable Markdown artifacts.
+- The application validates content before exposing it and uses revision-aware mutations so stale or ambiguous writes fail safely.
+- KV may accelerate catalogue reads but is never authoritative.
 
-Current behaviour is defined by [`specs/000-current-application-spec.md`](specs/000-current-application-spec.md). The external repository format is defined by [`docs/external-artifact-repository-contract.md`](docs/external-artifact-repository-contract.md).
+Current behaviour: [Current application specification](specs/000-current-application-spec.md). Repository contract: [External artifact repository contract](docs/external-artifact-repository-contract.md).
 
-### Authentication and repository authorisation
+### Authentication and repository authority
 
-- GitHub OAuth establishes user identity.
-- Application access additionally requires current authority to the configured artifact repository and may be further restricted by operator policy.
-- Browser sessions are server-controlled and do not expose GitHub or application credentials.
-- Repository authority is revalidated during a session rather than trusted indefinitely from login time.
-- Privileged repository operations use the server-side GitHub App with short-lived, repository-scoped authority appropriate to the operation.
-- User identity/authorisation and application repository credentials are deliberately separate boundaries.
+- GitHub OAuth establishes user identity; current repository authority determines whether that user may use ADT.
+- Browser sessions are server-controlled and contain no GitHub or application credentials.
+- The Worker retains GitHub App signing authority and mints short-lived, repository-scoped credentials for admitted operations.
+- Runtime and other execution services receive scoped repository credentials only when the operation requires them.
 
-Authentication, repository access, session persistence, and privileged mutation form security boundaries. Changes that cross them require explicit failure-path and denied-path analysis.
+### Git-backed executable configuration
 
-### Agent and Workflow definitions
+- Agents, Workflows, provider Connections, Tools, Security Profiles, and presentation layouts use validated non-secret definitions in the configured Git repository.
+- Secrets are referenced by stable logical identity and resolved only inside trusted execution boundaries.
+- Workflow semantics and visual layout are stored separately; layout cannot alter execution behaviour.
 
-- Connections identify supported execution providers without exposing credentials.
-- Agents bind a connection, prompt, and supported provider options.
-- Workflows use canonical v2 semantic block graphs validated by the ADT Block Registry.
-- Definitions are persisted through the configured GitHub-backed definition repository and use repository revisions for optimistic concurrency.
-- Executable definitions are discovered and mutated only at root-level `agents/` and `workflows/` paths.
-
-Current product behaviour is defined by [`specs/agent-workflows.md`](specs/agent-workflows.md).
+Current Workflow behaviour: [Agent Workflows specification](specs/agent-workflows.md).
 
 ### Durable Workflow execution
 
-- Runs snapshot the definitions used for one execution, including resolved reusable Workflow composition.
-- Runtime schedules and recovers runs with PostgreSQL leases and advances LangGraph from durable checkpoints.
-- New runs freeze an ADT-owned versioned graph execution plan.
-- A provider-neutral AgentRuntime boundary delegates model work to the selected provider implementation. Tool-enabled OpenAI, Anthropic and Ollama Agents progress through a PostgreSQL-backed conversation and tool journal.
-- PostgreSQL persists durable run, attempt, approval, retry, cancellation, provider-safety, and reconciliation state.
-- Successful output is persisted before later work depends on it.
-- Ambiguous external work is reconciled rather than blindly recreated.
-
-The product invariants are in [`specs/agent-workflows.md`](specs/agent-workflows.md); migrations, source, and tests are authoritative for storage and transition mechanics.
+- A launch freezes the validated definitions and authority required for that run.
+- ADT Runtime owns scheduling, recovery, checkpoints, attempts, approvals, tool journals, provider-safety state, and durable run outcomes in PostgreSQL.
+- LangGraph sequences the frozen ADT graph but does not define ADT's domain model.
+- Provider work with a durable external identity is observed or reconciled. Synchronous or otherwise ambiguous side effects are not automatically repeated.
 
 ### Provider connections
 
-- OpenAI Responses, OpenAI Agents SDK, Anthropic Messages, Microsoft Work IQ REST, and Ollama Chat are supported server-side execution providers.
-- Git-managed provider connection types centrally define their safe configuration, authentication family, model policy, Agent option family, execution path, and capabilities; unsupported types and authentication lifecycles fail closed.
-- Git definitions under `connections/` are authoritative for validated non-secret connection configuration; only explicitly execution-safe provider fields may enter run snapshots.
-- Provider credential values live in the permanent encrypted ADT vault and are never stored in Agent or Workflow definitions.
-- The Worker handles the Work IQ browser redirect. Runtime owns the OAuth exchange, encrypted client secrets and refresh tokens, and call-scoped access tokens.
-- OpenAI Agents, Anthropic Messages, Work IQ, and Ollama Workflow Agents execute through ADT Runtime. Runtime also coordinates asynchronous OpenAI Responses work and delegates Codex jobs to Codex Runner.
-- Runtime handles model discovery, model validation and connection diagnostics for OpenAI, Anthropic, Ollama and Work IQ as applicable. The Worker receives model lists, credential status and safe diagnostics. Workflow admission uses scoped credential references. Stored credential values stay within Runtime.
-- Ollama follows Cloudflare → ADT Runtime → exact operator-approved endpoint. Its safe base URL and explicit authentication mode are immutable connection identity and frozen with each run. Runtime rejects endpoints outside its operator allowlist before network access and never follows redirects.
-- Unauthenticated Ollama connections have no vault identity. Runtime resolves optional bearer credentials from its vault for the exact invocation. Ollama has no direct compatibility fallback.
-- Historical provider rows or retired credential sources may remain physically present but are not current execution inputs.
-- Live provider readiness is distinct from saved configuration.
-- Provider creation, polling, retry, cancellation, and ambiguous outcomes are trust and billing boundaries.
+- Connections define non-secret provider identity, safe configuration, authentication family, model requirements, and supported capabilities.
+- Runtime resolves provider credentials from the encrypted repository-scoped vault for the exact operation.
+- Provider discovery, diagnostics, and execution expose only bounded safe results to the Worker.
+- Provider-specific capabilities may differ; the provider registry and tests are authoritative for the exact current matrix.
 
-### Tools
+### Tools and Security Profiles
 
-- Tools is the Workflow-area domain for Agent tool integrations; MCP is the first configurable external integration type and remains separate from provider Connections.
-- Git definitions under `tools/` hold non-secret MCP configuration, discovered catalogues and policy declarations. Protected PostgreSQL attestations independently authorize trusted policy against exact repository, tool, target and credential identities; Git write access alone never grants policy-administrator authority. Bearer values remain in the encrypted ADT vault.
-- Agent definitions grant an MCP server stable ID and explicitly selected remote tool names. New Workflow runs freeze the selected non-secret execution contract, so later catalogue or server edits affect future runs only.
-- Runtime admits only credential-binding generations tied to the frozen endpoint and repository, and resolves credentials for the exact invocation. Credentials never enter run snapshots.
-- ADT Runtime alone owns the MCP client. It exposes authorised tools through collision-safe aliases derived from server ID and remote name, applies the shared tool security gate and call budget, and calls the unchanged remote name.
-- Normal Agent execution never discovers or refreshes an MCP catalogue. Agent-tool eligibility follows provider capability policy.
+- Tools are separate from model-provider Connections. MCP is the configurable remote-tool integration currently supported.
+- Agent grants define maximum tool authority. Trusted policy, optional human approval, and Security Profiles can narrow that authority but cannot expand it.
+- Runtime owns tool discovery/execution and evaluates exact admitted calls. Credentials never enter model-visible schemas or run definitions.
+- Unknown external tool outcomes block progression for reconciliation rather than being retried automatically.
+- Security Profiles contain non-secret trust configuration in Git; their credentials remain in the Runtime vault.
 
-- The Worker verifies protected policy through Runtime at run admission. Runtime revalidates policy at execution. Explicitly delegated tool approvers remain distinct from repository users, policy administrators and reconciliation operators.
-- Runtime journals complete tool proposals before policy, approval or execution. Models receive schemas without tool credentials. Each Runtime tool request contains one admitted invocation and scoped credentials.
-- Unknown external outcomes suspend Agent progression for operator reconciliation; timers never retry admitted uncertain calls. See [Agent tools and recovery](docs/agent-tools-and-recovery.md) for policies, continuation and cutover.
+Operational policy and recovery: [Agent tools and recovery](docs/agent-tools-and-recovery.md).
 
 ### Advisor
 
-- Advisor launches an explicitly configured ordinary Workflow through the shared durable admission path; it is not a separate execution engine or privileged identity.
-- Runtime persists repository-scoped Advisor settings and frozen run contexts in PostgreSQL. Effective Agent and provider overrides use the existing run snapshots without rewriting Git definitions.
-- Native ADT metadata tools reuse the provider-neutral Agent tool journal, admission and shared security gate. Runtime checks exact frozen grants, active attempt authority and current repository identity before scoped Git or PostgreSQL reads.
-- Existing metadata projections exclude sensitive content. Independently granted deeper observability tools require exact-call human approval, frozen scope and current authority; raw errors and unsafe external payloads remain omitted.
-- Approved Advisor knowledge lives only in the configured Git repository under `advisor/knowledge/`. PostgreSQL stores account/repository-scoped proposals, expiring session-bound review consent and publication state, never an authoritative accepted-knowledge index.
-- The trusted browser/application boundary alone can publish reviewed knowledge through short-lived GitHub App authority and optimistic concurrency. Consent is consumed once per mutation; uncertain writes are never replayed. Model tools and ADT Runtime cannot access this publication authority.
-- Advisor's backend allowlist includes the explicitly granted native readers and excludes external tools, Codex and publication even through composed Workflows.
+- Advisor is an ordinary constrained Workflow entry point, not a separate execution engine or privileged identity.
+- It may receive explicitly granted read capabilities through the same durable Agent/tool policy model.
+- Model execution remains read-only. Reviewed knowledge publication is a separate authenticated human Git mutation.
+- Approved Advisor knowledge is authoritative in Git; Runtime stores operational settings, proposals, and publication state.
 
-### Security Profiles
-
-- Security Profiles are a first-class domain, separate from Connections, Tools, Agents, and Workflows.
-- Git definitions under `security-profiles/` contain only validated non-secret Adrian configuration. Adrian API keys belong in the encrypted, repository-scoped vault and never enter Git or run snapshots.
-- Agents may optionally reference a Security Profile only when their provider connection advertises Runtime security support. Absence preserves unsecured execution behavior.
-- Adrian is an additional restriction after ADT authorization, frozen tool authority, and the global tool-call budget; it cannot grant tools or expand an MCP contract.
-- New runs freeze each secured Agent's profile identity, endpoint, decision timeout, and repository-scoped credential generation. Execution resolves only that generation, so same-endpoint key rotation remains live while endpoint changes and deletion revoke historical authority.
-- Tool-enabled OpenAI, Anthropic and supported Ollama execution uses the same Runtime Adrian exact-call evaluation. The Adrian SDK remains Runtime-only.
-- Runtime security decisions are `allow`, `deny`, `timeout`, or `unavailable`. Only positive, exact-call allow evidence permits external tool execution; every other or ambiguous state fails closed.
-- Adrian's process-global lifecycle requires one exclusive security evaluation per Runtime process. Contending evaluations fail closed without queueing. No lease survives a human wait.
-- Adrian policy and remit remain managed by Adrian. Human Review and HITL are not part of the automated V1 enforcement contract.
+Setup and operating guidance: [Advisor setup](docs/advisor-setup.md).
 
 ### ADT Runtime
 
-- ADT Runtime owns Workflow scheduling, recovery, approvals, provider and tool credentials, tool policies, Advisor settings and Codex registrations in PostgreSQL.
-- The Worker authenticates users, freezes validated Git definitions, and brokers short-lived credentials scoped to the repository and operation.
-- Runtime resolves credentials for the exact provider or tool invocation. The Worker retains broad GitHub App authority.
-- Runtime and the Worker authenticate protocol operations and reject incompatible capabilities.
-- Execution-heavy AI/provider libraries that do not need broad control-plane authority belong here.
-- Runtime may hold only four operator-provisioned, narrowly scoped Portainer webhook URLs for Runtime and split Runner redeployment. Portainer remains private; these URLs never enter Cloudflare or browser state, and Runtime receives no Portainer API credential or Docker socket.
+- Runtime is independently deployed and owns durable Workflow execution plus its supporting PostgreSQL state and key material.
+- It hosts execution-heavy provider/tool/security integrations and is the preferred boundary for capabilities that require private-network or homelab access.
+- Runtime may control narrowly scoped private infrastructure operations needed for the services it owns, without transferring those infrastructure credentials to Cloudflare or the browser.
+- The Worker remains the authority for browser users and broad GitHub App signing; Runtime obtains scoped repository authority through the Worker broker.
 
-Operational detail belongs in [`adt-runtime/README.md`](adt-runtime/README.md).
+Operator contract: [ADT Runtime](adt-runtime/README.md). PostgreSQL operations: [Runtime PostgreSQL](docs/runtime-postgresql.md).
 
 ### Codex Runner
 
-- Codex Runner is independently deployed from the application; split mode is the reference security architecture and integrated mode remains a compatibility deployment.
-- The **Controller** owns the ADT-facing API, admission, durable job/idempotency state, emergency control, and internal request-signing authority. It does not execute model-generated commands.
-- The **Executor** owns Codex authentication and model-directed execution inside a constrained container. It receives no GitHub credential, controller signing authority, durable controller state, or infrastructure restart credential.
-- The **Repository Manager** owns managed Git state and authenticated Git transport. It never executes model-generated commands and is the only Runner role trusted to publish managed repository changes.
-- Controller-signed internal requests are verified by Executor and Repository Manager; verifier material cannot mint controller requests.
-- In split mode the executor container is the Codex execution security boundary. Admitted `workspace-write` execution may use Codex full access inside that constrained container and does not depend on native Codex sandboxing.
-- Executor and Repository Manager use separate network/egress paths. Executor egress is restricted to required model/auth services; Repository Manager's network path blocks non-public destinations while trusted code constrains managed Git targets to configured GitHub repositories.
-- Ordinary Workflow jobs do not automatically perform Git publication actions.
+- Codex Runner is a separate trust boundary for model-directed command execution.
+- In the reference split design, Controller owns admission/control, Executor owns Codex identity and command execution, and Repository Manager alone owns trusted managed-Git state and authenticated Git transport.
+- Executor never receives GitHub installation credentials or infrastructure authority.
+- Managed publication is explicit and reconciles uncertain mutations rather than replaying them.
 
-Operational detail belongs in [`codex-runner/README.md`](codex-runner/README.md).
+Operator/security contract: [Codex Runner](codex-runner/README.md).
 
 ## Sources of truth and persistence
 
 | Concern | Primary source of truth |
 | --- | --- |
 | Product behaviour and stable invariants | `specs/` |
-| Repository-wide agent/contributor rules | `AGENTS.md` and scoped `AGENTS.md` files |
+| Repository-wide contributor/Codex rules | `AGENTS.md` and scoped `AGENTS.md` files |
 | Repeatable Codex procedures | `.agents/skills/` |
-| Artifact content and Git-backed Agent, Workflow, layout, provider connection, and Security Profile definitions | configured GitHub repository |
-| Approved Advisor knowledge | configured GitHub repository (`advisor/knowledge/`) |
+| Artifacts, reviewed knowledge, and non-secret executable configuration | configured GitHub repository |
 | Artifact repository layout and metadata | `docs/external-artifact-repository-contract.md` plus validation code |
-| Application sessions | D1 schema and auth migrations |
-| Encrypted vault, Advisor proposals and durable Workflow state | Runtime PostgreSQL schema and migrations |
-| Advisor settings and Codex environment registrations | [Runtime PostgreSQL](docs/runtime-postgresql.md) |
-| Catalogue acceleration | KV cache; GitHub remains authoritative |
-| Durable Workflow orchestration | Runtime leases, LangGraph and PostgreSQL checkpoints |
-| Ordinary AI provider execution (OpenAI Agents, Anthropic Messages, Work IQ, Ollama) | independently deployed ADT Runtime |
-| Codex authentication and model-directed command execution | Codex Runner Executor |
+| Browser sessions | D1 |
+| Durable Workflow, approval, tool, Advisor operational state and encrypted provider/tool credentials | Runtime PostgreSQL plus Runtime key material |
+| Catalogue acceleration | KV; Git remains authoritative |
+| Workflow sequencing | ADT Runtime using the frozen ADT execution plan and LangGraph |
+| Codex identity and model-directed command execution | Codex Runner Executor |
 | Managed Git authority | Codex Runner Repository Manager |
-| Runner jobs, idempotency, and emergency latch | Codex Runner Controller |
-| Toolchain and commands | `.nvmrc`, `package.json`, repository scripts, workflows |
-| Deployment and publication mechanics | committed configuration, classifier policy, and GitHub Actions workflows |
+| Runner job/idempotency control | Codex Runner Controller |
+| Exact toolchain, deployment, release, and protocol mechanics | source, configuration, migrations, scripts, tests, and workflows |
 
 ## Recovery characteristics
 
-- Git is the durable recovery source for non-secret ADT configuration.
-- PostgreSQL contains durable history and encrypted vault state. Recovery requires a database backup and matching vault root.
-- Runtime pins the vault root fingerprint in PostgreSQL and keeps the root in a protected key directory.
+- Git restores non-secret reviewed configuration and published knowledge.
+- Runtime recovery requires PostgreSQL together with its matching protected key material.
 - KV catalogue state may be discarded and rebuilt from Git.
-- Runtime instances share PostgreSQL and a protected root-key export. Back up the database and its matching key separately.
-- Codex Runner owns separate operator-managed durable state for Controller jobs, Codex identity/home state, local SQLite state, and managed repository authority where configured.
+- D1 session state is independent from Runtime operational state.
+- Codex Runner has separate operator-managed recovery requirements for controller jobs, Codex identity/state, SQLite state, workspaces, and managed repository authority.
 
-## Important trust and state boundaries
+## Trust boundaries
 
-- **Browser -> application:** treat browser input as untrusted; authentication and authorisation remain server-side.
-- **Application -> GitHub:** validate exact repository targets, revisions, permissions, and mutation intent; use short-lived operation-scoped authority.
-- **Runtime -> PostgreSQL:** fenced state transitions remain safe under retries, interruption and stale observations.
-- **Application -> provider APIs:** provider work may be billable or side-effecting; ambiguous outcomes must not cause blind duplicate work.
-- **Application -> ADT Runtime:** authenticate narrowly scoped operations, keep GitHub App credentials in the Worker and fail closed on replay, incompatibility or missing authority. Authorised maintenance sends only a fixed Runtime/Runner target; Runtime alone dispatches its private scoped webhooks.
-- **Application -> Codex Runner:** expose bounded configuration and diagnostics; never transfer the Runner's Codex credential to ADT.
-- **Runner Controller -> Executor/Repository Manager:** Controller alone holds internal signing authority; execution and Git roles receive verifier material only.
-- **Executor -> workspace/Internet:** model-directed access is constrained by the container, mounts, isolated overlays, and restricted executor egress.
-- **Repository Manager -> GitHub:** trusted code owns repository identity and Git authority; credentials are bounded to the operation and never enter the Executor.
-- **ADT repository -> artifact/code repositories:** application source, reusable artifact content, and managed code repositories are distinct authorities unless explicitly configured otherwise.
+- **Browser -> Worker:** all browser input is untrusted; authentication and authorisation remain server-side.
+- **Worker -> GitHub:** exact repository target, revision, capability, and mutation intent are validated before short-lived authority is used or brokered.
+- **Worker -> Runtime:** requests are authenticated, bounded, compatibility-checked, and scoped to the current user/repository operation.
+- **Runtime -> PostgreSQL:** durable transitions are fenced so stale workers cannot commit after losing authority.
+- **Runtime -> providers/tools/private services:** destinations and credentials are resolved through explicit configuration and policy; raw external failures do not become trusted application data.
+- **Runtime -> Worker GitHub broker:** Runtime requests only the repository capability required for an admitted operation; broad GitHub App signing authority stays in the Worker.
+- **Runtime -> Codex Runner:** Runtime can request bounded Runner operations but never receives the Runner's Codex identity.
+- **Runner Controller -> Executor/Repository Manager:** Controller signs internal authority; execution and Git roles receive verification authority only.
+- **Executor -> Repository Manager:** model-directed execution cannot manufacture trusted Git authority.
 
-## Delivery and publication boundary
+## Delivery and publication
 
-- One fail-closed change-impact policy determines which verification and production operations a change requires.
-- Pull-request workflows verify with read-only repository authority; production mutation occurs only from trusted `main` workflows or an explicit operator recovery path.
-- Production Worker and container artifacts are built from immutable merged source; PR-built artifacts are verification evidence and are not promoted.
-- Cloudflare Worker deployment, D1 migrations, ADT Runtime publication, Codex Runner publication, and Adrian backend publication are independently gated operations.
-- Required migrations, Worker deployment, and production smoke gate mixed Cloudflare/Runtime publication. Successful eligible Cloudflare deployments also reconcile the current Runtime release after an earlier blocked publication; Runtime-only releases retain independent publication.
-- Unknown or newly introduced paths fail closed until the impact policy classifies them.
-- Publication freshness is component-aware: an older immutable target may proceed only when later commits do not supersede the same production component.
+- One fail-closed impact policy selects relevant verification and production operations.
+- Pull-request workflows verify with read-only repository authority; production mutation occurs only from trusted merged source.
+- Production images are rebuilt and smoke-tested from immutable merged source rather than promoted from PR artifacts.
+- Worker, Runtime, and Runner publication/deployment effects are independently selected and freshness-aware.
+- Cross-component ordering is introduced only where components share an explicit production compatibility contract.
 
-Exact path classification, job selection, permissions, freshness rules, release barriers, and recovery mechanics remain authoritative in `scripts/` and `.github/workflows/`.
+Exact path classification, checks, release identifiers, workflow permissions, and recovery mechanics belong in CI configuration and operational documentation.
 
 ## Where to look
 
-- Product behaviour: `specs/000-current-application-spec.md` and `specs/agent-workflows.md`.
-- Repository agent rules: `AGENTS.md`; specification-writing rules: `specs/AGENTS.md`.
-- Repeatable agent workflows: `.agents/skills/`.
-- Human development process: `docs/development-workflow.md`.
-- Feature-request hand-off: `.agents/skills/feature-request-creation/SKILL.md` and `docs/codex-create-feature-request.md`.
-- Artifact storage contract: `docs/external-artifact-repository-contract.md`.
-- Production configuration and recovery: `docs/github-artifact-deployment.md`.
-- Dependency/toolchain policy: `docs/dependency-toolchain-maintenance.md`.
-- ADT Runtime operations: `adt-runtime/README.md`.
-- Codex Runner operations: `codex-runner/README.md`.
-- Adrian backend vendoring and publication: `adrian/README.md`.
-- Exact internal behaviour: source, tests, schemas, migrations, configuration, scripts, and workflows.
+- Product behaviour: `specs/000-current-application-spec.md`
+- Workflow/Agent behaviour: `specs/agent-workflows.md`
+- External Git repository contract: `docs/external-artifact-repository-contract.md`
+- Runtime operations: `adt-runtime/README.md`, `docs/runtime-postgresql.md`
+- Runner operations/security: `codex-runner/README.md`
+- Tool approval/recovery: `docs/agent-tools-and-recovery.md`
+- Advisor setup: `docs/advisor-setup.md`
+- Development/delivery process: `docs/development-workflow.md`
 
-## Keeping this map current
-
-Update this document when a change materially alters a major component, source-of-truth boundary, persistence responsibility, trust boundary, delivery boundary, or external-system relationship. Do not update it for ordinary internal refactors that preserve those relationships.
+Keep this map focused on durable boundaries. When an implementation detail becomes independently replaceable, prefer linking to its owning component/source rather than adding another mechanism-specific paragraph here.

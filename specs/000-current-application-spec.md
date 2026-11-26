@@ -6,182 +6,100 @@
 ## 1. Purpose and scope
 
 - Artifact Toolkit helps authorised users manage reusable work assets stored in GitHub.
-- The primary asset domain is the Artifact Library.
-- The application also supports durable graph-based Agent Workflows as a separate functional domain.
-- This specification describes stable product behaviour and important safety invariants.
-- Implementation details belong in code, component documentation, operational documentation, or external contracts.
-- Agent Workflow behaviour is specified separately in [Agent Workflows](agent-workflows.md).
+- The Artifact Library is the primary reusable-content domain.
+- Agent Workflows and Advisor are separate functional domains within the same authorised application.
+- This specification describes stable product behaviour and safety invariants.
+- Agent, Workflow, provider, tool, Runtime, and Runner behaviour is specified in [Agent Workflows](agent-workflows.md) and owning component documentation.
 
 ## 2. Access and security
 
-- GitHub authentication establishes the user's identity.
+- GitHub authentication establishes user identity.
 - Application access additionally requires current authority to the configured artifact repository and may be further restricted by operator policy.
-- Application pages and APIs containing private repository information require authenticated and authorised access.
-- Browser sessions are server-controlled, revocable, and do not contain GitHub or application credentials.
-- Repository authority is revalidated during a session so removed GitHub access does not remain indefinitely authoritative.
-- Signing out invalidates the application session.
-- GitHub App credentials, provider secrets, access tokens, and other sensitive configuration remain server-side.
-- Privileged GitHub operations use short-lived repository-scoped authority limited to the capability required by the operation.
-- User identity/authorisation and application repository credentials remain separate security boundaries.
+- Browser sessions are server-controlled, revocable, and contain no GitHub or application credentials.
+- Repository authority is revalidated during a session rather than trusted indefinitely from login.
+- Privileged GitHub operations use server-side short-lived, repository-scoped authority limited to the admitted operation.
+- User identity, GitHub App authority, provider/tool credentials, Runtime authority, and Codex identity remain separate security boundaries.
 - Protected responses are not publicly cacheable.
-- User-facing errors and diagnostics must not expose secrets, raw credentials, private artifact bodies, or unsafe upstream responses.
+- User-facing errors and diagnostics do not expose credentials, private repository content, unsafe upstream responses, or internal exception text.
 
 ## 3. Artifact Library
 
-### 3.1 Catalogue
-
-- The library presents the validated artifacts available from the configured repository.
-- Artifacts are presented in a consistent, searchable catalogue.
-- The workspace shows concise catalogue counts and a clear action to create an artifact.
-- Normal healthy catalogue state should not displace the primary artifact workflow.
-- Stale, degraded, or unavailable states should be visible when they materially affect use.
-
-### 3.2 Search
-
-- Users can search the loaded artifact catalogue interactively.
-- Search is case-insensitive.
-- Multiple search terms narrow the result set.
-- Search covers title, description, type, tags, aliases, and body content.
-- An empty search returns the complete catalogue.
-- The matching result count updates with the search.
-
-### 3.3 Artifact detail
-
-- Users can open an artifact from the catalogue.
-- The detail view presents its title, description, type, tags, aliases, and rendered Markdown body.
-- Users can navigate back to the catalogue without losing the application context.
-- Missing artifacts resolve to the application's not-found experience rather than an operational failure.
-
-### 3.4 Copying
-
-- Users can copy an artifact's reusable Markdown body.
-- Users can copy the reusable body directly from either the catalogue or artifact detail.
-- Copying excludes repository metadata and rendered HTML.
-- The interface provides clear success feedback after copying.
+- The library presents validated prompts, snippets, templates, and app ideas from the configured repository.
+- Users can search the loaded catalogue by relevant metadata and body text.
+- Users can open rendered artifact details and copy the reusable Markdown body without repository metadata.
+- Missing artifacts use the normal not-found experience rather than an operational failure.
+- Healthy catalogue state remains secondary to the primary content workflow; stale, degraded, or unavailable state is visible when it affects use.
 
 ## 4. Artifact creation and mutation
 
-- An artifact present on the configured canonical branch is active catalogue content; Artifact Library Markdown has no lifecycle state.
-- Users can create, preview, edit, vary, and delete artifacts without lifecycle metadata.
-- New and updated Markdown omits the retired `status` field while retaining `type`.
-- Top-level Artifact Library `status` metadata is invalid and is not stripped or synthesized during reads.
-- Every edit and deletion is a direct Git mutation tied to the artifact's exact observed path and file revision.
-- Stale or ambiguous mutations fail safely; successful writes invalidate stale catalogue state.
-- An uncertain mutation tells the user it may have committed and requires checking repository state before resubmission; it is never automatically retried.
-- Variations are distinct artifacts that retain their source relationship through `sourceId`.
-- Deletion removes an artifact from the active branch. Git history is the recovery mechanism.
-
-## 5. Repository safety
-
-- GitHub is the source of truth for persisted artifacts.
-- Direct writes create attributable repository history.
-- Existing artifact mutations preserve the exact loaded source path and reject a changed file revision.
-- Duplicate identities and path collisions fail closed.
-- Successful changes invalidate stale catalogue state so subsequent reads can converge on repository truth.
-
-## 6. Artifact repository contract
-
-- Artifact Library content is Markdown with structured metadata.
-- Current Artifact Library categories are prompts, snippets, templates, and app ideas.
+- Artifact Library Markdown has no lifecycle state. Content on the configured canonical branch is active catalogue content.
+- Users can create, preview, edit, vary, and delete artifacts.
 - Variations are ordinary same-type artifacts linked through `sourceId`.
-- Executable Agents, Workflows, layouts, and provider connections use separate canonical JSON namespaces and are not Artifact Library Markdown.
+- Existing mutations use the exact observed source path and revision.
+- Stale, conflicting, or ambiguous writes fail safely.
+- An uncertain mutation is never automatically replayed; the user is told to re-check repository state before resubmitting.
+- Successful writes invalidate stale catalogue state.
+- Git history is the recovery source for deleted or changed artifact content.
+
+## 5. Repository contract and freshness
+
+- GitHub is authoritative for Artifact Library content.
 - Repository content is validated before it becomes active application content.
-- Unsupported or retired locations, malformed metadata, duplicate identities, and unsafe content fail closed.
-- The canonical repository layout and validation rules are defined by the [External Artifact Repository Contract](../docs/external-artifact-repository-contract.md).
-
-## 7. Catalogue freshness and refresh
-
-- The application may cache validated catalogue data to reduce repository reads.
-- Cached content remains tied to the repository revision from which it was built.
-- The application checks for repository changes before treating expired catalogue data as current.
-- Users can request a normal refresh when supported by the configured repository backend.
-- Users can request a full rebuild when a complete catalogue reload is needed.
+- Unsupported locations, malformed metadata, duplicate identities, unsafe content, and path/revision conflicts fail closed.
+- The application may cache validated catalogue data, but cache state is disposable and tied to repository truth.
 - A failed refresh does not discard an otherwise safe last-known-good catalogue.
-- Temporary cache failure may degrade performance or freshness without making healthy repository content unavailable.
-- Repository, authorisation, content-validation, and configuration failures fail closed when safe content cannot be established.
+- Users can request normal refresh and full rebuild where supported.
+- The canonical repository contract is [DATA-001](../docs/external-artifact-repository-contract.md).
 
-## 8. Diagnostics and operational experience
+## 6. Diagnostics and operational experience
 
-- Authorised users can inspect the protected Diagnostics & maintenance surface as the canonical live operational dashboard.
-- Diagnostics groups overall health, authentication and access, Artifact Library, application control-plane, ADT Runtime, and Codex Runner observations into distinct operational domains.
-- Runtime and Runner readiness diagnostics remain bounded, exclude secrets and private Runner information, and do not invoke a provider or start model-directed execution.
-- An authorised user may explicitly test the signed Runtime management path, replay protection, and the same repository-scoped history read used by the Workflow runs page. Diagnostic reports include the read outcome and exclude Workflow data. The GitHub credential broker is an independent optional check.
-- Passive page loading observes signed infrastructure readiness and leaves management and Workflow storage readiness unverified. An active result contributes to the Runtime and overall status for the current page.
-- Overall health includes required ADT Runtime configuration and Workflow graph capability. An intentionally unconfigured optional Codex Runner does not make the application unhealthy.
-- Codex Runner operational diagnostics and connection status use Runtime's Runner connection. Release compatibility, App Server readiness, ChatGPT authentication, device authentication support, Executor health, and job execution readiness are separate observations.
-- Codex Runner overview health uses short, passive readiness observations and stops after a failed basic connection probe. A valid capability response preserves Runner reachability even when Codex is unavailable.
-- Essential domain health uses bounded passive observations; repository content validation, job history, workspace and sandbox state, storage/recovery state, network probes, and active execution-path checks load only after an explicit user action.
-- Once explicitly queried, repository content validation participates in Artifact Library and overall health; invalid or unavailable validation cannot coexist with a healthy claim.
-- Active repository validation completes with a result or safe error within a bounded request, independently of Runtime and Runner observations; completion, interruption, or failure cannot leave its action permanently pending.
-- Queried optional detail that is unavailable remains unknown and does not falsify a separately established healthy observation; a failed re-query does not present an earlier observation as current, and stale Runner job state never implies that retry is safe.
-- Codex Runner operational status, job history, compatibility detail, bounded diagnostics, execution controls, and storage/recovery maintenance are consolidated into Diagnostics & maintenance. Connection management remains on Connections.
-- A valid workflow-attempt diagnostic deep link explicitly loads only bounded Runner job history so a matching record can be highlighted without loading unrelated Runner detail.
-- The Application / control-plane domain may query the same canonical component-aware infrastructure freshness observation used by the deployment footer. Worker identity is observed deployment metadata; external Runtime and Runner freshness is determined from bounded release generations bundled by the Worker and reported by each component.
-- Infrastructure freshness does not query source GitHub or image registries. Independently deployed components need not share a Git revision, and the GitHub App installation remains scoped to supported Artifact and managed-repository operations.
-- Confirmed non-blocking maintenance such as superseded infrastructure is presented under Maintenance due separately from operational failures; current, unknown, unavailable, and unqueried freshness do not create maintenance claims.
-- The bounded Codex functional test is an explicit active diagnostic in Diagnostics & maintenance and is never run during passive page loading.
-- Codex Runner keeps live SQLite state on executor-local storage separately from durable Codex home state and supports consistent durable backups plus confirmed, quiesced SQLite-only restore.
-- Authorised Runner operations expose only safe storage and backup metadata; restore never replaces workspaces, credentials, sessions, or other durable non-SQLite state.
-- A restore never mutates live SQLite before App Server termination is confirmed, and an incomplete rollback preserves recoverable safety state while execution remains fail-closed.
-- Observed status, queried read-only detail, active diagnostics, and state-changing maintenance actions are visually and behaviorally distinct.
-- Diagnostics is observational unless the user explicitly invokes a supported active action such as catalogue refresh, repository validation, the non-mutating Runtime execution-path test, or a Runner maintenance control.
-- Operational states distinguish healthy, degraded, unavailable, unauthorised, misconfigured, and invalid-content conditions where relevant.
-- Degraded states should preserve safe usable functionality where possible.
-- Blocking states should provide concise recovery guidance.
-- Diagnostic statuses must be understandable without relying on colour alone.
-- User-facing event times use the user's local presentation while retaining canonical timestamps where appropriate.
-- Diagnostics must not expose secrets, tokens, private artifact bodies, cache contents, arbitrary upstream responses, or internal exception text.
-- Copyable diagnostic summaries and technical reports are built from explicit allow-listed safe fields; credential and secret values are excluded by construction.
+- Authorised users have one protected Diagnostics & maintenance surface for bounded operational observations.
+- Diagnostics separates application/control-plane, repository, Runtime, Runner, and other relevant component health rather than collapsing them into one opaque status.
+- Passive observation, explicit active diagnostics, and state-changing maintenance actions are distinct.
+- Active diagnostics are bounded, intentional, and do not silently start model work or mutate application data unless the action explicitly says it will.
+- Component reachability, authentication, compatibility, storage readiness, provider readiness, and execution readiness remain distinguishable where that distinction affects recovery.
+- A failed re-query does not present stale observations as current.
+- Degraded optional detail does not invalidate separately established healthy core functionality.
+- Operational failures provide concise safe recovery guidance where possible.
+- Status does not rely on colour alone.
+- Copyable diagnostic summaries use explicit safe fields and exclude secrets, prompts, private artifact bodies, raw upstream payloads, and internal exception text.
 
-## 9. Application interface
+## 7. Application interface
 
-- Protected application pages share a consistent application header and primary navigation.
-- The compact header preserves navigation text sizes and usable controls. Workflow-area navigation stays visible below it while page content scrolls, including on mobile.
-- Primary navigation presents Artifacts, Workflows, Advisor, and Diagnostics; Workflow-area navigation presents Overview, Runs, Workflows, Agents, Connections, Tools, and Security.
-- The interface is responsive across desktop and mobile layouts.
-- The application supports light and dark themes.
-- Theme changes apply immediately and persist for the user.
-- Interactive controls provide accessible labels, focus states, and semantic navigation.
-- Status information combines text with visual treatment.
-- Operational warnings remain concise and do not dominate healthy workflows.
-- Deployment identity may expose safe source and deployment metadata without exposing private configuration.
-- The shared deployment footer may report safe ADT Runtime and Codex Runner build identities plus component-aware infrastructure freshness; confirmed maintenance is described as a component update being available, while unrelated uncertainty does not obscure it. Different component revisions remain healthy when deployed release generations equal the generations expected by the Worker. Git SHAs remain exact build identities rather than freshness signals. Runtime and Runner freshness use authoritative release-compatibility evidence. A valid Runtime build identity without a release generation is a legacy Runtime that requires update; unusable observations and newer-than-Worker generations remain unknown.
-- Footer freshness loads independently of normal page rendering and navigation, and an unavailable result never blocks application use.
-- A confirmed Runtime or Runner update is an independently actionable footer button for a currently repository-authorised user when Runtime reports that target's redeploy configuration as available. App updates and unconfigured redeploy targets remain informational.
-- The server rechecks superseded status before relaying a fixed component target over the authenticated Runtime boundary. An accepted request reports only that deployment was requested; normal freshness observation determines whether rollout converged.
-- Redeploy failures and uncertain outcomes remain bounded and do not trigger automatic retries. An accepted or uncertain target stays locked while bounded freshness polling checks convergence; other stale targets remain independently actionable. Older or unconfigured Runtime deployments require a manual Runtime bootstrap rather than exposing private infrastructure to the application or browser.
+- Protected pages share consistent application navigation and responsive behaviour.
+- The application supports light and dark themes with persistent user preference.
+- Interactive controls expose accessible labels, focus states, and semantic navigation.
+- Status and warnings combine text with visual treatment and do not dominate healthy workflows.
+- User-facing times use local presentation while preserving canonical timestamps where needed.
+- Safe deployment/component identity and freshness may be shown without requiring independent services to share a Git revision.
+- Confirmed component maintenance can be presented as an explicit authorised action when the owning service exposes that capability.
+- Unavailable maintenance or freshness observations never block unrelated application use, and uncertain maintenance outcomes are not automatically retried.
 
-## 10. Agent Workflows
+## 8. Agent Workflows
 
-- Artifact Toolkit supports durable Workflow v2 graphs composed of configured Agents and deterministic control blocks.
-- Workflows, runs, provider connections, retries, cancellation, approvals, and execution providers form a separate functional domain from the Artifact Library.
-- Workflow execution must remain bounded, durable, observable, and safe against accidental duplicate external work.
-- Provider and Runner credentials remain outside user-authored Workflow definitions.
-- Current graph capabilities, execution semantics, and limitations are defined in [Agent Workflows](agent-workflows.md).
+- Artifact Toolkit supports bounded durable Workflow graphs composed of configured Agents and deterministic control blocks.
+- Workflows, runs, provider Connections, Tools, Security Profiles, retries, cancellation, approvals, and execution providers form a separate domain from the Artifact Library.
+- Workflow execution remains durable, observable, bounded, and safe against accidental duplicate external work.
+- Provider, tool, Runner, and infrastructure credentials remain outside user-authored Workflow definitions.
+- Current Workflow behaviour is defined in [Agent Workflows](agent-workflows.md).
 
-## 11. Advisor
+## 9. Advisor
 
-- Advisor is a top-level, on-demand analysis entry point backed by an explicitly selected ordinary Workflow.
-- Advisor settings persist the selected Workflow identity and optional configured provider connection/model override server-side for the authorised repository. Concurrent changes are checked against the saved revision. When settings are unavailable, Advisor reports the outage and prevents a new question from launching.
-- Selection and launch validate the current Workflow, transitive composition, Agent configuration and effective provider/model compatibility after applying the Advisor override and Workflow tool restrictions. Missing dependencies and known incompatibilities fail explicitly. Capability uncertainty is resolved through the normal provider request.
-- Each question starts a fresh ordinary Workflow execution. Existing run history, progress, approvals, cancellation, retry and recovery remain authoritative.
-- The underlying Workflow stays visible and editable through ordinary editors. Advisor links to its definition and execution record and displays effective provider/model choices.
-- Overrides apply to every affected Agent for that execution, preserve saved definitions and ordinary launches, and remain frozen with the run through retry and recovery.
-- Advisor grants no privileged identity. Backend admission and consumption enforce a closed read-only capability boundary, including reusable Workflow composition.
-- Advisor supports explicitly granted native ADT observability and Git knowledge tools through a compatible tool-enabled provider. MCP, Artifact Search content, command execution, publication, privileged Workflow invocation and conversation continuation are excluded.
-- The original metadata tools exclude sensitive content. Separate grants allow Agent instruction, selected execution content, sanitised failure diagnostic and tool journal reads; every sensitive invocation requires independently authorised human approval and explicit acknowledgement of its disclosure scope. Credential detection does not certify unmatched content safe or permit automatic disclosure.
-- Git-backed knowledge uses the separate flat `advisor/knowledge/` namespace. It is not executable configuration or an Artifact Library type.
-- Users can browse/search approved knowledge, create entries manually, preserve an Advisor result as an editable proposal, and review updates or superseding relationships. Investigation provenance is separate from explicitly edited Workflow/Agent subjects; subject IDs are never inferred from model prose.
-- Knowledge type and lifecycle are independent. Findings can be uncertain, recommendations are not accepted decisions, and implementation is distinct from a verified outcome.
-- Detected credentials and authentication material prohibit knowledge publication even when a human approved it.
-- Each Git knowledge mutation requires a separate authenticated human publication action for the reviewed document and observed revision. Draft text, model tools and saved proposals cannot authorise publication.
-- Runtime PostgreSQL preserves pending proposals and operational publication state; Git remains authoritative for approved knowledge. Stale or uncertain publication is never automatically retried.
-- Retrieved instructions, execution content and knowledge remain untrusted evidence and cannot change permissions or override system instructions. Unavailable evidence is explicit.
-- Default ordinary definitions can be generated without publishing, overwriting existing definitions, changing credentials or activating configuration; see [Advisor setup](../docs/advisor-setup.md).
-- Scheduling, notifications, autonomous changes and persistent multi-turn memory are outside the current Advisor boundary.
+- Advisor is an on-demand analysis entry point backed by an explicitly selected ordinary Workflow.
+- Each question launches a fresh ordinary Workflow execution; normal run history, progress, approvals, cancellation, and recovery remain authoritative.
+- Advisor may apply configured provider/model overrides for that execution without rewriting saved Agent or Workflow definitions.
+- Advisor has no privileged identity. Its backend admits only explicitly granted read capabilities and preserves the same provider/tool/security boundaries as ordinary Workflow execution.
+- Sensitive observability reads require exact-call human approval and current authority.
+- Retrieved instructions, execution content, and knowledge are untrusted model input and cannot change permissions.
+- Approved Advisor knowledge is stored separately in Git under the knowledge contract; Runtime stores only operational settings, proposals, review/publication state, and other non-authoritative workflow state.
+- Model execution cannot publish knowledge. Each Git knowledge mutation requires a separate authenticated human review/publication action.
+- Stale or uncertain publication is not automatically replayed.
+- Scheduling, autonomous publication, autonomous configuration changes, and persistent multi-turn memory are outside the current Advisor boundary.
+- Setup and operating guidance is in [Advisor setup](../docs/advisor-setup.md).
 
-## 12. Current product boundaries
+## 10. Current product boundaries
 
-- Artifact repository configuration and external service provisioning remain operator responsibilities.
-- Operational documentation may prescribe deployment technologies, versions, limits, or recovery procedures without making those mechanics part of this product specification.
-- Detailed Agent Workflow, provider, Runtime, Runner, and delivery behaviour remains in the dedicated Workflow specification and component/operational documentation.
+- Artifact repository configuration, external provider/service provisioning, Runtime/Runner deployment, and private infrastructure remain operator responsibilities.
+- The Cloudflare application is intentionally a thin public control plane; durable execution and private-service integration belong in Runtime or another trusted service boundary.
+- Operational documentation may prescribe current deployment technologies and recovery procedures without making those mechanics part of this product specification.
+- Source, tests, schemas, migrations, configuration, and component documentation remain authoritative for replaceable implementation details.

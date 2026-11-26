@@ -12,6 +12,7 @@ workflows/<id>.workflow.json
 workflows/<id>.layout.json
 connections/<id>.connection.json
 tools/<id>.mcp.json
+security-profiles/<id>.json
 advisor/knowledge/<id>.md
 ```
 
@@ -23,6 +24,7 @@ advisor/knowledge/<id>.md
 - Layout JSON is optional presentation state and never changes execution semantics.
 - Connection JSON requires an explicit `credential.source: "adt-vault"` and stable `sec_...` reference. Credential material is never stored in Git.
 - MCP tool integration JSON contains only the remote HTTPS configuration, vault reference, and last explicitly discovered frozen catalogue. Bearer material is never stored in Git.
+- Security Profile JSON contains only validated non-secret trust configuration. Security Profile credentials remain in the encrypted ADT vault and are never stored in Git.
 - A Microsoft Work IQ connection uses schema v1, runtime `work-iq-rest`, provider `microsoft-work-iq`, no model, and a strict safe `configuration` containing only `tenantId` and `clientId` UUIDs. Its logical vault reference is safe to store; client secrets, delegated tokens, OAuth state, and authorization codes are not.
 - Repository writes use exact observed Git revisions and fail closed on stale or ambiguous mutations.
 - Readers reject traversal, unsupported paths, identity mismatch, duplicate IDs, unsafe content, and oversized content.

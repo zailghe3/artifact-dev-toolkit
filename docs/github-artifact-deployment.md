@@ -113,18 +113,12 @@ Diagnostics must not expose tokens, keys, artifact bodies, raw upstream response
 
 Diagnostics is observational unless the user explicitly invokes a supported recovery action. Temporary GitHub or cache outages should remain distinguishable from definitive authorisation, configuration, or content failures.
 
-### Candidate Worker promotion follow-up
+## Delivery and recovery
 
-- [OpenNext upload](https://opennext.js.org/cloudflare/cli#upload-command) calls `wrangler versions upload` without routing production traffic. [Cloudflare Version URLs](https://developers.cloudflare.com/workers/versions-and-deployments/version-urls/) can probe an exact uploaded version; [version deployment](https://developers.cloudflare.com/workers/versions-and-deployments/gradual-deployments/) can subsequently promote it.
-- Version URLs use the candidate's configured resources, including production resources; they are not an isolated staging environment. OpenNext upload can also populate remote cache bindings before promotion.
-- Follow up with a narrow upload → exact-version OAuth smoke → promotion implementation. Validate current account Version URL availability/access, parse the immutable candidate ID/URL, verify ADT's custom Workflow entrypoint and self-reference binding behavior, and preserve D1-before-compatible-code ordering. Migration and shared-resource effects cannot be rolled back simply by declining traffic promotion.
-- Cover candidate upload failures, wrong-version probes, stale candidates, interruption, failed promotion, and the retained post-promotion OAuth smoke before adopting this flow. No production upload/promotion experiment is part of the recovery PR.
+- Normal production changes use the trusted main lifecycle; pull-request artifacts are verification-only and are not promoted to production.
+- Manual Cloudflare recovery resolves an operator-selected merged ref to an immutable commit and uses the trusted deployment implementation.
+- Worker, Runtime, and Runner publication/deployment remain independent except where an explicit compatibility contract requires ordering.
+- Runtime publication verifies immutable release identity and fails closed on contradictory or partial registry state rather than overwriting evidence.
+- Exact classification, publication ordering, freshness checks, registry reconciliation, and recovery workflow mechanics remain authoritative in GitHub Actions, scripts, and tests.
 
-### Runtime publication reconciliation
-
-- Main lifecycle automatically deploys eligible Worker changes. For recovery, run **Manual Cloudflare deployment** with `ref` set to the exact merged SHA and an optional `pull_request_number` for deployment metadata. See [PostgreSQL operations](runtime-postgresql.md) for Runtime checks and rollback.
-- After successful eligible main Cloudflare operations and production OAuth smoke, the main lifecycle invokes the existing trusted Runtime publisher even for application-only changes. Failed or freshness-skipped operations cannot reconcile. Runtime-only publication remains independent.
-- Reconciliation builds the current Runtime inputs using the immutable main commit that last changed those inputs as the image revision and SHA tag. Application-only repairs do not invent another identity for an existing Runtime release.
-- Publication validates build-owned release/source metadata against trusted main history and requires consistent SHA, release, and `latest` digests. An already-published current release is a validated no-op; a newer trusted `latest` never moves backwards.
-- Registry authentication/transport failures do not mean absence. Partial publication, conflicting immutable tags, missing/older `latest` after immutable publication, or contradictory metadata fail closed and require explicit operator investigation. Retries never overwrite immutable tags to hide a partial publication.
-- The publisher serializes all Runtime publication invocations and rechecks component freshness and registry state before mutation. Do not run another publisher or manually mutate these tags concurrently.
+A possible future candidate-version Worker promotion flow is preserved separately as a design note and is **not current deployment behaviour**: [Candidate Worker promotion design note](candidate-worker-promotion-spike.md).
