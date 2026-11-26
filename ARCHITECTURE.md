@@ -41,17 +41,19 @@ Cloudflare application / Worker
 
 Independently deployed services may roll at different revisions. Compatibility is established through explicit service contracts rather than matching Git commits.
 
-## Architectural principles
+## Key architectural invariants
 
-- **ADT owns its domain semantics.** Workflow JSON, run snapshots, policy, authority, and recorded outcomes are product concepts; React Flow, LangGraph, provider SDKs, security SDKs, and transport libraries are replaceable implementation mechanisms.
-- **Keep the public Worker thin.** Cloudflare owns browser authentication, repository admission, GitHub App authority, and browser-facing coordination. Durable execution, provider SDKs, long-running work, and private-network integrations belong outside the Worker.
-- **Runtime is the durable execution and private-service plane.** ADT Runtime owns Workflow operational state, execution recovery, the encrypted provider/tool credential vault, and integrations that need private or homelab reachability.
-- **Private infrastructure authority stays private.** Infrastructure credentials, local-network authority, and service-control capabilities should terminate in Runtime or another narrowly purposed trusted homelab service, not in the browser or Worker.
-- **Separate identities and privileges.** User identity, GitHub App authority, provider/tool credentials, Runtime authority, Codex identity, and managed Git authority remain distinct and are transferred only when required for an exact operation.
-- **Persist before depending on side effects.** Durable state records accepted external work and successful results before later work relies on them. Ambiguous external effects are reconciled rather than blindly recreated.
-- **Git stores reviewed non-secret configuration; databases store operational state.** Git is recoverable and reviewable. PostgreSQL holds Runtime operational state and encrypted credentials; D1 holds browser sessions; KV is disposable acceleration.
-- **Components fail closed at trust boundaries.** Missing authority, incompatible contracts, stale revisions, malformed external data, and uncertain side effects do not silently broaden capability or trigger fallback execution.
-- **Independent deployment is intentional.** Worker, Runtime, Runner, and other trusted services can evolve independently behind explicit compatibility and release contracts.
+These are deliberate top-level design decisions. Changes that conflict with them should be treated as architecture changes and revisited explicitly rather than introduced as local implementation detail.
+
+- **ADT owns its domain semantics.** Workflow/run/policy concepts are product contracts; React Flow, LangGraph, provider SDKs, security SDKs, transports, and deployment platforms are replaceable mechanisms.
+- **Keep the public Worker thin.** Cloudflare owns browser authentication, repository admission, GitHub App authority, and browser-facing coordination. Durable execution, long-running work, provider/tool SDKs, and private-network capabilities stay outside it.
+- **Runtime is the durable execution and private-service plane.** Runtime owns Workflow operational state, execution recovery, the encrypted provider/tool vault, and integrations that need private or homelab reachability.
+- **Private infrastructure authority stays private.** Infrastructure credentials, local-network authority, and service-control capabilities terminate in Runtime or another narrowly scoped trusted private service, never the browser or public Worker.
+- **Identities and privileges remain compartmentalised.** User identity, GitHub App authority, Runtime authority, provider/tool credentials, Codex identity, and managed Git authority are distinct and are delegated only for the exact operation that needs them.
+- **Git stores reviewed non-secret state; durable databases store operational state.** Git remains reviewable/recoverable configuration and knowledge; PostgreSQL holds Runtime operational state and encrypted credentials; D1 holds browser sessions; KV is disposable acceleration.
+- **External side effects are admitted and recorded before later work depends on them.** Durable identities/results are reused; ambiguous outcomes are reconciled rather than blindly repeated.
+- **Trust boundaries fail closed.** Missing authority, stale state, incompatible contracts, malformed external data, or uncertain side effects never silently broaden authority or trigger a less-safe fallback.
+- **Services evolve independently behind explicit contracts.** Worker, Runtime, Runner, and future private services may deploy separately; compatibility is based on declared capabilities/protocol contracts rather than matching revisions.
 
 ## Major domains
 
