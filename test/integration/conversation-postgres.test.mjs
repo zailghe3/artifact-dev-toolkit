@@ -333,6 +333,7 @@ test('PostgreSQL conversation admission, context, approvals, actions and retry s
     const advisor = await submit(make(advisorTarget, 'Verify Advisor uses the same engine.'));
     const advisorThread = await wait(advisor.conversationId, 'succeeded');
     assert.equal(advisorThread.turns[0].sections.length, 1);
+    assert.equal(advisorThread.turns[0].sections[0].id, `${advisor.runId}:output`);
     assert.equal(advisorThread.turns[0].sections[0].actions.length, 1);
     assert.equal((await inspect(advisor.runId)).run.executionPolicy, 'read-only');
     assert.deepEqual((await command('conversations.list', { scope: context, query: '', target: advisorTarget })).items.map(item => item.id),

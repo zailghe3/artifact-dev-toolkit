@@ -73,7 +73,7 @@ export class WorkflowResponseActions {
     const sections: ResponseSection[] = [];
     for (const row of results) {
       const section = { id: row.id, label: row.label, actions: [{ kind: "knowledge-proposal" as const, id: row.id }] };
-      if (row.response_section === "terminal") final = { ...section, markdown: finalOutput ?? "" };
+      if (row.response_section === "terminal") final = { ...final, label: section.label, actions: section.actions };
       else sections.push(section);
     }
     return [...sections, final];
