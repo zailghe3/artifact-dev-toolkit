@@ -305,7 +305,7 @@ function ConversationThread({ view, id, preselected, draftScope, onChanged }: {
 
   const earlier = data?.earlier;
   const turns = data?.turns ?? [];
-  return <section aria-label="Conversation" className="flex min-h-0 min-w-0 flex-col lg:h-[max(38rem,calc(100dvh-12rem))]">
+  return <section aria-label="Conversation" className="flex h-[max(26rem,calc(100dvh-12rem))] min-w-0 flex-col lg:h-[max(38rem,calc(100dvh-12rem))]">
     {id && data && <header className="flex min-w-0 items-center justify-between gap-2 border-b border-border px-4 py-2.5 sm:px-6">
       {rename === undefined ? <>
         <h2 className="min-w-0 truncate font-semibold" title={data.conversation.title}>{data.conversation.title}</h2>
@@ -318,7 +318,7 @@ function ConversationThread({ view, id, preselected, draftScope, onChanged }: {
         <button type="button" className={buttonStyles.subtle} onClick={() => setRename(undefined)} disabled={renaming}>Cancel</button>
       </form>}
     </header>}
-    <div ref={pane} className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+    <div ref={pane} role="region" aria-label="Message timeline" tabIndex={0} className="min-h-0 flex-1 overflow-y-auto overscroll-contain focus-visible:outline-ring"
       onScroll={event => { const { scrollTop, scrollHeight, clientHeight } = event.currentTarget; pinnedToBottom.current = scrollHeight - scrollTop - clientHeight < 96; }}>
       <div className="mx-auto w-full max-w-3xl px-4 py-5 sm:px-6">
         {loadError && <p role="alert" className="rounded-lg border border-destructive/30 p-3 text-sm">{loadError}{id &&

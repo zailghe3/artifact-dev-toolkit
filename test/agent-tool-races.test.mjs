@@ -153,7 +153,16 @@ test('two operators racing late completion cannot create contradictory reconcili
 
 test('concurrent duplicate reconciliation callbacks are idempotent and create one audit',async t=>{
  const h=await held(t),{f,call}=h;f.advance(46000);await f.step();const action=decision(f,call);
- await Promise.all([f.journal.reconcile(action),f.journal.reconcile(action)]);h.returned.resolve('late obsolete');await h.running;
+ const bothReadDecision=deferred(),allowSecondRead=deferred(),readCall=f.journal.call.bind(f.journal);
+ let reads=0;
+ t.mock.method(f.journal,'call',async id=>{
+  if(id===call.id&&++reads===1)await bothReadDecision.promise;
+  else if(id===call.id&&reads===2){bothReadDecision.resolve();await allowSecondRead.promise;}
+  return readCall(id);
+ });
+ const callbacks=[f.journal.reconcile(action),f.journal.reconcile(action)];
+ try{await Promise.race(callbacks)}finally{allowSecondRead.resolve()}
+ await Promise.all(callbacks);h.returned.resolve('late obsolete');await h.running;
  assert.equal((await events(f,'reconciliation')).length,1);assert.equal((await events(f,'execution_result')).length,1);
 });
 

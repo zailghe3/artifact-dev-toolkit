@@ -14,7 +14,7 @@ export const sameRepositoryContext=(a:WorkflowRun["repositoryContext"],b:Workflo
 type PolicySources = Pick<WorkflowRun,"workflowId"|"semanticWorkflowSnapshot"|"compositionSnapshot"|"agentSnapshots">;
 const declaresReadOnly = (run: PolicySources) => run.semanticWorkflowSnapshot?.executionPolicy === "read-only" ||
   run.compositionSnapshot?.dependencies.some(item => item.definition.executionPolicy === "read-only") ||
-  Object.values(run.agentSnapshots).some(agent => agent.executionPolicy === "read-only");
+  Object.values(run.agentSnapshots ?? {}).some(agent => agent.executionPolicy === "read-only");
 
 export function requiredExecutionPolicy(run: PolicySources) {
   if (run.workflowId === ADVISOR_WORKFLOW_ID || declaresReadOnly(run)) return "read-only" as const;
