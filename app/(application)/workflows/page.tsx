@@ -20,8 +20,8 @@ export default async function WorkflowsPage() {
   const history = readWorkflowRunHistory(access.repositoryId, WORKFLOW_OVERVIEW_HISTORY_LIMIT);
   return (
     <>
-      <PageHeader title="Workflows" description="Run durable sequences of Agents and control blocks."
-        action={{ href: "/workflows/definitions", label: "Start workflow" }} />
+      <PageHeader title="Workflows" description="Manage definitions and inspect durable execution."
+        action={{ href: "/conversations", label: "New conversation" }} />
       <Suspense fallback={<ContentLoading label="Loading active and recent runs" rows={2} />}>
         <AsyncContent data={history} failure="Workflow runs could not be loaded.">
           {history => {

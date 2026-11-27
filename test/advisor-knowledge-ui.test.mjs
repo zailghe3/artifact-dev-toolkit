@@ -5,13 +5,22 @@ import {act,create} from 'react-test-renderer';
 import {installTsxHook} from './render-tsx.mjs';
 import {document} from './support/knowledge-fixture.mjs';
 globalThis.IS_REACT_ACT_ENVIRONMENT=true;globalThis.self=globalThis;
-const requireTsx=installTsxHook(),{AdvisorKnowledge}=requireTsx('../components/AdvisorKnowledge.tsx'),{AdvisorSaveKnowledge}=requireTsx('../components/AdvisorSaveKnowledge.tsx'),{AppRouterContext}=requireTsx('next/dist/shared/lib/app-router-context.shared-runtime');
-const text=v=>JSON.stringify(v.toJSON()),button=(v,label)=>v.root.findAllByType('button').find(b=>b.children.join('')===label);
+const requireTsx=installTsxHook(),{AdvisorKnowledge}=requireTsx('../components/AdvisorKnowledge.tsx'),{WorkflowResponse}=requireTsx('../components/WorkflowResponse.tsx'),{AppRouterContext}=requireTsx('next/dist/shared/lib/app-router-context.shared-runtime');
+const text=v=>JSON.stringify(v.toJSON()),button=(v,label)=>v.root.findAllByType('button').find(b=>b.children.filter(child=>typeof child==='string').join('')===label);
 const wrap=child=>React.createElement(AppRouterContext.Provider,{value:{push(path){navigation=path},refresh(){}}},child);let navigation;
-test('save from an Advisor result creates only an editable unapproved proposal with stable source references',async()=>{
- const old=fetch;let calls=0,payload,view;globalThis.fetch=async(url,init)=>{calls++;assert.equal(url,'/api/advisor/knowledge/proposals');payload=JSON.parse(init.body);return Response.json({id:'proposal-id'})};
- try{await act(async()=>{view=create(wrap(React.createElement(AdvisorSaveKnowledge,{runId:'run-id',advisorWorkflowId:'advisor',advisorWorkflowRevision:'advisor-workflow-sha',output:'Hypothesis: repeated timeouts.'})))});await act(async()=>button(view,'Save to knowledge').props.onClick());assert.equal(calls,1);assert.equal(payload.expectedSha,null);assert.equal(payload.document.metadata.type,'finding');assert.equal(payload.document.metadata.status,'active');assert.deepEqual(payload.document.metadata.runIds,['run-id']);assert.deepEqual(payload.document.metadata.workflowIds,[]);assert.deepEqual(payload.document.metadata.agentIds,[]);assert.equal(payload.document.metadata.title,'Advisor investigation finding');assert.deepEqual(payload.document.metadata.evidence,[{source:'advisor-run:run-id:workflow:advisor',revision:'advisor-workflow-sha'}]);assert.match(payload.document.body,/Unreviewed/);assert.equal('approved' in payload,false);assert.equal(navigation,'/advisor/knowledge?proposal=proposal-id')}
- finally{if(view)await act(async()=>view.unmount());globalThis.fetch=old}
+test('a trusted response action opens a draft without sending generated text or publication intent',async()=>{
+ const old=fetch,actionId='a'.repeat(64);let calls=0,view;
+ globalThis.fetch=async(url,init)=>{
+  calls++;assert.equal(url,`/api/workflow-runs/run-id/actions/${actionId}`);
+  assert.equal(init.method,'POST');assert.equal(init.body,undefined);
+  return Response.json({id:'proposal-id'});
+ };
+ try{
+  const sections=[{id:'output',markdown:'Hypothesis: repeated timeouts.',actions:[{kind:'knowledge-proposal',id:actionId}]}];
+  await act(async()=>{view=create(wrap(React.createElement(WorkflowResponse,{runId:'run-id',sections})))});
+  await act(async()=>button(view,'Review & save to knowledge').props.onClick());
+  assert.equal(calls,1);assert.equal(navigation,'/advisor/knowledge?proposal=proposal-id');
+ }finally{if(view)await act(async()=>view.unmount());globalThis.fetch=old}
 });
 test('knowledge browsing/editing keeps review and each explicit publication separate and surfaces stale/uncertain states',async()=>{
  const old=fetch,p={id:'proposal-id',document:document(),expectedSha:null,revision:1,state:'draft',publication:null};let view,writes=0,reviewing=0,saves=0,fail=false;
@@ -36,12 +45,17 @@ test('knowledge browsing/editing keeps review and each explicit publication sepa
 });
 
 test('Advisor Workflow A investigating B preserves A only as provenance; edited B subjects drive Git knowledge search',async t=>{
+ const {knowledgeFromWorkflowAction}=requireTsx('../lib/workflow-response-actions.ts');
  const {database,context}=await import('./support/advisor-fixtures.mjs'),{KnowledgeProposalStore}=await import('../lib/advisor-knowledge-proposals.ts'),{knowledgeFixture}=await import('./support/knowledge-fixture.mjs');
- const db=await database(t),store=new KnowledgeProposalStore(db,context,{githubId:123,login:'reviewer',sessionId:'browser'}),git=knowledgeFixture(),runId=crypto.randomUUID();let proposal,saveView,editor,initialList,publishes=0;const previous=fetch,pendingRequests=new Set();
+ const db=await database(t),store=new KnowledgeProposalStore(db,context,{githubId:123,login:'reviewer',sessionId:'browser'}),git=knowledgeFixture(),runId=crypto.randomUUID(),actionId='b'.repeat(64);let proposal,saveView,editor,initialList,publishes=0;const previous=fetch,pendingRequests=new Set();
  async function settle(action){await act(async()=>{action();for(;;){await Promise.all([...pendingRequests]);await new Promise(resolve=>setImmediate(resolve));if(!pendingRequests.size)break}})}
  const dispatch=async(url,init)=>{
   const body=init?.body?JSON.parse(init.body):undefined;
   if(url==='/api/advisor/knowledge/proposals'&&!body){const values=initialList??await store.list();initialList=undefined;return Response.json({proposals:values})}
+  if(url===`/api/workflow-runs/${runId}/actions/${actionId}`){
+   const candidate=knowledgeFromWorkflowAction({id:runId,workflowRevision:'advisor-a-revision'},{id:actionId,label:'Advisor finding',source_node_id:'analyse',source_activation_id:'source-activation',content:'Workflow B needs review. Model also mentions workflow-c.'});
+   proposal=await store.save({document:candidate,expectedSha:null});return Response.json({id:proposal.id});
+  }
   if(url==='/api/advisor/knowledge/proposals'){proposal=await store.save(body);return Response.json(proposal)}
   if(body?.action==='review')return Response.json(await store.review(proposal.id,body.revision));
   if(body?.action==='publish'){publishes++;return Response.json(await store.publish(proposal.id,body.revision,body.reviewToken,(doc,sha,actor)=>git.repository.publish(doc,sha,actor)))}
@@ -49,8 +63,12 @@ test('Advisor Workflow A investigating B preserves A only as provenance; edited 
  };
  globalThis.fetch=(...args)=>{const promise=dispatch(...args);pendingRequests.add(promise);promise.finally(()=>pendingRequests.delete(promise));return promise};
  try{
-  await act(async()=>{saveView=create(wrap(React.createElement(AdvisorSaveKnowledge,{runId,advisorWorkflowId:'advisor-a',advisorWorkflowRevision:'advisor-a-revision',output:'Workflow B needs review. Model also mentions workflow-c; neither mention establishes subject authority.'})))});
-  await act(async()=>button(saveView,'Save to knowledge').props.onClick());assert.deepEqual(proposal.document.metadata.workflowIds,[]);assert.deepEqual(proposal.document.metadata.agentIds,[]);assert.deepEqual(proposal.document.metadata.runIds,[runId]);assert.deepEqual(proposal.document.metadata.evidence,[{source:`advisor-run:${runId}:workflow:advisor-a`,revision:'advisor-a-revision'}]);assert.equal(proposal.document.metadata.title,'Advisor investigation finding');assert.equal(git.writes.length,0);
+  await act(async()=>{saveView=create(wrap(React.createElement(WorkflowResponse,{runId,sections:[{id:'answer',markdown:'Workflow B needs review.',actions:[{kind:'knowledge-proposal',id:actionId}]}]})))});
+  await settle(()=>button(saveView,'Review & save to knowledge').props.onClick());
+  assert.deepEqual(proposal.document.metadata.workflowIds,[]);assert.deepEqual(proposal.document.metadata.agentIds,[]);
+  assert.deepEqual(proposal.document.metadata.runIds,[runId]);
+  assert.deepEqual(proposal.document.metadata.evidence,[{source:`workflow-run:${runId}:block:analyse:activation:source-activation`,revision:'advisor-a-revision'}]);
+  assert.equal(git.writes.length,0);
   initialList=await store.list();
   await act(async()=>{editor=create(React.createElement(AdvisorKnowledge,{initialProposalId:proposal.id}))});
   assert.equal(editor.root.findAllByType('fieldset').length,1,'Persisted proposal loads for subject review');

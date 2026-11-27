@@ -321,3 +321,27 @@ select:focus-visible {
 
 @keyframes adt-fade-in { from { opacity: 0; } }
 @keyframes adt-slide-in { from { transform: translateX(-100%); } }
+
+@layer components {
+  .adt-response-markdown {
+    @apply space-y-3 leading-relaxed;
+  }
+
+  .adt-response-markdown :where(h3, h4, h5, h6) {
+    @apply mt-5 font-semibold tracking-tight;
+  }
+
+  .adt-response-markdown h3 { @apply text-lg; }
+  .adt-response-markdown :where(ul, ol) { @apply my-2 space-y-1 pl-6; }
+  .adt-response-markdown ul { @apply list-disc; }
+  .adt-response-markdown ol { @apply list-decimal; }
+  .adt-response-markdown blockquote { @apply border-l-2 border-border pl-3 text-muted-foreground; }
+  .adt-response-markdown a { @apply text-primary underline underline-offset-2; }
+  .adt-response-markdown hr { @apply border-border; }
+  .adt-response-markdown :not(pre) > code { @apply rounded bg-muted px-1 py-0.5 text-sm; }
+  .adt-response-markdown pre code { @apply bg-transparent p-0 text-sm; }
+  .adt-response-markdown table { @apply w-full border-collapse text-left text-sm; }
+  .adt-response-markdown :where(th, td) { @apply min-w-24 border-b border-border px-3 py-2 align-top; }
+  .adt-response-markdown thead { @apply bg-muted; }
+  .adt-response-markdown tbody tr:last-child td { @apply border-b-0; }
+}

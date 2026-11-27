@@ -1,6 +1,6 @@
 # PostgreSQL operations for ADT Runtime
 
-ADT Runtime uses PostgreSQL for durable Workflow and operational state and a separate persistent key directory for its encrypted vault/wrapping identity. The database and matching key material form one recovery set.
+ADT Runtime uses PostgreSQL for durable Conversations, Workflows, and their operational state and a separate persistent key directory for its encrypted vault/wrapping identity. The database and matching key material form one recovery set.
 
 The completed D1-to-PostgreSQL migration is preserved in [PostgreSQL cutover history](runtime-postgresql-cutover.md); it is not part of normal current operation.
 
@@ -26,11 +26,17 @@ The committed stack examples remain authoritative for exact variable names, secr
 - Runtime readiness requires a working database connection, compatible schema, and matching key material.
 - Use **Test ADT Runtime** for authenticated service compatibility.
 - Use **Test execution path** in Diagnostics to verify Runtime management/storage and the scoped GitHub broker without invoking a provider.
-- Verify that Advisor settings and the saved Codex environment list load in an authorised repository session. Fresh settings storage serves the default Advisor settings and an empty environment list.
+- Verify that Conversation history and the saved Codex environment list load in an authorised repository session.
 - Verify a representative durable Workflow operation after infrastructure changes, including persistence across a Runtime restart where practical.
 - Verify provider/tool/Runner integrations separately; one healthy dependency does not prove another is ready.
 
 Normal Worker deployment and Runtime image publication are controlled by the trusted repository delivery workflows. Operator deployment of the homelab Runtime/private infrastructure remains separate.
+
+### Deploy Conversations
+
+- Roll out a Runtime image that includes the Conversation migration before using the Conversation Worker routes. Runtime applies the migration during startup using its existing PostgreSQL role.
+- Keep the PostgreSQL volume and matching key directory attached. The migration adds conversation and response-action records to the current schema and preserves existing Runs and knowledge proposals.
+- A Worker can be rolled back independently. Runtime rollback requires a build that understands the applied migration ledger or a restore of the matching pre-upgrade database and keys.
 
 ## Diagnose Workflow management
 
@@ -46,7 +52,7 @@ Diagnostics report bounded status/evidence only. Raw SQL, credentials, Workflow 
 
 ### Diagnose settings requests
 
-For an Advisor or Codex environment settings error, match the request ID from the API response to the Worker and Runtime settings logs. Use the logged stage and classification to locate the failure in ingress routing, signed authentication, replay protection, PostgreSQL access, or response validation. Management and settings use separate signed endpoints, so confirm that ingress routes the settings endpoint when management succeeds and settings report a routing failure.
+For a Codex environment settings error, match the request ID from the API response to the Worker and Runtime settings logs. Use the logged stage and classification to locate the failure in ingress routing, signed authentication, replay protection, PostgreSQL access, or response validation. Management and settings use separate signed endpoints, so confirm that ingress routes the settings endpoint when management succeeds and settings report a routing failure.
 
 ## Recover from a Runtime/PostgreSQL issue
 

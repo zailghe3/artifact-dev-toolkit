@@ -21,6 +21,18 @@ export class KnowledgeProposalStore{
   const result=input.id?await this.db.prepare("UPDATE advisor_knowledge_proposals SET document_json=?,expected_sha=?,revision=revision+1,state='draft',review_digest=NULL,review_session=NULL,review_expires_at=NULL,updated_at=? WHERE id=? AND repository_scope=? AND owner_id=? AND revision=? AND state IN ('draft','reviewed','conflict')").bind(JSON.stringify(document),input.expectedSha,now,id,this.scope,this.actor.githubId,input.revision??0).run():await this.db.prepare("INSERT INTO advisor_knowledge_proposals(id,repository_scope,owner_id,actor,document_json,expected_sha,state,created_at,updated_at) VALUES(?,?,?,?,?,?,'draft',?,?)").bind(id,this.scope,this.actor.githubId,this.actor.login,JSON.stringify(document),input.expectedSha,now,now).run();
   if(result.meta?.changes!==1)throw Error("knowledge_conflict");return this.get(id);
  }
+ async saveFromAction(actionId:string, input:KnowledgeDocument){
+  const document=knowledgeDocumentSchema.parse(input);serializeKnowledge(document);
+  const now=this.now();
+  await this.db.prepare(`INSERT INTO advisor_knowledge_proposals
+   (id,repository_scope,owner_id,actor,document_json,source_action_id,state,created_at,updated_at)
+   VALUES (?,?,?,?,?,?,'draft',?,?) ON CONFLICT (repository_scope,owner_id,source_action_id) DO NOTHING`)
+   .bind(crypto.randomUUID(),this.scope,this.actor.githubId,this.actor.login,JSON.stringify(document),actionId,now,now).run();
+  const proposal=await this.db.prepare(`SELECT * FROM advisor_knowledge_proposals WHERE repository_scope=? AND owner_id=? AND source_action_id=?`)
+   .bind(this.scope,this.actor.githubId,actionId).first<ProposalRow>();
+  if(!proposal)throw new Error("knowledge_proposal_not_found");
+  return view(proposal);
+ }
  async review(id:string,revision:number){
   const row=await this.row(id);if(row.revision!==revision||!["draft","reviewed"].includes(row.state))throw Error("knowledge_conflict");
   const token=randomBytes(32).toString("base64url"),expires=this.now()+300000;

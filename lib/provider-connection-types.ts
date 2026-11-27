@@ -46,8 +46,8 @@ export class ProviderModelCompatibilityError extends Error {
   readonly code:string;
   constructor(code:string, safeMessage:string){super(safeMessage);this.code=code}
 }
-export function usesJournaledAgentProgression(adapter:string,agent:{tools?:readonly unknown[];securityProfileId?:string},blockVersion?:number,advisor=false){
-  return supportsAgentTools(getProviderConnectionType(adapter))&&Boolean(agent.tools?.length||agent.securityProfileId||blockVersion===4||advisor);
+export function usesJournaledAgentProgression(adapter:string,agent:{tools?:readonly unknown[];securityProfileId?:string},blockVersion?:number,readOnly=false){
+  return supportsAgentTools(getProviderConnectionType(adapter))&&Boolean(agent.tools?.length||agent.securityProfileId||blockVersion===4||readOnly);
 }
 export function validateProviderModelCompatibility(adapter:string,model:string|undefined,options:unknown,journaled:boolean,hasTools:boolean){
   if(!model||(adapter!=="openai-agents"&&adapter!=="openai-responses"))return;

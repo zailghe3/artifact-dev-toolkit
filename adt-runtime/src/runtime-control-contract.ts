@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { conversationCursorSchema, conversationIdSchema, conversationSubmissionSchema, conversationTargetSchema,
+  conversationTitleSchema, workflowActionIdSchema } from "./conversation-contract.ts";
 
 export const RUNTIME_CONTROL_PATH = "/v1/management/control";
 export const RUNTIME_REPOSITORY_BROKER_PATH = "/api/runtime-repository-credential";
@@ -49,6 +51,18 @@ export type RuntimeManagementDiagnostic = z.infer<typeof runtimeManagementDiagno
 // These statuses and messages describe operation failures. A dependency's
 // authentication failure does not establish the browser user's permissions.
 const runtimeControlOperationErrors = {
+  conversation_runtime_unavailable: { status: 503, error: "Conversation operations are unavailable. Verify that ADT Runtime supports Conversations." },
+  conversation_not_found: { status: 404, error: "Conversation not found." },
+  conversation_target_fixed: { status: 409, error: "A conversation keeps its original Agent or Workflow." },
+  conversation_head_changed: { status: 409, error: "The conversation changed. Refresh the timeline before sending." },
+  conversation_turn_active: { status: 409, error: "Wait for the current turn to finish before sending another message." },
+  conversation_summary_pending: { status: 409, error: "Earlier context is being prepared. Retry this submission in a moment." },
+  conversation_reference_unavailable: { status: 422, error: "A selected earlier turn is unavailable or has no successful response." },
+  conversation_context_too_large: { status: 422, error: "The selected exact exchanges exceed the context budget. Select fewer turns or paste the needed excerpt." },
+  conversation_retry_superseded: { status: 409, error: "Only the latest conversation turn can be retried." },
+  execution_read_only_required: { status: 422, error: "Read-only execution permits native ADT reads and blocks without external side effects." },
+  execution_read_only_provider: { status: 422, error: "Read-only execution requires a compatible model connection and disallows Codex continuation." },
+  workflow_action_not_found: { status: 404, error: "This response action is unavailable." },
   vault_secret_id_invalid: { status: 400, error: "The credential reference is invalid." },
   provider_configuration_invalid: { status: 422, error: "The provider configuration is invalid." },
   ollama_configuration_invalid: { status: 422, error: "Ollama base URL or authentication mode is invalid." },
@@ -225,7 +239,21 @@ export const runtimeControlSchema = z.discriminatedUnion("operation", [
   z.object({ operation: z.literal("runs.detail"), repositoryId, runId }).strict(),
   z.object({ operation: z.literal("runs.find"), repositoryId, key: z.string().min(1).max(128) }).strict(),
   z.object({ operation: z.literal("runs.launch"), repositoryId, snapshot: z.record(z.string(), z.unknown()),
+    conversation: conversationSubmissionSchema.optional(),
     publicationAuthorities: z.record(z.string(), z.string().regex(/^[A-Za-z0-9_-]{43}$/)).optional() }).strict(),
+  z.object({ operation: z.literal("conversations.prepare"), repositoryId, scope: repositoryContextSchema,
+    submission: conversationSubmissionSchema }).strict(),
+  z.object({ operation: z.literal("conversations.list"), repositoryId, scope: repositoryContextSchema,
+    query: z.string().max(120), target: conversationTargetSchema.optional(), before: conversationCursorSchema.optional() }).strict(),
+  z.object({ operation: z.literal("conversations.detail"), repositoryId, scope: repositoryContextSchema,
+    id: conversationIdSchema, before: z.number().int().positive().max(2_147_483_647).optional() }).strict(),
+  z.object({ operation: z.literal("conversations.rename"), repositoryId, scope: repositoryContextSchema,
+    id: conversationIdSchema, title: conversationTitleSchema }).strict(),
+  z.object({ operation: z.literal("runs.action"), repositoryId, scope: repositoryContextSchema,
+    runId, actionId: workflowActionIdSchema }).strict(),
+  z.object({ operation: z.literal("knowledge.from-action"), repositoryId, scope: repositoryContextSchema,
+    runId, actionId: workflowActionIdSchema,
+    actor: z.object({ githubId: repositoryId, login: actor, sessionId: z.string().regex(/^[0-9a-f]{64}$/) }).strict() }).strict(),
   z.object({ operation: z.literal("runs.cancel"), repositoryId, runId }).strict(),
   z.object({ operation: z.literal("runs.retry"), repositoryId, runId }).strict(),
   z.object({ operation: z.literal("runs.approval"), repositoryId, runId, approvalRequestId: runId }).strict(),

@@ -14,6 +14,9 @@ import { checkAgentToolWait } from "./agent-tool-wait.ts";
 import { cancelRuntimeWorkflow, executeWorkflowGraphNode,type WorkflowExecutionEnvironment } from "./workflow-worker-runtime.ts";
 import { MAX_WORKFLOW_RUN_MS } from "./workflow-durable-driver.ts";
 import type { RepositoryCredential } from "./github-app.ts";
+import { WorkflowResponseActions } from "./workflow-response-actions.ts";
+import { assertRunExecutionPolicy } from "./workflow-execution-policy.ts";
+import type { GraphKnowledgeOutput } from "../adt-runtime/src/langgraph.ts";
 
 const active = new Set(["queued", "running", "waiting_approval", "cancelling"]);
 const localAuthority = "runtime-in-process-checkpoint-authority";
@@ -47,6 +50,7 @@ export function createWorkflowCoordinator(options: WorkflowExecutionOptions) {
     const detail = await storage.getRun(lease.id);
     if (!detail || !active.has(detail.run.status) || detail.run.workflowGeneration !== lease.generation) return 0;
     const { run } = detail;
+    assertRunExecutionPolicy(run);
 
     if (run.cancelRequestedAt || run.status === "cancelling") {
       await journal.cancelPending(run.id);
@@ -63,6 +67,8 @@ export function createWorkflowCoordinator(options: WorkflowExecutionOptions) {
     if (waiting) return Math.min(waitDelay, waiting.seconds * 1_000);
     if (!run.executionPlan || !("planVersion" in run.executionPlan) || !run.repositoryContext) throw new Error("invalid_run_snapshot");
     const plan = projectExecutionPlanForRuntime(run.executionPlan);
+    const actions = new WorkflowResponseActions(database);
+    const recordKnowledge = (output: GraphKnowledgeOutput) => actions.record(run, output);
     const checkpoints = new D1LangGraphCheckpointStore(database);
     const vault = options.vaultFor(database, run.repositoryContext.repositoryId);
     const execute: typeof fetch = async (url, init) => {
@@ -84,7 +90,7 @@ export function createWorkflowCoordinator(options: WorkflowExecutionOptions) {
       checkpointGateway: { url: localGraphUrl + "checkpoint", authority: localAuthority },
       nodeGateway: { url: localGraphUrl + "agent" },
     };
-    let result = await advanceGenericGraph(request, execute);
+    let result = await advanceGenericGraph(request, execute, recordKnowledge);
     if (result.state === "approval_required") {
       const approval = await approvals.require({
         runId: run.id, workflowGeneration: lease.generation, nodeId: result.nodeId!,
@@ -93,7 +99,7 @@ export function createWorkflowCoordinator(options: WorkflowExecutionOptions) {
       if (approval.status !== "approved") return waitDelay;
       if (!approval.consumedAt && !await approvals.consume(run.id, approval.requestId)) return pendingDelay;
       request.approvalResume = { requestId: approval.requestId, interruptId: approval.interruptId, approved: true };
-      result = await advanceGenericGraph(request, execute);
+      result = await advanceGenericGraph(request, execute, recordKnowledge);
     }
     if (result.state === "admission_required") {
       const authorities: Extract<LangGraphAdvanceRequest["nodeGateway"], { authorities: unknown }>["authorities"] = [];
@@ -101,10 +107,15 @@ export function createWorkflowCoordinator(options: WorkflowExecutionOptions) {
         const attempt = await storage.ensureGraphActivation(run.id, activation.nodeId, activation.activationId);
         authorities.push({ ...activation, workflowGeneration: lease.generation, iteration: attempt.iteration, attempt: attempt.attempt, authority: localAuthority });
       }
-      result = await advanceGenericGraph({ ...request, nodeGateway: { url: localGraphUrl + "agent", authorities } }, execute);
+      result = await advanceGenericGraph({ ...request, nodeGateway: { url: localGraphUrl + "agent", authorities } }, execute, recordKnowledge);
     }
     if (result.state === "completed") {
       const latest = await storage.getRun(run.id);
+      if (latest && plan.nodes.find(node => node.id === plan.terminalNodeId)?.blockType === "knowledge-proposal") {
+        const output = await actions.terminalOutput(latest, plan.terminalNodeId, result.terminalActivationId, result.outputText);
+        await storage.completeRun(run.id, plan.terminalNodeId, output.text, output.url, output.actionId);
+        return 0;
+      }
       const terminal = latest?.attempts.filter(attempt => attempt.stepId === plan.terminalNodeId && attempt.status === "succeeded").at(-1);
       if (!terminal || terminal.outputText !== result.outputText) throw new Error("workflow_output_unverified");
       await storage.completeRun(run.id, plan.terminalNodeId, terminal.outputText, terminal.outputExternalUrl);

@@ -19,6 +19,7 @@
 - A **Security Profile** can further restrict eligible tool execution; it cannot grant tools or broaden ADT authority.
 - A **Workflow** is an ADT-owned semantic graph of versioned blocks and edges.
 - A **Workflow layout** is presentation state only and never changes execution semantics.
+- A **Conversation** connects a fixed Agent or Workflow target to ordered messages and their Runs.
 - A **Run** freezes the validated definitions and authority needed for one execution.
 - An **Attempt** records one Agent activation attempt.
 - External task or publication identities may be retained where needed to observe or reconcile accepted work safely.
@@ -26,7 +27,7 @@
 ## 3. Workflow definitions
 
 - Current Workflow definitions use the canonical v2 semantic graph.
-- Supported semantic behaviour includes Agent execution, deterministic Conditions, parallel fan-out/Join, human Approval, reusable Workflow composition, bounded cycles, and explicit managed GitHub publication.
+- Supported semantic behaviour includes Agent execution, deterministic Conditions, parallel fan-out/Join, human Approval, reusable Workflow composition, bounded cycles, Knowledge Proposals, and explicit managed GitHub publication.
 - Unsupported block contracts, invalid topology, unresolved references, or exceeded execution bounds fail closed before execution.
 - Reusable Workflows expand into the parent run rather than creating independent child runs.
 - Composition is bounded and rejects missing, cyclic, unexposed, or unsupported dependencies.
@@ -41,6 +42,9 @@
 
 - Launch freezes the complete current Workflow, reusable composition, relevant Agents, connection snapshots, resolved prompt content, and other execution authority needed by the run.
 - Later edits affect new runs only.
+- A Conversation can target a single Agent through a generated one-block Workflow. Each submitted turn freezes the exact input assembled from the current message and its authorised history.
+- Conversation history and summaries are untrusted reference data. They cannot expand tool grants, repository permissions, or approval authority.
+- Conversation context enters at Workflow entry. Existing Workflow handoffs and explicitly configured Codex continuation retain their own semantics.
 - Snapshots retain safe credential references and validated non-secret configuration, never resolved secret values.
 - The first Agent on a path receives the Workflow input; later Agents receive the successful textual output selected by graph execution.
 - Handoff text is not implicitly summarised, ranked, rewritten, or interpreted by the framework.
@@ -101,6 +105,9 @@
 
 ## 8. Agent tools and Security Profiles
 
+- A read-only policy on an Agent, Workflow, or reused Workflow restricts the enclosing Run. The designated Advisor Workflow also requires this policy.
+- Runtime freezes and enforces read-only policy at admission and execution. Read-only Runs permit explicitly granted native ADT reads and reject external tool grants, Codex execution and continuation, and managed publication. Historical Advisor protections remain in force.
+- Knowledge Proposal passes its incoming output through unchanged and makes it available for authenticated human review after successful execution. It grants no model publication authority.
 - Tool support is an explicit provider capability.
 - Tools are a separate configuration domain from provider Connections.
 - Artifact Search and native ADT reads are built-in tool capabilities; MCP is the configurable external tool integration.
@@ -162,7 +169,6 @@
 - Runtime storage/readiness, provider readiness, tool readiness, Security Profile readiness, and Runner readiness remain independently observable where useful.
 - Sensitive native ADT observability reads require an explicit grant and exact-call human approval.
 - Native read tools remain repository-scoped, bounded, and unable to mutate, approve, retry, reconcile, or publish.
-- Advisor uses the same Agent/tool lifecycle with an additional frozen read-only boundary; see [Advisor](000-current-application-spec.md#9-advisor).
 - Parallelism, cycles, composition, approvals, model/tool budgets, and external calls remain bounded.
 - There is no Workflow scripting language, implicit autonomous Agent routing, scheduled autonomous execution, or automatic production promotion of Workflow definitions.
 - Non-managed Codex jobs do not publish Git commits or pull requests.

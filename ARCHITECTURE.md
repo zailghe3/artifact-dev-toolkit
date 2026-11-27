@@ -25,7 +25,7 @@ Cloudflare application / Worker
     |       - disposable catalogue acceleration
     |
     +--> authenticated ADT Runtime
-            - durable Workflow scheduling and execution
+            - durable Conversation state and Workflow execution
             - PostgreSQL operational state and encrypted credential vault
             - provider, tool, security, and private-service integrations
             - private/homelab infrastructure capabilities needed by execution
@@ -80,8 +80,9 @@ Current behaviour: [Current application specification](specs/000-current-applica
 
 Current Workflow behaviour: [Agent Workflows specification](specs/agent-workflows.md).
 
-### Durable Workflow execution
+### Conversations and durable Workflow execution
 
+- Conversations bind a Git-backed execution target to ordered user messages and Runs. Runtime admits a turn together with its Run and freezes the assembled history at that boundary.
 - A launch freezes the validated definitions and authority required for that run.
 - ADT Runtime owns scheduling, recovery, checkpoints, attempts, approvals, tool journals, provider-safety state, and durable run outcomes in PostgreSQL.
 - LangGraph sequences the frozen ADT graph but does not define ADT's domain model.
@@ -104,14 +105,14 @@ Current Workflow behaviour: [Agent Workflows specification](specs/agent-workflow
 
 Operational policy and recovery: [Agent tools and recovery](docs/agent-tools-and-recovery.md).
 
-### Advisor
+### Advisor and knowledge
 
-- Advisor is an ordinary constrained Workflow entry point, not a separate execution engine or privileged identity.
-- It may receive explicitly granted read capabilities through the same durable Agent/tool policy model.
-- Model execution remains read-only. Reviewed knowledge publication is a separate authenticated human Git mutation.
-- Approved Advisor knowledge is authoritative in Git; Runtime stores operational settings, proposals, and publication state.
+- Advisor filters Conversations to the designated read-only Workflow.
+- Explicit native read grants and exact-call sensitive approval use the ordinary Agent/tool policy model.
+- Workflow-defined response actions persist with their source Runs. Runtime revalidates action and repository scope when a user opens a proposal.
+- Runtime stores drafts, review, and publication state. The Worker retains human Git publication authority and Git remains authoritative for reviewed knowledge.
 
-Setup and operating guidance: [Advisor setup](docs/advisor-setup.md).
+Setup and operating guidance is in [Advisor setup](docs/advisor-setup.md).
 
 ### ADT Runtime
 
@@ -141,7 +142,7 @@ Operator/security contract: [Codex Runner](codex-runner/README.md).
 | Artifacts, reviewed knowledge, and non-secret executable configuration | configured GitHub repository |
 | Artifact repository layout and metadata | `docs/external-artifact-repository-contract.md` plus validation code |
 | Browser sessions | D1 |
-| Durable Workflow, approval, tool, Advisor operational state and encrypted provider/tool credentials | Runtime PostgreSQL plus Runtime key material |
+| Durable Conversation, Workflow, approval, tool and knowledge operations and encrypted provider/tool credentials | Runtime PostgreSQL plus Runtime key material |
 | Catalogue acceleration | KV; Git remains authoritative |
 | Workflow sequencing | ADT Runtime using the frozen ADT execution plan and LangGraph |
 | Codex identity and model-directed command execution | Codex Runner Executor |

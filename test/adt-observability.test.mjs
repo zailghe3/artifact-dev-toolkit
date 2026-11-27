@@ -8,14 +8,14 @@ import {D1WorkflowRunStorage} from '../lib/workflow-d1-storage.ts';
 import {InMemoryWorkflowDefinitionRepository} from '../lib/workflow-definition-repository.ts';
 import {toolApprovalAuthority} from '../lib/agent-tool-approval-authority.ts';
 import {requireSensitiveReadApproval} from '../lib/adt-sensitive-approval.ts';
-import {assertAdvisorRunReadOnly} from '../lib/advisor-policy.ts';
+import {assertRunExecutionPolicy} from '../lib/workflow-execution-policy.ts';
 import {nativeFixture} from './support/native-adt-fixture.mjs';
 import {context,agent,run,database} from './support/advisor-fixtures.mjs';
 
 test('each additional grant is independent, defaults to explicit human approval, and is in the closed Advisor allowlist',()=>{
  assert.equal(nativeAdtToolDefinitions(undefined).length,0);
- for(const name of NATIVE_ADT_TOOLS){const tools=nativeAdtToolDefinitions([name]);assert.equal(tools.length,1);assert.equal(tools[0].key,name);assert.equal(evaluateToolPolicy([tools[0].policy],{}),SENSITIVE_ADT_TOOLS.includes(name)?'approval':'automatic');const value=run();value.agentSnapshots.analyst.tools=[name];assert.doesNotThrow(()=>assertAdvisorRunReadOnly({...value,advisorContext:{version:1,readOnly:true,override:null}}));assert.equal(adtDataArgumentSchemas[name].safeParse({repositoryId:99}).success,false)}
- assert.throws(()=>assertAdvisorRunReadOnly({...run(),advisorContext:{version:1,readOnly:true,override:null},agentSnapshots:{analyst:{...agent,tools:['adt_advisor_knowledge_publish']}}}),/advisor_read_only_required/);
+ for(const name of NATIVE_ADT_TOOLS){const tools=nativeAdtToolDefinitions([name]);assert.equal(tools.length,1);assert.equal(tools[0].key,name);assert.equal(evaluateToolPolicy([tools[0].policy],{}),SENSITIVE_ADT_TOOLS.includes(name)?'approval':'automatic');const value=run();value.agentSnapshots.analyst.tools=[name];assert.doesNotThrow(()=>assertRunExecutionPolicy({...value,advisorContext:{version:1,readOnly:true,override:null}}));assert.equal(adtDataArgumentSchemas[name].safeParse({repositoryId:99}).success,false)}
+ assert.throws(()=>assertRunExecutionPolicy({...run(),advisorContext:{version:1,readOnly:true,override:null},agentSnapshots:{analyst:{...agent,tools:['adt_advisor_knowledge_publish']}}}),/advisor_read_only_required/);
 });
 test('current artifact and frozen historical prompts have distinct provenance and never include credentials/configuration',async t=>{
  const db=await database(t),storage=new D1WorkflowRunStorage(db),repo=new InMemoryWorkflowDefinitionRepository();await repo.createAgent(agent);const value=run();await storage.createRun(value);

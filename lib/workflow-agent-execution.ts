@@ -2,7 +2,7 @@ import {requireSensitiveReadApproval} from "./adt-sensitive-approval.ts";
 import {nativeAdtToolDefinitions,authorizeNativeAdtTool} from "./adt-data-authority.ts";
 import {isAdtDataTool,isSensitiveAdtTool} from "./adt-data-contract.ts";
 import {createNativeAdtDataAccess,type NativeAdtDataAccess} from "./adt-data-services.ts";
-import {assertAdvisorRunReadOnly} from "./advisor-policy.ts";
+import {assertRunExecutionPolicy} from "./workflow-execution-policy.ts";
 import {D1McpPolicyAuthority,type McpAdmissionAuthority} from "./mcp-policy-authority.ts";
 import {AgentJournal,agentDigest} from "./agent-journal.ts";
 import {progressDurableAgent,builtinSearchTool,defaultToolPolicy,type AgentTool,type AgentProgressOutcome} from "./agent-execution.ts";
@@ -27,7 +27,7 @@ import {blockToolsSchema,grantKey,type ModelProgress} from "../adt-runtime/src/a
 
 export async function executeJournaledWorkflowAgent(input:{env:import("./workflow-worker-runtime.ts").WorkflowExecutionEnvironment;scope:GraphNodeAuthorityScope;inputText:string;detail:RunDetail;attempt:StepAttempt;agent:AgentDefinitionV1;restrictions?:unknown;storage:WorkflowRunStorage;configuration:ADTRuntimeConfiguration;vault?:D1ProviderCredentialVault;nativeData?:NativeAdtDataAccess;database?:WorkflowD1Database;repositoryCredential?:(context:RunRepositoryContext)=>Promise<RepositoryCredential>;toolRepository?:Pick<import("./tool-definition-repository.ts").ToolDefinitionRepository,"get">;runtime?:Pick<RemoteOpenAIAgentsRuntime,"agentOperation">;resolveConnection:(key:string,snapshot?:ConnectionDescriptor)=>Promise<ResolvedConnection>}){
  const {env,scope,storage,agent}=input,values=env as unknown as Record<string,string>,database=input.database??env.AUTH_SESSIONS_DB as unknown as WorkflowD1Database,journal=new AgentJournal(database,undefined,values),detail=input.detail;
- assertAdvisorRunReadOnly(detail.run);
+ assertRunExecutionPolicy(detail.run);
  if(detail.run.cancelRequestedAt||["cancelled","cancelling"].includes(detail.run.status))return{state:"cancelled" as const};
  if(input.attempt.status==="succeeded")return{state:"completed" as const,outputText:input.attempt.outputText??""};
  if(!detail.run.executionPlan||!("agentExecutionContract" in detail.run.executionPlan)||detail.run.executionPlan.agentExecutionContract!==1){await storage.recordGraphFailure(scope.runId,"configuration_invalid","This historical tool execution contract requires cutover. Cancel the old run and launch a new frozen run.");return{state:"failed" as const,safeMessage:"Historical tool execution requires explicit cutover."}}
@@ -77,7 +77,7 @@ export async function executeJournaledWorkflowAgent(input:{env:import("./workflo
    progress:request=>remote.agentOperation("/v1/agents/progress",{request},connection.credential),
    authorize:async(tool)=>{
     const current=await storage.getRun(scope.runId);if(!current||current.run.workflowGeneration!==scope.workflowGeneration||current.run.cancelRequestedAt||current.run.failureCode||["succeeded","failed","cancelled","cancelling"].includes(current.run.status))throw Error("run_not_active");
-    assertAdvisorRunReadOnly(current.run);
+    assertRunExecutionPolicy(current.run);
     if(isAdtDataTool(tool.key)){const context=authorizeNativeAdtTool(current,scope,tool.key,repository);await nativeData.authorize(context);return[]}
     // Read authority again after a human wait. Git edits never expand frozen grants.
     if(tool.key==="artifact_search"){await access().installationCredentialProvider("read");return[]}
@@ -86,7 +86,7 @@ export async function executeJournaledWorkflowAgent(input:{env:import("./workflo
    },
    security:async(conversation,call,identity)=>{const security=await resolveFrozenSecurityProfile(repository!.repositoryId,agent,detail.run.securityProfileSnapshots,vault);if(!security)return{outcome:"not_configured"};return remote.agentOperation("/v1/agents/security",{profile:{profileId:security.profileId,endpointUrl:security.endpointUrl,decisionTimeoutMs:security.decisionTimeoutMs},context:{id:identity,model:connection.defaultModel,instructions:agent.masterPrompt,conversation,call}},security.credential)},
    execute:async(tool,call,admissionId)=>{
-    const current=await storage.getRun(scope.runId);if(!current)throw Error("run_not_active");assertAdvisorRunReadOnly(current.run);
+    const current=await storage.getRun(scope.runId);if(!current)throw Error("run_not_active");assertRunExecutionPolicy(current.run);
     if(isAdtDataTool(tool.key)){const context=authorizeNativeAdtTool(current,scope,tool.key,repository);if(Date.now()>=call.execution_deadline_at!)throw Error("tool_dispatch_deadline");if(isSensitiveAdtTool(tool.key))await requireSensitiveReadApproval(journal,call,admissionId);return nativeData.execute(tool.key,JSON.parse(call.arguments_json),context)}
     if(tool.key==="artifact_search"){const selected=access(),artifacts=await new GitHubArtifactRepository({owner:selected.owner,repo:selected.repo,branch:repository!.branch,rootPath:repository!.root,credentialProvider:selected.installationCredentialProvider}).list();if(Date.now()>=call.execution_deadline_at!)throw Error("tool_dispatch_deadline");return boundedArtifactSearch(artifacts,JSON.parse(call.arguments_json))}
     const grants=await resolveFrozenMcpTools(repository!.repositoryId,agent,detail.run.mcpToolSnapshots,vault,{repository:toolRepository,policies:policyAuthority}),grant=grants.find(value=>value.alias===tool.alias);if(!grant||JSON.stringify(grant.authorityGuard)!==JSON.stringify(admissionAuthorities.get(tool.alias)))throw Error("tool_revoked");

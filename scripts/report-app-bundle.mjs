@@ -40,7 +40,7 @@ try {
   row('All browser CSS', allAssets.filter(path => path.endsWith('.css')));
   const routes = JSON.parse(readFileSync('.next/server/app-paths-manifest.json', 'utf8'));
   const build = JSON.parse(readFileSync('.next/build-manifest.json', 'utf8'));
-  for (const url of ['/', '/advisor', '/diagnostics', '/workflows/connections', '/workflows/definitions/new', '/sign-in']) {
+  for (const url of ['/', '/conversations', '/advisor', '/diagnostics', '/workflows/connections', '/workflows/definitions/new', '/sign-in']) {
     const end = url === '/' ? '/page' : `${url}/page`;
     const route = Object.keys(routes).find(path => path.replace(/\/\([^/]+\)/g, '') === end);
     if (!route) throw new Error(`Missing route manifest for ${url}`);

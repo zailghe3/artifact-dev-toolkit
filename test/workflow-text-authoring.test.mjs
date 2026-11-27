@@ -71,9 +71,11 @@ test('context is deterministic and projects only stable references and safe capa
 test('context includes all registered block contracts, ports and valid configuration guidance',()=>{
  const context=createWorkflowAuthoringContext(agents,reusable),metadata=workflowBlockRegistry.metadata().sort((a,b)=>a.type.localeCompare(b.type)||a.version-b.version);
  assert.deepEqual(context.blocks,metadata);
- assert.deepEqual(context.blocks.map(block=>`${block.type}@${block.version}`).sort(),['agent@1','agent@2','agent@3','agent@4','approval@1','condition@1','join@1','publish-github-pr@1','subworkflow@1'].sort());
+ assert.deepEqual(context.blocks.map(block=>`${block.type}@${block.version}`).sort(),['agent@1','agent@2','agent@3','agent@4','approval@1','condition@1','join@1','knowledge-proposal@1','publish-github-pr@1','subworkflow@1'].sort());
  for(const block of context.blocks){assert.ok(block.authoring.guide.length>10);assert.doesNotThrow(()=>workflowBlockRegistry.validate(block.type,block.version,block.authoring.configTemplate));assert.ok(block.interface.inputs.some(port=>port.default));assert.ok(block.interface.outputs.some(port=>port.default))}
  assert.equal(context.blocks.find(block=>block.type==='join').interface.inputs[0].multiple,true);
+ const proposal=context.blocks.find(block=>block.type==='knowledge-proposal');
+ assert.deepEqual(proposal.interface,{inputs:[{id:'in',dataType:'text',default:true}],outputs:[{id:'out',dataType:'text',default:true}]});
 });
 
 test('reusable candidates exclude unexposed and invalid compositions',()=>{

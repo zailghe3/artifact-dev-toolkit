@@ -129,6 +129,10 @@ async function requestRuntimeControl<T>(config: ADTRuntimeConfiguration, input: 
   if (response.ok || wire.ok !== false) return fail("response", "malformed_response");
   const code = runtimeControlErrorCodeSchema.safeParse(wire.code ?? wire.error?.code).data;
   if (!code) return fail("response", "malformed_response");
+  if (code === "invalid_request" && (input.operation.startsWith("conversations.") || input.operation === "runs.action" ||
+      input.operation === "knowledge.from-action" || input.operation === "runs.launch" && input.conversation)) {
+    return fail("validation", "request_rejected", "conversation_runtime_unavailable");
+  }
   if (evidence) {
     if (evidence.result === "ok") return fail("response", "malformed_response");
     return fail(evidence.stage, evidence.result, code === "runtime_unavailable" ? undefined : code);
