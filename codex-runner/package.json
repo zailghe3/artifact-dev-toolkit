@@ -3,7 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "engines": { "node": "24.x" },
+  "engines": {
+    "node": "26.x",
+    "npm": "11.21.3"
+  },
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
@@ -11,7 +14,8 @@
     "start": "node dist/server.js"
   },
   "devDependencies": {
-    "@types/node": "^24.19.1",
-    "typescript": "^5.9.3"
-  }
+    "@types/node": "^26.6.11",
+    "typescript": "^6.0.3"
+  },
+  "packageManager": "npm@11.21.3"
 }

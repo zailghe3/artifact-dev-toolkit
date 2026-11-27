@@ -10,7 +10,7 @@ const {EXPECTED_RUNNER_RELEASE}=require("../lib/codex-runner-release.ts");
 
 const secrets=["access-client-id-sentinel","access-client-secret-sentinel","runner-shared-secret-sentinel","response-body-sentinel","thrown-error-sentinel","redirect-location-sentinel"];
 const configuration={baseUrl:"https://runner.example.test",accessClientId:secrets[0],accessClientSecret:secrets[1],sharedSecret:secrets[2],production:true};
-const capabilities={protocolVersion:1,runnerRevision:EXPECTED_RUNNER_RELEASE.runnerRevision,runnerVersion:"a".repeat(40),codexVersion:"0.159.3",codexAvailable:true,deviceAuth:true,jobExecution:true};
+const capabilities={protocolVersion:1,runnerRevision:EXPECTED_RUNNER_RELEASE.runnerRevision,runnerVersion:"a".repeat(40),codexVersion:EXPECTED_RUNNER_RELEASE.codexVersion,codexAvailable:true,deviceAuth:true,jobExecution:true};
 
 async function probe(fetcher){
  const logs=[];

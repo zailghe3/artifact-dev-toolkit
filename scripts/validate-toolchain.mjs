@@ -18,11 +18,21 @@ function expectEqual(actual, expected, label) {
   if (actual !== expected) fail(`${label} must be ${expected}; found ${actual || '<missing>'}.`);
 }
 
-expectEqual(nodeVersion, '24', '.nvmrc');
+expectEqual(nodeVersion, '26', '.nvmrc');
 expectEqual(nodeVersionMirror, nodeVersion, '.node-version');
 expectEqual(packageJson.engines?.node, `${nodeVersion}.x`, 'package.json engines.node');
 expectEqual(packageJson.engines?.npm, npmVersion, 'package.json engines.npm');
-expectEqual(packageJson.packageManager, 'npm@11.4.2', 'package.json packageManager');
+expectEqual(packageJson.packageManager, 'npm@11.21.3', 'package.json packageManager');
+
+for (const directory of ['adt-runtime', 'codex-runner']) {
+  const component = JSON.parse(read(`${directory}/package.json`));
+  const locked = JSON.parse(read(`${directory}/package-lock.json`)).packages?.[''];
+  expectEqual(component.packageManager, packageJson.packageManager, `${directory} packageManager`);
+  for (const engine of ['node', 'npm']) {
+    expectEqual(component.engines?.[engine], packageJson.engines[engine], `${directory} engines.${engine}`);
+    expectEqual(locked?.engines?.[engine], component.engines?.[engine], `${directory} lockfile engines.${engine}`);
+  }
+}
 
 const lock = JSON.parse(read('package-lock.json'));
 expectEqual(lock.packages?.['']?.engines?.node, packageJson.engines.node, 'package-lock root engines.node');

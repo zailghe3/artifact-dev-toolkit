@@ -1,17 +1,17 @@
 # syntax=docker/dockerfile:1
-FROM node:24-bookworm-slim AS build
+FROM node:26.13.1-bookworm-slim@sha256:0042e17d232a87a2cd485be1da7900fca4d10a4ad11b29e9285da1d2e54798c9 AS build
 WORKDIR /build
 COPY package.json package-lock.json tsconfig.json release.json ./
-RUN npm ci
+RUN npm install -g "$(node -p 'require("./package.json").packageManager')" && npm ci
 COPY src ./src
 RUN npm run build && npm prune --omit=dev
 
-# rust-v0.159.3 dereferences to this commit. The release used Rust 1.95.0;
+# rust-v0.172.0 dereferences to this commit. The release used Rust 1.99.1;
 # compilation uses OpenAI's unchanged package builder and supported GNU target.
-FROM rust:1.95.0-bookworm AS codex-gnu-build
+FROM rust:1.99.1-bookworm@sha256:e6f2cff35d0f309acf8433b4f05878ed77092602c5065cc81801177da0bb3a9c AS codex-gnu-build
 COPY release.json /tmp/release.json
 ARG TARGETARCH
-ARG CODEX_SOURCE_COMMIT=01fc69f4026735edfdf6789820549727a4867b11
+ARG CODEX_SOURCE_COMMIT=3d86e43b075adeba2193ec5c22ac92f55afd82e6
 ENV CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2
 RUN test "$TARGETARCH" = amd64 || { echo 'Codex GNU build supports linux/amd64 only' >&2; exit 1; }
 RUN apt-get update && apt-get install -y --no-install-recommends binutils git python3 pkg-config libssl-dev libcap-dev clang && rm -rf /var/lib/apt/lists/*
@@ -29,7 +29,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     readelf -l /out/codex-package/bin/codex | grep -Eq 'Requesting program interpreter: .*/ld-linux-x86-64\.so\.2' && \
     readelf -d /out/codex-package/bin/codex | grep -Eq 'Shared library: \[libc\.so\.6\]'
 
-FROM node:24-bookworm-slim
+FROM node:26.13.1-bookworm-slim@sha256:0042e17d232a87a2cd485be1da7900fca4d10a4ad11b29e9285da1d2e54798c9
 ARG CODEX_RUNNER_VERSION=development
 LABEL org.opencontainers.image.source="https://github.com/zailghe3/artifact-dev-toolkit" \
       org.opencontainers.image.revision="$CODEX_RUNNER_VERSION"
@@ -48,7 +48,7 @@ RUN test "$(grep -Ec '^precedence[[:space:]]+' /tmp/gai.conf)" = 5 && \
     grep -Eq '^precedence[[:space:]]+::ffff:0:0/96[[:space:]]+100$' /tmp/gai.conf && \
     ! grep -Eiq 'openai|cloudflare|([0-9]{1,3}\.){3}[0-9]{1,3}' /tmp/gai.conf && \
     install -m 0644 /tmp/gai.conf /etc/gai.conf && rm /tmp/gai.conf
-# Satisfy Codex 0.159.3's configured-home contract before executing the CLI.
+# Satisfy Codex 0.172.0's configured-home contract before executing the CLI.
 RUN mkdir -p /data/codex /data/codex-sqlite /data/runner /data/repositories /workspaces && \
     chown node:node /data/codex /data/codex-sqlite /data/runner /data/repositories /workspaces && \
     chmod 0700 /data/codex /data/codex-sqlite /data/runner /data/repositories /workspaces

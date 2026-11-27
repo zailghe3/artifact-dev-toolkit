@@ -10,7 +10,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT=true;
 const originalLoad=Module._load,navigations=[];
 Module._load=function(request,parent,isMain){
  if(request==='next/navigation')return{useRouter:()=>({push:path=>navigations.push(path),refresh(){}})};
- if(request==='@xyflow/react')return{ReactFlow:props=>React.createElement('mock-flow',props),Background:()=>null,Controls:()=>null,Handle:()=>null,Position:{Left:'left',Right:'right'},addEdge:(edge,edges)=>[...edges,edge],applyEdgeChanges:(_changes,edges)=>edges,applyNodeChanges:(_changes,nodes)=>nodes};
+ if(request==='@xyflow/react')return{ReactFlow:props=>React.createElement('mock-flow',props),Background:()=>null,Controls:()=>null,Handle:()=>null,Position:{Left:'left',Right:'right'},addEdge:(edge,edges)=>[...edges,edge]};
  return originalLoad.call(this,request,parent,isMain);
 };
 const requireTsx=installTsxHook(),{WorkflowDefinitionEditor}=requireTsx('../components/WorkflowDefinitionEditor.tsx');
