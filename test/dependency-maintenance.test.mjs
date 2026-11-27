@@ -36,8 +36,12 @@ test('runtime and runner Dependabot groups cover their routine dependency domain
 
   assert.deepEqual(runtimeGroups['openai-provider-minor-patch'].patterns, ['@openai/agents', 'openai']);
   assert.deepEqual(runtimeGroups['langgraph-minor-patch'].patterns, ['@langchain/langgraph', '@langchain/langgraph-checkpoint']);
-  assert.deepEqual(runtimeGroups['mcp-minor-patch'].patterns, ['@modelcontextprotocol/sdk']);
+  assert.deepEqual(runtimeGroups['mcp-minor-patch'].patterns, ['@modelcontextprotocol/client']);
   assert.deepEqual(runtimeGroups['runtime-support-minor-patch'].patterns, [
+    'gray-matter',
+    'pg',
+    '@types/pg',
+    'esbuild',
     'zod',
     'ws',
     'undici',

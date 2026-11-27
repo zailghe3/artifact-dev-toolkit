@@ -116,7 +116,6 @@ updates:
           - patch
       runtime-support-minor-patch:
         patterns:
-          - "@secureagentics/adrian"
           - gray-matter
           - pg
           - "@types/pg"
