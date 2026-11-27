@@ -35,9 +35,11 @@ done
 docker exec "$container" createdb -U adt_bootstrap -O adt_runtime adt_restore
 docker exec "$container" createdb -U adt_bootstrap -O adt_runtime adt_coordinator
 docker exec "$container" createdb -U adt_bootstrap -O adt_runtime adt_conversations
+docker exec "$container" createdb -U adt_bootstrap -O adt_runtime adt_interactions
 endpoint=$(docker port "$container" 5432/tcp)
 cd "$repo"
 ADT_TEST_POSTGRES_CONTAINER="$container" \
 ADT_TEST_POSTGRES_URL="postgresql://adt_runtime:disposable-app-test-password@$endpoint/adt" \
 ADT_TEST_POSTGRES_RESTORE_URL="postgresql://adt_runtime:disposable-app-test-password@$endpoint/adt_restore" \
-  node --test test/integration/postgres-runtime-integration.test.mjs test/integration/conversation-postgres.test.mjs
+  node --test test/integration/postgres-runtime-integration.test.mjs test/integration/conversation-postgres.test.mjs \
+    test/integration/workflow-interactions-postgres.test.mjs

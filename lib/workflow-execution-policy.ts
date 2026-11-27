@@ -1,4 +1,5 @@
 import {z} from "zod";
+import {isHumanInteractionBlock} from "../adt-runtime/src/workflow-interaction-contract.ts";
 import {ADVISOR_WORKFLOW_ID,executionPolicySchema} from "../adt-runtime/src/conversation-contract.ts";
 import {isAdtDataTool} from "./adt-data-contract.ts";
 import {validateAgentConnectionOptions,type AgentDefinitionV1,type GenericWorkflowExecutionPlan} from "./workflow-definitions.ts";
@@ -31,7 +32,7 @@ export function assertWorkflowPolicyCommissioned(run: PolicySources & Pick<Workf
 /** Closed capability allowlist: external tools and provider-hosted actions cannot be proven read-only. */
 export function assertReadOnlyExecution(plan:GenericWorkflowExecutionPlan,agents:readonly AgentDefinitionV1[],connections:readonly ConnectionDescriptor[],mcpTools?:WorkflowRun["mcpToolSnapshots"],managed?:WorkflowRun["managedCodeRepositoryContexts"],legacy=false){
   const restricted = legacy ? "advisor_read_only_required" : "execution_read_only_required";
-  if(plan.nodes.some(node=>!["agent","condition","join","approval","knowledge-proposal"].includes(node.blockType))||Object.values(mcpTools??{}).some(tools=>tools.length)||Object.keys(managed??{}).length)throw new Error(restricted);
+  if(plan.nodes.some(node=>!["agent","condition","join","knowledge-proposal","display-output"].includes(node.blockType)&&!isHumanInteractionBlock(node.blockType))||Object.values(mcpTools??{}).some(tools=>tools.length)||Object.keys(managed??{}).length)throw new Error(restricted);
   const byId=new Map(agents.map(agent=>[agent.id,agent]));
   for(const node of plan.nodes){
     if(node.blockType!=="agent")continue;

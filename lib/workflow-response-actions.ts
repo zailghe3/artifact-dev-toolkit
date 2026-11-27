@@ -67,12 +67,12 @@ export class WorkflowResponseActions {
 
   async sections(runId: string, finalOutput: string | null): Promise<ResponseSection[]> {
     let final: ResponseSection = { id: `${runId}:output`, markdown: finalOutput ?? "" };
-    const { results } = await this.database.prepare(`SELECT id,label,response_section FROM workflow_run_actions
+    const { results } = await this.database.prepare(`SELECT id,label,response_section,sequence FROM workflow_run_actions
       WHERE run_id=? AND response_section IS NOT NULL ORDER BY sequence,id`)
-      .bind(runId).all<Pick<ActionRow, "id" | "label" | "response_section">>();
+      .bind(runId).all<Pick<ActionRow, "id" | "label" | "response_section" | "sequence">>();
     const sections: ResponseSection[] = [];
     for (const row of results) {
-      const section = { id: row.id, label: row.label, actions: [{ kind: "knowledge-proposal" as const, id: row.id }] };
+      const section = { id: row.id, label: row.label, sequence: row.sequence, actions: [{ kind: "knowledge-proposal" as const, id: row.id }] };
       if (row.response_section === "terminal") final = { ...final, label: section.label, actions: section.actions };
       else sections.push(section);
     }
@@ -83,7 +83,7 @@ export class WorkflowResponseActions {
   async historySections(runIds: string[]) {
     const sections = new Map<string, HistorySection[]>();
     if (!runIds.length) return sections;
-    const { results } = await this.database.prepare(`SELECT run_id,id,label,response_section, bytes_through<=? AS complete,
+    const { results } = await this.database.prepare(`SELECT run_id,id,label,response_section,sequence, bytes_through<=? AS complete,
       CASE WHEN response_section='terminal' THEN NULL WHEN bytes_through<=? THEN content
            WHEN bytes_through-octet_length(content)<? THEN left(content,384) END AS markdown
       FROM (SELECT run_id,id,label,content,sequence,response_section, sum(octet_length(content)) OVER (
@@ -91,10 +91,10 @@ export class WorkflowResponseActions {
         FROM workflow_run_actions WHERE run_id=ANY(?::text[]) AND response_section IS NOT NULL) AS response
       ORDER BY run_id,sequence,id`)
       .bind(MAX_CONVERSATION_INPUT_BYTES, MAX_CONVERSATION_INPUT_BYTES, MAX_CONVERSATION_INPUT_BYTES, runIds)
-      .all<{ run_id: string; id: string; label: string; complete: boolean; markdown: string | null; response_section: "section" | "terminal" }>();
-    for (const { run_id, id, label, complete, markdown, response_section } of results) {
+      .all<{ run_id: string; id: string; label: string; complete: boolean; markdown: string | null; sequence: number; response_section: "section" | "terminal" }>();
+    for (const { run_id, id, label, complete, markdown, response_section, sequence } of results) {
       const response = sections.get(run_id) ?? [];
-      response.push({ id, label, complete, markdown: markdown ?? "", terminal: response_section === "terminal" });
+      response.push({ id, label, complete, markdown: markdown ?? "", sequence, terminal: response_section === "terminal" });
       sections.set(run_id, response);
     }
     return sections;

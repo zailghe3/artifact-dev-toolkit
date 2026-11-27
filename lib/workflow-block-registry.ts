@@ -1,10 +1,12 @@
 import {knowledgeProposalBlockConfigSchema} from "../adt-runtime/src/conversation-contract.ts";
 import {blockToolsSchema} from "../adt-runtime/src/agent-contract.ts";
+import {approvalOutcomes,approvalV2ConfigSchema,displayOutputConfigSchema,humanDecisionConfigSchema,
+ humanEditConfigSchema,humanInputConfigSchema} from "../adt-runtime/src/workflow-interaction-contract.ts";
 import {z} from "zod";
 
 export type BlockPort={id:string;dataType:"text";default?:boolean;multiple?:boolean};
 export type BlockInterface={inputs:readonly BlockPort[];outputs:readonly BlockPort[]};
-export type RegisteredBlock<T=unknown>={type:string;version:number;configSchema:z.ZodType<T>;interface:BlockInterface;references?:(config:T)=>{agentIds?:string[];workflowIds?:string[]};ui:{label:string;description:string};authoring:{configTemplate:unknown;guide:string}};
+export type RegisteredBlock<T=unknown>={type:string;version:number;configSchema:z.ZodType<T>;interface:BlockInterface;outputPorts?:(config:T)=>readonly BlockPort[];references?:(config:T)=>{agentIds?:string[];workflowIds?:string[]};ui:{label:string;description:string};authoring:{configTemplate:unknown;guide:string}};
 
 export class WorkflowBlockRegistry {
  private blocks=new Map<string,RegisteredBlock>();
@@ -12,7 +14,12 @@ export class WorkflowBlockRegistry {
  resolve(type:string,version:number){const block=this.blocks.get(`${type}@${version}`);if(!block)throw new Error(this.hasType(type)?`unsupported_block_version:${type}@${version}`:`unknown_block_type:${type}`);return block;}
  validate(type:string,version:number,config:unknown){return this.resolve(type,version).configSchema.parse(config);}
  references(type:string,version:number,config:unknown){const block=this.resolve(type,version),parsed=block.configSchema.parse(config);return block.references?.(parsed)??{};}
- port(type:string,version:number,direction:"inputs"|"outputs",port?:string){const ports=this.resolve(type,version).interface[direction],resolved=port??ports.find(value=>value.default)?.id;if(!resolved||!ports.some(value=>value.id===resolved))throw new Error(`unknown_${direction==="inputs"?"target":"source"}_port:${port??"default"}`);return resolved;}
+ ports(type:string,version:number,direction:"inputs"|"outputs",config?:unknown){
+  const block=this.resolve(type,version);
+  return direction==="outputs"&&block.outputPorts
+   ?block.outputPorts(block.configSchema.parse(config??block.authoring.configTemplate)):block.interface[direction];
+ }
+ port(type:string,version:number,direction:"inputs"|"outputs",port?:string,config?:unknown){const ports=this.ports(type,version,direction,config),resolved=port??ports.find(value=>value.default)?.id;if(!resolved||!ports.some(value=>value.id===resolved))throw new Error(`unknown_${direction==="inputs"?"target":"source"}_port:${port??"default"}`);return resolved;}
  metadata(){return [...this.blocks.values()].map(({type,version,interface:ports,ui,authoring})=>({type,version,interface:ports,ui,authoring}));}
  private hasType(type:string){return [...this.blocks.values()].some(block=>block.type===type);}
 }
@@ -30,6 +37,11 @@ export const APPROVAL_MESSAGE_MAX_LENGTH=2000;
 export const approvalBlockConfigSchema=z.object({message:z.string().trim().min(1).max(APPROVAL_MESSAGE_MAX_LENGTH)}).strict();
 export const subworkflowBlockConfigSchema=z.object({workflowId:z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(80)}).strict();
 export const publishGitHubPrBlockConfigSchema=z.object({sourceNodeId:z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(80),title:z.string().trim().min(1).max(256),body:z.string().max(65536),draft:z.boolean()}).strict();
+const inputPort:BlockPort={id:"in",dataType:"text",default:true};
+const outputPort:BlockPort={id:"out",dataType:"text",default:true};
+const textInterface:BlockInterface={inputs:[inputPort],outputs:[outputPort]};
+const approvePort:BlockPort={id:"approve",dataType:"text",default:true};
+
 export const workflowBlockRegistry=new WorkflowBlockRegistry()
  .register({type:"agent",version:1,configSchema:agentBlockConfigSchema,interface:{inputs:[{id:"in",dataType:"text",default:true}],outputs:[{id:"out",dataType:"text",default:true}]},references:config=>({agentIds:[config.agentId]}),authoring:{configTemplate:{agentId:"agent-id"},guide:"Select an available Agent by stable ID."},ui:{label:"Agent",description:"Runs an ADT Agent with incoming text."}})
  .register({type:"agent",version:2,configSchema:agentBlockV2ConfigSchema,interface:{inputs:[{id:"in",dataType:"text",default:true}],outputs:[{id:"out",dataType:"text",default:true}]},references:config=>({agentIds:[config.agentId]}),authoring:{configTemplate:{agentId:"agent-id",context:{publishOutput:false,includeRunInput:false,includeNodeOutputs:[]}},guide:"Context is optional. includeNodeOutputs selects up to 16 structurally earlier Agent node IDs whose agent@2 or agent@3 context.publishOutput is true. It does not create edges."},ui:{label:"Agent",description:"Runs an ADT Agent with incoming text and explicitly selected Workflow context."}})
@@ -37,6 +49,27 @@ export const workflowBlockRegistry=new WorkflowBlockRegistry()
  .register({type:"agent",version:4,configSchema:agentBlockV4ConfigSchema,interface:{inputs:[{id:"in",dataType:"text",default:true}],outputs:[{id:"out",dataType:"text",default:true}]},references:config=>({agentIds:[config.agentId]}),authoring:{configTemplate:{agentId:"agent-id",context:{publishOutput:false,includeRunInput:false,includeNodeOutputs:[]},conversation:{sourceNodeId:"prior-agent-node"}},guide:"Optional toolRestrictions inherits when allowlist is absent; [] disables every tool. Use only inherited grant identities. requireApproval strengthens policy and limits lowers execution bounds. Context and conversation retain prior Agent block semantics."},ui:{label:"Agent",description:"Runs an ADT Agent with independently selected Workflow context and Codex conversation lineage."}})
  .register({type:"condition",version:1,configSchema:conditionBlockConfigSchema,interface:{inputs:[{id:"in",dataType:"text",default:true}],outputs:[{id:"true",dataType:"text",default:true},{id:"false",dataType:"text"}]},authoring:{configTemplate:{operator:"contains",value:"approved",caseSensitive:false},guide:"value is nonempty text up to 4096 characters. Exactly one incoming edge and one outgoing edge on each of true and false."},ui:{label:"Condition",description:"Routes incoming text through a bounded contains predicate."}})
  .register({type:"approval",version:1,configSchema:approvalBlockConfigSchema,interface:{inputs:[{id:"in",dataType:"text",default:true}],outputs:[{id:"out",dataType:"text",default:true}]},authoring:{configTemplate:{message:"Approve this result?"},guide:"Nonempty review message up to 2000 characters. Passes incoming text unchanged after approval. Cannot appear inside parallel fan-out."},ui:{label:"Approval",description:"Pauses for authorised human approval, then passes incoming text unchanged."}})
+ .register({type:"approval",version:2,configSchema:approvalV2ConfigSchema,interface:{inputs:[inputPort],outputs:[approvePort]},
+  outputPorts:config=>approvalOutcomes(config).map(id=>id==="approve"?approvePort:{id,dataType:"text"}),
+  authoring:{configTemplate:{message:"Review this result",allowRevision:false,allowReject:false,requireRevisionFeedback:true},
+   guide:"Connect approve and each enabled revise outcome. An enabled reject outcome can end the Run or follow a connected branch."},
+  ui:{label:"Approval",description:"Review content and choose an approval outcome."}})
+ .register({type:"human-decision",version:1,configSchema:humanDecisionConfigSchema,interface:textInterface,
+  outputPorts:config=>config.source==="static"&&config.routing==="branches"?config.options.map(({id})=>({id,dataType:"text"})):[outputPort],
+  authoring:{configTemplate:{source:"static",message:"Which option should the Workflow use?",routing:"data",allowGuidance:false,
+    options:[{id:"first",title:"First option"},{id:"second",title:"Second option"}]},
+   guide:"Static branch routing requires one edge per option ID. Static data routing and dynamic Agent JSON use the fixed out port."},
+  ui:{label:"Human Decision",description:"Ask the user to select an option."}})
+ .register({type:"human-input",version:1,configSchema:humanInputConfigSchema,interface:textInterface,
+  authoring:{configTemplate:{questionSource:"configured",question:"What should we take into account?",required:true,showContext:false,includeContext:false},
+   guide:"Use a configured question or the incoming text. Choose separately whether to show and pass along the incoming context."},
+  ui:{label:"Human Input",description:"Ask the user for a written answer."}})
+ .register({type:"human-edit",version:1,configSchema:humanEditConfigSchema,interface:textInterface,
+  authoring:{configTemplate:{message:"Review and edit this text"},guide:"Presents incoming text and continues with the exact version confirmed by the user."},
+  ui:{label:"Human Edit",description:"Ask the user to review or edit the incoming text."}})
+ .register({type:"display-output",version:1,configSchema:displayOutputConfigSchema,interface:textInterface,
+  authoring:{configTemplate:{label:"Draft"},guide:"Shows the incoming text when this block completes and passes it through unchanged."},
+  ui:{label:"Display Output",description:"Show an intermediate result while the Workflow continues."}})
  .register({type:"publish-github-pr",version:1,configSchema:publishGitHubPrBlockConfigSchema,interface:{inputs:[{id:"managed-result",dataType:"text",default:true}],outputs:[{id:"pull-request",dataType:"text",default:true}]},authoring:{configTemplate:{sourceNodeId:"managed-agent-node",title:"ADT managed change",body:"Published by ADT.",draft:true},guide:"Must directly follow the source Agent node, whose Agent supports managed publication. Nonempty title up to 256 characters, body up to 65536 characters; draft is required boolean."},ui:{label:"Publish GitHub PR",description:"Publishes a managed Codex result as a draft or ready pull request."}})
  .register({type:"knowledge-proposal",version:1,configSchema:knowledgeProposalBlockConfigSchema,interface:{inputs:[{id:"in",dataType:"text",default:true}],outputs:[{id:"out",dataType:"text",default:true}]},authoring:{configTemplate:{label:"Knowledge finding"},guide:"Takes text from one preceding block. An optional label identifies the output section. Passes the text through unchanged and offers a human-reviewed knowledge action after success."},ui:{label:"Knowledge Proposal",description:"Offers the preceding output for human review and publication as knowledge."}})
  .register({type:"subworkflow",version:1,configSchema:subworkflowBlockConfigSchema,interface:{inputs:[{id:"in",dataType:"text",default:true}],outputs:[{id:"out",dataType:"text",default:true}]},references:config=>({workflowIds:[config.workflowId]}),authoring:{configTemplate:{workflowId:"reusable-workflow-id"},guide:"Reference an available reusable Workflow by stable ID. Composition must remain acyclic and within graph limits."},ui:{label:"Reusable workflow",description:"Runs an exposed Workflow v2 definition in this run."}})

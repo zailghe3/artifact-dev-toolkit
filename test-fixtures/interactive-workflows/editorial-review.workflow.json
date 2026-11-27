@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 2,
+  "id": "editorial-review",
+  "name": "Editorial Review",
+  "description": "Clarify the brief, edit the draft, and approve or request a revision.",
+  "status": "draft",
+  "nodes": [
+    { "id": "clarify", "blockType": "human-input", "blockVersion": 1, "config": {
+      "questionSource": "configured", "question": "Who will read this draft?", "placeholder": "Describe the intended audience",
+      "includeContext": true, "required": true
+    } },
+    { "id": "draft", "blockType": "agent", "blockVersion": 4, "config": { "agentId": "drafter" } },
+    { "id": "edit", "blockType": "human-edit", "blockVersion": 1, "config": { "message": "Review and edit the draft." } },
+    { "id": "review", "blockType": "approval", "blockVersion": 2, "config": {
+      "message": "How should we proceed with this version?", "allowRevision": true, "allowReject": true
+    } },
+    { "id": "final", "blockType": "display-output", "blockVersion": 1, "config": { "label": "Approved draft" } }
+  ],
+  "edges": [
+    { "id": "clarify-draft", "source": "clarify", "target": "draft" },
+    { "id": "draft-edit", "source": "draft", "target": "edit" },
+    { "id": "edit-review", "source": "edit", "target": "review" },
+    { "id": "approve", "source": "review", "sourcePort": "approve", "target": "final" },
+    { "id": "revise", "source": "review", "sourcePort": "revise", "target": "draft" }
+  ],
+  "limits": { "maxStepExecutions": 16 }
+}

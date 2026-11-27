@@ -84,7 +84,9 @@ Current Workflow behaviour: [Agent Workflows specification](specs/agent-workflow
 
 - Conversations bind a Git-backed execution target to ordered user messages and Runs. Runtime admits a turn together with its Run and freezes the assembled history at that boundary.
 - A launch freezes the validated definitions and authority required for that run.
-- ADT Runtime owns scheduling, recovery, checkpoints, attempts, approvals, tool journals, provider-safety state, and durable run outcomes in PostgreSQL.
+- ADT Runtime owns scheduling, recovery, checkpoints, attempts, Workflow interaction requests and responses, tool journals, provider-safety state, and durable run outcomes in PostgreSQL.
+- Workflow interactions bind the exact request and response to a frozen activation. Tool authorization uses its own exact-call authority.
+- Conversation and standalone Run views read the same interaction history. Displayed output and activity use committed checkpoint and attempt evidence.
 - LangGraph sequences the frozen ADT graph but does not define ADT's domain model.
 - Provider work with a durable external identity is observed or reconciled. Synchronous or otherwise ambiguous side effects are not automatically repeated.
 

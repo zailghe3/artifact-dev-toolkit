@@ -8,7 +8,7 @@ import { type LangGraphAdvanceRequest } from "./adt-runtime-client.ts";
 import { projectExecutionPlanForRuntime } from "./workflow-definitions.ts";
 import { type D1ProviderCredentialVault } from "./provider-credential-vault.ts";
 import { type RunRepositoryContext, type WorkflowRun } from "./workflow-storage.ts";
-import { D1WorkflowApprovalStore } from "./workflow-approvals.ts";
+import { WorkflowInteractions } from "./workflow-interactions.ts";
 import { AgentJournal } from "./agent-journal.ts";
 import { checkAgentToolWait } from "./agent-tool-wait.ts";
 import { cancelRuntimeWorkflow, executeWorkflowGraphNode,type WorkflowExecutionEnvironment } from "./workflow-worker-runtime.ts";
@@ -46,7 +46,7 @@ export function createWorkflowCoordinator(options: WorkflowExecutionOptions) {
     const database = new PostgresWorkflowDatabase(options.pool, client => leases.guard(client, lease));
     const storage = new D1WorkflowRunStorage(database);
     const journal = new AgentJournal(database);
-    const approvals = new D1WorkflowApprovalStore(database);
+    const approvals = new WorkflowInteractions(database);
     const detail = await storage.getRun(lease.id);
     if (!detail || !active.has(detail.run.status) || detail.run.workflowGeneration !== lease.generation) return 0;
     const { run } = detail;
@@ -80,7 +80,7 @@ export function createWorkflowCoordinator(options: WorkflowExecutionOptions) {
       if (String(url) !== localGraphUrl + "agent") throw new Error("invalid_graph_endpoint");
       const { inputText, ...scope } = payload as GraphNodeAuthorityScope & { inputText: string };
       const result = await executeWorkflowGraphNode(options.env, scope, inputText, {
-        database, vault, repositoryCredential: options.credential, managedCredential: options.managedCredential,
+        database, vault, suspendedRunMs: suspended, repositoryCredential: options.credential, managedCredential: options.managedCredential,
       });
       return Response.json(result, { status: result.state === "failed" ? 422 : 200 });
     };
@@ -101,6 +101,15 @@ export function createWorkflowCoordinator(options: WorkflowExecutionOptions) {
       request.approvalResume = { requestId: approval.requestId, interruptId: approval.interruptId, approved: true };
       result = await advanceGenericGraph(request, execute, recordKnowledge);
     }
+    if (result.state === "interaction_required") {
+      const interaction = await approvals.requireInteraction({ ...result, runId: run.id, generation: lease.generation });
+      if (!interaction) return 0;
+      if (!interaction.response) return waitDelay;
+      if (!await approvals.consumeInteraction(run.id, lease.generation, interaction.id)) return 0;
+      result = await advanceGenericGraph({ ...request, interactionResume: {
+        activationId: interaction.activationId, interruptId: interaction.interruptId, response: interaction.response,
+      } }, execute, recordKnowledge);
+    }
     if (result.state === "admission_required") {
       const authorities: Extract<LangGraphAdvanceRequest["nodeGateway"], { authorities: unknown }>["authorities"] = [];
       for (const activation of result.frontier) {
@@ -116,14 +125,25 @@ export function createWorkflowCoordinator(options: WorkflowExecutionOptions) {
       const attempt = latest.attempts.filter(item => item.stepId === plan.terminalNodeId && item.status === "succeeded").at(-1);
       const output = terminal?.blockType === "knowledge-proposal"
         ? await actions.terminalOutput(latest, plan.terminalNodeId, result.terminalActivationId, result.outputText)
-        : { text: attempt?.outputText, url: attempt?.outputExternalUrl, actionId: undefined };
+        : terminal?.blockType === "display-output"
+          ? { text: result.terminalActivationId === undefined ? undefined : result.outputText, actionId: undefined, url: undefined }
+          : { text: attempt?.outputText, url: attempt?.outputExternalUrl, actionId: undefined };
       if (output.text === undefined || output.text !== result.outputText) throw new Error("workflow_output_unverified");
       await database.transaction(async db => {
-        await new D1WorkflowRunStorage(db).completeRun(run.id, plan.terminalNodeId, result.outputText, output.url, output.actionId);
+        await new D1WorkflowRunStorage(db).completeRun(run.id, plan.terminalNodeId, result.outputText, output.url, output.actionId,
+          terminal?.blockType === "display-output" ? result.terminalActivationId : undefined);
         if (plan.nodes.some(node => node.blockType === "knowledge-proposal")) {
           await new WorkflowResponseActions(db).publish(run.id, output.actionId);
         }
       });
+      return 0;
+    }
+    if (result.state === "human_rejected") {
+      await database.prepare(`UPDATE workflow_runs SET status='rejected',current_step_id=NULL,orchestration_diagnostics_json=NULL,
+        completed_at=clock_timestamp(),updated_at=clock_timestamp(),state_version=state_version+1
+        WHERE id=? AND workflow_generation=? AND status='running' AND cancel_requested_at IS NULL
+        AND EXISTS (SELECT 1 FROM committed_workflow_activities(?) WHERE activation_id=? AND node_id=? AND route='reject')`)
+        .bind(run.id, lease.generation, run.id, result.activationId, result.nodeId).run();
       return 0;
     }
     if (result.state === "failed") {
@@ -131,6 +151,11 @@ export function createWorkflowCoordinator(options: WorkflowExecutionOptions) {
       return finished ? 0 : pendingDelay;
     }
     if (result.state === "graph_failure" || result.state === "execution_limit") {
+      if ("activationId" in result && result.activationId) {
+        await database.prepare(`UPDATE workflow_runs SET failed_graph_activation_id=?,current_step_id=?
+          WHERE id=? AND status IN ('queued','running','waiting_approval') AND cancel_requested_at IS NULL`)
+          .bind(result.activationId, result.nodeId, run.id).run();
+      }
       await storage.failRun(run.id, "failureCode" in result && result.failureCode || "internal_error", result.safeMessage ?? "Workflow graph execution failed.");
       return 0;
     }

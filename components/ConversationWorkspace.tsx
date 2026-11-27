@@ -11,6 +11,8 @@ import { ContentLoading } from "@/components/ContentLoading";
 import { buttonStyles } from "@/components/Ui";
 import { WorkflowApprovalAction, WorkflowRunActions } from "@/components/WorkflowRunControls";
 import { WorkflowStatusBadge } from "@/components/WorkflowStatusBadge";
+import { WorkflowRunContentView } from "@/components/WorkflowRunContent";
+import { WorkflowRunActivity } from "@/components/WorkflowRunActivity";
 import { WorkflowResponse, safeResponseHref } from "@/components/WorkflowResponse";
 import { conversationHref, conversationRequest, ConversationRequestError, jsonTurnRequest, type ConversationView } from "@/lib/conversation-client";
 import { isTerminalTurn, type ConversationDetail, type ConversationLaunch, type ConversationList, type ConversationSummary,
@@ -100,8 +102,8 @@ function ConversationHistory({ view, id, refresh }: { view: ConversationView; id
   </aside>;
 }
 
-function Turn({ turn, selected, onSelect, showSelection, children }: {
-  turn: ConversationTurn; selected: boolean; showSelection: boolean; onSelect: () => void; children?: React.ReactNode;
+function Turn({ turn, selected, onSelect, showSelection, onChanged, children }: {
+  turn: ConversationTurn; selected: boolean; showSelection: boolean; onSelect: () => void; onChanged?: () => void; children?: React.ReactNode;
 }) {
   const external = turn.externalUrl && safeResponseHref(turn.externalUrl);
   return <article className="min-w-0 space-y-4" id={`turn-${turn.id}`} aria-label={`Turn ${turn.ordinal}`}>
@@ -112,7 +114,8 @@ function Turn({ turn, selected, onSelect, showSelection, children }: {
     <div className="min-w-0">
       <div className="mb-2 flex flex-wrap items-center gap-x-2.5 gap-y-1">
         <h3 className="font-semibold">{turn.targetName}</h3>
-        <WorkflowStatusBadge status={turn.status} />
+        <WorkflowStatusBadge status={turn.content?.active
+          ? turn.content.active.actionable ? "waiting for your response" : "response recorded" : turn.status} />
         {turn.generation > 1 && <span className="text-xs text-muted-foreground">Retry {turn.generation - 1} of this turn</span>}
         <Link href={`/workflows/runs/${turn.runId}`} className="ml-auto inline-flex items-center gap-1 text-xs font-medium text-muted-foreground underline-offset-4 hover:underline">
           <GitBranch className="size-3.5" aria-hidden="true" />Run details
@@ -131,9 +134,11 @@ function Turn({ turn, selected, onSelect, showSelection, children }: {
       {turn.status === "queued" || turn.status === "running" || turn.status === "cancelling" ? <p role="status" className="text-sm text-muted-foreground">
         {turn.status === "queued" ? "Waiting for Runtime…" : turn.status === "cancelling" ? "Cancelling the Run…" : "Workflow execution is in progress…"}
       </p> : null}
-      {turn.sections.length > 0 && <WorkflowResponse runId={turn.runId} sections={turn.sections} />}
+      {turn.status === "rejected" && <p className="text-sm text-muted-foreground">The result was rejected and the Run ended.</p>}
+      <WorkflowRunActivity runId={turn.runId} status={turn.status} />
+      <WorkflowRunContentView runId={turn.runId} page={turn.content} sections={turn.sections} onChanged={onChanged} />
       {external && <a className={`${buttonStyles.secondary} mt-3`} href={external} target="_blank" rel="noopener noreferrer">Open Run output</a>}
-      {showSelection && turn.status === "succeeded" && <button type="button" aria-pressed={selected} className={`${buttonStyles.subtle} mt-2 text-xs`}
+      {showSelection && (turn.status === "succeeded" || turn.status === "rejected") && <button type="button" aria-pressed={selected} className={`${buttonStyles.subtle} mt-2 text-xs`}
         onClick={onSelect}>{selected ? "Exact exchange selected" : "Include exact exchange in next message"}</button>}
       {children}
     </div>
@@ -220,9 +225,11 @@ function ConversationThread({ view, id, preselected, draftScope, onChanged }: {
     return () => clearInterval(timer);
   }, [active, id, reload]);
 
+  const lastContent = newest?.content?.items.at(-1);
+  const latestContentId = lastContent?.kind === "display" ? lastContent.section.id : lastContent?.id;
   useEffect(() => {
     if (pinnedToBottom.current && pane.current) pane.current.scrollTop = pane.current.scrollHeight;
-  }, [newest?.id, newest?.status, data?.approval?.requestId]);
+  }, [newest?.id, latestContentId, data?.approval?.requestId]);
 
   function remember(submission?: ConversationSubmission) {
     setPending(submission);
@@ -250,8 +257,8 @@ function ConversationThread({ view, id, preselected, draftScope, onChanged }: {
   const message = draft ?? selectedTarget?.starter ?? "";
   const availableTarget = data?.conversation.target ?? selectedTarget;
   const waitingForLaunch = Boolean(accepted && (!id || data?.head.id !== accepted));
-  const canSend = !waitingForLaunch && !sending && (Boolean(pending) ||
-    (!active && Boolean(availableTarget) && Boolean(message.trim()) && (!id || Boolean(data))));
+  const canSend = !active && !waitingForLaunch && !sending && (Boolean(pending) ||
+    (Boolean(availableTarget) && Boolean(message.trim()) && (!id || Boolean(data))));
   async function send(event: FormEvent) {
     event.preventDefault();
     if (sendingRef.current || !canSend) return;
@@ -336,7 +343,7 @@ function ConversationThread({ view, id, preselected, draftScope, onChanged }: {
         {earlier && <button type="button" className={`${buttonStyles.secondary} mb-5`} disabled={loadingOlder}
           onClick={() => void loadEarlier()}>{loadingOlder ? "Loading…" : "Load earlier exchanges"}</button>}
         <div className="space-y-9">
-          {turns.map(turn => <Turn key={turn.id} turn={turn} selected={exactTurns.includes(turn.id)}
+          {turns.map(turn => <Turn key={turn.id} turn={turn} onChanged={() => void reload()} selected={exactTurns.includes(turn.id)}
             showSelection={!exactTurns.length || exactTurns.includes(turn.id) || exactTurns.length < MAX_EXACT_TURNS}
             onSelect={() => setExactTurns(keys => keys.includes(turn.id) ? keys.filter(key => key !== turn.id) : [...keys, turn.id])}>
             {turn.id === newest?.id && <>
@@ -344,11 +351,13 @@ function ConversationThread({ view, id, preselected, draftScope, onChanged }: {
                 <h4 className="font-semibold">Workflow approval</h4>
                 <p>{data.approval.message}</p>
                 <details><summary className="cursor-pointer text-sm">Review input</summary>
-                  <pre className="max-h-64 overflow-auto whitespace-pre-wrap wrap-anywhere p-2 text-sm">{data.approval.reviewText}</pre>
+                  <WorkflowResponse runId={turn.runId} sections={[{ id: data.approval.requestId, markdown: data.approval.reviewText }]} />
                 </details>
                 <WorkflowApprovalAction runId={turn.runId} requestId={data.approval.requestId} onAction={() => void reload()} />
               </div>}
-              {data?.awaitingToolReview && <AgentToolInspector runId={turn.runId} />}
+              {data?.awaitingToolReview && <div className="space-y-2">
+                <h4 className="text-sm font-semibold">Sensitive tool approval</h4><AgentToolInspector runId={turn.runId} />
+              </div>}
               <WorkflowRunActions runId={turn.runId} status={turn.status} retryEligible={Boolean(data?.retryEligible)}
                 onAction={() => void reload()} />
             </>}
@@ -375,7 +384,7 @@ function ConversationThread({ view, id, preselected, draftScope, onChanged }: {
             <span className="sr-only">{id ? "Follow-up message" : "Message"}</span>
             <textarea className="block max-h-72 min-h-12 w-full resize-y rounded-lg bg-transparent px-2 py-2 text-sm outline-none"
               rows={2} maxLength={65_536} value={pending?.message ?? message} onChange={event => setDraft(event.target.value)}
-              disabled={Boolean(pending) || waitingForLaunch} placeholder={id ? "Ask a follow-up…" : "Enter a message…"}
+              disabled={Boolean(pending) || waitingForLaunch || Boolean(active)} placeholder={active ? "Current turn in progress" : id ? "Ask a follow-up…" : "Enter a message…"}
               onKeyDown={event => { if (event.key === "Enter" && (event.ctrlKey || event.metaKey) && !event.nativeEvent.isComposing) event.currentTarget.form?.requestSubmit(); }} />
           </label>
           <button type="submit" className={buttonStyles.primary} aria-label={pending ? "Retry submission" : "Send message"}
@@ -383,7 +392,8 @@ function ConversationThread({ view, id, preselected, draftScope, onChanged }: {
             <ArrowUp aria-hidden="true" className="size-4" />{sending ? "Sending…" : pending ? "Retry submission" : "Send"}
           </button>
         </div>
-        {active && <p className="text-xs text-muted-foreground">You can send a follow-up when this turn finishes.</p>}
+        {active && <p className="text-xs text-muted-foreground">{newest?.content?.active?.actionable
+          ? "Respond to the Workflow above to continue this Run." : "You can send a follow-up when this turn finishes."}</p>}
       </div>
     </form>}
   </section>;

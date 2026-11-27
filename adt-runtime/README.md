@@ -76,7 +76,7 @@ Do not provision Cloudflare credentials, GitHub App private keys, browser-sessio
 - Authenticated service requests are replay-protected and fail closed when malformed, stale, incompatible, or unsupported.
 - Runtime advances the frozen ADT Workflow plan from durable PostgreSQL state.
 - Workflow leases/fencing prevent a stale Runtime owner from committing after authority moves to another instance.
-- Approvals and tool waits survive Runtime replacement.
+- Workflow interactions, existing approvals, and sensitive tool waits survive Runtime replacement. See [Deploy interactive Workflows](../docs/runtime-postgresql.md#deploy-interactive-workflows).
 - Provider/tool work is durably journaled before later execution depends on it.
 - Durable external task identities are polled/reconciled when available.
 - Ambiguous synchronous provider/tool outcomes remain explicit and are not automatically replayed.

@@ -29,7 +29,7 @@ const namedWorkflow = z.object({ name: z.string() });
 const historySchema = z.array(z.object({
   id: z.string().min(1),
   workflowId: z.string().min(1),
-  status: z.enum(["queued", "running", "waiting_approval", "cancelling", "succeeded", "failed", "cancelled"]),
+  status: z.enum(["queued", "running", "waiting_approval", "cancelling", "succeeded", "failed", "cancelled", "rejected"]),
   createdAt: z.string(),
   startedAt: z.string().optional(),
   completedAt: z.string().optional(),
@@ -129,6 +129,10 @@ async function requestRuntimeControl<T>(config: ADTRuntimeConfiguration, input: 
   if (response.ok || wire.ok !== false) return fail("response", "malformed_response");
   const code = runtimeControlErrorCodeSchema.safeParse(wire.code ?? wire.error?.code).data;
   if (!code) return fail("response", "malformed_response");
+  if (code === "invalid_request" && (["runs.interaction", "runs.activity", "runs.content", "runs.display"].includes(input.operation) ||
+      input.operation === "runs.launch" && input.interactionVersion)) {
+    return fail("validation", "request_rejected", "workflow_interaction_runtime_unavailable");
+  }
   if (code === "invalid_request" && (input.operation.startsWith("conversations.") || input.operation === "runs.action" ||
       input.operation === "knowledge.from-action" || input.operation === "runs.launch" && input.conversation)) {
     return fail("validation", "request_rejected", "conversation_runtime_unavailable");

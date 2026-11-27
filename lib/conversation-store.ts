@@ -6,6 +6,7 @@ import { CONVERSATION_CONTEXT_LOOKBACK, CONVERSATION_SUMMARY_BATCH_SIZE, CONVERS
 import { isTerminalTurn, type ConversationDetail, type ConversationLaunch, type ConversationList, type ConversationSummary } from "./conversation-types.ts";
 import { D1WorkflowApprovalStore } from "./workflow-approvals.ts";
 import { D1WorkflowRunStorage } from "./workflow-d1-storage.ts";
+import { WorkflowRunContent } from "./workflow-run-content.ts";
 import { WorkflowResponseActions } from "./workflow-response-actions.ts";
 import { manualRetryEligibility, type RunDetail, type RunRepositoryContext, type RunStatus, type WorkflowRun } from "./workflow-storage.ts";
 
@@ -16,7 +17,7 @@ type ConversationRow = {
 type TurnHead = { id: string; ordinal: number; run_id: string; workflow_generation: number; status: RunStatus; context_json: string };
 type TurnRow = TurnHead & {
   message: string; created_at: string; target_name: string; definition_digest: string; previous_definition_digest: string | null;
-  failure_message: string | null; final_output: string | null; final_external_url: string | null;
+  failure_message: string | null; final_output: string | null; final_external_url: string | null; interactive: boolean;
 };
 type HistoryRow = Omit<HistoryExchange, "sections"> & { run_id: string };
 
@@ -103,14 +104,15 @@ export class ConversationStore {
     const through = head.ordinal;
     const summarisedThrough = previousSummary?.throughOrdinal ?? 0;
     const select = `SELECT t.id,t.ordinal,t.message,t.run_id,
-      CASE WHEN octet_length(r.final_output)>${MAX_CONVERSATION_INPUT_BYTES} THEN left(r.final_output,600)
+      CASE WHEN r.status='rejected' THEN 'The human rejected the result and ended this Run.'
+           WHEN octet_length(r.final_output)>${MAX_CONVERSATION_INPUT_BYTES} THEN left(r.final_output,600)
            ELSE COALESCE(r.final_output,'') END AS response,
       COALESCE(octet_length(r.final_output)<=${MAX_CONVERSATION_INPUT_BYTES},true) AS complete
       FROM conversation_turns t JOIN workflow_runs r ON r.id=t.run_id
-      WHERE t.conversation_id=? AND t.ordinal<=? AND r.status='succeeded'`;
+      WHERE t.conversation_id=? AND t.ordinal<=? AND r.status IN ('succeeded','rejected')`;
     const [count, history, older] = await Promise.all([
       this.db.prepare(`SELECT count(*) AS total FROM conversation_turns t JOIN workflow_runs r ON r.id=t.run_id
-        WHERE t.conversation_id=? AND t.ordinal<=? AND t.ordinal>? AND r.status='succeeded'`)
+        WHERE t.conversation_id=? AND t.ordinal<=? AND t.ordinal>? AND r.status IN ('succeeded','rejected')`)
         .bind(id, through, summarisedThrough).first<{ total: number }>(),
       this.db.prepare(`SELECT * FROM (${select} ORDER BY t.ordinal DESC LIMIT ?) AS recent
         UNION ${select} AND t.id=ANY(?::uuid[])`)
@@ -119,9 +121,13 @@ export class ConversationStore {
         .bind(id, through, summarisedThrough, CONVERSATION_SUMMARY_BATCH_SIZE).all<HistoryRow>(),
     ]);
     const runIds = [...new Set([...history.results, ...older.results].map(item => item.run_id))];
-    const sections = await new WorkflowResponseActions(this.db).historySections(runIds);
+    const [sections, interactive] = await Promise.all([
+      new WorkflowResponseActions(this.db).historySections(runIds),
+      new WorkflowRunContent(this.db).history(runIds),
+    ]);
     const asExchange = ({ run_id, complete, ...item }: HistoryRow): HistoryExchange => {
-      const responseSections = sections.get(run_id) ?? [];
+      const responseSections = [...(sections.get(run_id) ?? []), ...(interactive.get(run_id) ?? [])]
+        .sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0) || a.id.localeCompare(b.id));
       return { ...item, sections: responseSections, complete: complete && responseSections.every(section => section.complete) };
     };
     return { history: history.results.map(asExchange), rollingCandidates: older.results.map(asExchange),
@@ -167,10 +173,14 @@ export class ConversationStore {
     const head = await this.head(id);
     if (!head) throw new Error("conversation_not_found");
     const actions = new WorkflowResponseActions(this.db);
+    const contentStore = new WorkflowRunContent(this.db);
     const storage = new D1WorkflowRunStorage(this.db, undefined, this.repository.repositoryId);
     const [page, failed, approval] = await Promise.all([
       this.db.prepare(`SELECT t.id,t.message,t.ordinal,t.run_id,t.target_name,t.definition_digest,t.context_json,
         r.status,r.workflow_generation,r.created_at,r.failure_message,r.final_output,r.final_external_url,
+        EXISTS (SELECT 1 FROM json_array_elements(r.execution_plan_json->'nodes') node
+          WHERE node->>'blockType' IN ('human-decision','human-input','human-edit','display-output')
+            OR node->>'blockType'='approval' AND node->>'blockVersion'='2') AS interactive,
         p.definition_digest AS previous_definition_digest FROM conversation_turns t JOIN workflow_runs r ON r.id=t.run_id
         LEFT JOIN conversation_turns p ON p.conversation_id=t.conversation_id AND p.ordinal=t.ordinal-1
         WHERE t.conversation_id=? AND t.ordinal<=? ORDER BY t.ordinal DESC LIMIT ?`)
@@ -182,19 +192,25 @@ export class ConversationStore {
     const turns = await Promise.all(selected.map(async row => {
       const context = JSON.parse(row.context_json) as StoredConversationContext;
       const summaryUsed = context.version === CONVERSATION_CONTEXT_VERSION ? context.summaryIncluded : Boolean(context.summary);
+      const [sections, content] = await Promise.all([
+        row.status === "succeeded" ? actions.sections(row.run_id, row.final_output) : [],
+        row.interactive ? contentStore.page(row.run_id) : undefined,
+      ]);
+      const hasDisplayedTerminal = content?.items.some(item => item.kind === "display" && item.section.terminal);
       return { id: row.id, ordinal: row.ordinal, message: row.message, runId: row.run_id, status: row.status,
         generation: row.workflow_generation, createdAt: row.created_at, targetName: row.target_name,
         definitionChanged: Boolean(row.previous_definition_digest && row.previous_definition_digest !== row.definition_digest),
         summaryUsed, summaryLimited: context.version === CONVERSATION_CONTEXT_VERSION && summaryUsed && context.summary?.detailsOmitted,
         omittedHistory: context.omittedHistory,
         failureMessage: row.failure_message ?? undefined, externalUrl: row.final_external_url ?? undefined,
-        sections: row.status === "succeeded" ? await actions.sections(row.run_id, row.final_output) : [],
+        sections: hasDisplayedTerminal ? sections.filter(section => section.id !== row.run_id + ":output") : sections,
+        ...(content?.items.length ? { content } : {}),
       };
     }));
     return { conversation: view(conversation), turns, earlier: page.results.length > TURNS_PER_PAGE ? selected[0].ordinal : null,
       head: { id: head.id, generation: head.workflow_generation }, retryEligible: manualRetryEligibility(failed).eligible,
       approval: approval?.status === "pending" ? { requestId: approval.requestId, message: approval.message, reviewText: approval.reviewText } : undefined,
-      awaitingToolReview: head.status === "waiting_approval" && !approval,
+      awaitingToolReview: head.status === "waiting_approval" && !approval && !turns.at(-1)?.content?.active,
     };
   }
 

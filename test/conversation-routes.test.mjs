@@ -30,11 +30,12 @@ Module._load = function (name, parent, isMain) {
   } };
   return originalLoad.call(this, name, parent, isMain);
 };
-let routes, detail, actions;
+let routes, detail, actions, interactions;
 try {
   routes = requireTsx('../app/api/conversations/route.ts');
   detail = requireTsx('../app/api/conversations/[id]/route.ts');
   actions = requireTsx('../app/api/workflow-runs/[runId]/actions/[actionId]/route.ts');
+  interactions = requireTsx('../app/api/workflow-runs/[runId]/interactions/[requestId]/route.ts');
 } finally { Module._load = originalLoad; }
 
 const submission = { conversationId: crypto.randomUUID(), turnId: crypto.randomUUID(), after: null,
@@ -90,4 +91,24 @@ test('a response action invokes only the exact stored identity with fresh user a
   assert.equal(command.actor.githubId, 9);
   assert.match(command.actor.sessionId, /^[0-9a-f]{64}$/);
   assert.equal(command.actionId, 'a'.repeat(64));
+});
+
+test('interaction responses require current same-origin authority and derive the actor from the session', async () => {
+  const runId = crypto.randomUUID(), requestId = crypto.randomUUID();
+  const operation = { params: Promise.resolve({ runId, requestId }) };
+  const path = '/api/workflow-runs/id/interactions/id';
+  const response = { kind: 'edit', text: 'Exact edits.  \r\n' };
+  const before = commands.length;
+  denied = true;
+  assert.equal((await interactions.POST(post(path, response), operation)).status, 403);
+  denied = false;
+  assert.equal((await interactions.POST(post(path, response, 'https://other.example'), operation)).status, 403);
+  assert.equal((await interactions.POST(post(path, { ...response, actor: { githubId: 99 } }), operation)).status, 400);
+  assert.equal(commands.length, before);
+  const result = await interactions.POST(post(path, response), operation);
+  assert.equal(result.status, 200);
+  assert.match(result.headers.get('cache-control'), /no-store/);
+  assert.equal(fresh, true);
+  assert.deepEqual(commands.at(-1), { operation: 'runs.interaction', runId, requestId, scope, repositoryId: 42,
+    submission: { actor: { githubId: 9, login: 'reviewer' }, response } });
 });

@@ -1,4 +1,5 @@
 import type {ConversationSubmission} from "../adt-runtime/src/conversation-contract.ts";
+import { usesInteractiveBlocks, WORKFLOW_INTERACTION_VERSION } from "../adt-runtime/src/workflow-interaction-contract.ts";
 import type {ConversationLaunch} from "./conversation-types.ts";
 import { diagnoseRuntimeManagement, isRuntimeServiceFailure, runtimeControl } from "./runtime-service-client.ts";
 import { signManagedRepositoryAuthorities } from "./runtime-repository-authority.ts";
@@ -40,7 +41,9 @@ export async function workflowRuntimeCommand<T>(command:RuntimeControlCommand):P
 export async function getWorkflowRunStorage(repositoryId:number){
  const env=await getWorkflowEnvironment(),config=adtRuntimeConfiguration(env as unknown as Record<string,unknown>);
  const launch=async<T>(run:WorkflowRun,conversation?:ConversationSubmission)=>runtimeControl<T>(config,{operation:"runs.launch",repositoryId,
-  snapshot:run as unknown as Record<string,unknown>,conversation,publicationAuthorities:await signManagedRepositoryAuthorities(run,env.SESSION_SECRET)});
+  snapshot:run as unknown as Record<string,unknown>,conversation,publicationAuthorities:await signManagedRepositoryAuthorities(run,env.SESSION_SECRET),
+  ...(run.executionPlan && "planVersion" in run.executionPlan && usesInteractiveBlocks(run.executionPlan)
+    ? { interactionVersion: WORKFLOW_INTERACTION_VERSION } : {})});
  return {
   getRun:async(runId:string)=>await runtimeControl<RunDetail|null>(config,{operation:"runs.detail",runId,repositoryId})??undefined,
   listRuns:async(limit=25)=>await runtimeControl<WorkflowRun[]>(config,{operation:"runs.list",repositoryId,limit}),

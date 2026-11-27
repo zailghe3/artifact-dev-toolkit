@@ -27,7 +27,7 @@
 ## 3. Workflow definitions
 
 - Current Workflow definitions use the canonical v2 semantic graph.
-- Supported semantic behaviour includes Agent execution, deterministic Conditions, parallel fan-out/Join, human Approval, reusable Workflow composition, bounded cycles, Knowledge Proposals, and explicit managed GitHub publication.
+- Supported semantic behaviour includes Agent execution, deterministic routing, parallel fan-out/Join, human interactions, Display Output, reusable Workflow composition, bounded cycles, Knowledge Proposals, and explicit managed GitHub publication.
 - Unsupported block contracts, invalid topology, unresolved references, or exceeded execution bounds fail closed before execution.
 - Reusable Workflows expand into the parent run rather than creating independent child runs.
 - Composition is bounded and rejects missing, cyclic, unexposed, or unsupported dependencies.
@@ -43,7 +43,7 @@
 - Launch freezes the complete current Workflow, reusable composition, relevant Agents, connection snapshots, resolved prompt content, and other execution authority needed by the run.
 - Later edits affect new runs only.
 - A Conversation can target a single Agent through a generated one-block Workflow. Each submitted turn freezes the exact input assembled from the current message and its authorised history.
-- Context can include every visible section of a successful response. Requested exact exchanges preserve the text of their sections. Older exchanges can contribute to a continuing, bounded summary with recorded provenance.
+- Context can include displayed results and accepted human responses from completed exchanges. Exact exchanges preserve the supported content or report a context limit. Older exchanges can contribute to a continuing, bounded summary with recorded provenance.
 - Conversation history and summaries are untrusted reference data. They cannot expand tool grants, repository permissions, or approval authority.
 - Conversation context enters at Workflow entry. Existing Workflow handoffs and explicitly configured Codex continuation retain their own semantics.
 - Snapshots retain safe credential references and validated non-secret configuration, never resolved secret values.
@@ -69,13 +69,17 @@
 - Terminal runs remain terminal when observed again.
 - Runtime, Worker, and other services may roll independently when their explicit compatibility contract permits it.
 
-### Human Approval blocks
+### Human interaction and display
 
-- Approval pauses the exact frozen block activation and exposes immutable review text to an authorised user.
-- An approval decision resumes that activation only; stale decisions cannot approve a later visit.
-- Definition changes while paused do not rewrite the frozen run.
-- Human waiting does not consume active execution duration.
-- Cancellation remains available while waiting and prevents downstream admission when it wins durably.
+- Human Decision, Human Input, Human Edit and Approval pause a frozen activation and issue an immutable request to authorised users.
+- A response applies to one activation. Each visit in a revision loop issues a new request. One Workflow interaction can be pending per Run.
+- Human Decision can route using static option IDs. Agent-generated options carry data through a fixed continuation.
+- Human Edit continues with the exact confirmed text. The incoming text remains part of the original review.
+- Approval can approve, route a revision, route rejection, or end the Run with a rejected outcome. Existing Approval versions keep their original behavior.
+- Business interactions have no authority over tools, repository writes or publication. Read-only policy remains in force while a Run waits and resumes.
+- Human waiting is excluded from active execution duration. Cancellation remains available while waiting.
+- Display Output presents the committed text from an explicit activation. Execution continues with that same text.
+- See [Author interactive Workflows](../docs/workflow-interactions.md).
 
 ## 6. Retry, ambiguity, and cancellation
 

@@ -85,8 +85,11 @@
   "lib/workflow-durable-driver.ts",
   "lib/workflow-durable-runtime-result.ts",
   "lib/workflow-execution-policy.ts",
+  "lib/workflow-interactions.ts",
   "lib/workflow-orchestration-diagnostics.ts",
   "lib/workflow-response-actions.ts",
+  "lib/workflow-run-activity.ts",
+  "lib/workflow-run-content.ts",
   "lib/workflow-run-legacy.ts",
   "lib/workflow-storage.ts",
   "lib/workflow-worker-runtime.ts"

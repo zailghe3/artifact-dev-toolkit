@@ -1,5 +1,6 @@
 import type { ConversationCursor, ConversationHead, ConversationTarget } from "../adt-runtime/src/conversation-contract.ts";
 import type { RunStatus } from "./workflow-storage.ts";
+import type { RunContentPage } from "./workflow-run-content.ts";
 
 export type ConversationSummary = {
   id: string;
@@ -16,6 +17,10 @@ export type ResponseSection = {
   id: string;
   label?: string;
   markdown?: string;
+  preview?: string;
+  contentSource?: "display";
+  terminal?: boolean;
+  sequence?: number;
   actions?: ResponseAction[];
 };
 
@@ -35,6 +40,7 @@ export type ConversationTurn = {
   failureMessage?: string;
   externalUrl?: string;
   sections: ResponseSection[];
+  content?: RunContentPage;
 };
 
 export type ConversationDetail = {
@@ -50,4 +56,5 @@ export type ConversationDetail = {
 export type ConversationLaunch = { conversationId: string; turnId: string; runId: string; replay: boolean };
 export type ConversationTargetOption = ConversationTarget & { name: string; starter?: string };
 
-export const isTerminalTurn = (status: RunStatus) => status === "succeeded" || status === "failed" || status === "cancelled";
+export const isTerminalTurn = (status: RunStatus) =>
+  status === "succeeded" || status === "failed" || status === "cancelled" || status === "rejected";

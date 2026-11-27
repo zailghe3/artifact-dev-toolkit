@@ -1,3 +1,5 @@
+import { workflowBlockRegistry } from "./workflow-block-registry.ts";
+import { usesInteractiveBlocks } from "../adt-runtime/src/workflow-interaction-contract.ts";
 import {openAIMaxOutputTokens,openAIReasoningEfforts,openAIVerbosities} from "../adt-runtime/src/openai-model-policy.ts";
 import {adtRunScope} from "./adt-data-scope.ts";
 import {AdtObservability,type PromptReader} from "./adt-observability.ts";
@@ -53,7 +55,11 @@ export class AdtDataTools {
           return {id:agent.id,name:agent.name,connectionKey:agent.connectionKey,securityProfileId:agent.securityProfileId??null,tools:agent.tools??[],toolApproval:agent.toolApproval??"risk_based",executionLimits:agent.executionLimits??{},options:safeAgentOptions(agent.adapterOptions),prompt:"unavailable:sensitive_content"};
         }));
         // Only structural references and boolean context flags cross the model boundary.
-        const nodes=definition.nodes.map(node=>{const config=node.config as Record<string,unknown>;return {id:node.id,blockType:node.blockType,blockVersion:node.blockVersion,...(node.blockType==="agent"?{agentId:config.agentId,context:config.context,conversation:config.conversation,toolRestrictions:config.toolRestrictions}:node.blockType==="subworkflow"?{workflowId:config.workflowId}:node.blockType==="condition"?{operator:config.operator,caseSensitive:config.caseSensitive}:{})}});
+        const nodes=definition.nodes.map(node=>{const config=node.config as Record<string,unknown>;return {id:node.id,blockType:node.blockType,blockVersion:node.blockVersion,...(node.blockType==="agent"?{agentId:config.agentId,context:config.context,conversation:config.conversation,toolRestrictions:config.toolRestrictions}:node.blockType==="subworkflow"?{workflowId:config.workflowId}:node.blockType==="condition"?{operator:config.operator,caseSensitive:config.caseSensitive}:usesInteractiveBlocks({nodes:[node]})?{
+          outputPorts:workflowBlockRegistry.ports(node.blockType,node.blockVersion,"outputs",config).map(port=>port.id),
+          ...(node.blockType==="human-decision"?{optionSource:config.source,routing:config.routing??"data"}:{}),
+          ...(node.blockType==="human-input"?{questionSource:config.questionSource,required:config.required??true}:{}),
+        }:{})}});
         return {available:true,id:definition.id,name:definition.name,revision:item.fileSha,nodes,edges:definition.edges,limits:definition.limits,agents,excluded:["prompts","starter_input","condition_text","approval_text","publication_content","credentials"]};
       }
       case "adt_executions_list":{
@@ -73,7 +79,7 @@ export class AdtDataTools {
       case "adt_execution_metrics":{
         const filters=adtDataArgumentSchemas[name].parse(input),where=adtRunScope(context,filters,this.db.dialect);
         const rows=(await this.db.prepare(`SELECT ${columns},(SELECT count(*) FROM workflow_step_attempts a WHERE a.run_id=r.id AND a.attempt>1) AS retries,(SELECT count(*) FROM agent_continuations c WHERE c.run_id=r.id) AS journaled_activations,(SELECT COALESCE(sum(c.tokens_used),0) FROM agent_continuations c WHERE c.run_id=r.id) AS reported_tokens FROM workflow_runs r WHERE ${where.sql} ORDER BY r.created_at DESC,r.id DESC LIMIT 1001`).bind(...where.values).all<Record<string,unknown>>()).results??[],sample=rows.slice(0,1000),durations=sample.map(row=>duration(row.started_at,row.completed_at)).filter((value):value is number=>value!==null);
-        return {sampleSize:sample.length,truncated:rows.length>1000,sampleOrder:"newest_first",statuses:Object.fromEntries(["queued","running","waiting_approval","cancelling","succeeded","failed","cancelled"].map(status=>[status,sample.filter(row=>row.status===status).length])),meanCompletedDurationMs:durations.length?durations.reduce((a,b)=>a+b,0)/durations.length:null,durationSampleSize:durations.length,retries:sample.reduce((sum,row)=>sum+Number(row.retries),0),tokens:{available:sample.some(row=>Number(row.journaled_activations)>0),recordedTotal:sample.reduce((sum,row)=>sum+Number(row.reported_tokens),0),coverage:"journaled_provider_reports_only",zeroMayMeanUnreported:true},cost:{available:false,reason:"not_recorded"}};
+        return {sampleSize:sample.length,truncated:rows.length>1000,sampleOrder:"newest_first",statuses:Object.fromEntries(["queued","running","waiting_approval","cancelling","succeeded","failed","cancelled","rejected"].map(status=>[status,sample.filter(row=>row.status===status).length])),meanCompletedDurationMs:durations.length?durations.reduce((a,b)=>a+b,0)/durations.length:null,durationSampleSize:durations.length,retries:sample.reduce((sum,row)=>sum+Number(row.retries),0),tokens:{available:sample.some(row=>Number(row.journaled_activations)>0),recordedTotal:sample.reduce((sum,row)=>sum+Number(row.reported_tokens),0),coverage:"journaled_provider_reports_only",zeroMayMeanUnreported:true},cost:{available:false,reason:"not_recorded"}};
       }
     }
   }

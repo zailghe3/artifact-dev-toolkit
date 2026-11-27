@@ -10,6 +10,7 @@ globalThis.self = globalThis;
 const requireTsx = installTsxHook();
 const { AppRouterContext } = requireTsx('next/dist/shared/lib/app-router-context.shared-runtime');
 const { WorkflowResponse } = requireTsx('../components/WorkflowResponse.tsx');
+const { WorkflowInteraction } = requireTsx('../components/WorkflowInteraction.tsx');
 const { ConversationWorkspace } = requireTsx('../components/ConversationWorkspace.tsx');
 const wrap = (child, value = {}) => React.createElement(AppRouterContext.Provider,
   { value: { push() {}, replace() {}, refresh() {}, prefetch() {}, ...value } }, child);
@@ -33,6 +34,44 @@ test('rendered Markdown uses semantic tables and omits executable content and ge
   assert.match(html, /href="https:\/\/example.com\/"[^>]*rel="noopener noreferrer"/);
   assert.doesNotMatch(html, /javascript:|<script|<img|dangerous_source|trigger\(\)/i);
   assert.doesNotMatch(html, /<button[^>]*>Review &amp; save to knowledge/);
+});
+
+test('a human decision explicitly confirms one selection and reconciles a lost acknowledgement', async t => {
+  const runId = crypto.randomUUID();
+  const item = { id: crypto.randomUUID(), nodeId: 'route', activationId: 'visit', sequence: 2, generation: 1,
+    requestedAt: new Date().toISOString(), actionable: true, request: { version: 1, kind: 'decision',
+      question: 'Choose a direction', allowGuidance: true, routing: 'branches', options: [
+        { id: 'one', title: 'Use one approach' }, { id: 'two', title: 'Use a second approach' },
+      ] } };
+  const accepted = { ...item, actionable: false,
+    response: { kind: 'decision', optionId: 'two', guidance: 'Keep the exact spacing.  \n' } };
+  const calls = [];
+  t.mock.method(globalThis, 'fetch', async (url, init) => {
+    calls.push({ url, method: init?.method ?? 'GET', ...(init?.body ? { body: JSON.parse(init.body) } : {}) });
+    if (init?.method === 'POST') throw new Error('Fixture lost the acknowledgement');
+    return Response.json(accepted);
+  });
+  const Demo = () => {
+    const [current, update] = React.useState(item);
+    return React.createElement(WorkflowInteraction, { runId, item: current, onAccepted: update });
+  };
+  let view;
+  try {
+    await act(async () => { view = create(wrap(React.createElement(Demo))); });
+    assert.ok(view.root.findAllByProps({ type: 'radio' }).every(radio => !radio.props.checked));
+    assert.equal(view.root.findByProps({ type: 'submit' }).props.disabled, true);
+    await act(async () => {
+      view.root.findAllByProps({ type: 'radio' })[1].props.onChange();
+      view.root.findByType('textarea').props.onChange({ target: { value: accepted.response.guidance } });
+    });
+    assert.equal(calls.length, 0);
+    assert.equal(view.root.findByProps({ type: 'submit' }).props.disabled, false);
+    await act(async () => { await view.root.findByType('form').props.onSubmit({ preventDefault() {} }); });
+    assert.deepEqual(calls.map(({ method, body }) => [method, body]), [['POST', accepted.response], ['GET', undefined]]);
+    assert.ok(calls.every(call => call.url.endsWith(`/workflow-runs/${runId}/interactions/${item.id}`)));
+    assert.equal(view.root.findAllByType('form').length, 0);
+    assert.ok(JSON.stringify(view.toJSON()).includes('Response recorded'));
+  } finally { if (view) await act(async () => view.unmount()); }
 });
 
 test('code copy preserves exact parsed code and raw mode preserves the full original Markdown', async t => {

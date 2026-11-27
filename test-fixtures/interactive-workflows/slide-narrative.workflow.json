@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 2,
+  "id": "slide-narrative",
+  "name": "Slide Narrative Builder",
+  "description": "Compare narrative approaches, review a draft, and refine it before delivery.",
+  "status": "draft",
+  "nodes": [
+    { "id": "frame", "blockType": "agent", "blockVersion": 2, "config": { "agentId": "framer", "context": { "publishOutput": true } } },
+    { "id": "route", "blockType": "agent", "blockVersion": 1, "config": { "agentId": "router" } },
+    { "id": "choose", "blockType": "human-decision", "blockVersion": 1, "config": { "source": "dynamic", "message": "Which narrative should we use?", "allowGuidance": true } },
+    { "id": "architect", "blockType": "agent", "blockVersion": 2, "config": { "agentId": "architect", "context": { "publishOutput": true, "includeNodeOutputs": ["frame"] } } },
+    { "id": "draft", "blockType": "display-output", "blockVersion": 1, "config": { "label": "Draft narrative" } },
+    { "id": "challenge", "blockType": "agent", "blockVersion": 1, "config": { "agentId": "challenger" } },
+    { "id": "revise", "blockType": "condition", "blockVersion": 1, "config": { "operator": "contains", "value": "REVISE: YES", "caseSensitive": true } },
+    { "id": "final", "blockType": "agent", "blockVersion": 2, "config": { "agentId": "deliver", "context": { "includeNodeOutputs": ["architect"] } } }
+  ],
+  "edges": [
+    { "id": "frame-route", "source": "frame", "target": "route" },
+    { "id": "route-choose", "source": "route", "target": "choose" },
+    { "id": "choose-architect", "source": "choose", "target": "architect" },
+    { "id": "architect-draft", "source": "architect", "target": "draft" },
+    { "id": "draft-challenge", "source": "draft", "target": "challenge" },
+    { "id": "challenge-revise", "source": "challenge", "target": "revise" },
+    { "id": "revise-architect", "source": "revise", "sourcePort": "true", "target": "architect" },
+    { "id": "revise-final", "source": "revise", "sourcePort": "false", "target": "final" }
+  ],
+  "limits": { "maxStepExecutions": 24 }
+}
