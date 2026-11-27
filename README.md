@@ -12,6 +12,12 @@ Artifact Dev Toolkit helps authorised users manage reusable work assets in GitHu
 - Protect repository mutations from stale or ambiguous writes.
 - Refresh the catalogue and inspect safe operational diagnostics.
 
+### Conversations
+
+- Start a chat with an Agent or Workflow and reopen it later with its messages, responses, and Run links.
+- Send follow-ups with bounded history context and track approvals, retries, and failures from the timeline.
+- Read and copy Markdown or open Workflow-authorised knowledge proposals.
+
 ### Agent Workflows
 
 - Configure Git-backed provider connections, tools, Security Profiles, reusable Agents, and Workflow graphs.
@@ -21,7 +27,7 @@ Artifact Dev Toolkit helps authorised users manage reusable work assets in GitHu
 
 ### Advisor
 
-- Launch an explicitly configured ordinary Workflow for on-demand analysis.
+- Open Conversations scoped to the designated read-only `advisor` Workflow.
 - Grant only selected read capabilities and preserve reviewed knowledge in Git.
 - Keep model execution read-only; publication remains a separate authenticated human action.
 
@@ -29,7 +35,7 @@ Artifact Dev Toolkit helps authorised users manage reusable work assets in GitHu
 
 - GitHub is authoritative for reusable artifacts, reviewed knowledge, and Git-backed non-secret configuration.
 - The Cloudflare Worker stays a thin public control plane for user authentication, repository admission, GitHub authority, and browser-facing coordination.
-- ADT Runtime is the durable execution and private-service plane. It owns Workflow operational state, the encrypted provider/tool vault, provider and tool execution, and integrations that need homelab/private-network access.
+- ADT Runtime is the durable execution and private-service plane. It owns Conversation and Workflow operational state, the encrypted provider/tool vault, provider and tool execution, and integrations that need homelab/private-network access.
 - Private infrastructure authority belongs in Runtime or another purpose-specific trusted service rather than in the browser or Cloudflare Worker.
 - Codex Runner remains a separate trust boundary for model-directed command execution and managed Git operations.
 - ADT's semantic Workflow model remains independent from visual, orchestration, provider, and security frameworks.
@@ -43,6 +49,7 @@ Artifact Dev Toolkit helps authorised users manage reusable work assets in GitHu
 | [Repository instructions](AGENTS.md) | Repository-wide Codex/contributor conventions and Skill routing |
 | [Architecture](ARCHITECTURE.md) | Major domains, sources of truth, persistence, trust boundaries, and system relationships |
 | [Current application specification](specs/000-current-application-spec.md) | High-level implemented Artifact Toolkit behaviour and product invariants |
+| [Using Conversations](docs/conversations.md) | Starting, continuing, and reviewing a conversation |
 | [Agent Workflows specification](specs/agent-workflows.md) | Current Agent, Workflow, Run, provider, tool, and Codex behaviour |
 | [Development workflow](docs/development-workflow.md) | Maintainer workflow, Codex hand-off, and repository scaffolding |
 | [ADT collaboration context](docs/templates/adt-collaboration-context.md) | Reusable ChatGPT collaboration/base-prompt template |

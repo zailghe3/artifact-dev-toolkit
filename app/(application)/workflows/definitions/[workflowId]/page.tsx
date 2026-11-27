@@ -5,7 +5,7 @@ import { AsyncContent } from "@/components/AsyncContent";
 import { ContentLoading } from "@/components/ContentLoading";
 import { PageHeader, buttonStyles } from "@/components/Ui";
 import { WorkflowLayoutEditor } from "@/components/WorkflowLayoutEditor";
-import { WorkflowRunStart } from "@/components/WorkflowRunControls";
+import { conversationHref } from "@/lib/conversation-client";
 import { requireRepositoryAccess } from "@/lib/auth";
 import { createWorkflowDefinitionRepository, createWorkflowLayoutRepository } from "@/lib/workflow-services";
 
@@ -20,17 +20,13 @@ export default async function Page({ params }: { params: Promise<{ workflowId: s
     <>
       <PageHeader title={value.definition.name} description={value.definition.description}
         meta={<>Schema v2 · Revision <code>{value.fileSha}</code></>}
-        action={<Link className={buttonStyles.secondary} href={`/workflows/definitions/${workflowId}/edit`}>Edit</Link>} />
+        action={<div className="flex flex-wrap gap-2"><Link className={buttonStyles.secondary} href={`/workflows/definitions/${workflowId}/edit`}>Edit</Link><Link className={buttonStyles.primary} href={conversationHref("/conversations", undefined, { kind: "workflow", id: workflowId })}>Start conversation</Link></div>} />
       <Suspense fallback={<ContentLoading label="Loading workflow graph" />}>
         <AsyncContent data={graph} failure="The Workflow graph could not be loaded.">
           {([agents, layout]) => <WorkflowLayoutEditor workflow={value.definition} workflowFileSha={value.fileSha}
             agents={Object.fromEntries(agents.map(item => [item.definition.id, item.definition.name]))} initialLayout={layout} />}
         </AsyncContent>
       </Suspense>
-      <section className="mt-8 max-w-3xl" aria-labelledby="start-workflow">
-        <h2 id="start-workflow" className="text-xl font-semibold">Start workflow</h2>
-        <WorkflowRunStart workflowId={workflowId} initialInput={value.definition.runInputTemplate} />
-      </section>
     </>
   );
 }

@@ -1,5 +1,5 @@
 import {isAdtDataTool,isSensitiveAdtTool,ADT_DATA_TOOL_DESCRIPTIONS,adtDataModelSchemas,type AdtDataTool} from "./adt-data-contract.ts";
-import {assertAdvisorRunReadOnly,sameRepositoryContext} from "./advisor-policy.ts";
+import {assertRunExecutionPolicy,sameRepositoryContext} from "./workflow-execution-policy.ts";
 import {getProviderConnectionType} from "./provider-connection-types.ts";
 import {isLegacyRunReadOnly} from "./workflow-run-legacy.ts";
 import {approvalPolicySchema,grantKey} from "../adt-runtime/src/agent-contract.ts";
@@ -15,7 +15,7 @@ export function nativeAdtToolDefinitions(grants:AgentDefinitionV1["tools"]):Agen
 /** Invoked after approval/security waits and immediately before a journal-admitted data read. */
 export function authorizeNativeAdtTool(detail:RunDetail|undefined,scope:GraphNodeAuthorityScope,name:AdtDataTool,frozenContext:RunRepositoryContext|undefined){
   if(!detail||isLegacyRunReadOnly(detail.run)||detail.run.workflowGeneration!==scope.workflowGeneration||detail.run.status!=="running"||detail.run.cancelRequestedAt||detail.run.failureCode||!sameRepositoryContext(detail.run.repositoryContext,frozenContext))throw new Error("adt_data_authority_invalid");
-  assertAdvisorRunReadOnly(detail.run);
+  assertRunExecutionPolicy(detail.run);
   const plan=detail.run.executionPlan,node=plan&&"planVersion" in plan?plan.nodes.find(node=>node.id===scope.nodeId):undefined;
   const attempt=detail.attempts.filter(a=>a.stepId===scope.nodeId).sort((a,b)=>a.iteration-b.iteration||a.attempt-b.attempt).at(-1);
   const agent=node?.blockType==="agent"?detail.run.agentSnapshots[node.config.agentId]:undefined;

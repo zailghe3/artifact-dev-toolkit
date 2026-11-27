@@ -38,7 +38,6 @@ function loadSettingsRoutes(getRepositoryAccess, getEnvironment) {
   };
   try {
     return {
-      'advisor.get': require('../app/api/advisor/settings/route.ts').GET,
       'codex.list': require('../app/api/workflow-codex-environments/route.ts').GET,
     };
   } finally {
@@ -130,8 +129,7 @@ async function verifyProductionStartup(t, keyPath, pool) {
   let admitted = true;
   const environment = { ADT_RUNTIME_BASE_URL: baseUrl, ADT_RUNTIME_AUTH_SECRET: authSecret };
   const routes = loadSettingsRoutes(() => admitted ? { access: scope } : Response.json({}, { status: 401 }), () => environment);
-  const getSettings = operation => routes[operation](new Request(`https://adt.example/api/${operation === 'advisor.get'
-    ? 'advisor/settings' : 'workflow-codex-environments'}?repositoryId=7`));
+  const getSettings = operation => routes[operation](new Request('https://adt.example/api/workflow-codex-environments?repositoryId=7'));
   const workerEvents = [];
   const info = console.info;
   const workerLog = t.mock.method(console, 'info', entry => {
@@ -207,13 +205,11 @@ async function verifyProductionStartup(t, keyPath, pool) {
 
     assert.deepEqual(await runtimeControl(config, list), []);
     admitted = false;
-    assert.equal((await getSettings('advisor.get')).status, 401);
     assert.equal((await getSettings('codex.list')).status, 401);
     assert.equal(workerEvents.length, 0);
     admitted = true;
     const readEmptySettings = async () => {
       for (const [operation, expected] of [
-        ['advisor.get', { settings: { workflowId: null, override: null }, revision: 0 }],
         ['codex.list', { environments: [] }],
       ]) {
         const response = await getSettings(operation);
@@ -280,7 +276,7 @@ async function verifyProductionStartup(t, keyPath, pool) {
       error.code === 'runtime_authentication_failed' && error.observation.httpStatus === 401 &&
       error.observation.stage === 'authentication' && /^[\w-]{32}$/.test(error.observation.requestId));
     assert.equal((await readiness()).readinessAccepted, true);
-    await assertSettingsFailure('advisor.get', 'runtime_settings_authentication_failed', 'authentication', 503, 401);
+    await assertSettingsFailure('codex.list', 'runtime_settings_authentication_failed', 'authentication', 503, 401);
 
     proxyMode = 'unsupported-protocol';
     const incompatible = await diagnoseRuntimeManagement(config, scope);
@@ -302,7 +298,7 @@ async function verifyProductionStartup(t, keyPath, pool) {
     assert.doesNotMatch(JSON.stringify(malformed), /private upstream prompt/);
     await assertSettingsFailure('codex.list', 'runtime_settings_response_invalid', 'response_validation', 502);
     proxyMode = 'settings-not-routed';
-    await assertSettingsFailure('advisor.get', 'runtime_settings_endpoint_unavailable', 'routing', 502);
+    await assertSettingsFailure('codex.list', 'runtime_settings_endpoint_unavailable', 'routing', 502);
     proxyMode = 'forward';
 
     await pool.query('REVOKE INSERT ON management_request_nonces FROM CURRENT_USER');
@@ -317,7 +313,7 @@ async function verifyProductionStartup(t, keyPath, pool) {
       assert.equal(nonce.dependencies.workflow.status, 'not_verified');
       await assert.rejects(runtimeControl(config, list), error =>
         error.code === 'nonce_persistence_unavailable' && error.observation.result === 'nonce_persistence_unavailable');
-      await assertSettingsFailure('advisor.get', 'runtime_settings_nonce_unavailable', 'nonce', 503, 503);
+      await assertSettingsFailure('codex.list', 'runtime_settings_nonce_unavailable', 'nonce', 503, 503);
     } finally {
       await pool.query('GRANT INSERT ON management_request_nonces TO CURRENT_USER');
     }
@@ -330,13 +326,8 @@ async function verifyProductionStartup(t, keyPath, pool) {
       await pool.query('GRANT SELECT ON workflow_codex_environments TO CURRENT_USER');
     }
     // The browser query parameter cannot override the repository admitted by the Worker.
-    await pool.query('INSERT INTO advisor_settings (repository_id, settings_json) VALUES ($1, $2)',
-      [scope.repositoryId, { private: 'private malformed settings value' }]);
-    try {
-      await assertSettingsFailure('advisor.get', 'runtime_settings_data_invalid', 'response_validation', 503, 503);
-    } finally {
-      await pool.query('DELETE FROM advisor_settings WHERE repository_id = $1', [scope.repositoryId]);
-    }
+    assert.deepEqual(await operationalSettings(pool)({ operation: 'advisor.get', repositoryId: scope.repositoryId }),
+      { settings: { workflowId: null, override: null }, revision: 0 });
     await readEmptySettings();
 
     await pool.query('REVOKE SELECT ON workflow_runs FROM CURRENT_USER');

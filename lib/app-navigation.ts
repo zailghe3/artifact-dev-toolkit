@@ -6,9 +6,10 @@ export const applicationIdentity = {
 } as const;
 
 export const primaryNavigation = [
-  { label: "Artifacts", href: "/", match: ["/", "/artifacts"] },
-  { label: "Workflows", href: "/workflows", match: ["/workflows", "/tools", "/security"] },
+  { label: "Conversations", href: "/conversations", match: ["/conversations"] },
   { label: "Advisor", href: "/advisor", match: ["/advisor"] },
+  { label: "Workflows", href: "/workflows", match: ["/workflows", "/tools", "/security"] },
+  { label: "Artifacts", href: "/", match: ["/", "/artifacts"] },
   { label: "Diagnostics", href: "/diagnostics", match: ["/diagnostics"] },
 ] as const;
 

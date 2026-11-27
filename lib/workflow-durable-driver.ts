@@ -1,4 +1,4 @@
-import {assertAdvisorRunReadOnly} from "./advisor-policy.ts";
+import {assertRunExecutionPolicy} from "./workflow-execution-policy.ts";
 import {providerExecutionTimeoutMs,PROVIDER_TRANSPORT_ALLOWANCE_MS} from "./provider-execution-timeouts.ts";
 import {failureCategories,type AdapterInvocation,type FailureCategory} from "./workflow-adapter.ts";
 import type { AgentRuntimeResolver } from "./agent-runtime.ts";
@@ -27,7 +27,7 @@ export const durableSafeFailure=(error:unknown):{category:FailureCategory;safeMe
  return {category:safe,safeMessage:localRuntime?"ADT could not start the provider request because the Worker runtime rejected the network operation. No provider response was received.":error&&typeof error==="object"&&"safeMessage" in error&&typeof error.safeMessage==="string"?error.safeMessage:safe==="conversation_unavailable"?"The selected Codex conversation is no longer available to continue.":safe==="internal_error"?"The provider operation failed unexpectedly.":safe==="provider_start_ambiguous"?ambiguous:safe==="provider_publish_ambiguous"?"The provider may have opened the pull request. ADT will not blindly request another publication.":`The provider operation failed (${safe.replaceAll("_"," ")}).`,retryable:localRuntime||safe.startsWith("security_")?false:explicitRetryable??transient.has(safe)};
 };
 export async function durableInvocation(detail:RunDetail,attempt:StepAttempt,resolve:(key:string,snapshot?:import("./workflow-connections.ts").ConnectionDescriptor)=>Promise<ResolvedConnection>,authorizedMcpTools?:import("./workflow-adapter.ts").AuthorizedMcpTool[],runtimeSecurity?:import("./workflow-adapter.ts").AuthorizedRuntimeSecurity):Promise<AdapterInvocation>{
- assertAdvisorRunReadOnly(detail.run);
+ assertRunExecutionPolicy(detail.run);
  const agent=detail.run.agentSnapshots[attempt.agentId],snapshot=detail.run.connectionSnapshots[attempt.connectionKey],live=await resolve(attempt.connectionKey,snapshot);
  if(!snapshot||!live.enabled||snapshot.adapter!==live.adapter)throw Object.assign(new Error("connection unavailable"),{category:"connection_unavailable"});
  const source=attempt.conversationSource?detail.attempts.find(value=>value.runId===attempt.conversationSource!.runId&&value.stepId===attempt.conversationSource!.stepId&&value.graphActivationId===attempt.conversationSource!.activationId&&value.iteration===attempt.conversationSource!.iteration&&value.attempt===attempt.conversationSource!.attempt):undefined;if(attempt.conversationSource&&(!source||source.status!=="succeeded"||!source.providerTaskId))throw Object.assign(new Error("conversation unavailable"),{category:"conversation_unavailable",safeMessage:"The selected Codex conversation is no longer available to continue.",retryable:false});

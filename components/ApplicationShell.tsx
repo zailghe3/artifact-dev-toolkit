@@ -3,8 +3,8 @@
 import * as Menu from "@radix-ui/react-dropdown-menu";
 import {
   Activity, Blocks, BookOpen, Bot, ChevronDown, ChevronRight, CirclePlay, GitBranch, Layers3,
-  LogOut, Menu as MenuIcon, MessagesSquare, Moon, PanelLeftClose, PanelLeftOpen, Plug, Settings2, ShieldCheck, Sun,
-  Workflow,
+  LogOut, Menu as MenuIcon, MessagesSquare, Moon, PanelLeftClose, PanelLeftOpen, Plug, ShieldCheck, Sun,
+  Workflow, Telescope,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -16,7 +16,7 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Tooltip, TooltipProvider } from "@/components/ui/tooltip";
 import { useThemePreference } from "@/components/ThemeToggle";
 
-const primaryIcons = { "/": Layers3, "/workflows": Workflow, "/advisor": MessagesSquare, "/diagnostics": Activity };
+const primaryIcons = { "/": Layers3, "/conversations": MessagesSquare, "/workflows": Workflow, "/advisor": Telescope, "/diagnostics": Activity };
 const sectionIcons = new Map([
   ["/workflows/definitions", GitBranch],
   ["/workflows/runs", CirclePlay],
@@ -25,12 +25,10 @@ const sectionIcons = new Map([
   ["/tools", Blocks],
   ["/security", ShieldCheck],
   ["/advisor/knowledge", BookOpen],
-  ["/advisor/settings", Settings2],
 ]);
 
 const advisorSections = [
   { label: "Knowledge", href: "/advisor/knowledge" },
-  { label: "Settings", href: "/advisor/settings" },
 ];
 
 function navigationSections(pathname: string) {

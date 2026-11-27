@@ -3,7 +3,7 @@ import {adtRunScope} from "./adt-data-scope.ts";
 import {AdtObservability,type PromptReader} from "./adt-observability.ts";
 import type {KnowledgeReader} from "./advisor-knowledge-repository.ts";
 import {adtDataArgumentSchemas,type AdtDataTool} from "./adt-data-contract.ts";
-import {sameRepositoryContext} from "./advisor-policy.ts";
+import {sameRepositoryContext} from "./workflow-execution-policy.ts";
 import {failureCategories} from "./workflow-adapter.ts";
 import {parseWorkflowOrchestrationDiagnostic} from "./workflow-orchestration-diagnostics.ts";
 import type {WorkflowDefinitionRepository} from "./workflow-definition-repository.ts";

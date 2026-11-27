@@ -5,7 +5,7 @@ ADT Runtime is Artifact Dev Toolkit's durable execution and private-service plan
 ## Design boundary
 
 - Runtime schedules, resumes, cancels, and recovers complete Workflows.
-- PostgreSQL persists Workflow runs, checkpoints, attempts, approvals, tool journals, operational settings, registrations, and the encrypted repository-scoped credential vault.
+- PostgreSQL persists Conversations and their Run links, Workflow runs, checkpoints, attempts, approvals, tool journals, response actions, operational settings, and the encrypted repository-scoped credential vault.
 - Runtime resolves provider/tool credentials for the exact admitted operation; credential values do not enter Git-authored definitions or browser state.
 - Runtime hosts execution-heavy provider, tool, and security integrations and is the preferred boundary for capabilities that need private/homelab network access.
 - The Worker retains broad GitHub App signing authority and brokers only short-lived repository credentials required by an admitted Runtime operation.
@@ -62,6 +62,13 @@ Private provider/tool services are configured according to their owning connecti
 - Security Profile services use non-secret Git configuration plus vault-backed credentials.
 
 Do not provision Cloudflare credentials, GitHub App private keys, browser-session secrets, Codex identity, or broad Portainer/Docker credentials to Runtime.
+
+### Conversation context settings
+
+- `ADT_CONVERSATION_HISTORY_BYTES` sets the history budget in UTF-8 bytes. The default is 24,000 and the supported range is 1,024–60,000. Current input and history together must fit the Workflow input limit.
+- `ADT_CONVERSATION_RECENT_TURNS` sets how many recent successful exchanges get first claim on the history budget. The default is three and the supported range is one to eight.
+- A rolling summary carries older successful exchange content forward. Compatible entry Agents can merge new older material with their prior summary using a bounded, tool-free request. Local excerpts cover unavailable, unsupported, or uncertain summarisation.
+- The exact input admitted to a Run and its context provenance are persisted for recovery and retry.
 
 ## Execution and recovery semantics
 

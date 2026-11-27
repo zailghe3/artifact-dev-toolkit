@@ -11,7 +11,7 @@ const { PathnameContext } = requireTsx('next/dist/shared/lib/hooks-client-contex
 
 test('primary navigation exposes the stable product destinations', () => {
   assert.equal(applicationIdentity.name, 'Artifact Toolkit');
-  assert.deepEqual(primaryNavigation.map(({ label, href }) => [label, href]), [['Artifacts', '/'], ['Workflows', '/workflows'], ['Advisor', '/advisor'], ['Diagnostics', '/diagnostics']]);
+  assert.deepEqual(primaryNavigation.map(({ label, href }) => [label, href]), [['Conversations', '/conversations'], ['Advisor', '/advisor'], ['Workflows', '/workflows'], ['Artifacts', '/'], ['Diagnostics', '/diagnostics']]);
 });
 
 test('primary navigation resolves one active product area for nested routes', () => {
@@ -23,6 +23,7 @@ test('primary navigation resolves one active product area for nested routes', ()
     ['/tools/example/edit', 'Workflows'],
     ['/security', 'Workflows'],
     ['/security/example/edit', 'Workflows'],
+    ['/conversations', 'Conversations'],
     ['/advisor/knowledge', 'Advisor'],
     ['/diagnostics', 'Diagnostics'],
   ];
@@ -43,7 +44,7 @@ test('expanded shell exposes all destinations and marks the active nested link',
   const html = renderShell('/security/example/edit', true);
   assert.match(html, /<nav aria-label="Primary"/);
   assert.match(html, /aria-current="page"[^>]*href="\/security"/);
-  for (const label of ['Artifacts', 'Workflows', 'Definitions', 'Runs', 'Agents', 'Connections', 'Tools', 'Security', 'Advisor', 'Knowledge', 'Settings', 'Diagnostics']) {
+  for (const label of ['Artifacts', 'Conversations', 'Workflows', 'Definitions', 'Runs', 'Agents', 'Connections', 'Tools', 'Security', 'Advisor', 'Knowledge', 'Diagnostics']) {
     assert.match(html, new RegExp(`>${label}<`));
   }
   assert.equal((html.match(/aria-current="page"/g) ?? []).length, 1);

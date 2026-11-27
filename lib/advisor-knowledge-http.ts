@@ -16,4 +16,4 @@ export function knowledgeError(error:unknown){
  const [status,message]=errors[code]??[503,"Knowledge is temporarily unavailable. No automatic publication retry was made."];
  return Response.json({error:message,code:errors[code]?code:"knowledge_unavailable"},{status,headers:noStoreHeaders});
 }
-export function requireKnowledgeIntent(request:Request){if(request.headers.get("origin")!==new URL(request.url).origin||request.headers.get("sec-fetch-site")==="cross-site")throw Error("invalid_origin")}
+export { requireSameOrigin as requireKnowledgeIntent } from "./request-origin.ts";

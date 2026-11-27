@@ -4,6 +4,11 @@ import { AUTH_WINDOW_MS } from "../adt-runtime/src/protocol.ts";
 import type { Pool } from "../adt-runtime/src/postgres.ts";
 import type { RuntimeRootKey } from "../adt-runtime/src/runtime-key.ts";
 import { managedContextSchema, repositoryContextSchema, type RuntimeControlCommand } from "../adt-runtime/src/runtime-control-contract.ts";
+import { CONVERSATION_RUN_KEY_PREFIX, conversationRunKey } from "../adt-runtime/src/conversation-contract.ts";
+import { ConversationStore } from "./conversation-store.ts";
+import { conversationContextSettings, planConversationContext } from "./conversation-context.ts";
+import { summarizeConversation } from "./conversation-summaries.ts";
+import { WorkflowResponseActions, knowledgeFromWorkflowAction } from "./workflow-response-actions.ts";
 import { D1WorkflowRunStorage, type WorkflowD1Database } from "./workflow-d1-storage.ts";
 import { D1WorkflowApprovalStore } from "./workflow-approvals.ts";
 import { D1ProviderCredentialVault } from "./provider-credential-vault.ts";
@@ -14,7 +19,7 @@ import { GitHubToolDefinitionRepository } from "./tool-definition-repository.ts"
 import { D1McpPolicyAuthority } from "./mcp-policy-authority.ts";
 import { isLegacyRunReadOnly } from "./workflow-run-legacy.ts";
 import { manualRetryEligibility, type RunRepositoryContext, type WorkflowRun } from "./workflow-storage.ts";
-import { sameRepositoryContext } from "./advisor-policy.ts";
+import { assertPublicationPolicy, assertRunExecutionPolicy, assertWorkflowPolicyCommissioned, sameRepositoryContext } from "./workflow-execution-policy.ts";
 import { requestRepositoryCredential } from "./runtime-service-client.ts";
 import { createWorkflowCoordinator } from "./runtime-workflow-execution.ts";
 import { mcpServerDefinitionSchema } from "./tool-definitions.ts";
@@ -51,6 +56,7 @@ export function createRuntimeApplication(options: RuntimeApplicationOptions) {
   const vaultFor = (database: WorkflowD1Database, repositoryId: number) =>
     new D1ProviderCredentialVault(database, version => rootKey.vaultKey(repositoryId, version), activeKeyVersion, undefined, undefined, repositoryId);
   async function managedCredential(run: WorkflowRun, stepId: string, capability: "write" | "pull_requests") {
+    assertPublicationPolicy(run);
     const plan = run.executionPlan;
     const node = plan && "planVersion" in plan ? plan.nodes.find(value => value.id === stepId) : undefined;
     if (node?.blockType !== "agent" || !run.repositoryContext) throw new Error("permission_denied");
@@ -107,7 +113,18 @@ export function createRuntimeApplication(options: RuntimeApplicationOptions) {
     const approvals = new D1WorkflowApprovalStore(db);
     const journal = new AgentJournal(db, undefined, env);
     const vault = vaultFor(db, command.repositoryId);
+    if ("scope" in command && command.scope.repositoryId !== command.repositoryId) throw new Error("permission_denied");
     switch (command.operation) {
+      case "conversations.prepare": {
+        const prepared = await new ConversationStore(db, command.scope).prepare(command.submission);
+        return prepared.replay ?? null;
+      }
+      case "conversations.list":
+        return new ConversationStore(db, command.scope).list(command.query, command.target, command.before);
+      case "conversations.detail":
+        return new ConversationStore(db, command.scope).detail(command.id, command.before);
+      case "conversations.rename":
+        return new ConversationStore(db, command.scope).rename(command.id, command.title);
       case "vault": {
         // The allowlist is defined in the wire schema. Vault methods also check object identity and repository ownership.
         const method = vault[command.method] as (...parameters: unknown[]) => Promise<unknown>;
@@ -225,15 +242,43 @@ export function createRuntimeApplication(options: RuntimeApplicationOptions) {
         const context = repositoryContextSchema.parse(run.repositoryContext);
         if (context.repositoryId !== command.repositoryId || !/^[a-f0-9-]{36}$/.test(run.id) ||
           run.workflowGeneration !== 1 || run.status !== "queued" || isLegacyRunReadOnly(run)) throw new Error("invalid_run_snapshot");
+        assertWorkflowPolicyCommissioned(run);
+        assertRunExecutionPolicy(run);
         const managed = Object.entries(run.managedCodeRepositoryContexts ?? {});
         const authorities = command.publicationAuthorities ?? {};
         if (managed.length !== Object.keys(authorities).length || managed.some(([agentId, value]) =>
           !managedContextSchema.safeParse(value).success || !Object.hasOwn(authorities, agentId))) throw new Error("invalid_run_snapshot");
+        const submission = command.conversation;
+        const conversations = new ConversationStore(db, context);
+        let assembled: ReturnType<ReturnType<typeof planConversationContext>["assemble"]> | undefined;
+        if (submission) {
+          const plan = run.executionPlan;
+          const entry = plan && "planVersion" in plan ? plan.nodes[0] : undefined;
+          const matchesTarget = submission.target.kind === "workflow" ? run.workflowId === submission.target.id
+            : entry?.blockType === "agent" && entry.config.agentId === submission.target.id && plan?.nodes.length === 1;
+          if (!matchesTarget || run.initialInput !== submission.message || run.clientIdempotencyKey !== conversationRunKey(submission) || run.advisorContext) {
+            throw new Error("invalid_run_snapshot");
+          }
+          const prepared = await conversations.prepare(submission);
+          if (prepared.replay) return prepared.replay;
+          const history = await conversations.history(submission.conversationId, prepared.head, submission.exactTurnIds);
+          const contextPlan = planConversationContext({ ...history, turnId: submission.turnId, message: submission.message, exactTurnIds: submission.exactTurnIds,
+            settings: conversationContextSettings(env) });
+          const summary = await summarizeConversation(db, run, submission, contextPlan.providerInput, contextPlan.summaryLimit, vault, env, options.providerFetcher);
+          assembled = contextPlan.assemble(summary);
+          run.initialInput = assembled.initialInput;
+        } else if (run.clientIdempotencyKey?.startsWith(CONVERSATION_RUN_KEY_PREFIX)) {
+          throw new Error("workflow_idempotency_conflict");
+        }
         return db.transaction(async database => {
           const scoped = new D1WorkflowRunStorage(database, undefined, command.repositoryId);
+          const conversationStore = new ConversationStore(database, context);
+          const prepared = submission && await conversationStore.prepare(submission);
+          if (prepared?.replay) return prepared.replay;
           const saved = await scoped.createRun(run);
           if (!sameRepositoryContext(saved.run.repositoryContext, context) || saved.run.workflowId !== run.workflowId ||
-              saved.run.initialInput !== run.initialInput || Boolean(saved.run.advisorContext) !== Boolean(run.advisorContext)) {
+              saved.run.initialInput !== run.initialInput || Boolean(saved.run.advisorContext) !== Boolean(run.advisorContext) ||
+              saved.run.executionPolicy !== run.executionPolicy || submission && saved.run.id !== run.id) {
             throw new Error("workflow_idempotency_conflict");
           }
           if (saved.run.id === run.id) {
@@ -241,6 +286,10 @@ export function createRuntimeApplication(options: RuntimeApplicationOptions) {
               await database.prepare("INSERT INTO managed_repository_authorities(run_id,agent_id,authority) VALUES(?,?,?) ON CONFLICT DO NOTHING")
                 .bind(run.id, agentId, authorities[agentId]).run();
             }
+          }
+          if (submission && prepared && assembled) {
+            await conversationStore.append(submission, saved.run, (prepared.head?.ordinal ?? 0) + 1, assembled.metadata);
+            return { conversationId: submission.conversationId, turnId: submission.turnId, runId: saved.run.id, replay: false };
           }
           return saved;
         });
@@ -255,18 +304,34 @@ export function createRuntimeApplication(options: RuntimeApplicationOptions) {
     }
     const { run } = detail;
     const context = run.repositoryContext;
+    if (command.operation === "runs.detail") {
+      const conversation = context && await new ConversationStore(db, context).link(run.id);
+      return conversation ? { ...detail, conversation } : detail;
+    }
     if (!context || isLegacyRunReadOnly(run)) throw new Error("legacy_run_read_only");
+    assertRunExecutionPolicy(run);
     switch (command.operation) {
-      case "runs.detail": return detail;
+      case "runs.action":
+      case "knowledge.from-action": {
+        if (!sameRepositoryContext(context, command.scope)) throw new Error("workflow_action_not_found");
+        const action = await new WorkflowResponseActions(db).require(detail, command.actionId);
+        if (command.operation === "runs.action") return { markdown: action.content };
+        return new KnowledgeProposalStore(db, context, command.actor).saveFromAction(action.id, knowledgeFromWorkflowAction(run, action));
+      }
       case "runs.cancel": {
         const status = await storage.requestCancellation(run.id);
         await coordinator.wake(run.id);
         return status;
       }
       case "runs.retry": {
-        const eligibility = manualRetryEligibility(detail);
-        if (!eligibility.eligible) throw new Error("invalid_retry");
-        const next = await storage.prepareManualRetry(run.id, eligibility.stepId);
+        const next = await db.transaction(async database => {
+          const scoped = new D1WorkflowRunStorage(database, undefined, command.repositoryId);
+          const link = await new ConversationStore(database, context).link(run.id);
+          if (link && !link.isLatest) throw new Error("conversation_retry_superseded");
+          const eligibility = manualRetryEligibility(await scoped.getRun(run.id));
+          if (!eligibility.eligible) throw new Error("invalid_retry");
+          return scoped.prepareManualRetry(run.id, eligibility.stepId);
+        });
         await coordinator.wake(run.id);
         return next;
       }
@@ -283,6 +348,7 @@ export function createRuntimeApplication(options: RuntimeApplicationOptions) {
         return operateRuntimeTools({ ...command, journal, repository: toolRepository(context),
           policies: new D1McpPolicyAuthority(db), vault, env, wake: coordinator.wake });
       case "runs.publish": {
+        assertPublicationPolicy(run);
         const runner = { baseUrl: env.CODEX_RUNNER_BASE_URL!, accessClientId: env.CODEX_RUNNER_ACCESS_CLIENT_ID!,
           accessClientSecret: env.CODEX_RUNNER_ACCESS_CLIENT_SECRET!, sharedSecret: env.CODEX_RUNNER_SHARED_SECRET! };
         const attempt=detail.attempts.filter(value=>value.stepId===command.stepId&&value.status==="succeeded").at(-1);
