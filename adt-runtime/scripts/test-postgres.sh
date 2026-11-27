@@ -2,7 +2,7 @@
 set -eu
 
 repo=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
-image=postgres:17.10-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+image=postgres:17.11-alpine@sha256:e5d2edd28b1f8d40a0a6c0c9cdc545b19b56a0d5d88f94bc11a97d970d4700d0
 scratch=$(mktemp -d)
 container="adt-postgres-test-$(basename "$scratch")"
 cleanup() {

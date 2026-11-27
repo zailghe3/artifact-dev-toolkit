@@ -9,6 +9,30 @@ function protocol(message,req,{token}={}){if(token&&req.headers.authorization!==
 
 test('Streamable HTTP initializes, discovers and calls a frozen tool with no authentication',async t=>{const f=await fake((m,r)=>protocol(m,r));t.after(()=>new Promise(resolve=>f.server.close(resolve)));const tools=await discoverMcpTools(config(f.url));assert.deepEqual(tools,[{name:'echo',description:'Echo input',inputSchema:{type:'object',properties:{text:{type:'string'}}}}]);const result=await callMcpTool(config(f.url),tools[0],{text:'hello'});assert.equal(result.content[0].text,'hello')});
 
+test('MCP v2 retains legacy negotiation, single-page discovery and frozen calls', async t => {
+  const requests = [];
+  const f = await fake((message, request) => {
+    if (message.method) requests.push(message);
+    const response = protocol(message, request);
+    if (message.method === 'tools/list') response.body.result.nextCursor = 'next-page';
+    return response;
+  });
+  t.after(() => new Promise(resolve => f.server.close(resolve)));
+
+  const tools = await discoverMcpTools(config(f.url));
+  assert.equal(tools.length, 1);
+  assert.deepEqual(requests.map(request => request.method), [
+    'initialize', 'notifications/initialized', 'tools/list',
+  ]);
+
+  requests.length = 0;
+  const result = await callMcpTool(config(f.url), tools[0], {text: 'frozen'});
+  assert.equal(result.content[0].text, 'frozen');
+  assert.deepEqual(requests.map(request => request.method), [
+    'initialize', 'notifications/initialized', 'tools/call',
+  ]);
+});
+
 test('bearer authentication is invocation-only and failures are safe',async t=>{const secret='mcp-private-token',f=await fake((m,r)=>protocol(m,r,{token:secret}));t.after(()=>new Promise(resolve=>f.server.close(resolve)));assert.equal((await discoverMcpTools(config(f.url),secret))[0].name,'echo');await assert.rejects(discoverMcpTools(config(f.url),'wrong'),error=>error instanceof McpFailure&&!JSON.stringify(error).includes(secret)&&!JSON.stringify(error).includes('do not leak'))});
 
 test('same-origin redirects retain bearer auth and redirect chains are bounded',async()=>{const token='redirect-secret';let requests=0;const fetcher=async(url,init)=>{requests++;assert.equal(new URL(url).origin,'http://localhost');assert.equal(new Headers(init.headers).get('authorization'),`Bearer ${token}`);const message=JSON.parse(init.body);if(requests<=2)return new Response(null,{status:307,headers:{location:`/hop-${requests}`}});if(message.method==='initialize')return Response.json({jsonrpc:'2.0',id:message.id,result:{protocolVersion:'2025-06-18',capabilities:{tools:{}},serverInfo:{name:'fake',version:'1'}}});if(message.method==='notifications/initialized')return new Response(null,{status:202});return Response.json({jsonrpc:'2.0',id:message.id,result:{tools:[]}})};assert.deepEqual(await discoverMcpTools(config('http://localhost/mcp'),token,{fetch:fetcher}),[]);assert.ok(requests>=4);requests=0;const endless=async(_url,init)=>{requests++;assert.equal(new Headers(init.headers).get('authorization'),`Bearer ${token}`);return new Response(null,{status:307,headers:{location:`/hop-${requests}`}})};await assert.rejects(discoverMcpTools(config('http://localhost/mcp'),token,{fetch:endless}),error=>error.category==='connection_unavailable');assert.equal(requests,MCP_LIMITS.redirects+1)});

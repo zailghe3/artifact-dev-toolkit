@@ -15,7 +15,7 @@ backend_ip=203.0.114.10
 backend_config=$(mktemp)
 cleanup(){ docker rm -f "$executor" "$manager" "$backend" >/dev/null 2>&1 || true; docker network rm "$executor_network" "$manager_network" "$uplink_network" >/dev/null 2>&1 || true; rm -f "$backend_config"; }
 trap cleanup EXIT
-image='ubuntu/squid:6.6-24.04_edge@sha256:8a3baed477e2c282ab8aa5edad442f69873246964f225c5c2ae8364b6610963c'
+image='ubuntu/squid@sha256:6a097f68bae708cedbabd6188d68c7e2e7a38cedd05a176e1cc0ba29e3bbe029'
 parse_config(){
   local role=$1 file=$2
   phase "$role-config-parse"
@@ -49,7 +49,7 @@ docker run -d --name "$manager" --network "$manager_network" \
 docker network connect --gw-priority 1 "$uplink_network" "$manager" || fail manager-uplink-connect
 # The client joins only its role's internal network. http_connect records the
 # proxy CONNECT response without printing upstream response data.
-connect_status(){ docker run --rm --network "$1" curlimages/curl:8.15.0 -s -o /dev/null -w '%{http_connect}' --connect-timeout 5 --max-time 15 --proxy "http://$2:3128" "$3" 2>/dev/null || true; }
+connect_status(){ docker run --rm --network "$1" curlimages/curl:8.23.0@sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93 -s -o /dev/null -w '%{http_connect}' --connect-timeout 5 --max-time 15 --proxy "http://$2:3128" "$3" 2>/dev/null || true; }
 # Exercise the same role-network -> Docker DNS -> proxy path as production.
 # Port 1 is rejected by both loaded policies before DNS or upstream I/O.
 wait_proxy_ready(){

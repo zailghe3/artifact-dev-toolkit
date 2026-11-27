@@ -3,7 +3,7 @@ import {WorkflowAgentToolRestrictions} from "@/components/WorkflowAgentToolRestr
 import {FormActions,Panel,buttonStyles} from "@/components/Ui";
 import {useCallback,useReducer,useRef,useState} from "react";
 import {useRouter} from "next/navigation";
-import {addEdge,applyEdgeChanges,applyNodeChanges,Background,Controls,Handle,Position,ReactFlow,type Connection,type Edge,type EdgeChange,type Node,type NodeChange,type Viewport} from "@xyflow/react";
+import {addEdge,Background,Controls,Handle,Position,ReactFlow,type Connection,type Edge,type Node,type OnEdgesChange,type OnNodesChange,type Viewport} from "@xyflow/react";
 import {definitionIdDraftReducer,DEFINITION_ID_MAX_LENGTH} from "@/lib/definition-id";
 import {MAX_STEP_EXECUTIONS,WORKFLOW_RUN_INPUT_MAX_LENGTH,type WorkflowDefinitionV2} from "@/lib/workflow-definitions";
 import {normalizeWorkflowLayout,placeNodeInViewport,type WorkflowLayoutV1} from "@/lib/workflow-layout";
@@ -36,8 +36,10 @@ function V2Editor({agents,reusableWorkflows=[],initial,fileSha,initialLayout,aut
  const [edgeWaypoints,setEdgeWaypoints]=useState<Record<string,{x:number;y:number}[]>>(hydrated?.edgeWaypoints??{});
  const [identity,updateIdentity]=useReducer(definitionIdDraftReducer,{name:workflow?.name??"",id:workflow?.id??"",idOverridden:Boolean(workflow)});
  const [reusableWorkflowId,setReusableWorkflowId]=useState(reusableWorkflows[0]?.id??"");
- const routedEdges=edges.map(edge=>({...edge,type:"waypoint",data:{waypoints:edgeWaypoints[edge.id],onChange:(points:{x:number;y:number}[])=>setEdgeWaypoints(old=>({...old,[edge.id]:points}))}}));
- const onNodesChange=useCallback((changes:NodeChange<Node>[])=>setNodes(current=>applyNodeChanges(changes,current)),[setNodes]),onEdgesChange=useCallback((changes:EdgeChange<Edge>[])=>setEdges(current=>applyEdgeChanges(changes,current)),[setEdges]),onConnect=useCallback((connection:Connection)=>setEdges(current=>addEdge({...connection,type:"waypoint",id:`edge-${connection.source}-${connection.sourceHandle??"out"}-${connection.target}`,label:connection.sourceHandle==="true"||connection.sourceHandle==="false"?connection.sourceHandle:undefined},current)),[setEdges]);
+ const routedEdges:Edge[]=edges.map(edge=>({...edge,type:"waypoint",data:{waypoints:edgeWaypoints[edge.id],onChange:(points:{x:number;y:number}[])=>setEdgeWaypoints(old=>({...old,[edge.id]:points}))}}));
+ const onNodesChange=useCallback<OnNodesChange>(changes=>setNodes(current=>changes.applyTo(current)),[]);
+ const onEdgesChange=useCallback<OnEdgesChange>(changes=>setEdges(current=>changes.applyTo(current)),[]);
+ const onConnect=useCallback((connection:Connection)=>setEdges(current=>addEdge({...connection,type:"waypoint",id:`edge-${connection.source}-${connection.sourceHandle??"out"}-${connection.target}`,label:connection.sourceHandle==="true"||connection.sourceHandle==="false"?connection.sourceHandle:undefined},current)),[setEdges]);
  function addCondition(){const id=`condition-${crypto.randomUUID().slice(0,8)}`;setNodes(old=>[...old,{id,type:"condition",position:placeNodeInViewport(viewport,{width:graphRef.current?.clientWidth??0,height:graphRef.current?.clientHeight??0},old.map(node=>node.position),{x:old.length*220,y:180}),data:{operator:"contains",value:"approved",caseSensitive:false}}]);}
  function addApproval(){const id=`approval-${crypto.randomUUID().slice(0,8)}`;setNodes(old=>[...old,{id,type:"approval",position:placeNodeInViewport(viewport,{width:graphRef.current?.clientWidth??0,height:graphRef.current?.clientHeight??0},old.map(node=>node.position),{x:old.length*220,y:220}),data:{message:"Approve this result?"}}]);}
  function addSubworkflow(workflowId:string){const reusable=reusableWorkflows.find(value=>value.id===workflowId);if(!reusable)return;const id=`subworkflow-${crypto.randomUUID().slice(0,8)}`;setNodes(old=>[...old,{id,type:"subworkflow",position:placeNodeInViewport(viewport,{width:graphRef.current?.clientWidth??0,height:graphRef.current?.clientHeight??0},old.map(node=>node.position),{x:old.length*220,y:300}),data:{workflowId,label:reusable.name}}]);}

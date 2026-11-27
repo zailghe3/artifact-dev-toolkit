@@ -56,6 +56,15 @@ updates:
       cloudflare-tooling-minor-patch:
         patterns:
           - wrangler
+          - miniflare
+        update-types:
+          - minor
+          - patch
+      application-ui-minor-patch:
+        patterns:
+          - "@radix-ui/*"
+          - "@xyflow/react"
+          - lucide-react
         update-types:
           - minor
           - patch
@@ -101,12 +110,16 @@ updates:
           - patch
       mcp-minor-patch:
         patterns:
-          - "@modelcontextprotocol/sdk"
+          - "@modelcontextprotocol/client"
         update-types:
           - minor
           - patch
       runtime-support-minor-patch:
         patterns:
+          - gray-matter
+          - pg
+          - "@types/pg"
+          - esbuild
           - zod
           - ws
           - undici

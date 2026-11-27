@@ -153,7 +153,7 @@ jobs:
 
       - name: Test vendored Adrian backend
         if: inputs.verify_adrian
-        run: docker run --rm -v "$PWD/third_party/adrian/backend:/src:ro" -w /src golang:1.25.8-bookworm go test ./...
+        run: docker run --rm -v "$PWD/third_party/adrian/backend:/src:ro" -w /src golang:1.27.4-bookworm@sha256:ce59b41415e2524ae99926fe1f37ce48ba8c194dcbd2a56a65436cdcefa2bd34 go test ./...
 
       - name: Build Adrian backend image
         if: inputs.smoke_adrian_image

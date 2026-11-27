@@ -3,8 +3,7 @@ import {lookup as dnsLookup,type LookupAddress,type LookupAllOptions,type Lookup
 import {promisify} from "node:util";
 import {BlockList,isIP} from "node:net";
 import {Agent,fetch as undiciFetch,type Dispatcher} from "undici";
-import {Client} from "@modelcontextprotocol/sdk/client/index.js";
-import {StreamableHTTPClientTransport} from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import {Client,StreamableHTTPClientTransport} from "@modelcontextprotocol/client";
 
 export const MCP_DISCOVERY_CAPABILITY="mcp:streamable-http:discover",MCP_CALL_CAPABILITY="mcp:streamable-http:call";
 export const MCP_LIMITS={tools:64,nameBytes:128,descriptionBytes:2048,schemaBytes:32_768,argumentsBytes:65_536,resultBytes:128_000,durationMs:10_000,redirects:2} as const;
@@ -54,8 +53,8 @@ function pinnedDispatcher(hostname:string,addresses:LookupAddress[]){
 
 function safeFetch(config:McpServerConfig,credential:string|undefined,dependencies:McpNetworkDependencies,onCallDispatch:()=>void,dispatchers:Agent[],operationSignal:AbortSignal){
  const resolver=dependencies.resolve??resolveAll,fetcher=dependencies.fetch??defaultFetch;
- return async(input:string|URL|Request,init?:RequestInit)=>{
-  let current=await bounded(()=>destination(input instanceof Request?input.url:String(input),Boolean(config.allowLocalhost),resolver),operationSignal),redirects=0;
+ return async(input:string|URL,init?:RequestInit)=>{
+  let current=await bounded(()=>destination(input,Boolean(config.allowLocalhost),resolver),operationSignal),redirects=0;
   const initialOrigin=current.url.origin;
   for(;;){
    if(current.url.origin!==initialOrigin)throw new McpFailure("configuration_invalid","MCP server redirect was rejected.");
@@ -81,7 +80,8 @@ async function connected<T>(config:McpServerConfig,credential:string|undefined,o
  const remaining=Math.min(AGENT_TOOL_EXECUTION_MS,(dependencies.deadlineAt??Infinity)-Date.now());
  if(remaining<=0)throw new McpFailure("connection_unavailable","MCP dispatch authorisation expired before execution.");
  const signal=AbortSignal.any([AbortSignal.timeout(remaining),...(dependencies.signal?[dependencies.signal]:[])]);
- const dispatchers:Agent[]=[],client=new Client({name:"adt-runtime",version:"1"});
+ // Keep legacy negotiation so frozen calls do not probe or refresh the remote catalogue.
+ const dispatchers:Agent[]=[],client=new Client({name:"adt-runtime",version:"1"},{versionNegotiation:{mode:"legacy"},enforceStrictCapabilities:true});
  let callDispatched=false,initialized=false,transport:StreamableHTTPClientTransport|undefined;
  try{
   const initial=await bounded(()=>validateMcpUrl(config.url,config.allowLocalhost,dependencies.resolve??resolveAll),signal);
@@ -101,5 +101,5 @@ async function connected<T>(config:McpServerConfig,credential:string|undefined,o
 }
 
 function catalogueTool(value:unknown):McpTool{if(!value||typeof value!=="object"||Array.isArray(value))throw new McpFailure("malformed_response","MCP server returned an invalid tool catalogue.");const v=value as Record<string,unknown>,name=v.name,description=v.description,inputSchema=v.inputSchema;if(typeof name!=="string"||!name||bytes(name)>MCP_LIMITS.nameBytes||(description!==undefined&&(typeof description!=="string"||bytes(description)>MCP_LIMITS.descriptionBytes))||!inputSchema||typeof inputSchema!=="object"||Array.isArray(inputSchema)||bytes(JSON.stringify(inputSchema))>MCP_LIMITS.schemaBytes)throw new McpFailure("malformed_response","MCP server returned an invalid tool catalogue.");return{name,...(description?{description}:{}),inputSchema:inputSchema as Record<string,unknown>}}
-export async function discoverMcpTools(config:McpServerConfig,credential?:string,dependencies?:McpNetworkDependencies){return connected(config,credential,async(client,signal)=>{const result=await client.listTools(undefined,{timeout:MCP_LIMITS.durationMs,signal});if(result.tools.length>MCP_LIMITS.tools)throw new McpFailure("response_too_large","MCP tool catalogue exceeds the permitted size.");return result.tools.map(catalogueTool)},dependencies,false,"malformed_response")}
-export async function callMcpTool(config:McpServerConfig,tool:McpTool,arguments_:Record<string,unknown>,credential?:string,dependencies?:McpNetworkDependencies){catalogueTool(tool);if(bytes(JSON.stringify(arguments_))>MCP_LIMITS.argumentsBytes)throw new McpFailure("configuration_invalid","MCP tool arguments exceed the permitted size.");return connected(config,credential,async(client,signal)=>{const result=await client.callTool({name:tool.name,arguments:arguments_},undefined,{timeout:MCP_LIMITS.durationMs,signal});const serialized=JSON.stringify(result);if(bytes(serialized)>MCP_LIMITS.resultBytes)throw new McpFailure("response_too_large","MCP tool result exceeds the permitted size.");return result},dependencies,true)}
+export async function discoverMcpTools(config:McpServerConfig,credential?:string,dependencies?:McpNetworkDependencies){return connected(config,credential,async(client,signal)=>{const result=await client.request({method:"tools/list"},{timeout:MCP_LIMITS.durationMs,signal});if(result.tools.length>MCP_LIMITS.tools)throw new McpFailure("response_too_large","MCP tool catalogue exceeds the permitted size.");return result.tools.map(catalogueTool)},dependencies,false,"malformed_response")}
+export async function callMcpTool(config:McpServerConfig,tool:McpTool,arguments_:Record<string,unknown>,credential?:string,dependencies?:McpNetworkDependencies){catalogueTool(tool);if(bytes(JSON.stringify(arguments_))>MCP_LIMITS.argumentsBytes)throw new McpFailure("configuration_invalid","MCP tool arguments exceed the permitted size.");return connected(config,credential,async(client,signal)=>{const result=await client.callTool({name:tool.name,arguments:arguments_},{timeout:MCP_LIMITS.durationMs,signal});const serialized=JSON.stringify(result);if(bytes(serialized)>MCP_LIMITS.resultBytes)throw new McpFailure("response_too_large","MCP tool result exceeds the permitted size.");return result},dependencies,true)}

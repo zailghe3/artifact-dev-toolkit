@@ -11,28 +11,28 @@
     "bundle:inputs": "node scripts/bundle-application.mjs --update-inputs"
   },
   "dependencies": {
-    "@langchain/langgraph": "^1.5.0",
-    "@langchain/langgraph-checkpoint": "^1.2.0",
-    "@modelcontextprotocol/sdk": "1.32.2",
+    "@langchain/langgraph": "^1.7.5",
+    "@langchain/langgraph-checkpoint": "^1.2.3",
+    "@modelcontextprotocol/client": "2.4.0",
     "@openai/agents": "0.22.0",
     "@secureagentics/adrian": "1.1.0",
     "gray-matter": "4.0.3",
-    "openai": "7.60.0",
+    "openai": "7.65.0",
     "pg": "8.23.1",
-    "undici": "8.12.4",
-    "ws": "^8.22.0",
-    "zod": "^4.6.5"
+    "undici": "8.13.1",
+    "ws": "^8.23.0",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@types/node": "^24.19.2",
+    "@types/node": "^26.6.11",
     "@types/pg": "8.23.1",
     "@types/ws": "^8.18.2",
-    "esbuild": "0.28.1",
-    "typescript": "^5.9.3"
+    "esbuild": "0.28.2",
+    "typescript": "^6.0.3"
   },
   "engines": {
-    "node": "24.x",
-    "npm": "11.4.2"
+    "node": "26.x",
+    "npm": "11.21.3"
   },
-  "packageManager": "npm@11.4.2"
+  "packageManager": "npm@11.21.3"
 }

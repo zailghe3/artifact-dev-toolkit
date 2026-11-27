@@ -80,7 +80,7 @@ jobs:
           export UPSTREAM_SHA="$(jq -r .commit third_party/adrian-upstream.json)"
           node scripts/adrian-publication-plan.mjs
       - name: Test vendored backend
-        run: docker run --rm -v "$PWD/third_party/adrian/backend:/src:ro" -w /src golang:1.25.8-bookworm go test ./...
+        run: docker run --rm -v "$PWD/third_party/adrian/backend:/src:ro" -w /src golang:1.27.4-bookworm@sha256:ce59b41415e2524ae99926fe1f37ce48ba8c194dcbd2a56a65436cdcefa2bd34 go test ./...
       - name: Build image once
         run: docker build --progress=plain -f adrian/Dockerfile -t adrian-backend:validated .
       - name: Smoke-test built image
