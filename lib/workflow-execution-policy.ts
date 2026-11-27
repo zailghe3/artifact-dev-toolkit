@@ -11,17 +11,22 @@ export const advisorRunContextSchema=z.object({version:z.literal(1),readOnly:z.l
 export type AdvisorRunContext=z.infer<typeof advisorRunContextSchema>;
 export const sameRepositoryContext=(a:WorkflowRun["repositoryContext"],b:WorkflowRun["repositoryContext"])=>Boolean(a&&b&&a.repositoryId===b.repositoryId&&a.installationId===b.installationId&&a.owner.toLowerCase()===b.owner.toLowerCase()&&a.repository.toLowerCase()===b.repository.toLowerCase()&&a.branch===b.branch&&a.root===b.root);
 
-type PolicySources = Pick<WorkflowRun,"workflowId"|"semanticWorkflowSnapshot"|"compositionSnapshot"|"agentSnapshots">;
-const declaresReadOnly = (run: PolicySources) => run.semanticWorkflowSnapshot?.executionPolicy === "read-only" ||
-  run.compositionSnapshot?.dependencies.some(item => item.definition.executionPolicy === "read-only") ||
-  Object.values(run.agentSnapshots ?? {}).some(agent => agent.executionPolicy === "read-only");
+type PolicySources = Pick<WorkflowRun,"semanticWorkflowSnapshot"|"compositionSnapshot"|"agentSnapshots">;
 
 export function requiredExecutionPolicy(run: PolicySources) {
-  if (run.workflowId === ADVISOR_WORKFLOW_ID || declaresReadOnly(run)) return "read-only" as const;
+  if (run.semanticWorkflowSnapshot?.executionPolicy === "read-only" ||
+  run.compositionSnapshot?.dependencies.some(item => item.definition.executionPolicy === "read-only") ||
+  Object.values(run.agentSnapshots ?? {}).some(agent => agent.executionPolicy === "read-only")) return "read-only" as const;
 }
 
 export const hasReadOnlyExecution = (run: Pick<WorkflowRun,"executionPolicy"|"advisorContext">) =>
   run.executionPolicy === "read-only" || Boolean(run.advisorContext);
+
+/** The legacy shortcut used to imply protection. Require an explicit policy before it can lose that protection. */
+export function assertWorkflowPolicyCommissioned(run: PolicySources & Pick<WorkflowRun,"workflowId"|"executionPolicy"|"advisorContext">) {
+  if (run.workflowId === ADVISOR_WORKFLOW_ID && run.semanticWorkflowSnapshot?.executionPolicy !== "standard" &&
+    !requiredExecutionPolicy(run) && !hasReadOnlyExecution(run)) throw new Error("workflow_policy_commissioning_required");
+}
 
 /** Closed capability allowlist: external tools and provider-hosted actions cannot be proven read-only. */
 export function assertReadOnlyExecution(plan:GenericWorkflowExecutionPlan,agents:readonly AgentDefinitionV1[],connections:readonly ConnectionDescriptor[],mcpTools?:WorkflowRun["mcpToolSnapshots"],managed?:WorkflowRun["managedCodeRepositoryContexts"],legacy=false){
@@ -43,7 +48,7 @@ export function assertRunExecutionPolicy(run:WorkflowRun){
   if (run.executionPolicy !== undefined) executionPolicySchema.parse(run.executionPolicy);
   if (run.advisorContext) advisorRunContextSchema.parse(run.advisorContext);
   if (!hasReadOnlyExecution(run)) {
-    if (declaresReadOnly(run)) throw new Error("execution_read_only_required");
+    if (requiredExecutionPolicy(run)) throw new Error("execution_read_only_required");
     return;
   }
   if(!run.executionPlan||!("planVersion" in run.executionPlan)||!run.repositoryContext)throw new Error(run.advisorContext ? "advisor_read_only_required" : "execution_read_only_required");

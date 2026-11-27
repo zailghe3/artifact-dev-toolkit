@@ -121,6 +121,7 @@ function Turn({ turn, selected, onSelect, showSelection, children }: {
       {(turn.definitionChanged || turn.summaryUsed || turn.omittedHistory > 0) && <p className="mb-3 text-xs leading-relaxed text-muted-foreground">
         {turn.definitionChanged && "Execution definition updated for this turn. "}
         {turn.summaryUsed && "Earlier exchanges were summarized. "}
+        {turn.summaryLimited && "Some details in the summary were shortened. "}
         {turn.omittedHistory > 0 && `${turn.omittedHistory} earlier ${turn.omittedHistory === 1 ? "exchange was" : "exchanges were"} omitted to fit the context limit.`}
       </p>}
       {turn.status === "failed" && <p role="status" className="mb-3 rounded-md border border-destructive/30 p-3 text-sm">

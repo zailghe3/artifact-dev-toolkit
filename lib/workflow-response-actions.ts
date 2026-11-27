@@ -1,14 +1,15 @@
 import type { GraphKnowledgeOutput } from "../adt-runtime/src/langgraph.ts";
+import { MAX_CONVERSATION_INPUT_BYTES } from "../adt-runtime/src/conversation-contract.ts";
 import type { PostgresWorkflowDatabase } from "../adt-runtime/src/workflow-database.ts";
 import { agentDigest } from "./agent-journal.ts";
 import { MAX_KNOWLEDGE_BYTES, type KnowledgeDocument } from "./advisor-knowledge.ts";
-import { utf8Prefix } from "./conversation-context.ts";
+import { utf8Prefix, type HistorySection } from "./conversation-context.ts";
 import type { ResponseSection } from "./conversation-types.ts";
 import type { RunDetail, WorkflowRun } from "./workflow-storage.ts";
 
 type ActionRow = {
   id: string; node_id: string; activation_id: string; source_node_id: string; source_activation_id: string;
-  sequence: number; label: string; content: string;
+  sequence: number; label: string; content: string; response_section: "section" | "terminal" | null;
 };
 
 const actionId = (runId: string, nodeId: string, activationId: string) => agentDigest([runId, nodeId, activationId]);
@@ -54,19 +55,47 @@ export class WorkflowResponseActions {
     return { text, url: undefined, actionId: terminalActionId };
   }
 
+  /** Call in the same fenced transaction that completes the Run. */
+  async publish(runId: string, terminalActionId?: string) {
+    const { results } = await this.database.prepare(`UPDATE workflow_run_actions a
+      SET response_section = CASE WHEN NOT verified.has_text THEN NULL WHEN a.id=? THEN 'terminal' ELSE 'section' END
+      FROM committed_workflow_knowledge_actions(?) verified
+      WHERE a.id = verified.action_id RETURNING a.id`)
+      .bind(terminalActionId ?? null, runId).all<{ id: string }>();
+    if (terminalActionId && !results.some(row => row.id === terminalActionId)) throw new Error("workflow_output_unverified");
+  }
+
   async sections(runId: string, finalOutput: string | null): Promise<ResponseSection[]> {
-    const final: ResponseSection = { id: `${runId}:output`, markdown: finalOutput ?? "" };
-    const { results } = await this.database.prepare(`SELECT id,label,is_final FROM (
-      SELECT DISTINCT ON (node_id) id,label,sequence,content=? AS is_final,content
-      FROM workflow_run_actions WHERE run_id=? AND kind='knowledge-proposal'
-      ORDER BY node_id, sequence DESC, id DESC
-    ) AS latest WHERE length(btrim(content)) > 0 ORDER BY sequence,id`)
-      .bind(finalOutput, runId).all<{ id: string; label: string; is_final: boolean }>();
-    const sections: ResponseSection[] = [final];
+    let final: ResponseSection = { id: `${runId}:output`, markdown: finalOutput ?? "" };
+    const { results } = await this.database.prepare(`SELECT id,label,response_section FROM workflow_run_actions
+      WHERE run_id=? AND response_section IS NOT NULL ORDER BY sequence,id`)
+      .bind(runId).all<Pick<ActionRow, "id" | "label" | "response_section">>();
+    const sections: ResponseSection[] = [];
     for (const row of results) {
-      const action = { kind: "knowledge-proposal" as const, id: row.id };
-      if (row.is_final) (final.actions ??= []).push(action);
-      else sections.push({ id: row.id, label: row.label, actions: [action] });
+      const section = { id: row.id, label: row.label, actions: [{ kind: "knowledge-proposal" as const, id: row.id }] };
+      if (row.response_section === "terminal") final = { ...section, markdown: finalOutput ?? "" };
+      else sections.push(section);
+    }
+    return [...sections, final];
+  }
+
+  /** Fully load sections only where they could fit in an exact exchange. */
+  async historySections(runIds: string[]) {
+    const sections = new Map<string, HistorySection[]>();
+    if (!runIds.length) return sections;
+    const { results } = await this.database.prepare(`SELECT run_id,id,label,response_section, bytes_through<=? AS complete,
+      CASE WHEN response_section='terminal' THEN NULL WHEN bytes_through<=? THEN content
+           WHEN bytes_through-octet_length(content)<? THEN left(content,384) END AS markdown
+      FROM (SELECT run_id,id,label,content,sequence,response_section, sum(octet_length(content)) OVER (
+        PARTITION BY run_id ORDER BY sequence,id ROWS UNBOUNDED PRECEDING) AS bytes_through
+        FROM workflow_run_actions WHERE run_id=ANY(?::text[]) AND response_section IS NOT NULL) AS response
+      ORDER BY run_id,sequence,id`)
+      .bind(MAX_CONVERSATION_INPUT_BYTES, MAX_CONVERSATION_INPUT_BYTES, MAX_CONVERSATION_INPUT_BYTES, runIds)
+      .all<{ run_id: string; id: string; label: string; complete: boolean; markdown: string | null; response_section: "section" | "terminal" }>();
+    for (const { run_id, id, label, complete, markdown, response_section } of results) {
+      const response = sections.get(run_id) ?? [];
+      response.push({ id, label, complete, markdown: markdown ?? "", terminal: response_section === "terminal" });
+      sections.set(run_id, response);
     }
     return sections;
   }
@@ -76,7 +105,7 @@ export class WorkflowResponseActions {
     const row = await this.get(detail.run.id, id);
     const plan = detail.run.executionPlan;
     const node = row && plan && "planVersion" in plan ? plan.nodes.find(item => item.id === row.node_id) : undefined;
-    if (!row || !row.content.trim() || node?.blockType !== "knowledge-proposal" ||
+    if (!row?.response_section || !row.content.trim() || node?.blockType !== "knowledge-proposal" ||
         id !== actionId(detail.run.id, row.node_id, row.activation_id) || row.label !== (node.config.label ?? "Knowledge finding")) {
       throw new Error("workflow_action_not_found");
     }

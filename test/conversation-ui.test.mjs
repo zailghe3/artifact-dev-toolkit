@@ -56,6 +56,39 @@ test('code copy preserves exact parsed code and raw mode preserves the full orig
   }
 });
 
+test('complete response copies every authorised section in order without eager loading or trimming', async t => {
+  const first = '  First finding with spacing. \r\n';
+  const second = '~~~txt\nSecond finding.  \n~~~';
+  const final = 'Final answer.  \n';
+  const requestIds = [], writes = [];
+  const inline = id => ({ id, label: 'Finding', actions: [{ id, kind: 'knowledge-proposal' }] });
+  t.mock.method(globalThis, 'fetch', async url => {
+    const id = url.split('/').at(-1);
+    requestIds.push(id);
+    return Response.json({ markdown: id === 'first-visit' ? first : second });
+  });
+  t.mock.getter(globalThis, 'navigator', () => ({ clipboard: { writeText: async text => writes.push(text) } }));
+  const priorWindow = globalThis.window;
+  globalThis.window = { setTimeout() {} };
+  let view;
+  try {
+    await act(async () => { view = create(wrap(React.createElement(WorkflowResponse, {
+      runId: 'run', sections: [inline('first-visit'), inline('second-visit'), { id: 'run:output', markdown: final }],
+    }))); });
+    assert.deepEqual(requestIds, []);
+    const preview = view.root.findAllByType('button').filter(button => button.children.join('') === 'View output');
+    assert.equal(preview.length, 2);
+    await act(async () => { preview[0].props.onClick(); });
+    await act(async () => { await view.root.findByProps({ 'aria-label': 'Copy section' }).props.onClick(); });
+    await act(async () => { await view.root.findByProps({ 'aria-label': 'Copy complete response' }).props.onClick(); });
+    assert.deepEqual(requestIds, ['first-visit', 'second-visit']);
+    assert.deepEqual(writes, [first, [first, second, final].join('\n\n')]);
+  } finally {
+    if (view) await act(async () => view.unmount());
+    if (priorWindow === undefined) delete globalThis.window; else globalThis.window = priorWindow;
+  }
+});
+
 test('the shared composer applies a Workflow template and retries an uncertain submission by its original identity', async t => {
   const requests = [];
   const workflow = { kind: 'workflow', id: 'advisor', name: 'Advisor', starter: 'Review:\n- ' };

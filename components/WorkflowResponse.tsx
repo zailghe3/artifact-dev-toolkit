@@ -80,13 +80,15 @@ function Markdown({ text }: { text: string }) {
   return <div className="adt-response-markdown min-w-0 break-words">{children(root.children)}</div>;
 }
 
-function ResponseSectionView({ runId, section, raw }: { runId: string; section: ResponseSection; raw: boolean }) {
+const actionUrl = (runId: string, id: string) => `/api/workflow-runs/${runId}/actions/${id}`;
+
+function ResponseSectionView({ runId, section, raw, preview }: {
+  runId: string; section: ResponseSection; raw: boolean; preview: (id: string) => Promise<void>;
+}) {
   const router = useRouter();
-  const [loaded, setLoaded] = useState<string>();
   const [pending, setPending] = useState<string>();
   const [error, setError] = useState("");
-  const markdown = section.markdown ?? loaded;
-  const actionUrl = (id: string) => `/api/workflow-runs/${runId}/actions/${id}`;
+  const markdown = section.markdown;
 
   async function invoke(id: string, review: boolean) {
     if (pending) return;
@@ -94,11 +96,10 @@ function ResponseSectionView({ runId, section, raw }: { runId: string; section: 
     setError("");
     try {
       if (review) {
-        const result = await conversationRequest<{ id: string }>(actionUrl(id), { method: "POST" });
+        const result = await conversationRequest<{ id: string }>(actionUrl(runId, id), { method: "POST" });
         router.push(`/advisor/knowledge?proposal=${encodeURIComponent(result.id)}`);
       } else {
-        const result = await conversationRequest<{ markdown: string }>(actionUrl(id));
-        setLoaded(result.markdown);
+        await preview(id);
       }
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "The response action is unavailable.");
@@ -127,8 +128,26 @@ function ResponseSectionView({ runId, section, raw }: { runId: string; section: 
 
 export function WorkflowResponse({ runId, sections }: { runId: string; sections: ResponseSection[] }) {
   const [raw, setRaw] = useState(false);
-  const response = sections[0]?.markdown;
-  if (!sections.length) return null;
+  const [previews, setPreviews] = useState(() => new Map<string, string>());
+  const visible = sections.map(section => ({ ...section, markdown: section.markdown ?? previews.get(section.id) }));
+  async function load(id: string) {
+    return (await conversationRequest<{ markdown: string }>(actionUrl(runId, id))).markdown;
+  }
+  async function preview(id: string) {
+    const markdown = await load(id);
+    setPreviews(previous => new Map(previous).set(id, markdown));
+  }
+  async function completeResponse() {
+    const parts: string[] = [];
+    // Keep the timeline lightweight and limit concurrent reads for an explicit complete copy.
+    for (let start = 0; start < visible.length; start += 4) {
+      parts.push(...await Promise.all(visible.slice(start, start + 4).map(section => section.markdown ?? load(section.id))));
+    }
+    return parts.filter(Boolean).join("\n\n");
+  }
+  if (!visible.length) return null;
+  const response = visible.every(section => section.markdown !== undefined)
+    ? visible.map(section => section.markdown).filter(Boolean).join("\n\n") : completeResponse;
   return <div className="min-w-0">
     <div className="mb-3 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
       {response && <CopyButton text={response} label="complete response" compact />}
@@ -137,6 +156,6 @@ export function WorkflowResponse({ runId, sections }: { runId: string; sections:
         {raw ? "Show rendered" : "Show raw Markdown"}
       </button>
     </div>
-    {sections.map(section => <ResponseSectionView key={section.id} runId={runId} section={section} raw={raw} />)}
+    {visible.map(section => <ResponseSectionView key={section.id} runId={runId} section={section} raw={raw} preview={preview} />)}
   </div>;
 }

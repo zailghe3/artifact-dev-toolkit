@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import {mkdtemp,readFile,writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
-import {assertReadOnlyExecution,assertRunExecutionPolicy} from '../lib/workflow-execution-policy.ts';
+import {assertReadOnlyExecution,assertRunExecutionPolicy,requiredExecutionPolicy} from '../lib/workflow-execution-policy.ts';
 import {InMemoryWorkflowDefinitionRepository} from '../lib/workflow-definition-repository.ts';
 import {manualRetryEligibility,InMemoryWorkflowRunStorage} from '../lib/workflow-storage.ts';
 import {D1WorkflowRunStorage} from '../lib/workflow-d1-storage.ts';
@@ -29,7 +29,13 @@ test('a run freezes the selected Advisor provider override',async t=>{
 });
 test('the configured Advisor identity uses the same snapshot admission as other Workflows',async()=>{
  const f=await fixture();
- const advisor=await f.repo.createWorkflow({...workflow,id:'advisor',name:'Advisor'});
+ const previous=await f.repo.createWorkflow({...workflow,id:'advisor',name:'Advisor'});
+ assert.equal(requiredExecutionPolicy({workflowId:'advisor',semanticWorkflowSnapshot:previous.definition,agentSnapshots:{analyst:agent}}),undefined);
+ const uncommissioned=await launchWorkflowRun(access,{workflowId:'advisor',initialInput:'question',idempotencyKey:'uncommissioned'},f.deps);
+ assert.equal(uncommissioned.status,422);
+ assert.equal((await uncommissioned.json()).code,'workflow_policy_commissioning_required');
+ assert.equal(await f.countRuns(),0);
+ const advisor=await f.repo.updateWorkflow({...previous.definition,executionPolicy:'read-only'},previous.fileSha);
  const snapshot=await resolveWorkflowRunSnapshot(access,{kind:'workflow',id:'advisor'},'question','advisor-standalone',f.deps);
  assert.equal(snapshot.executionPolicy,'read-only');
  assert.equal(snapshot.advisorContext,undefined);
@@ -37,6 +43,13 @@ test('the configured Advisor identity uses the same snapshot admission as other 
  assert.equal(snapshot.connectionSnapshots.agents.defaultModel,connection.defaultModel);
  assert.deepEqual(snapshot.agentSnapshots.analyst.tools,agent.tools);
  assert.equal(snapshot.executionPlan.nodes.some(node=>node.blockType==='knowledge-proposal'),false);
+ const standard=await f.repo.updateWorkflow({...advisor.definition,executionPolicy:'standard'},advisor.fileSha);
+ const standardSnapshot=await resolveWorkflowRunSnapshot(access,{kind:'workflow',id:'advisor'},'question','advisor-standard',f.deps);
+ assert.equal(standardSnapshot.executionPolicy,undefined);
+ assert.equal(standardSnapshot.workflowRevision,standard.fileSha);
+ assert.equal(standardSnapshot.semanticWorkflowSnapshot.executionPolicy,'standard');
+ assert.equal(snapshot.executionPolicy,'read-only');
+ assert.doesNotThrow(()=>assertRunExecutionPolicy(snapshot));
  const ordinary=await resolveWorkflowRunSnapshot(access,{kind:'workflow',id:workflow.id},'question','ordinary-run',f.deps);
  assert.equal(ordinary.executionPolicy,undefined);
  const single=await resolveWorkflowRunSnapshot(access,{kind:'agent',id:agent.id},'question','single-agent',f.deps);
@@ -49,6 +62,10 @@ test('read-only policy applies to explicitly protected Agents and reachable Work
  const protectedAgent=await f.repo.updateAgent({...stored.definition,executionPolicy:'read-only'},stored.fileSha);
  const targetingAgent=await resolveWorkflowRunSnapshot(access,{kind:'agent',id:agent.id},'question','protected-agent',f.deps);
  assert.equal(targetingAgent.executionPolicy,'read-only');
+ const saved=await f.repo.getWorkflow(workflow.id);
+ await f.repo.updateWorkflow({...saved.definition,executionPolicy:'standard'},saved.fileSha);
+ const inherited=await resolveWorkflowRunSnapshot(access,{kind:'workflow',id:workflow.id},'question','protected-workflow',f.deps);
+ assert.equal(inherited.executionPolicy,'read-only');
  await f.repo.updateAgent({...protectedAgent.definition,tools:['artifact_search']},protectedAgent.fileSha);
  for(const target of [{kind:'agent',id:agent.id},{kind:'workflow',id:workflow.id}]){
   await assert.rejects(resolveWorkflowRunSnapshot(access,target,'question','protected',f.deps),/execution_read_only_required/);
@@ -105,7 +122,7 @@ test('legacy direct Runtime execution explicitly rejects native metadata grants 
 
 test('Workflow and Advisor admission reject incompatible effective models before creating or launching a run',async()=>{
  const f=await fixture(),incompatible={...connection,defaultModel:'gpt-6-luna'};
- await f.repo.createWorkflow({...workflow,id:"advisor"});
+ await f.repo.createWorkflow({...workflow,id:"advisor",executionPolicy:'read-only'});
  f.deps.listWorkflowConnectionDescriptors=async()=>[incompatible];
  f.deps.listWorkflowConnectionIdentityDescriptors=async()=>[incompatible];
  f.deps.getProviderCredentialVault=async()=>assert.fail('Known API requirements must be checked before snapshotting');

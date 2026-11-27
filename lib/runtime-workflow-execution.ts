@@ -111,14 +111,19 @@ export function createWorkflowCoordinator(options: WorkflowExecutionOptions) {
     }
     if (result.state === "completed") {
       const latest = await storage.getRun(run.id);
-      if (latest && plan.nodes.find(node => node.id === plan.terminalNodeId)?.blockType === "knowledge-proposal") {
-        const output = await actions.terminalOutput(latest, plan.terminalNodeId, result.terminalActivationId, result.outputText);
-        await storage.completeRun(run.id, plan.terminalNodeId, output.text, output.url, output.actionId);
-        return 0;
-      }
-      const terminal = latest?.attempts.filter(attempt => attempt.stepId === plan.terminalNodeId && attempt.status === "succeeded").at(-1);
-      if (!terminal || terminal.outputText !== result.outputText) throw new Error("workflow_output_unverified");
-      await storage.completeRun(run.id, plan.terminalNodeId, terminal.outputText, terminal.outputExternalUrl);
+      if (!latest) throw new Error("workflow_output_unverified");
+      const terminal = plan.nodes.find(node => node.id === plan.terminalNodeId);
+      const attempt = latest.attempts.filter(item => item.stepId === plan.terminalNodeId && item.status === "succeeded").at(-1);
+      const output = terminal?.blockType === "knowledge-proposal"
+        ? await actions.terminalOutput(latest, plan.terminalNodeId, result.terminalActivationId, result.outputText)
+        : { text: attempt?.outputText, url: attempt?.outputExternalUrl, actionId: undefined };
+      if (output.text === undefined || output.text !== result.outputText) throw new Error("workflow_output_unverified");
+      await database.transaction(async db => {
+        await new D1WorkflowRunStorage(db).completeRun(run.id, plan.terminalNodeId, result.outputText, output.url, output.actionId);
+        if (plan.nodes.some(node => node.blockType === "knowledge-proposal")) {
+          await new WorkflowResponseActions(db).publish(run.id, output.actionId);
+        }
+      });
       return 0;
     }
     if (result.state === "failed") {

@@ -60,6 +60,7 @@ const runtimeControlOperationErrors = {
   conversation_reference_unavailable: { status: 422, error: "A selected earlier turn is unavailable or has no successful response." },
   conversation_context_too_large: { status: 422, error: "The selected exact exchanges exceed the context budget. Select fewer turns or paste the needed excerpt." },
   conversation_retry_superseded: { status: 409, error: "Only the latest conversation turn can be retried." },
+  workflow_policy_commissioning_required: { status: 422, error: "Before running this Advisor Workflow, save an explicit Execution policy in its Workflow editor. Choose Read-only to retain its previous protections." },
   execution_read_only_required: { status: 422, error: "Read-only execution permits native ADT reads and blocks without external side effects." },
   execution_read_only_provider: { status: 422, error: "Read-only execution requires a compatible model connection and disallows Codex continuation." },
   workflow_action_not_found: { status: 404, error: "This response action is unavailable." },

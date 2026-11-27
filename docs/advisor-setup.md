@@ -12,9 +12,11 @@ Advisor opens Conversations filtered to the `advisor` Workflow in the configured
   ```
 
 - The generator creates definitions only when the corresponding paths are absent. Review and commit the generated files through the normal Git-backed definition process.
-- An existing `advisor` Workflow remains usable. Add a **Knowledge Proposal** block to the selected analysis output to offer it for knowledge review.
+- For an existing `advisor` Workflow that previously inherited read-only protection, set **Execution policy** to **Read-only** in the Workflow editor and save the definition. ADT blocks new Runs from either entry point until the Workflow or its effective Agent or reusable Workflow configuration explicitly provides a policy.
+- Choose **Standard (ordinary grants)** on the Workflow only when you intend to use the ordinary authority of its Agents. Read-only declarations on Agents or reused Workflows still restrict the whole Run. Historical Runs retain their frozen authority.
+- Add a **Knowledge Proposal** block to the selected analysis output to offer it for knowledge review.
 - If an earlier setup selected a different Workflow, its definition remains available in Conversations. Put the intended Advisor definition at the `advisor` identity to use the Advisor shortcut.
-- Read-only execution applies to the designated Advisor Workflow from every entry point. The Workflow can use explicitly granted native ADT reads through the usual ADT security controls.
+- Explicitly granted native ADT reads use the usual ADT security controls from both entry points.
 
 ## Review and publish knowledge
 

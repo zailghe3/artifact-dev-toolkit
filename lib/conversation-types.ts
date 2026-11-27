@@ -30,6 +30,7 @@ export type ConversationTurn = {
   targetName: string;
   definitionChanged: boolean;
   summaryUsed: boolean;
+  summaryLimited?: boolean;
   omittedHistory: number;
   failureMessage?: string;
   externalUrl?: string;

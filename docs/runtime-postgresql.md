@@ -34,8 +34,8 @@ Normal Worker deployment and Runtime image publication are controlled by the tru
 
 ### Deploy Conversations
 
-- Roll out a Runtime image that includes the Conversation migration before using the Conversation Worker routes. Runtime applies the migration during startup using its existing PostgreSQL role.
-- Keep the PostgreSQL volume and matching key directory attached. The migration adds conversation and response-action records to the current schema and preserves existing Runs and knowledge proposals.
+- Roll out a Runtime image with the Conversation and response-section migrations before deploying the Conversation Worker routes. Runtime applies the migrations during startup using its existing PostgreSQL role.
+- Keep the PostgreSQL volume and matching key directory attached. Existing Runs and knowledge proposals are preserved. Preview response actions are available when the completed checkpoint verifies their execution.
 - A Worker can be rolled back independently. Runtime rollback requires a build that understands the applied migration ledger or a restore of the matching pre-upgrade database and keys.
 
 ## Diagnose Workflow management

@@ -67,7 +67,7 @@ Do not provision Cloudflare credentials, GitHub App private keys, browser-sessio
 
 - `ADT_CONVERSATION_HISTORY_BYTES` sets the history budget in UTF-8 bytes. The default is 24,000 and the supported range is 1,024–60,000. Current input and history together must fit the Workflow input limit.
 - `ADT_CONVERSATION_RECENT_TURNS` sets how many recent successful exchanges get first claim on the history budget. The default is three and the supported range is one to eight.
-- Compatible entry Agents can use their configured model for a bounded, tool-free summary. Local excerpts cover unavailable, unsupported, or uncertain summarisation.
+- A rolling summary carries older successful exchange content forward. Compatible entry Agents can merge new older material with their prior summary using a bounded, tool-free request. Local excerpts cover unavailable, unsupported, or uncertain summarisation.
 - The exact input admitted to a Run and its context provenance are persisted for recovery and retry.
 
 ## Execution and recovery semantics

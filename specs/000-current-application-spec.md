@@ -95,17 +95,17 @@
 - Authorised repository users can start, search, rename, reopen, and continue Conversations.
 - A Conversation keeps its selected Agent or Workflow. Each message starts a distinct durable Run with the latest authorised definitions. Earlier Runs keep their frozen snapshots.
 - A Conversation permits one active turn at a time. Replay resolves to the same turn and Run. Eligible retry reuses the latest failed Run and its snapshots.
-- Follow-up messages use successful prior exchanges as context. Runtime retains recent and requested exact exchanges within its budget and may summarise older exchanges. Omitted history is visible.
+- Follow-up context includes successful user messages and visible response sections. Runtime retains recent and requested exact exchanges within its budget and carries forward a bounded summary of earlier exchanges. The timeline flags shortened or omitted history.
 - The timeline shows execution status, approvals, failures, retries, definition changes, and links to the underlying Runs.
-- Responses support safe rendered Markdown, raw viewing, and copying the response or a code block.
-- An action appears on the section identified by trusted Workflow output metadata. Model text has no action authority.
+- Responses support safe rendered Markdown, raw viewing, and copying the complete response, a section, or a code block.
+- Actions appear in execution order on sections verified against the successfully completed Workflow. Repeated visits to a block can produce distinct actions. Model text has no action authority.
 - Standalone Runs remain available in Workflow history and through their original URLs.
 - See [Using Conversations](../docs/conversations.md).
 
 ## 10. Advisor and knowledge
 
 - Advisor opens the shared Conversations interface filtered to the designated `advisor` Workflow.
-- Advisor uses the selected Agents and Connections from that Workflow. Its Runs require the read-only execution policy.
+- Advisor uses the selected Agents and Connections from that Workflow and the same Git-defined execution policy as other entry points. Previously protected Advisor definitions need explicit configuration before they can start new Runs with standard authority.
 - An authorised Workflow can use a Knowledge Proposal block to offer later review of a selected output. The Workflow completes independently of the review.
 - The action opens an editable proposal with source Run and revision provenance. Approved knowledge lives in Git, while proposals and publication state live in Runtime.
 - Each publication requires an authenticated human review and explicit consent for the exact proposal revision. Stale or uncertain publication is never automatically replayed.

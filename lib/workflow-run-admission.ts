@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { conversationRunKey, type ConversationSubmission, type ConversationTarget } from "../adt-runtime/src/conversation-contract.ts";
 import type { RepositoryAccessContext } from "./repository-authorization.ts";
 import { DEFAULT_ARTIFACT_ROOT } from "./artifact-contract.ts";
-import { assertReadOnlyExecution, assertRunExecutionPolicy, requiredExecutionPolicy, sameRepositoryContext } from "./workflow-execution-policy.ts";
+import { assertReadOnlyExecution, assertRunExecutionPolicy, assertWorkflowPolicyCommissioned, requiredExecutionPolicy, sameRepositoryContext } from "./workflow-execution-policy.ts";
 import { newLangGraphWorkflowRun, type WorkflowRun } from "./workflow-storage.ts";
 import { validateWorkflowRunAdmissionSources, validateAgentConnectionOptions, workflowAgentReferences, compileWorkflowV2ExecutionPlan,
   composeVersionedWorkflowV2, workflowDefinitionSchema, AGENT_MASTER_PROMPT_MAX_LENGTH } from "./workflow-definitions.ts";
@@ -54,8 +54,10 @@ export async function resolveWorkflowRunSnapshot(access: RepositoryAccessContext
   if (versions.some(item => !item)) throw new Error("missing_agent");
   const agents = versions.map(item => item!);
   const agentSnapshots = Object.fromEntries(agents.map(item => [item.definition.id, item.definition]));
-  const policy = requiredExecutionPolicy({ workflowId: versioned.definition.id, semanticWorkflowSnapshot: versioned.definition,
-    compositionSnapshot: composed.composition, agentSnapshots });
+  const policySources = { workflowId: versioned.definition.id, semanticWorkflowSnapshot: versioned.definition,
+    compositionSnapshot: composed.composition, agentSnapshots };
+  assertWorkflowPolicyCommissioned(policySources);
+  const policy = requiredExecutionPolicy(policySources);
   const catalog = policy ? undefined : await service.readCodexRunnerCatalog(access.repositoryId);
   const identities = policy ? await service.listWorkflowConnectionIdentityDescriptors(access)
     : await service.listWorkflowConnectionDescriptors(catalog, access);

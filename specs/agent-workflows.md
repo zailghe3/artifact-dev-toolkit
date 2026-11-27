@@ -43,6 +43,7 @@
 - Launch freezes the complete current Workflow, reusable composition, relevant Agents, connection snapshots, resolved prompt content, and other execution authority needed by the run.
 - Later edits affect new runs only.
 - A Conversation can target a single Agent through a generated one-block Workflow. Each submitted turn freezes the exact input assembled from the current message and its authorised history.
+- Context can include every visible section of a successful response. Requested exact exchanges preserve the text of their sections. Older exchanges can contribute to a continuing, bounded summary with recorded provenance.
 - Conversation history and summaries are untrusted reference data. They cannot expand tool grants, repository permissions, or approval authority.
 - Conversation context enters at Workflow entry. Existing Workflow handoffs and explicitly configured Codex continuation retain their own semantics.
 - Snapshots retain safe credential references and validated non-secret configuration, never resolved secret values.
@@ -105,9 +106,9 @@
 
 ## 8. Agent tools and Security Profiles
 
-- A read-only policy on an Agent, Workflow, or reused Workflow restricts the enclosing Run. The designated Advisor Workflow also requires this policy.
+- A read-only policy on an Agent, Workflow, or reused Workflow restricts the enclosing Run. A Workflow can explicitly choose standard authority, subject to any read-only declarations from its Agents or reused Workflows. Advisor and Conversations use the same policy.
 - Runtime freezes and enforces read-only policy at admission and execution. Read-only Runs permit explicitly granted native ADT reads and reject external tool grants, Codex execution and continuation, and managed publication. Historical Advisor protections remain in force.
-- Knowledge Proposal passes its incoming output through unchanged and makes it available for authenticated human review after successful execution. It grants no model publication authority.
+- Knowledge Proposal passes its incoming output through unchanged. Each activation confirmed by the successful execution can expose an independently reviewable response section with stable source provenance. It grants no model publication authority.
 - Tool support is an explicit provider capability.
 - Tools are a separate configuration domain from provider Connections.
 - Artifact Search and native ADT reads are built-in tool capabilities; MCP is the configurable external tool integration.

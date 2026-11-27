@@ -1,7 +1,8 @@
-import type { ConversationCursor, ConversationSubmission, ConversationTarget } from "../adt-runtime/src/conversation-contract.ts";
+import { MAX_CONVERSATION_INPUT_BYTES, type ConversationCursor, type ConversationSubmission, type ConversationTarget } from "../adt-runtime/src/conversation-contract.ts";
 import type { PostgresWorkflowDatabase } from "../adt-runtime/src/workflow-database.ts";
 import { agentDigest } from "./agent-journal.ts";
-import { CONVERSATION_CONTEXT_LOOKBACK, type ConversationContextMetadata, type HistoryExchange } from "./conversation-context.ts";
+import { CONVERSATION_CONTEXT_LOOKBACK, CONVERSATION_SUMMARY_BATCH_SIZE, CONVERSATION_CONTEXT_VERSION,
+  type ConversationContextMetadata, type HistoryExchange, type StoredConversationContext } from "./conversation-context.ts";
 import { isTerminalTurn, type ConversationDetail, type ConversationLaunch, type ConversationList, type ConversationSummary } from "./conversation-types.ts";
 import { D1WorkflowApprovalStore } from "./workflow-approvals.ts";
 import { D1WorkflowRunStorage } from "./workflow-d1-storage.ts";
@@ -12,11 +13,12 @@ type ConversationRow = {
   id: string; title: string; target_kind: ConversationTarget["kind"]; target_id: string;
   created_at: string; updated_at: string;
 };
-type TurnHead = { id: string; ordinal: number; run_id: string; workflow_generation: number; status: RunStatus };
+type TurnHead = { id: string; ordinal: number; run_id: string; workflow_generation: number; status: RunStatus; context_json: string };
 type TurnRow = TurnHead & {
   message: string; created_at: string; target_name: string; definition_digest: string; previous_definition_digest: string | null;
-  context_json: string; failure_message: string | null; final_output: string | null; final_external_url: string | null;
+  failure_message: string | null; final_output: string | null; final_external_url: string | null;
 };
+type HistoryRow = Omit<HistoryExchange, "sections"> & { run_id: string };
 
 const LIST_LIMIT = 40;
 const TURNS_PER_PAGE = 6;
@@ -52,7 +54,7 @@ export class ConversationStore {
   }
 
   private head(id: string) {
-    return this.db.prepare(`SELECT t.id,t.ordinal,t.run_id,r.status,r.workflow_generation FROM conversation_turns t
+    return this.db.prepare(`SELECT t.id,t.ordinal,t.run_id,t.context_json,r.status,r.workflow_generation FROM conversation_turns t
       JOIN workflow_runs r ON r.id=t.run_id WHERE t.conversation_id=? ORDER BY t.ordinal DESC LIMIT 1`)
       .bind(id).first<TurnHead>();
   }
@@ -94,18 +96,36 @@ export class ConversationStore {
     await this.db.prepare("UPDATE conversations SET updated_at=now() WHERE id=?").bind(submission.conversationId).run();
   }
 
-  async history(id: string, through: number, exact: string[]) {
-    const [count, history] = await Promise.all([
+  async history(id: string, head: TurnHead | null, exact: string[]) {
+    if (!head) return { history: [], rollingCandidates: [], totalSucceeded: 0 };
+    const previous = JSON.parse(head.context_json) as StoredConversationContext;
+    const previousSummary = previous.version === CONVERSATION_CONTEXT_VERSION ? previous.summary : undefined;
+    const through = head.ordinal;
+    const summarisedThrough = previousSummary?.throughOrdinal ?? 0;
+    const select = `SELECT t.id,t.ordinal,t.message,t.run_id,
+      CASE WHEN octet_length(r.final_output)>${MAX_CONVERSATION_INPUT_BYTES} THEN left(r.final_output,600)
+           ELSE COALESCE(r.final_output,'') END AS response,
+      COALESCE(octet_length(r.final_output)<=${MAX_CONVERSATION_INPUT_BYTES},true) AS complete
+      FROM conversation_turns t JOIN workflow_runs r ON r.id=t.run_id
+      WHERE t.conversation_id=? AND t.ordinal<=? AND r.status='succeeded'`;
+    const [count, history, older] = await Promise.all([
       this.db.prepare(`SELECT count(*) AS total FROM conversation_turns t JOIN workflow_runs r ON r.id=t.run_id
-        WHERE t.conversation_id=? AND t.ordinal<=? AND r.status='succeeded'`).bind(id, through).first<{ total: number }>(),
-      this.db.prepare(`SELECT * FROM (SELECT t.id,t.ordinal,t.message,COALESCE(r.final_output,'') AS response FROM conversation_turns t
-        JOIN workflow_runs r ON r.id=t.run_id WHERE t.conversation_id=? AND t.ordinal<=? AND r.status='succeeded'
-        ORDER BY t.ordinal DESC LIMIT ?) AS recent
-        UNION SELECT t.id,t.ordinal,t.message,COALESCE(r.final_output,'') AS response FROM conversation_turns t
-        JOIN workflow_runs r ON r.id=t.run_id WHERE t.conversation_id=? AND t.ordinal<=? AND r.status='succeeded' AND t.id=ANY(?::uuid[])`)
-        .bind(id, through, CONVERSATION_CONTEXT_LOOKBACK, id, through, exact).all<HistoryExchange>(),
+        WHERE t.conversation_id=? AND t.ordinal<=? AND t.ordinal>? AND r.status='succeeded'`)
+        .bind(id, through, summarisedThrough).first<{ total: number }>(),
+      this.db.prepare(`SELECT * FROM (${select} ORDER BY t.ordinal DESC LIMIT ?) AS recent
+        UNION ${select} AND t.id=ANY(?::uuid[])`)
+        .bind(id, through, CONVERSATION_CONTEXT_LOOKBACK, id, through, exact).all<HistoryRow>(),
+      this.db.prepare(`${select} AND t.ordinal>? ORDER BY t.ordinal LIMIT ?`)
+        .bind(id, through, summarisedThrough, CONVERSATION_SUMMARY_BATCH_SIZE).all<HistoryRow>(),
     ]);
-    return { history: history.results, totalSucceeded: count?.total ?? 0 };
+    const runIds = [...new Set([...history.results, ...older.results].map(item => item.run_id))];
+    const sections = await new WorkflowResponseActions(this.db).historySections(runIds);
+    const asExchange = ({ run_id, complete, ...item }: HistoryRow): HistoryExchange => {
+      const responseSections = sections.get(run_id) ?? [];
+      return { ...item, sections: responseSections, complete: complete && responseSections.every(section => section.complete) };
+    };
+    return { history: history.results.map(asExchange), rollingCandidates: older.results.map(asExchange),
+      previousSummary, totalSucceeded: (previousSummary?.coveredTurns ?? 0) + (count?.total ?? 0) };
   }
 
   async list(query: string, target?: ConversationTarget, before?: ConversationCursor): Promise<ConversationList> {
@@ -160,11 +180,13 @@ export class ConversationStore {
     ]);
     const selected = page.results.slice(0, TURNS_PER_PAGE).reverse();
     const turns = await Promise.all(selected.map(async row => {
-      const context = JSON.parse(row.context_json) as ConversationContextMetadata;
+      const context = JSON.parse(row.context_json) as StoredConversationContext;
+      const summaryUsed = context.version === CONVERSATION_CONTEXT_VERSION ? context.summaryIncluded : Boolean(context.summary);
       return { id: row.id, ordinal: row.ordinal, message: row.message, runId: row.run_id, status: row.status,
         generation: row.workflow_generation, createdAt: row.created_at, targetName: row.target_name,
         definitionChanged: Boolean(row.previous_definition_digest && row.previous_definition_digest !== row.definition_digest),
-        summaryUsed: Boolean(context.summary), omittedHistory: context.omittedHistory,
+        summaryUsed, summaryLimited: context.version === CONVERSATION_CONTEXT_VERSION && summaryUsed && context.summary?.detailsOmitted,
+        omittedHistory: context.omittedHistory,
         failureMessage: row.failure_message ?? undefined, externalUrl: row.final_external_url ?? undefined,
         sections: row.status === "succeeded" ? await actions.sections(row.run_id, row.final_output) : [],
       };

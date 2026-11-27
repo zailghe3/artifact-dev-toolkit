@@ -68,6 +68,12 @@ test('Advisor is a repository-scoped history filter and sends the ordinary conve
   assert.equal(launched.status, 201);
   assert.match(launched.headers.get('cache-control'), /no-store/);
   assert.deepEqual(launches.at(-1), { ...submission, exactTurnIds: [] });
+  for (const view of ['/advisor', '/conversations']) {
+    const request = post('/api/conversations', submission);
+    request.headers.set('referer', app + view);
+    assert.equal((await routes.POST(request)).status, 201);
+  }
+  assert.deepEqual(launches.at(-1), launches.at(-2));
 });
 
 test('a response action invokes only the exact stored identity with fresh user authority', async () => {

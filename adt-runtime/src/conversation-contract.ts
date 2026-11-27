@@ -22,6 +22,7 @@ export const conversationCursorSchema = z.object({ updatedAt: z.iso.datetime(), 
 export const workflowActionIdSchema = z.string().regex(/^[0-9a-f]{64}$/);
 export const knowledgeProposalBlockConfigSchema = z.object({ label: z.string().trim().min(1).max(120).optional() }).strict();
 export const executionPolicySchema = z.literal("read-only");
+export const workflowExecutionPolicySchema = z.enum(["standard", "read-only"]);
 
 export type ConversationTarget = z.infer<typeof conversationTargetSchema>;
 export type ConversationHead = z.infer<typeof conversationHeadSchema>;

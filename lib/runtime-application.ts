@@ -19,7 +19,7 @@ import { GitHubToolDefinitionRepository } from "./tool-definition-repository.ts"
 import { D1McpPolicyAuthority } from "./mcp-policy-authority.ts";
 import { isLegacyRunReadOnly } from "./workflow-run-legacy.ts";
 import { manualRetryEligibility, type RunRepositoryContext, type WorkflowRun } from "./workflow-storage.ts";
-import { assertPublicationPolicy, assertRunExecutionPolicy, hasReadOnlyExecution, requiredExecutionPolicy, sameRepositoryContext } from "./workflow-execution-policy.ts";
+import { assertPublicationPolicy, assertRunExecutionPolicy, assertWorkflowPolicyCommissioned, sameRepositoryContext } from "./workflow-execution-policy.ts";
 import { requestRepositoryCredential } from "./runtime-service-client.ts";
 import { createWorkflowCoordinator } from "./runtime-workflow-execution.ts";
 import { mcpServerDefinitionSchema } from "./tool-definitions.ts";
@@ -242,7 +242,7 @@ export function createRuntimeApplication(options: RuntimeApplicationOptions) {
         const context = repositoryContextSchema.parse(run.repositoryContext);
         if (context.repositoryId !== command.repositoryId || !/^[a-f0-9-]{36}$/.test(run.id) ||
           run.workflowGeneration !== 1 || run.status !== "queued" || isLegacyRunReadOnly(run)) throw new Error("invalid_run_snapshot");
-        if (requiredExecutionPolicy(run) && !hasReadOnlyExecution(run)) throw new Error("execution_read_only_required");
+        assertWorkflowPolicyCommissioned(run);
         assertRunExecutionPolicy(run);
         const managed = Object.entries(run.managedCodeRepositoryContexts ?? {});
         const authorities = command.publicationAuthorities ?? {};
@@ -261,8 +261,8 @@ export function createRuntimeApplication(options: RuntimeApplicationOptions) {
           }
           const prepared = await conversations.prepare(submission);
           if (prepared.replay) return prepared.replay;
-          const history = await conversations.history(submission.conversationId, prepared.head?.ordinal ?? 0, submission.exactTurnIds);
-          const contextPlan = planConversationContext({ ...history, message: submission.message, exactTurnIds: submission.exactTurnIds,
+          const history = await conversations.history(submission.conversationId, prepared.head, submission.exactTurnIds);
+          const contextPlan = planConversationContext({ ...history, turnId: submission.turnId, message: submission.message, exactTurnIds: submission.exactTurnIds,
             settings: conversationContextSettings(env) });
           const summary = await summarizeConversation(db, run, submission, contextPlan.providerInput, contextPlan.summaryLimit, vault, env, options.providerFetcher);
           assembled = contextPlan.assemble(summary);

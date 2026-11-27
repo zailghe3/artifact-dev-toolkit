@@ -107,9 +107,9 @@ Operational policy and recovery: [Agent tools and recovery](docs/agent-tools-and
 
 ### Advisor and knowledge
 
-- Advisor filters Conversations to the designated read-only Workflow.
+- Advisor filters Conversations to the designated Workflow. Its execution authority comes from the same Git definitions and frozen Run policy as other entry points.
 - Explicit native read grants and exact-call sensitive approval use the ordinary Agent/tool policy model.
-- Workflow-defined response actions persist with their source Runs. Runtime revalidates action and repository scope when a user opens a proposal.
+- Workflow-defined response actions persist with the successful execution that produced them. Runtime revalidates action and repository scope when a user opens a proposal.
 - Runtime stores drafts, review, and publication state. The Worker retains human Git publication authority and Git remains authoritative for reviewed knowledge.
 
 Setup and operating guidance is in [Advisor setup](docs/advisor-setup.md).
