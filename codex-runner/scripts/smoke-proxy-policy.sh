@@ -15,7 +15,7 @@ backend_ip=203.0.114.10
 backend_config=$(mktemp)
 cleanup(){ docker rm -f "$executor" "$manager" "$backend" >/dev/null 2>&1 || true; docker network rm "$executor_network" "$manager_network" "$uplink_network" >/dev/null 2>&1 || true; rm -f "$backend_config"; }
 trap cleanup EXIT
-image='ubuntu/squid:latest@sha256:6a097f68bae708cedbabd6188d68c7e2e7a38cedd05a176e1cc0ba29e3bbe029'
+image='ubuntu/squid@sha256:6a097f68bae708cedbabd6188d68c7e2e7a38cedd05a176e1cc0ba29e3bbe029'
 parse_config(){
   local role=$1 file=$2
   phase "$role-config-parse"
