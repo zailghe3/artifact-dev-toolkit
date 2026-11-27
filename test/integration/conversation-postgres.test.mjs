@@ -129,7 +129,7 @@ test('PostgreSQL conversation admission, context, approvals, actions and retry s
     const last = { ...first, id: 'reviewer', name: 'Reviewer', masterPrompt: 'Use the first Agent output.',
       prompt: { source: 'custom', text: 'Use the first Agent output.' } };
     const cycleAgent = { ...first, id: 'cycle-agent', masterPrompt: cycleInstruction, prompt: { source: 'custom', text: cycleInstruction } };
-    const unprotected = { ...first, id: 'legacy-analyst', executionPolicy: undefined };
+    const unprotected = { ...first, id: 'legacy-analyst', executionPolicy: undefined, tools: ['adt_workflow_read'] };
     const passing = { ...first, id: 'pass', name: 'Pass', executionPolicy: undefined, connectionKey: deterministic.key,
       tools: [], adapterOptions: {} };
     const fail = { ...passing, id: 'fail', name: 'Fail', adapterOptions: { mode: 'terminal_failure' } };
