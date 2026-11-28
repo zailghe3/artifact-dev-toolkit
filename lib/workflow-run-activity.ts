@@ -7,14 +7,14 @@ export type RunActivity = {
   iteration?: number; attempt?: number; route?: string; interactionKind?: string;
   parallel?: boolean;
 };
-export type RunActivityPage = { entries: RunActivity[]; before: ActivityCursor | null; completed: number };
+export type RunActivityPage = { entries: RunActivity[]; before: ActivityCursor | null; completed: number; revision?: string; observedAt?: string };
 
 type ActivityRow = {
   id: string; activation_id: string; node_id: string; state: string; at: string;
   started_at: string | null; completed_at: string | null; responded_at: string | null;
   iteration: number | null; attempt: number | null; route: string | null; interaction_kind: string | null;
   cursor_at: string; block_type: string; name: string; count_completed: number;
-  visit: number; parallel: boolean;
+  visit: number; parallel: boolean; revision: string; observed_at: string;
 };
 const PAGE_SIZE = 14;
 
@@ -23,7 +23,8 @@ export async function workflowRunActivity(db: PostgresWorkflowDatabase, runId: s
     committed AS (SELECT *, count(*) OVER (PARTITION BY checkpoint_id)>1 AS parallel FROM committed_workflow_activities(?)),
     events AS (
       SELECT concat('attempt-',a.ordinal) AS id,a.graph_activation_id AS activation_id,a.step_id AS node_id,
-        CASE a.status WHEN 'pending' THEN CASE WHEN r.status='failed' THEN 'abandoned' ELSE 'queued' END
+        CASE a.status WHEN 'pending' THEN CASE WHEN r.status='failed' THEN 'abandoned'
+          WHEN r.status='cancelled' THEN 'cancelled' ELSE 'queued' END
           WHEN 'starting' THEN CASE WHEN r.status='failed' THEN 'abandoned' ELSE 'running' END
           WHEN 'waiting_provider' THEN CASE WHEN r.status='failed' THEN 'abandoned' ELSE 'running' END
           WHEN 'succeeded' THEN 'completed' ELSE a.status END AS state,
@@ -56,15 +57,29 @@ export async function workflowRunActivity(db: PostgresWorkflowDatabase, runId: s
       UNION ALL
       SELECT concat('block-',failed_graph_activation_id),failed_graph_activation_id,current_step_id,'failed',
         completed_at,NULL,completed_at,NULL,NULL,NULL,NULL,NULL
-      FROM run WHERE status='failed' AND failed_graph_activation_id IS NOT NULL
+      FROM run WHERE status='failed' AND failed_graph_activation_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM committed c WHERE c.activation_id=run.failed_graph_activation_id
+      ) AND NOT EXISTS (
+        SELECT 1 FROM workflow_step_attempts a WHERE a.run_id=run.id
+          AND a.graph_activation_id=run.failed_graph_activation_id AND a.status='failed'
+      )
     ), numbered AS (
-      SELECT *,row_number() OVER (PARTITION BY node_id,interaction_kind ORDER BY at,id) AS visit FROM events
-    ), totals AS (SELECT count(DISTINCT COALESCE(activation_id,id)) AS count_completed FROM events WHERE state='completed')
-    SELECT e.*,t.count_completed,COALESCE(committed.parallel,false) AS parallel,
+      SELECT e.*,row_number() OVER (PARTITION BY e.node_id,e.interaction_kind ORDER BY e.at,e.id COLLATE "C") AS visit,
+        COALESCE(c.parallel,false) AS parallel FROM events e LEFT JOIN committed c ON c.activation_id=e.activation_id
+    ), snapshot AS (
+      SELECT count(DISTINCT COALESCE(activation_id,id)) FILTER (WHERE state='completed') AS count_completed,
+        md5(COALESCE(string_agg(row_to_json(e)::text,E'\\n' ORDER BY e.id COLLATE "C"), '')) AS revision FROM numbered e
+    ), page AS (
+      SELECT * FROM numbered
+      ${before ? 'WHERE (at,id COLLATE "C")<(?::timestamptz,?)' : ""}
+      ORDER BY at DESC,id COLLATE "C" DESC LIMIT ?
+    )
+    SELECT e.*,s.count_completed,s.revision,
+      to_char(statement_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS observed_at,
       to_char(e.at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_at,
       node->>'blockType' AS block_type,
       COALESCE(r.agent_snapshots_json->(node->'config'->>'agentId')->>'name',origin->>'displayPath',e.node_id) AS name
-    FROM numbered e CROSS JOIN run r CROSS JOIN totals t LEFT JOIN committed ON committed.activation_id=e.activation_id
+    FROM snapshot s CROSS JOIN run r LEFT JOIN page e ON true
     LEFT JOIN LATERAL (
       SELECT item AS node FROM json_array_elements(r.execution_plan_json->'nodes') item WHERE item->>'id'=e.node_id LIMIT 1
     ) AS frozen ON true
@@ -72,18 +87,21 @@ export async function workflowRunActivity(db: PostgresWorkflowDatabase, runId: s
       SELECT item AS origin FROM json_array_elements(r.composition_snapshot_json->'nodes') item
       WHERE item->>'executionNodeId'=e.node_id LIMIT 1
     ) AS provenance ON true
-    ${before ? "WHERE (e.at,e.id)<(?::timestamptz,?)" : ""} ORDER BY e.at DESC,e.id DESC LIMIT ?`)
+    ORDER BY e.at DESC,e.id COLLATE "C" DESC`)
     .bind(runId, runId, ...(before ? [before.at, before.id] : []), PAGE_SIZE + 1).all<ActivityRow>();
-  const page = results.slice(0, PAGE_SIZE);
+  const rows = results.filter(row => row.id !== null);
+  const page = rows.slice(0, PAGE_SIZE);
   const last = page.at(-1);
   return {
     entries: page.map(row => ({
-      id: row.id, nodeId: row.node_id, name: row.name, blockType: row.block_type, state: row.state, at: row.at,
+      id: row.id, nodeId: row.node_id, name: row.name, blockType: row.block_type, state: row.state, at: row.cursor_at,
       startedAt: row.started_at ?? undefined, completedAt: row.completed_at ?? undefined, respondedAt: row.responded_at ?? undefined,
       iteration: row.iteration ?? row.visit, attempt: row.attempt ?? undefined, route: row.route ?? undefined, parallel: row.parallel,
       interactionKind: row.interaction_kind ?? undefined,
     })),
-    before: last && results.length > PAGE_SIZE ? { at: last.cursor_at, id: last.id } : null,
+    before: last && rows.length > PAGE_SIZE ? { at: last.cursor_at, id: last.id } : null,
     completed: results[0]?.count_completed ?? 0,
+    revision: results[0]?.revision,
+    observedAt: results[0]?.observed_at,
   };
 }

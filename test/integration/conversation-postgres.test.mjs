@@ -261,6 +261,7 @@ test('PostgreSQL conversation admission, context, approvals, actions and retry s
     const abandonedId = agentDigest([launched.runId, knowledge.id, 'abandoned-activation']);
     const abandonedContent = 'Abandoned draft, absent from the accepted graph';
     const activeAction = (await pool.query('SELECT id,source_activation_id FROM workflow_run_actions WHERE run_id=$1', [launched.runId])).rows[0];
+    assert.deepEqual(await command('runs.outputs', { scope: context, runId: launched.runId }), []);
     await assert.rejects(command('runs.action', { scope: context, runId: launched.runId, actionId: activeAction.id }),
       { code: 'workflow_action_not_found' });
     await pool.query(`INSERT INTO workflow_run_actions (id,run_id,node_id,activation_id,source_node_id,source_activation_id,sequence,kind,label,content)
@@ -282,6 +283,9 @@ test('PostgreSQL conversation admission, context, approvals, actions and retry s
     assert.equal(sections[1].actions, undefined);
     const actionId = sections[0].actions[0].id;
     assert.equal(actionId, activeAction.id);
+    assert.deepEqual(await command('runs.outputs', { scope: context, runId: launched.runId }), [
+      { id: actionId }, { id: launched.runId + ':output', markdown: finalAnswer },
+    ]);
     const lookup = { scope: context, runId: launched.runId, actionId };
     assert.deepEqual(await command('runs.action', lookup), { markdown: answer });
     await assert.rejects(command('runs.action', { ...lookup, actionId: 'a'.repeat(64) }), { code: 'workflow_action_not_found' });

@@ -10,6 +10,7 @@ import { createRuntimeApplication } from '../../adt-runtime/dist/workflow-applic
 import { recordManagementNonce } from '../../adt-runtime/dist/operational-settings.js';
 import { conversationRunKey } from '../../adt-runtime/src/conversation-contract.ts';
 import { compileWorkflowV2ExecutionPlan } from '../../lib/workflow-definitions.ts';
+import { compareActivityPosition, compareContentPosition, reconcileEvidenceWindow } from '../../lib/workflow-evidence-window.ts';
 import { newLangGraphWorkflowRun } from '../../lib/workflow-storage.ts';
 import { runtimeControl } from '../../lib/runtime-service-client.ts';
 import { agent, connection, context } from '../support/advisor-fixtures.mjs';
@@ -31,15 +32,17 @@ test('Interactive Workflows persist real checkpoints, recover responses and publ
   const authSecret = 'postgres-interaction-fixture-signing-key'.repeat(2);
   const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048,
     privateKeyEncoding: { type: 'pkcs8', format: 'pem' }, publicKeyEncoding: { type: 'spki', format: 'pem' } });
-  const env = { ADT_RUNTIME_AUTH_SECRET: authSecret, ADT_RUNTIME_WRAPPING_PUBLIC_KEY: publicKey };
+  const env = { ADT_RUNTIME_AUTH_SECRET: authSecret, ADT_RUNTIME_WRAPPING_PUBLIC_KEY: publicKey,
+    ADT_CONVERSATION_HISTORY_BYTES: '9000' };
   const stages = [];
   const inputs = [];
   let application, runtime, releaseChallenger, challengerGate, malformed = false;
+  const selectedNarrative = '# EVIDENCE-ROUTE\r\n\r\nLead with measured results.  \r\n';
   const optionSet = {
     message: 'Choose the evidence sequence.',
     options: [
-      { id: 'evidence-first', title: 'Evidence first', description: 'Lead with measured evidence.', value: 'EVIDENCE-ROUTE' },
-      { id: 'story-first', title: 'Story first', value: 'UNSELECTED-ROUTE' },
+      { id: 'evidence-first', title: 'Evidence first', description: 'Lead with measured evidence.', value: selectedNarrative },
+      { id: 'story-first', title: 'Story first', description: 'Unselected customer framing.', value: 'UNSELECTED-ROUTE' },
     ],
   };
   const originalDraft = '# Working draft\r\n\r\nFirst pass.  \r\n';
@@ -62,7 +65,9 @@ test('Interactive Workflows persist real checkpoints, recover responses and publ
       case 'drafter': content = originalDraft; break;
       case 'left': content = 'Left branch output'; break;
       case 'right': content = 'Right branch output'; break;
-      default: assert.fail(`Unexpected test Agent ${instructions}`);
+      default:
+        assert.match(instructions, /^Summarise earlier chat exchanges/);
+        content = 'Earlier exchanges covered the selected draft approach.';
     }
     return Response.json({ id: `interaction-fixture-${inputs.length}`, object: 'chat.completion', created: 1, model: 'gpt-5',
       usage: { prompt_tokens: 12, completion_tokens: 8 },
@@ -101,8 +106,13 @@ test('Interactive Workflows persist real checkpoints, recover responses and publ
     });
     const thread = id => command('conversations.detail', { scope: context, id });
     const inspect = runId => command('runs.detail', { runId });
-    const content = runId => command('runs.content', { runId, scope: context });
+    const content = (runId, before) => command('runs.content', { runId, scope: context, before });
     const activity = (runId, before) => command('runs.activity', { runId, scope: context, before });
+    const outputs = runId => command('runs.outputs', { runId, scope: context });
+    const cancel = async runId => {
+      await command('runs.cancel', { runId });
+      await wait(runId, detail => detail.run.status === 'cancelled');
+    };
     const reply = (runId, requestId, response, respondent = actor) =>
       command('runs.interaction', { runId, scope: context, requestId, submission: { actor: respondent, response } });
     const wait = async (runId, match) => {
@@ -169,19 +179,28 @@ test('Interactive Workflows persist real checkpoints, recover responses and publ
     const activityDone = await activity(slideId);
     assert.ok(activityDone.completed > slide.nodes.length);
     assert.deepEqual(activityDone.entries.filter(item => item.nodeId === 'revise').map(item => item.route).sort(), ['false', 'true']);
-    const nextTurn = makeTurn(slide, 'Tell me why we chose this route.', await thread(firstTurn.conversationId));
-    nextTurn.exactTurnIds = [firstTurn.turnId];
-    const nextId = await launch(slide, nextTurn.message, nextTurn);
-    const nextInput = (await inspect(nextId)).run.initialInput;
-    assert.match(nextInput, /Human selected: Evidence first/);
-    assert.match(nextInput, /Human guidance: Lead with Q3 figures/);
-    assert.match(nextInput, /Draft 1[\s\S]*Draft 2/);
-    assert.doesNotMatch(nextInput, /UNSELECTED-ROUTE|Story first/);
-    await command('runs.cancel', { runId: nextId });
-    await wait(nextId, detail => detail.run.status === 'cancelled');
+    for (const exact of [false, true]) {
+      const nextTurn = makeTurn(slide, 'Tell me why we chose this route.', await thread(firstTurn.conversationId));
+      if (exact) nextTurn.exactTurnIds = [firstTurn.turnId];
+      const nextId = await launch(slide, nextTurn.message, nextTurn);
+      const nextInput = (await inspect(nextId)).run.initialInput;
+      assert.match(nextInput, /Human selected: Evidence first/);
+      assert.match(nextInput, /Selected option ID: evidence-first/);
+      assert.match(nextInput, /Selected option description: Lead with measured evidence\./);
+      assert.ok(nextInput.includes('Selected option value (Workflow content): ' + selectedNarrative));
+      assert.ok(nextInput.includes('Human guidance: ' + chosen.guidance));
+      assert.match(nextInput, /Other offered options omitted from conversation context/);
+      assert.match(nextInput, /Draft 1[\s\S]*Draft 2/);
+      assert.doesNotMatch(nextInput, /UNSELECTED-ROUTE|Story first|Unselected customer framing/);
+      const { rows: [{ context_json: frozen }] } = await pool.query('SELECT context_json FROM conversation_turns WHERE run_id=$1', [nextId]);
+      assert.deepEqual(frozen.exactTurnIds, [firstTurn.turnId]);
+      await cancel(nextId);
+    }
 
     const review = await loadWorkflow('editorial-review');
-    const editorialId = await launch(review, 'Prepare an internal note.');
+    review.nodes[0].config.message = 'This explanation was displayed beside the question.';
+    const editorialTurn = makeTurn(review, 'Prepare an internal note.');
+    const editorialId = await launch(review, editorialTurn.message, editorialTurn);
     const ask = await request(editorialId, 'input');
     assert.equal(ask.request.sourceContext, undefined);
     await assert.rejects(reply(editorialId, ask.id, { kind: 'input', text: '   ' }), { code: 'interaction_response_invalid' });
@@ -209,6 +228,16 @@ test('Interactive Workflows persist real checkpoints, recover responses and publ
     assert.equal(terminal.section.terminal, true);
     assert.equal((await command('runs.display', { runId: editorialId, scope: context, activationId: terminal.section.id })).markdown, originalDraft);
     assert.equal(editorialDone.content.items.filter(item => item.kind === 'interaction').length, 5);
+    assert.deepEqual((await outputs(editorialId)).map(item => item.id), [terminal.section.id]);
+    const editorialFollowup = makeTurn(review, 'What did we revise?', await thread(editorialTurn.conversationId));
+    editorialFollowup.exactTurnIds = [editorialTurn.turnId];
+    const editorialFollowupId = await launch(review, editorialFollowup.message, editorialFollowup);
+    const editorialHistory = (await inspect(editorialFollowupId)).run.initialInput;
+    assert.match(editorialHistory, /Workflow explanation: This explanation was displayed beside the question\./);
+    assert.match(editorialHistory, /Hidden input context omitted from conversation context/);
+    assert.ok(editorialHistory.includes('Exact text confirmed by human: ' + confirmed));
+    assert.match(editorialHistory, /Steering committee[\s\S]*Edited draft[\s\S]*Human feedback: Add the date\.[\s\S]*Human outcome: Approved/);
+    await cancel(editorialFollowupId);
 
     const rejected = await launch(review, 'Draft to reject.');
     await assert.rejects(reply(rejected, ask.id, { kind: 'input', text: 'Wrong Run' }), { code: 'interaction_not_found' });
@@ -229,11 +258,35 @@ test('Interactive Workflows persist real checkpoints, recover responses and publ
         { id: id + '-final', source: id, target: 'final' },
       ]),
     };
-    const branchId = await launch(branch, 'Pick one.');
+    const branchTurn = makeTurn(branch, 'Pick one.');
+    const branchId = await launch(branch, branchTurn.message, branchTurn);
     const staticRequest = await request(branchId, 'decision');
     await reply(branchId, staticRequest.id, { kind: 'decision', optionId: 'right' });
     assert.equal((await wait(branchId, detail => detail.run.status === 'succeeded')).run.finalOutput, 'Right branch output');
     assert.ok(!inputs.some(item => item.instructions === 'left'));
+    assert.equal(JSON.parse(inputs.findLast(item => item.instructions === 'right').input).selectedValue, 'Right');
+    const branchFollowup = makeTurn(branch, 'Why this route?', await thread(branchTurn.conversationId));
+    branchFollowup.exactTurnIds = [branchTurn.turnId];
+    const branchFollowupId = await launch(branch, branchFollowup.message, branchFollowup);
+    assert.match((await inspect(branchFollowupId)).run.initialInput, /Selected option value \(Workflow content\): Right/);
+    await cancel(branchFollowupId);
+
+    const oversized = structuredClone(branch);
+    oversized.id = 'oversized-decision';
+    oversized.nodes[0].config.options[1].value = `Oversized option begins here. ${'x'.repeat(15_400)}`;
+    const oversizedTurn = makeTurn(oversized, 'Choose the detailed route.');
+    const oversizedId = await launch(oversized, oversizedTurn.message, oversizedTurn);
+    await reply(oversizedId, (await request(oversizedId, 'decision')).id, { kind: 'decision', optionId: 'right' });
+    await wait(oversizedId, detail => detail.run.status === 'succeeded');
+    const oversizedFollowup = makeTurn(oversized, 'Recall the exact route.', await thread(oversizedTurn.conversationId));
+    await assert.rejects(launch(oversized, oversizedFollowup.message, { ...oversizedFollowup, exactTurnIds: [oversizedTurn.turnId] }),
+      { code: 'conversation_context_too_large' });
+    const boundedId = await launch(oversized, oversizedFollowup.message, oversizedFollowup);
+    const { rows: [{ context_json: bounded }] } = await pool.query('SELECT context_json FROM conversation_turns WHERE run_id=$1', [boundedId]);
+    assert.deepEqual(bounded.exactTurnIds, []);
+    assert.ok(bounded.omittedHistory > 0 || bounded.summary.detailsOmitted);
+    assert.ok(Buffer.byteLength((await inspect(boundedId)).run.initialInput) <= 9000 + Buffer.byteLength(oversizedFollowup.message));
+    await cancel(boundedId);
 
     const raceId = await launch(review, 'Cancel while waiting.');
     const race = await request(raceId, 'input');
@@ -284,6 +337,53 @@ test('Interactive Workflows persist real checkpoints, recover responses and publ
     const olderActivities = await activity(longId, activities.before);
     assert.equal(activities.completed, 16);
     assert.equal(new Set([...activities.entries, ...olderActivities.entries].map(entry => entry.id)).size, 16);
+
+    const gate = id => ({ ...review.nodes[0], id, config: { questionSource: 'configured', question: `Continue at ${id}?` } });
+    const nodes = [
+      ...Array.from({ length: 14 }, (_, index) => display(`first-${index}`)), gate('first-gate'),
+      ...Array.from({ length: 15 }, (_, index) => display(`second-${index}`)), gate('second-gate'), display('final-output'),
+    ];
+    const timeline = { ...review, id: 'live-timeline', nodes,
+      edges: nodes.slice(1).map((node, index) => ({ id: `advance-${index}`, source: nodes[index].id, target: node.id })),
+      limits: { maxStepExecutions: nodes.length },
+    };
+    const liveId = await launch(timeline, 'First page content.  \r\n');
+    const firstGate = await request(liveId, 'input');
+    const initialContent = await content(liveId), initialActivity = await activity(liveId);
+    assert.ok(initialContent.before && initialActivity.before);
+    const archivedContent = await content(liveId, initialContent.before);
+    const archivedActivity = await activity(liveId, initialActivity.before);
+    assert.equal(archivedContent.before, null);
+    assert.equal(archivedActivity.before, null);
+    assert.equal(initialActivity.entries.find(entry => entry.nodeId === 'first-gate').state, 'waiting');
+    await reply(liveId, firstGate.id, { kind: 'input', text: 'Second page content.  \r\n' });
+    const secondGate = await request(liveId, 'input', firstGate.id);
+    const latestContent = await content(liveId), latestActivity = await activity(liveId);
+    assert.ok(!latestContent.items.some(item => item.id === firstGate.id));
+    assert.ok(!latestActivity.entries.some(entry => entry.nodeId === 'first-gate'));
+    const asContent = page => ({ ...page, entries: page.items });
+    const contentKey = item => ({ sequence: item.sequence, id: item.kind === 'display' ? item.section.id : item.id });
+    const reconciledContent = await reconcileEvidenceWindow(asContent(latestContent), archivedContent.before,
+      async before => asContent(await content(liveId, before)), contentKey, compareContentPosition);
+    const reconciledActivity = await reconcileEvidenceWindow(latestActivity, archivedActivity.before,
+      before => activity(liveId, before), entry => entry, compareActivityPosition);
+    assert.equal(new Set(reconciledContent.entries.map(item => contentKey(item).id)).size, 31);
+    assert.equal(new Set(reconciledActivity.entries.map(entry => entry.id)).size, 31);
+    assert.equal(reconciledActivity.entries.find(entry => entry.nodeId === 'first-gate').state, 'completed');
+    assert.equal(reconciledActivity.entries.find(entry => entry.nodeId === 'second-gate').state, 'waiting');
+    const liveOutputs = await outputs(liveId);
+    assert.equal(liveOutputs.length, 29);
+    assert.deepEqual(liveOutputs.map(item => item.id), reconciledContent.entries.filter(item => item.kind === 'display')
+      .sort((left, right) => left.sequence - right.sequence).map(item => item.section.id));
+    assert.ok(liveOutputs.every(item => item.contentSource === 'display' && item.markdown === undefined));
+    await assert.rejects(command('runs.outputs', { runId: liveId, scope: { ...context, branch: 'other' } }), { code: 'run_not_found' });
+    await reply(liveId, secondGate.id, { kind: 'input', text: 'Exact final output.  \r\n' });
+    await wait(liveId, detail => detail.run.status === 'succeeded');
+    const finalOutputs = await outputs(liveId);
+    assert.equal(finalOutputs.length, 30);
+    assert.deepEqual(finalOutputs.slice(0, -1), liveOutputs);
+    const finalOutput = await command('runs.display', { runId: liveId, scope: context, activationId: finalOutputs.at(-1).id });
+    assert.equal(finalOutput.markdown, 'Exact final output.  \r\n');
     assert.deepEqual(stages, []);
   } finally {
     releaseChallenger?.();

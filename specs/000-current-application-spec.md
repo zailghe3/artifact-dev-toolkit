@@ -98,6 +98,7 @@
 - An authorised human can respond to a Decision, Input, Edit or Approval request in the Conversation or the underlying Run. The response resumes the suspended Run. Accepted answers and decisions remain visible.
 - Display Output sections appear when their activations complete. Follow-up context can include displayed results and human responses from successful or rejected Runs. Runtime keeps recent and requested exact exchanges within its budget and carries forward a bounded summary. The timeline flags shortened or omitted history.
 - Each turn shows execution status, definition changes, and a link to the underlying Run. Expand Workflow activity to see actual activations, selected routes, waits, and retries.
+- Loaded output and activity history stay accessible as a Run advances. Copying all Workflow outputs uses the committed response sections at the time of the request.
 - Responses support safe rendered Markdown, raw viewing, and copying the complete response, a section, or a code block.
 - Knowledge Proposal actions appear after a successful Run when the source is verified. Repeated visits to a block can produce distinct actions. Optional response actions do not resume suspended execution.
 - Standalone Runs remain available in Workflow history and through their original URLs.

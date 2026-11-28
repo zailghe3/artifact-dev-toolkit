@@ -102,8 +102,9 @@ function ConversationHistory({ view, id, refresh }: { view: ConversationView; id
   </aside>;
 }
 
-function Turn({ turn, selected, onSelect, showSelection, onChanged, children }: {
-  turn: ConversationTurn; selected: boolean; showSelection: boolean; onSelect: () => void; onChanged?: () => void; children?: React.ReactNode;
+function Turn({ turn, selected, onSelect, showSelection, onChanged, onEvidenceAdvanced, children }: {
+  turn: ConversationTurn; selected: boolean; showSelection: boolean; onSelect: () => void;
+  onChanged?: () => void; onEvidenceAdvanced?: () => void; children?: React.ReactNode;
 }) {
   const external = turn.externalUrl && safeResponseHref(turn.externalUrl);
   return <article className="min-w-0 space-y-4" id={`turn-${turn.id}`} aria-label={`Turn ${turn.ordinal}`}>
@@ -136,7 +137,8 @@ function Turn({ turn, selected, onSelect, showSelection, onChanged, children }: 
       </p> : null}
       {turn.status === "rejected" && <p className="text-sm text-muted-foreground">The result was rejected and the Run ended.</p>}
       <WorkflowRunActivity runId={turn.runId} status={turn.status} />
-      <WorkflowRunContentView runId={turn.runId} page={turn.content} sections={turn.sections} onChanged={onChanged} />
+      <WorkflowRunContentView runId={turn.runId} page={turn.content} sections={turn.sections}
+        onChanged={onChanged} onEvidenceAdvanced={onEvidenceAdvanced} />
       {external && <a className={`${buttonStyles.secondary} mt-3`} href={external} target="_blank" rel="noopener noreferrer">Open Run output</a>}
       {showSelection && (turn.status === "succeeded" || turn.status === "rejected") && <button type="button" aria-pressed={selected} className={`${buttonStyles.subtle} mt-2 text-xs`}
         onClick={onSelect}>{selected ? "Exact exchange selected" : "Include exact exchange in next message"}</button>}
@@ -225,11 +227,10 @@ function ConversationThread({ view, id, preselected, draftScope, onChanged }: {
     return () => clearInterval(timer);
   }, [active, id, reload]);
 
-  const lastContent = newest?.content?.items.at(-1);
-  const latestContentId = lastContent?.kind === "display" ? lastContent.section.id : lastContent?.id;
-  useEffect(() => {
+  const scrollToEndIfPinned = useCallback(() => {
     if (pinnedToBottom.current && pane.current) pane.current.scrollTop = pane.current.scrollHeight;
-  }, [newest?.id, latestContentId, data?.approval?.requestId]);
+  }, []);
+  useEffect(scrollToEndIfPinned, [scrollToEndIfPinned, newest?.id, data?.approval?.requestId]);
 
   function remember(submission?: ConversationSubmission) {
     setPending(submission);
@@ -344,6 +345,7 @@ function ConversationThread({ view, id, preselected, draftScope, onChanged }: {
           onClick={() => void loadEarlier()}>{loadingOlder ? "Loading…" : "Load earlier exchanges"}</button>}
         <div className="space-y-9">
           {turns.map(turn => <Turn key={turn.id} turn={turn} onChanged={() => void reload()} selected={exactTurns.includes(turn.id)}
+            onEvidenceAdvanced={turn.id === newest?.id ? scrollToEndIfPinned : undefined}
             showSelection={!exactTurns.length || exactTurns.includes(turn.id) || exactTurns.length < MAX_EXACT_TURNS}
             onSelect={() => setExactTurns(keys => keys.includes(turn.id) ? keys.filter(key => key !== turn.id) : [...keys, turn.id])}>
             {turn.id === newest?.id && <>

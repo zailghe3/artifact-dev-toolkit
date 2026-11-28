@@ -21,6 +21,8 @@ const option = z.object({
   description: boundedText(2_000).optional(),
   value: boundedText(16_384).optional(),
 }).strict();
+export type DecisionOption = z.infer<typeof option>;
+export const decisionOptionValue = ({ value, title }: DecisionOption) => value ?? title;
 const options = z.array(option).min(2).max(MAX_DECISION_OPTIONS).superRefine((values, ctx) => {
   if (new Set(values.map(value => value.id)).size !== values.length)
     ctx.addIssue({ code: "custom", message: "Each option needs a unique ID." });
@@ -119,7 +121,7 @@ export function resolveInteraction(request: InteractionRequest, response: Intera
     const selected = request.options.find(option => option.id === response.optionId);
     if (!selected || (!request.allowGuidance && response.guidance !== undefined)) throw new Error("interaction_response_invalid");
     return {
-      output: JSON.stringify({ selectedTitle: selected.title, selectedValue: selected.value ?? selected.title,
+      output: JSON.stringify({ selectedTitle: selected.title, selectedValue: decisionOptionValue(selected),
         ...(response.guidance === undefined ? {} : { humanGuidance: response.guidance }) }),
       route: request.routing === "branches" ? selected.id : undefined,
     };

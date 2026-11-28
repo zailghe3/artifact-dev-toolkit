@@ -243,6 +243,7 @@ export function createRuntimeApplication(options: RuntimeApplicationOptions) {
       case "runs.find": return await storage.findRunByIdempotencyKey(command.key) ?? null;
       case "runs.interaction":
       case "runs.content":
+      case "runs.outputs":
       case "runs.activity":
       case "runs.display": {
         const row = await db.prepare("SELECT repository_context_json FROM workflow_runs WHERE id=? AND repository_id=?")
@@ -252,6 +253,7 @@ export function createRuntimeApplication(options: RuntimeApplicationOptions) {
         if (command.operation === "runs.activity") return workflowRunActivity(db, command.runId, command.before);
         const content = new WorkflowRunContent(db);
         if (command.operation === "runs.content") return content.page(command.runId, command.before);
+        if (command.operation === "runs.outputs") return content.outputs(command.runId);
         if (command.operation === "runs.display") return content.display(command.runId, command.activationId);
         const { requestId, submission } = command;
         if (!submission) return approvals.read(command.runId, requestId);

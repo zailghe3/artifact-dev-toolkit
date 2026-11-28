@@ -204,7 +204,7 @@ export class ConversationStore {
         omittedHistory: context.omittedHistory,
         failureMessage: row.failure_message ?? undefined, externalUrl: row.final_external_url ?? undefined,
         sections: hasDisplayedTerminal ? sections.filter(section => section.id !== row.run_id + ":output") : sections,
-        ...(content?.items.length ? { content } : {}),
+        ...(content ? { content } : {}),
       };
     }));
     return { conversation: view(conversation), turns, earlier: page.results.length > TURNS_PER_PAGE ? selected[0].ordinal : null,

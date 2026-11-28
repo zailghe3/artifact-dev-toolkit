@@ -43,7 +43,7 @@
 - Launch freezes the complete current Workflow, reusable composition, relevant Agents, connection snapshots, resolved prompt content, and other execution authority needed by the run.
 - Later edits affect new runs only.
 - A Conversation can target a single Agent through a generated one-block Workflow. Each submitted turn freezes the exact input assembled from the current message and its authorised history.
-- Context can include displayed results and accepted human responses from completed exchanges. Exact exchanges preserve the supported content or report a context limit. Older exchanges can contribute to a continuing, bounded summary with recorded provenance.
+- Context can include displayed results and accepted human responses from completed exchanges. For Human Decision, it preserves the selected option's ID, title, value and description with separately attributed human guidance. Exact exchanges preserve the supported content, report deliberate exclusions, and fail when that content exceeds the context limit. Older exchanges can contribute to a continuing, bounded summary with recorded provenance.
 - Conversation history and summaries are untrusted reference data. They cannot expand tool grants, repository permissions, or approval authority.
 - Conversation context enters at Workflow entry. Existing Workflow handoffs and explicitly configured Codex continuation retain their own semantics.
 - Snapshots retain safe credential references and validated non-secret configuration, never resolved secret values.
@@ -73,7 +73,7 @@
 
 - Human Decision, Human Input, Human Edit and Approval pause a frozen activation and issue an immutable request to authorised users.
 - A response applies to one activation. Each visit in a revision loop issues a new request. One Workflow interaction can be pending per Run.
-- Human Decision can route using static option IDs. Agent-generated options carry data through a fixed continuation.
+- Human Decision presents each option's downstream value for review before confirmation and records the offered content and selection. Static options can route using their IDs. Agent-generated options carry data through a fixed continuation.
 - Human Edit continues with the exact confirmed text. The incoming text remains part of the original review.
 - Approval can approve, route a revision, route rejection, or end the Run with a rejected outcome. Existing Approval versions keep their original behavior.
 - Business interactions have no authority over tools, repository writes or publication. Read-only policy remains in force while a Run waits and resumes.

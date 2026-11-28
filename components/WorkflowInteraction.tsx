@@ -2,8 +2,8 @@
 
 import { useId, useRef, useState, type FormEvent } from "react";
 import {
-  approvalOutcomeLabels, interactionResponseSchema, MAX_INTERACTION_FEEDBACK_BYTES, MAX_INTERACTION_TEXT_BYTES,
-  type ApprovalOutcome, type InteractionResponse,
+  approvalOutcomeLabels, decisionOptionValue, interactionResponseSchema, MAX_INTERACTION_FEEDBACK_BYTES, MAX_INTERACTION_TEXT_BYTES,
+  type ApprovalOutcome, type DecisionOption, type InteractionResponse,
 } from "../adt-runtime/src/workflow-interaction-contract";
 import { buttonStyles } from "@/components/Ui";
 import { WorkflowResponse } from "@/components/WorkflowResponse";
@@ -17,6 +17,44 @@ const itemUrl = (runId: string, id: string) => `/api/workflow-runs/${runId}/inte
 
 function ReviewText({ runId, label, text }: { runId: string; label: string; text: string }) {
   return <WorkflowResponse runId={runId} sections={[{ id: label, label, markdown: text }]} />;
+}
+
+function OptionDescription({ option }: { option: DecisionOption }) {
+  return option.description && option.description !== option.title
+    ? <span className="block whitespace-pre-wrap wrap-anywhere text-muted-foreground">{option.description}</span> : null;
+}
+
+function OptionContent({ runId, option, selected = false, className = "" }: {
+  runId: string; option: DecisionOption; selected?: boolean; className?: string;
+}) {
+  const value = decisionOptionValue(option);
+  if (value === option.title || (!selected && value === option.description)) return null;
+  const label = selected ? "Selected content" : "Option content";
+  return <details className={`min-w-0 space-y-2 ${className}`}>
+    <summary className="cursor-pointer text-sm font-medium" aria-label={`${label} for ${option.title}`}>{label}</summary>
+    {value === "" ? <p className="text-sm text-muted-foreground">Empty value</p> :
+      <WorkflowResponse runId={runId} sections={[{ id: option.id, markdown: value }]} copyLabel={label.toLowerCase()} />}
+  </details>;
+}
+
+function RecordedDecision({ runId, options, response }: {
+  runId: string; options: DecisionOption[]; response: Extract<InteractionResponse, { kind: "decision" }>;
+}) {
+  const selected = options.find(option => option.id === response.optionId);
+  return <>
+    <p className="text-sm">Selected <strong className="whitespace-pre-wrap wrap-anywhere">{selected?.title ?? response.optionId}</strong></p>
+    {selected && <OptionContent runId={runId} option={selected} selected />}
+    {response.guidance && <ReviewText runId={runId} label="Human guidance" text={response.guidance} />}
+    <details>
+      <summary className="cursor-pointer text-sm">View offered options</summary>
+      <ul className="mt-2 space-y-2 text-sm">{options.map(option => <li key={option.id} className="min-w-0">
+        <strong className="whitespace-pre-wrap wrap-anywhere">{option.title}</strong>
+        {option.id === response.optionId && <span className="ml-2 text-muted-foreground">Selected</span>}
+        {option.id !== response.optionId || option.description !== decisionOptionValue(option) ? <OptionDescription option={option} /> : null}
+        {option.id !== response.optionId && <OptionContent runId={runId} option={option} />}
+      </li>)}</ul>
+    </details>
+  </>;
 }
 
 export function WorkflowInteraction({
@@ -101,17 +139,8 @@ export function WorkflowInteraction({
     {response ? <div className="space-y-2" role="status">
       <p className="text-sm font-medium">Response recorded
         {item.responder ? ` · @${item.responder}` : ""}</p>
-      {response.kind === "decision" && request.kind === "decision" && <>
-        <p className="text-sm">Selected <strong>{request.options.find(option => option.id === response.optionId)?.title ?? response.optionId}</strong></p>
-        {response.guidance && <ReviewText runId={runId} label="Human guidance" text={response.guidance} />}
-        <details>
-          <summary className="cursor-pointer text-sm">View offered options</summary>
-          <ul className="mt-2 space-y-2 text-sm">{request.options.map(option => <li key={option.id}>
-            <strong>{option.title}</strong>
-            {option.description && <p className="whitespace-pre-wrap wrap-anywhere text-muted-foreground">{option.description}</p>}
-          </li>)}</ul>
-        </details>
-      </>}
+      {response.kind === "decision" && request.kind === "decision" &&
+        <RecordedDecision runId={runId} options={request.options} response={response} />}
       {response.kind === "approval" && <>
         <p className="text-sm font-medium">{response.outcome === "revise" ? "Revision requested"
           : response.outcome === "reject" ? "Rejected" : "Approved"}</p>
@@ -127,13 +156,16 @@ export function WorkflowInteraction({
           <fieldset className="space-y-2">
             <legend className="mb-1 text-sm font-medium">{request.kind === "decision" ? "Choose an option" : "Choose an outcome"}</legend>
             {(request.kind === "decision" ? request.options : request.outcomes.map(outcome => ({ id: outcome, title: approvalOutcomeLabels[outcome] }))).map(option =>
-              <label key={option.id} className="flex cursor-pointer items-start gap-3 rounded-md border border-border p-3 has-checked:border-ring">
-                <input className="mt-1 accent-primary" type="radio" name={fieldId} value={option.id}
-                  checked={selected === option.id} onChange={() => setSelected(option.id)} />
-                <span className="min-w-0 text-sm"><strong className="wrap-anywhere">{option.title}</strong>
-                  {"description" in option && option.description && <span className="block whitespace-pre-wrap wrap-anywhere text-muted-foreground">{option.description}</span>}
-                </span>
-              </label>
+              <div key={option.id} className="min-w-0 rounded-md border border-border has-checked:border-ring">
+                <label className="flex cursor-pointer items-start gap-3 p-3">
+                  <input className="mt-1 accent-primary" type="radio" name={fieldId} value={option.id}
+                    checked={selected === option.id} onChange={() => setSelected(option.id)} />
+                  <span className="min-w-0 text-sm"><strong className="whitespace-pre-wrap wrap-anywhere">{option.title}</strong>
+                    {request.kind === "decision" && <OptionDescription option={option} />}
+                  </span>
+                </label>
+                {request.kind === "decision" && <OptionContent runId={runId} option={option} className="mx-3 mb-3" />}
+              </div>
             )}
           </fieldset>
           {(request.kind === "approval" || request.allowGuidance) && <label className="block text-sm font-medium">

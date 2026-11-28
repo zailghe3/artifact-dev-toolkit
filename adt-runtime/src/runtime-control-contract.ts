@@ -274,6 +274,7 @@ export const runtimeControlSchema = z.discriminatedUnion("operation", [
   }).strict(),
   z.object({ operation: z.literal("runs.content"), repositoryId, scope: repositoryContextSchema, runId,
     before: runContentCursorSchema.optional() }).strict(),
+  z.object({ operation: z.literal("runs.outputs"), repositoryId, scope: repositoryContextSchema, runId }).strict(),
   z.object({ operation: z.literal("runs.activity"), repositoryId, scope: repositoryContextSchema, runId,
     before: runActivityCursorSchema.optional() }).strict(),
   z.object({ operation: z.literal("runs.display"), repositoryId, scope: repositoryContextSchema, runId,

@@ -147,7 +147,9 @@ function ResponseSectionView({ runId, section, raw, preview }: {
   </div>;
 }
 
-export function WorkflowResponse({ runId, sections }: { runId: string; sections: ResponseSection[] }) {
+export function WorkflowResponse({ runId, sections, copyLabel = "complete response" }: {
+  runId: string; sections: ResponseSection[]; copyLabel?: string;
+}) {
   const [raw, setRaw] = useState(false);
   const [previews, setPreviews] = useState(() => new Map<string, string>());
   const visible = sections.map(section => ({ ...section, markdown: section.markdown ?? previews.get(section.id) }));
@@ -165,7 +167,7 @@ export function WorkflowResponse({ runId, sections }: { runId: string; sections:
     ? visible.map(section => section.markdown).filter(Boolean).join("\n\n") : () => completeResponseText(runId, visible);
   return <div className="min-w-0">
     <div className="mb-3 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
-      {response && <CopyButton text={response} label="complete response" compact />}
+      {response && <CopyButton text={response} label={copyLabel} compact />}
       <button type="button" className={buttonStyles.subtle} aria-pressed={raw} onClick={() => setRaw(value => !value)}>
         {raw ? <FileText aria-hidden="true" className="size-4" /> : <FileCode2 aria-hidden="true" className="size-4" />}
         {raw ? "Show rendered" : "Show raw Markdown"}

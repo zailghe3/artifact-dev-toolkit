@@ -1,19 +1,21 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { buttonStyles } from "@/components/Ui";
 import { CopyButton } from "@/components/CopyButton";
 import { WorkflowResponse, completeResponseText } from "@/components/WorkflowResponse";
 import { WorkflowInteraction, interactionLabels } from "@/components/WorkflowInteraction";
+import { useWorkflowEvidence } from "@/components/useWorkflowEvidence";
 import { conversationRequest } from "@/lib/conversation-client";
+import { compareContentPosition, compareEvidenceId } from "@/lib/workflow-evidence-window";
 import type { ResponseSection } from "@/lib/conversation-types";
 import type { WorkflowInteractionView } from "@/lib/workflow-interactions";
 import type { RunContentCursor, RunContentItem, RunContentPage } from "@/lib/workflow-run-content";
 
-function contentBefore(runId: string, before: RunContentCursor) {
-  const query = new URLSearchParams({ view: "content", beforeSequence: String(before.sequence), beforeId: before.id });
-  return conversationRequest<RunContentPage>(`/api/workflow-runs/${runId}/evidence?${query}`);
-}
+const asEvidence = (page: RunContentPage) => ({ ...page, entries: page.items });
+const contentPosition = (item: RunContentItem): RunContentCursor => ({
+  sequence: item.sequence, id: item.kind === "display" ? item.section.id : item.id,
+});
 
 function InteractionEntry({ runId, entry, active, onChanged }: {
   runId: string; entry: Extract<RunContentItem, { kind: "interaction" }>;
@@ -51,63 +53,51 @@ function InteractionEntry({ runId, entry, active, onChanged }: {
   </section>;
 }
 
-export function WorkflowRunContentView({ runId, page, sections, onChanged }: {
-  runId: string; page?: RunContentPage; sections: ResponseSection[]; onChanged?: () => void;
+export function WorkflowRunContentView({ runId, page, sections, onChanged, onEvidenceAdvanced }: {
+  runId: string; page?: RunContentPage; sections: ResponseSection[]; onChanged?: () => void; onEvidenceAdvanced?: () => void;
 }) {
-  const [older, setOlder] = useState<RunContentPage>();
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState("");
-  const cursor = older ? older.before : page?.before;
+  const head = useMemo(() => page && asEvidence(page), [page]);
+  const load = useCallback(async (before: RunContentCursor | undefined, signal: AbortSignal) => {
+    const query = new URLSearchParams({ view: "content" });
+    if (before) { query.set("beforeSequence", String(before.sequence)); query.set("beforeId", before.id); }
+    return asEvidence(await conversationRequest<RunContentPage>(`/api/workflow-runs/${runId}/evidence?${query}`, { signal }));
+  }, [runId]);
+  const { window, loadEarlier, pending, error, refresh } = useWorkflowEvidence(head, load, contentPosition, compareContentPosition);
+  useEffect(() => { if (head) refresh(head); }, [head, refresh]);
+  const last = window?.head.items.at(-1);
+  const lastId = last && contentPosition(last).id;
+  useEffect(() => { if (lastId) onEvidenceAdvanced?.(); }, [lastId, onEvidenceAdvanced]);
+
   const visible = new Map<string, { id: string; sequence: number; section?: ResponseSection;
     entry?: Extract<RunContentItem, { kind: "interaction" }> }>();
-  for (const item of [...(older?.items ?? []), ...(page?.items ?? [])]) {
+  for (const item of window?.entries ?? []) {
     if (item.kind === "display") visible.set(item.section.id, { id: item.section.id, sequence: item.sequence, section: item.section });
     else visible.set(item.id, { id: item.id, sequence: item.sequence, entry: item });
   }
-  if (!visible.size) return <WorkflowResponse runId={runId} sections={sections} />;
-  const hasTerminalDisplay = [...visible.values()].some(item => item.section?.terminal);
+  if (!page && !window) return <WorkflowResponse runId={runId} sections={sections} />;
+  const hasTerminalDisplay = [...visible.values()].some(item => item.section?.terminal) ||
+    page?.items.some(item => item.kind === "display" && item.section.terminal);
   for (const section of sections) {
     if (!hasTerminalDisplay || section.id !== `${runId}:output`)
       visible.set(section.id, { id: section.id, sequence: section.sequence ?? Number.MAX_SAFE_INTEGER, section });
   }
-  const ordered = [...visible.values()].sort((a, b) => a.sequence - b.sequence || a.id.localeCompare(b.id));
-
-  async function loadEarlier() {
-    if (!cursor) return;
-    setPending(true);
-    setError("");
-    try {
-      const next = await contentBefore(runId, cursor);
-      setOlder(previous => ({ ...next, items: [...next.items, ...(previous?.items ?? []), ...(page?.items ?? [])] }));
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : "Earlier Run content could not be loaded.");
-    } finally {
-      setPending(false);
-    }
-  }
-
-  const outputs = ordered.flatMap(item => item.section ? [{ section: item.section, sequence: item.sequence }] : []);
+  if (!visible.size && !error) return null;
+  const ordered = [...visible.values()].sort((a, b) => a.sequence - b.sequence || compareEvidenceId(a.id,b.id));
   async function copyOutputs() {
-    const sections = new Map(outputs.map(item => [item.section.id, item]));
-    let next = cursor;
-    while (next) {
-      const page = await contentBefore(runId, next);
-      for (const item of page.items) if (item.kind === "display") sections.set(item.section.id, item);
-      next = page.before;
-    }
-    const ordered = [...sections.values()].sort((a, b) => a.sequence - b.sequence || a.section.id.localeCompare(b.section.id));
-    return completeResponseText(runId, ordered.map(item => item.section));
+    const committed = await conversationRequest<ResponseSection[]>(`/api/workflow-runs/${runId}/evidence?view=outputs`);
+    return completeResponseText(runId, committed);
   }
 
   return <div className="min-w-0 space-y-3">
-    {(outputs.length > 1 || cursor) && <CopyButton text={copyOutputs} label="all Workflow outputs" compact />}
-    {cursor && <button type="button" className={buttonStyles.subtle} disabled={pending} onClick={() => void loadEarlier()}>
+    {(ordered.some(item => item.section) || window?.before) && <CopyButton text={copyOutputs} label="all Workflow outputs" compact />}
+    {window?.before && <button type="button" className={buttonStyles.subtle} disabled={pending} onClick={loadEarlier}>
       {pending ? "Loading…" : "Load earlier Run content"}
     </button>}
-    {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
+    {error && <p className="text-sm text-destructive" role="alert">{error}
+      <button type="button" className={buttonStyles.subtle} onClick={() => refresh()}>Refresh content</button></p>}
     {ordered.map(item => item.entry
       ? <InteractionEntry key={item.id} runId={runId} entry={item.entry} onChanged={onChanged}
-          active={page?.active?.id === item.id ? page.active : undefined} />
-      : item.section && <WorkflowResponse key={item.id} runId={runId} sections={[item.section]} />)}
+          active={window?.head.active?.id === item.id ? window.head.active : undefined} />
+      : item.section && <WorkflowResponse key={item.id} runId={runId} sections={[item.section]} copyLabel="section" />)}
   </div>;
 }
