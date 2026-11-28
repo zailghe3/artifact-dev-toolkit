@@ -81,6 +81,21 @@ function Markdown({ text }: { text: string }) {
 }
 
 const actionUrl = (runId: string, id: string) => `/api/workflow-runs/${runId}/actions/${id}`;
+const outputUrl = (runId: string, section: ResponseSection) => section.contentSource === "display"
+  ? `/api/workflow-runs/${runId}/evidence?view=display&activationId=${encodeURIComponent(section.id)}`
+  : actionUrl(runId, section.id);
+
+async function loadResponseSection(runId: string, section: ResponseSection) {
+  return section.markdown ?? (await conversationRequest<{ markdown: string }>(outputUrl(runId, section))).markdown;
+}
+
+export async function completeResponseText(runId: string, sections: ResponseSection[]) {
+  const parts: string[] = [];
+  for (let start = 0; start < sections.length; start += 4) {
+    parts.push(...await Promise.all(sections.slice(start, start + 4).map(section => loadResponseSection(runId, section))));
+  }
+  return parts.filter(Boolean).join("\n\n");
+}
 
 function ResponseSectionView({ runId, section, raw, preview }: {
   runId: string; section: ResponseSection; raw: boolean; preview: (id: string) => Promise<void>;
@@ -113,6 +128,12 @@ function ResponseSectionView({ runId, section, raw, preview }: {
     {markdown !== undefined && (raw
       ? <pre className="min-w-0 overflow-auto whitespace-pre-wrap wrap-anywhere rounded-lg bg-muted p-3 text-sm">{markdown}</pre>
       : markdown ? <Markdown text={markdown} /> : <p className="text-sm text-muted-foreground">The Workflow returned no text.</p>)}
+    {markdown === undefined && section.preview !== undefined && <div className="space-y-2">
+      <p className="text-xs text-muted-foreground">Excerpt</p>
+      {raw ? <pre className="whitespace-pre-wrap wrap-anywhere text-sm">{section.preview}</pre> : <Markdown text={section.preview} />}
+      <button type="button" className={buttonStyles.secondary} disabled={Boolean(pending)}
+        onClick={() => void invoke(section.id, false)}>{pending ? "Loading…" : "View full output"}</button>
+    </div>}
     {section.actions?.length ? <div className="mt-3 flex flex-wrap items-center gap-2">
       {markdown === undefined && <button type="button" className={buttonStyles.secondary} disabled={Boolean(pending)}
         onClick={() => void invoke(section.actions![0].id, false)}>{pending === "preview" ? "Loading output…" : "View output"}</button>}
@@ -126,31 +147,27 @@ function ResponseSectionView({ runId, section, raw, preview }: {
   </div>;
 }
 
-export function WorkflowResponse({ runId, sections }: { runId: string; sections: ResponseSection[] }) {
+export function WorkflowResponse({ runId, sections, copyLabel = "complete response" }: {
+  runId: string; sections: ResponseSection[]; copyLabel?: string;
+}) {
   const [raw, setRaw] = useState(false);
   const [previews, setPreviews] = useState(() => new Map<string, string>());
   const visible = sections.map(section => ({ ...section, markdown: section.markdown ?? previews.get(section.id) }));
   async function load(id: string) {
-    return (await conversationRequest<{ markdown: string }>(actionUrl(runId, id))).markdown;
+    const section = sections.find(section => section.id === id);
+    if (!section) throw new Error("This output is unavailable.");
+    return loadResponseSection(runId, section);
   }
   async function preview(id: string) {
     const markdown = await load(id);
     setPreviews(previous => new Map(previous).set(id, markdown));
   }
-  async function completeResponse() {
-    const parts: string[] = [];
-    // Keep the timeline lightweight and limit concurrent reads for an explicit complete copy.
-    for (let start = 0; start < visible.length; start += 4) {
-      parts.push(...await Promise.all(visible.slice(start, start + 4).map(section => section.markdown ?? load(section.id))));
-    }
-    return parts.filter(Boolean).join("\n\n");
-  }
   if (!visible.length) return null;
   const response = visible.every(section => section.markdown !== undefined)
-    ? visible.map(section => section.markdown).filter(Boolean).join("\n\n") : completeResponse;
+    ? visible.map(section => section.markdown).filter(Boolean).join("\n\n") : () => completeResponseText(runId, visible);
   return <div className="min-w-0">
     <div className="mb-3 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
-      {response && <CopyButton text={response} label="complete response" compact />}
+      {response && <CopyButton text={response} label={copyLabel} compact />}
       <button type="button" className={buttonStyles.subtle} aria-pressed={raw} onClick={() => setRaw(value => !value)}>
         {raw ? <FileText aria-hidden="true" className="size-4" /> : <FileCode2 aria-hidden="true" className="size-4" />}
         {raw ? "Show rendered" : "Show raw Markdown"}

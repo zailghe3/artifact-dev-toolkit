@@ -58,6 +58,11 @@ test('PostgreSQL conversation admission, context, approvals, actions and retry s
       snapshot.connectionSnapshots, snapshot.initialInput, snapshot.repositoryContext, snapshot.executionPlan,
       snapshot.semanticWorkflowSnapshot, snapshot.advisorContext, output]);
     await savedRun(historical, 'Historic Advisor answer');
+    const legacyApprovalId = crypto.randomUUID();
+    await pool.query(`INSERT INTO workflow_approvals (request_id,run_id,workflow_generation,node_id,activation_id,interrupt_id,
+      message,review_text,status,requested_at,approved_at,consumed_at)
+      VALUES ($1,$2,1,'old-review','old-activation','old-interrupt','Review the answer','Historic Advisor answer','approved',now(),now(),now())`,
+      [legacyApprovalId, historical.id]);
     const previewDefinition = { ...workflow, id: 'preview-proposal', nodes: [...workflow.nodes, knowledge],
       edges: [{ id: 'offer-knowledge', source: 'analyse', target: 'knowledge' }] };
     const preview = legacyRun({ workflow: previewDefinition, executionPlan: compileWorkflowV2ExecutionPlan(previewDefinition, [agent]),
@@ -75,7 +80,10 @@ test('PostgreSQL conversation admission, context, approvals, actions and retry s
         [preview.id, checkpoint, activation, JSON.stringify([{ nodeId: knowledge.id, activationId: activation, sequence: 2, output }])]);
     }
     const installation = await initializeRuntimeDatabase(pool, keyPath);
-    assert.equal((await pool.query('SELECT name FROM schema_migrations ORDER BY name DESC LIMIT 1')).rows[0].name, '0007_conversation_response_sections.sql');
+    assert.equal((await pool.query('SELECT name FROM schema_migrations ORDER BY name DESC LIMIT 1')).rows[0].name, '0008_workflow_interactions.sql');
+    const priorApproval = (await pool.query(`SELECT status,review_text,interaction_version,response_json
+      FROM workflow_approvals WHERE request_id=$1`, [legacyApprovalId])).rows[0];
+    assert.deepEqual(priorApproval, { status: 'approved', review_text: 'Historic Advisor answer', interaction_version: null, response_json: null });
     const migrated = await pool.query('SELECT activation_id,response_section FROM workflow_run_actions WHERE run_id=$1 ORDER BY activation_id', [preview.id]);
     assert.deepEqual(migrated.rows, [{ activation_id: 'discarded', response_section: null }, { activation_id: 'verified', response_section: 'terminal' }]);
 
@@ -253,6 +261,7 @@ test('PostgreSQL conversation admission, context, approvals, actions and retry s
     const abandonedId = agentDigest([launched.runId, knowledge.id, 'abandoned-activation']);
     const abandonedContent = 'Abandoned draft, absent from the accepted graph';
     const activeAction = (await pool.query('SELECT id,source_activation_id FROM workflow_run_actions WHERE run_id=$1', [launched.runId])).rows[0];
+    assert.deepEqual(await command('runs.outputs', { scope: context, runId: launched.runId }), []);
     await assert.rejects(command('runs.action', { scope: context, runId: launched.runId, actionId: activeAction.id }),
       { code: 'workflow_action_not_found' });
     await pool.query(`INSERT INTO workflow_run_actions (id,run_id,node_id,activation_id,source_node_id,source_activation_id,sequence,kind,label,content)
@@ -274,6 +283,9 @@ test('PostgreSQL conversation admission, context, approvals, actions and retry s
     assert.equal(sections[1].actions, undefined);
     const actionId = sections[0].actions[0].id;
     assert.equal(actionId, activeAction.id);
+    assert.deepEqual(await command('runs.outputs', { scope: context, runId: launched.runId }), [
+      { id: actionId }, { id: launched.runId + ':output', markdown: finalAnswer },
+    ]);
     const lookup = { scope: context, runId: launched.runId, actionId };
     assert.deepEqual(await command('runs.action', lookup), { markdown: answer });
     await assert.rejects(command('runs.action', { ...lookup, actionId: 'a'.repeat(64) }), { code: 'workflow_action_not_found' });

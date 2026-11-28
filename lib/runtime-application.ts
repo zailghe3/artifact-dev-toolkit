@@ -9,8 +9,12 @@ import { ConversationStore } from "./conversation-store.ts";
 import { conversationContextSettings, planConversationContext } from "./conversation-context.ts";
 import { summarizeConversation } from "./conversation-summaries.ts";
 import { WorkflowResponseActions, knowledgeFromWorkflowAction } from "./workflow-response-actions.ts";
+import { WorkflowRunContent } from "./workflow-run-content.ts";
+import { workflowRunActivity } from "./workflow-run-activity.ts";
 import { D1WorkflowRunStorage, type WorkflowD1Database } from "./workflow-d1-storage.ts";
-import { D1WorkflowApprovalStore } from "./workflow-approvals.ts";
+import { WorkflowInteractions } from "./workflow-interactions.ts";
+import { usesInteractiveBlocks, WORKFLOW_INTERACTION_VERSION } from "../adt-runtime/src/workflow-interaction-contract.ts";
+import { assertInteractivePlanTopology, genericWorkflowExecutionPlanSchema } from "./workflow-definitions.ts";
 import { D1ProviderCredentialVault } from "./provider-credential-vault.ts";
 import { AgentJournal } from "./agent-journal.ts";
 import { operateRuntimeTools } from "./runtime-tool-decisions.ts";
@@ -110,7 +114,7 @@ export function createRuntimeApplication(options: RuntimeApplicationOptions) {
       }
     }
     const storage = new D1WorkflowRunStorage(db, undefined, command.repositoryId);
-    const approvals = new D1WorkflowApprovalStore(db);
+    const approvals = new WorkflowInteractions(db);
     const journal = new AgentJournal(db, undefined, env);
     const vault = vaultFor(db, command.repositoryId);
     if ("scope" in command && command.scope.repositoryId !== command.repositoryId) throw new Error("permission_denied");
@@ -237,6 +241,26 @@ export function createRuntimeApplication(options: RuntimeApplicationOptions) {
       }
       case "runs.list": return storage.listRuns(command.limit);
       case "runs.find": return await storage.findRunByIdempotencyKey(command.key) ?? null;
+      case "runs.interaction":
+      case "runs.content":
+      case "runs.outputs":
+      case "runs.activity":
+      case "runs.display": {
+        const row = await db.prepare("SELECT repository_context_json FROM workflow_runs WHERE id=? AND repository_id=?")
+          .bind(command.runId, command.repositoryId).first<{ repository_context_json: string }>();
+        if (!row || !sameRepositoryContext(repositoryContextSchema.parse(JSON.parse(row.repository_context_json)), command.scope))
+          throw new Error("run_not_found");
+        if (command.operation === "runs.activity") return workflowRunActivity(db, command.runId, command.before);
+        const content = new WorkflowRunContent(db);
+        if (command.operation === "runs.content") return content.page(command.runId, command.before);
+        if (command.operation === "runs.outputs") return content.outputs(command.runId);
+        if (command.operation === "runs.display") return content.display(command.runId, command.activationId);
+        const { requestId, submission } = command;
+        if (!submission) return approvals.read(command.runId, requestId);
+        const accepted = await approvals.respond(command.runId, requestId, submission.actor, submission.response);
+        if (!accepted.consumedAt) await coordinator.wake(command.runId);
+        return accepted;
+      }
       case "runs.launch": {
         const run = command.snapshot as unknown as WorkflowRun;
         const context = repositoryContextSchema.parse(run.repositoryContext);
@@ -244,6 +268,10 @@ export function createRuntimeApplication(options: RuntimeApplicationOptions) {
           run.workflowGeneration !== 1 || run.status !== "queued" || isLegacyRunReadOnly(run)) throw new Error("invalid_run_snapshot");
         assertWorkflowPolicyCommissioned(run);
         assertRunExecutionPolicy(run);
+        if (run.executionPlan && "planVersion" in run.executionPlan && usesInteractiveBlocks(run.executionPlan)) {
+          if (command.interactionVersion !== WORKFLOW_INTERACTION_VERSION) throw new Error("invalid_run_snapshot");
+          assertInteractivePlanTopology(genericWorkflowExecutionPlanSchema.parse(run.executionPlan));
+        }
         const managed = Object.entries(run.managedCodeRepositoryContexts ?? {});
         const authorities = command.publicationAuthorities ?? {};
         if (managed.length !== Object.keys(authorities).length || managed.some(([agentId, value]) =>
@@ -306,7 +334,9 @@ export function createRuntimeApplication(options: RuntimeApplicationOptions) {
     const context = run.repositoryContext;
     if (command.operation === "runs.detail") {
       const conversation = context && await new ConversationStore(db, context).link(run.id);
-      return conversation ? { ...detail, conversation } : detail;
+      const content = run.executionPlan && "planVersion" in run.executionPlan && usesInteractiveBlocks(run.executionPlan)
+        ? await new WorkflowRunContent(db).page(run.id) : undefined;
+      return { ...detail, ...(conversation ? { conversation } : {}), ...(content ? { content } : {}) };
     }
     if (!context || isLegacyRunReadOnly(run)) throw new Error("legacy_run_read_only");
     assertRunExecutionPolicy(run);

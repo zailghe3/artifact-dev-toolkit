@@ -2,6 +2,7 @@
 import {buttonStyles} from "@/components/Ui";
 import {useCallback,useState} from "react";
 import {Background,Controls,Handle,Position,ReactFlow,type Node,type OnNodesChange,type Viewport} from "@xyflow/react";
+import {workflowBlockRegistry} from "@/lib/workflow-block-registry";
 import type {WorkflowDefinition} from "@/lib/workflow-definitions";
 import {normalizeWorkflowLayout,projectSequentialWorkflow,type WorkflowLayoutV1} from "@/lib/workflow-layout";
 import {PendingButtonContent} from "@/components/PendingButtonContent";
@@ -9,13 +10,40 @@ import {workflowGraphNodeClass,type WorkflowGraphNodeKind} from "@/components/Wo
 import {WorkflowWaypointEdge} from "@/components/WorkflowWaypointEdge";
 import {ActionFeedback,type ActionFeedbackKind} from "@/components/ActionFeedback";
 type SavedLayout={definition:WorkflowLayoutV1;fileSha:string};
-function GraphNode({data}:{data:{label:string;detail:string;kind:WorkflowGraphNodeKind;missing?:boolean}}){const publish=data.kind==="publish-github-pr",condition=data.kind==="condition";return <div className={workflowGraphNodeClass(data.kind,data.missing)}><Handle id={publish?"managed-result":"in"} type="target" position={Position.Left}/><strong>{data.label}</strong><span className="block text-xs">{data.detail}</span>{condition?<><Handle id="true" type="source" position={Position.Right} style={{top:"35%"}}/><span className="block text-right text-xs">true</span><Handle id="false" type="source" position={Position.Right} style={{top:"70%"}}/><span className="block text-right text-xs">false</span></>:<Handle id={publish?"pull-request":"out"} type="source" position={Position.Right}/>}</div>}
+function GraphNode({data}:{data:{label:string;detail?:string;kind:WorkflowGraphNodeKind;input:string;outputs:string[];missing?:boolean}}) {
+ return <div className={workflowGraphNodeClass(data.kind,data.missing)}>
+  <Handle id={data.input} type="target" position={Position.Left}/><strong>{data.label}</strong>
+  {data.detail&&<span className="block break-words text-xs">{data.detail}</span>}
+  {data.outputs.map((port,index)=>data.outputs.length===1?<Handle key={port} id={port} type="source" position={Position.Right}/>
+   :<span key={port} className="block text-right text-xs"><Handle id={port} type="source" position={Position.Right}
+     style={{top:((index+1)*100/(data.outputs.length+1))+"%"}}/>{port}</span>)}
+ </div>;
+}
 const nodeTypes={graph:GraphNode},edgeTypes={waypoint:WorkflowWaypointEdge};
 export function WorkflowLayoutEditor({workflow,workflowFileSha,agents,initialLayout}:{workflow:WorkflowDefinition;workflowFileSha:string;agents:Record<string,string>;initialLayout?:SavedLayout}){
  const projected=projectSequentialWorkflow(workflow,initialLayout?.definition);
- const [nodes,setNodes]=useState<Node[]>(()=>projected.nodes.map(node=>{const semantic=workflow.nodes.find(item=>item.id===node.id)!,agentId=String((semantic.config as {agentId?:string}).agentId??"");return{...node,type:"graph",data:{label:semantic.blockType==="agent"?(agents[agentId]??agentId):semantic.blockType==="condition"?"Condition":semantic.blockType==="approval"?"Approval":semantic.blockType==="subworkflow"?"Reusable workflow":semantic.blockType==="publish-github-pr"?"Publish GitHub PR":semantic.blockType==="knowledge-proposal"?"Knowledge Proposal":"Join",detail:semantic.blockType==="condition"?"contains predicate":semantic.blockType==="join"?"Wait for every branch":semantic.blockType==="approval"?String((semantic.config as {message:string}).message):semantic.blockType==="subworkflow"?String((semantic.config as {workflowId:string}).workflowId):semantic.blockType==="publish-github-pr"?"Managed repository publication":semantic.blockType==="knowledge-proposal"?"Optional knowledge review":"Agent",kind:semantic.blockType}}}));
+ const semanticById=new Map(workflow.nodes.map(node=>[node.id,node]));
+ const [nodes,setNodes]=useState<Node[]>(()=>projected.nodes.map(node=>{
+  const semantic=semanticById.get(node.id)!;
+  const { blockType, blockVersion }=semantic;
+  const block=workflowBlockRegistry.resolve(blockType,blockVersion);
+  const config=semantic.config as Record<string,unknown>;
+  const input=workflowBlockRegistry.port(blockType,blockVersion,"inputs",undefined,config);
+  const outputs=workflowBlockRegistry.ports(blockType,blockVersion,"outputs",config).map(port=>port.id);
+  const agentId=String(config.agentId??"");
+  const label=blockType==="agent"?agents[agentId]??agentId:block.ui.label;
+  const detail=typeof config.question==="string"?config.question:typeof config.message==="string"?config.message
+   :typeof config.label==="string"?config.label:typeof config.workflowId==="string"?config.workflowId:undefined;
+  return {...node,type:"graph",data:{kind:blockType,label,detail,input,outputs}};
+ }));
  const [edgeWaypoints,setEdgeWaypoints]=useState<Record<string,{x:number;y:number}[]>>(projected.edgeWaypoints);
- const edges=workflow.edges.map(edge=>({...edge,type:"waypoint",data:{waypoints:edgeWaypoints[edge.id],onChange:(points:{x:number;y:number}[])=>setEdgeWaypoints(old=>({...old,[edge.id]:points}))},sourceHandle:edge.sourcePort??"out",targetHandle:edge.targetPort??"in",label:edge.sourcePort==="true"||edge.sourcePort==="false"?edge.sourcePort:undefined}));
+ const edges=workflow.edges.map(edge=>{
+  const source=semanticById.get(edge.source)!,target=semanticById.get(edge.target)!;
+  const sourceHandle=workflowBlockRegistry.port(source.blockType,source.blockVersion,"outputs",edge.sourcePort,source.config);
+  const targetHandle=workflowBlockRegistry.port(target.blockType,target.blockVersion,"inputs",edge.targetPort,target.config);
+  return {...edge,type:"waypoint",data:{waypoints:edgeWaypoints[edge.id],onChange:(points:{x:number;y:number}[])=>setEdgeWaypoints(old=>({...old,[edge.id]:points}))},
+   sourceHandle,targetHandle,label:sourceHandle==="out"||sourceHandle==="pull-request"?undefined:sourceHandle};
+ });
  const [viewport,setViewport]=useState<Viewport>(projected.viewport),[fileSha,setFileSha]=useState(initialLayout?.fileSha),[status,setStatus]=useState("") ,[feedbackKind,setFeedbackKind]=useState<ActionFeedbackKind>("info"),[saving,setSaving]=useState(false);
  const onNodesChange=useCallback<OnNodesChange>(changes=>setNodes(current=>changes.applyTo(current)),[]);
  async function save(){if(saving)return;setSaving(true);setFeedbackKind("info");setStatus("Saving layout…");const positions=Object.fromEntries(nodes.map(node=>[node.id,node.position])),layout=normalizeWorkflowLayout(workflow,positions,viewport,edgeWaypoints);try{const response=await fetch(`/api/workflow-definitions/${workflow.id}/layout`,{method:"PUT",headers:{"content-type":"application/json"},body:JSON.stringify({layout,workflowFileSha,...(fileSha?{fileSha}:{})})}),body=await response.json() as {fileSha?:string;error?:string};if(!response.ok||!body.fileSha){setFeedbackKind("error");setStatus(body.error??"Layout could not be saved.");return;}setFileSha(body.fileSha);setFeedbackKind("success");setStatus("Layout saved.");}catch{setFeedbackKind("error");setStatus("Layout could not be saved. Refresh before trying again.");}finally{setSaving(false)}}

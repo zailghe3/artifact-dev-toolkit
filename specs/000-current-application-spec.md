@@ -95,10 +95,12 @@
 - Authorised repository users can start, search, rename, reopen, and continue Conversations.
 - A Conversation keeps its selected Agent or Workflow. Each message starts a distinct durable Run with the latest authorised definitions. Earlier Runs keep their frozen snapshots.
 - A Conversation permits one active turn at a time. Replay resolves to the same turn and Run. Eligible retry reuses the latest failed Run and its snapshots.
-- Follow-up context includes successful user messages and visible response sections. Runtime retains recent and requested exact exchanges within its budget and carries forward a bounded summary of earlier exchanges. The timeline flags shortened or omitted history.
-- The timeline shows execution status, approvals, failures, retries, definition changes, and links to the underlying Runs.
+- An authorised human can respond to a Decision, Input, Edit or Approval request in the Conversation or the underlying Run. The response resumes the suspended Run. Accepted answers and decisions remain visible.
+- Display Output sections appear when their activations complete. Follow-up context can include displayed results and human responses from successful or rejected Runs. Runtime keeps recent and requested exact exchanges within its budget and carries forward a bounded summary. The timeline flags shortened or omitted history.
+- Each turn shows execution status, definition changes, and a link to the underlying Run. Expand Workflow activity to see actual activations, selected routes, waits, and retries.
+- Loaded output and activity history stay accessible as a Run advances. Copying all Workflow outputs uses the committed response sections at the time of the request.
 - Responses support safe rendered Markdown, raw viewing, and copying the complete response, a section, or a code block.
-- Actions appear in execution order on sections verified against the successfully completed Workflow. Repeated visits to a block can produce distinct actions. Model text has no action authority.
+- Knowledge Proposal actions appear after a successful Run when the source is verified. Repeated visits to a block can produce distinct actions. Optional response actions do not resume suspended execution.
 - Standalone Runs remain available in Workflow history and through their original URLs.
 - See [Using Conversations](../docs/conversations.md).
 

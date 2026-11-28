@@ -1,3 +1,4 @@
+import type { RunContentPage } from "./workflow-run-content.ts";
 import type {ExecutionPolicy} from "../adt-runtime/src/conversation-contract.ts";
 import type {AgentOperationDiagnostics} from "./workflow-agent-diagnostics.ts";
 import {compileWorkflowV2ExecutionPlan,composeVersionedWorkflowV2,type AgentDefinitionV1, type WorkflowCompositionSnapshot, type WorkflowDefinitionV1, type WorkflowDefinitionV2,type WorkflowV2ExecutionPlan,type GenericWorkflowExecutionPlan } from "./workflow-definitions.ts";
@@ -10,7 +11,7 @@ import type {ManagedCodeRepositoryContext} from "./managed-code-repository.ts";
 import type {FrozenSecurityProfiles} from "./security-profile-authority.ts";
 import type {FrozenMcpRunTools} from "./mcp-tool-authority.ts";
 
-export type RunStatus = "queued" | "running" | "waiting_approval" | "cancelling" | "succeeded" | "failed" | "cancelled";
+export type RunStatus = "queued" | "running" | "waiting_approval" | "cancelling" | "succeeded" | "failed" | "cancelled" | "rejected";
 export type StepStatus = "pending" | "starting" | "waiting_provider" | "succeeded" | "failed" | "cancelled";
 export type CancellationResult = "cancelled" | "cancellation_pending" | "already_terminal" | "unsupported" | "safe_failure";
 const terminalCancellationResults=new Set<CancellationResult>(["cancelled","already_terminal","unsupported","safe_failure"]);
@@ -20,10 +21,10 @@ export type RunRepositoryContext={repositoryId:number;installationId:number;owne
 export type ConversationSourceIdentity={runId:string;stepId:string;activationId?:string;iteration:number;attempt:number};
 export type StepAttempt = { runId: string; stepId: string; graphActivationId?:string; iteration: number; attempt: number; agentId: string; connectionKey: string; status: StepStatus; inputText?: string; outputText?: string; outputExternalUrl?:string; providerTaskId?: string; providerState?: string; providerTaskUrl?: string; providerPollCount: number; nextPollDelayMs?:number; startedAt?: string; completedAt?: string; failureCategory?: FailureCategory; safeFailureMessage?: string; retryable?: boolean; providerTransportDiagnostics?:ProviderTransportDiagnostics;agentOperationDiagnostics?:AgentOperationDiagnostics; conversationSource?:ConversationSourceIdentity };
 export type WorkflowRun = { advisorContext?:AdvisorRunContext; executionPolicy?:ExecutionPolicy; id: string; engineVersion: "1"|"2"; workflowId: string; workflowRevision: string; workflowSnapshot?: WorkflowDefinitionV1; semanticWorkflowSnapshot?:WorkflowDefinitionV2; compositionSnapshot?:WorkflowCompositionSnapshot; executionPlan?:WorkflowV2ExecutionPlan; agentSnapshots: Record<string, AgentDefinitionV1>; agentRevisions: Record<string,string>; connectionSnapshots: Record<string, ConnectionDescriptor>; mcpToolSnapshots?:FrozenMcpRunTools; securityProfileSnapshots?:FrozenSecurityProfiles; repositoryContext?:RunRepositoryContext; managedCodeRepositoryContexts?:Record<string,ManagedCodeRepositoryContext>; initialInput: string; status: RunStatus; currentStepId?: string; transitionCount: number; stateVersion:number; workflowInstanceId?: string; reservedWorkflowInstanceId?:string; workflowGeneration: number; workflowLaunchState:WorkflowLaunchState; workflowLaunchFailure?:string; workflowLaunchAttemptedAt?:string; finalOutput?: string; finalExternalUrl?: string; cancelRequestedAt?: string; cancellationResult?: CancellationResult; createdAt: string; updatedAt: string; startedAt?: string; completedAt?: string; failureCode?: FailureCategory; failureMessage?: string; orchestrationDiagnostics?:WorkflowOrchestrationDiagnostic; clientIdempotencyKey?: string };
-export type RunDetail = { run: WorkflowRun; attempts: StepAttempt[]; conversation?: { id: string; turnId: string; message: string; isLatest: boolean } };
+export type RunDetail = { run: WorkflowRun; attempts: StepAttempt[]; content?: RunContentPage; conversation?: { id: string; turnId: string; message: string; isLatest: boolean } };
 /** A two-minute lease avoids stealing a live request while bounding abandoned launch recovery. */
 export const WORKFLOW_LAUNCH_STALE_MS=2*60*1000;
-const terminalRuns = new Set<RunStatus>(["succeeded", "failed", "cancelled"]);
+const terminalRuns = new Set<RunStatus>(["succeeded", "failed", "cancelled", "rejected"]);
 
 export type OrchestrationDiagnosticMutationResult="updated"|"generation_changed"|"no_longer_active";
 

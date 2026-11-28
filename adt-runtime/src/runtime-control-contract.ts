@@ -1,12 +1,15 @@
 import { z } from "zod";
 import { conversationCursorSchema, conversationIdSchema, conversationSubmissionSchema, conversationTargetSchema,
   conversationTitleSchema, workflowActionIdSchema } from "./conversation-contract.ts";
+import { interactionIdSchema, interactionResponseSchema, WORKFLOW_INTERACTION_VERSION } from "./workflow-interaction-contract.ts";
 
 export const RUNTIME_CONTROL_PATH = "/v1/management/control";
 export const RUNTIME_REPOSITORY_BROKER_PATH = "/api/runtime-repository-credential";
 export const RUNTIME_CONTROL_BYTES = 16 * 1024 * 1024;
 export const RUNTIME_MANAGEMENT_DIAGNOSTIC_SCHEMA = "adt.runtime-management.v1";
 export const RUNTIME_MANAGEMENT_DIAGNOSTIC_TIMEOUT_MS = 25_000;
+export const runActivityCursorSchema = z.object({ at: z.iso.datetime(), id: z.string().min(1).max(180) }).strict();
+export const runContentCursorSchema = z.object({ sequence: z.number().int().positive(), id: z.string().min(1).max(180) }).strict();
 export const managementStageSchema = z.enum(["configuration", "transport", "response", "authentication",
   "protocol", "validation", "management", "nonce", "dispatch", "storage", "complete"]);
 export const managementResultSchema = z.enum(["ok", "not_configured", "unreachable", "malformed_response",
@@ -64,6 +67,13 @@ const runtimeControlOperationErrors = {
   execution_read_only_required: { status: 422, error: "Read-only execution permits native ADT reads and blocks without external side effects." },
   execution_read_only_provider: { status: 422, error: "Read-only execution requires a compatible model connection and disallows Codex continuation." },
   workflow_action_not_found: { status: 404, error: "This response action is unavailable." },
+  workflow_interaction_runtime_unavailable: { status: 503, error: "Update ADT Runtime to run Workflows with human interactions or Display Output." },
+  interaction_not_found: { status: 404, error: "This interaction is unavailable for this Run." },
+  interaction_not_pending: { status: 409, error: "This Run is no longer waiting for that response." },
+  interaction_response_invalid: { status: 422, error: "Check the selected option and required fields." },
+  interaction_response_conflict: { status: 409, error: "A response has already been accepted for this request." },
+  interaction_output_too_large: { status: 422, error: "The combined response and reviewed text are too long. Shorten your response or feedback." },
+  workflow_display_not_found: { status: 404, error: "This displayed output is unavailable for this Run." },
   vault_secret_id_invalid: { status: 400, error: "The credential reference is invalid." },
   provider_configuration_invalid: { status: 422, error: "The provider configuration is invalid." },
   ollama_configuration_invalid: { status: 422, error: "Ollama base URL or authentication mode is invalid." },
@@ -241,6 +251,7 @@ export const runtimeControlSchema = z.discriminatedUnion("operation", [
   z.object({ operation: z.literal("runs.find"), repositoryId, key: z.string().min(1).max(128) }).strict(),
   z.object({ operation: z.literal("runs.launch"), repositoryId, snapshot: z.record(z.string(), z.unknown()),
     conversation: conversationSubmissionSchema.optional(),
+    interactionVersion: z.literal(WORKFLOW_INTERACTION_VERSION).optional(),
     publicationAuthorities: z.record(z.string(), z.string().regex(/^[A-Za-z0-9_-]{43}$/)).optional() }).strict(),
   z.object({ operation: z.literal("conversations.prepare"), repositoryId, scope: repositoryContextSchema,
     submission: conversationSubmissionSchema }).strict(),
@@ -258,6 +269,16 @@ export const runtimeControlSchema = z.discriminatedUnion("operation", [
   z.object({ operation: z.literal("runs.cancel"), repositoryId, runId }).strict(),
   z.object({ operation: z.literal("runs.retry"), repositoryId, runId }).strict(),
   z.object({ operation: z.literal("runs.approval"), repositoryId, runId, approvalRequestId: runId }).strict(),
+  z.object({ operation: z.literal("runs.interaction"), repositoryId, scope: repositoryContextSchema, runId, requestId: interactionIdSchema,
+    submission: z.object({ response: interactionResponseSchema, actor: z.object({ githubId: repositoryId, login: actor }).strict() }).strict().optional(),
+  }).strict(),
+  z.object({ operation: z.literal("runs.content"), repositoryId, scope: repositoryContextSchema, runId,
+    before: runContentCursorSchema.optional() }).strict(),
+  z.object({ operation: z.literal("runs.outputs"), repositoryId, scope: repositoryContextSchema, runId }).strict(),
+  z.object({ operation: z.literal("runs.activity"), repositoryId, scope: repositoryContextSchema, runId,
+    before: runActivityCursorSchema.optional() }).strict(),
+  z.object({ operation: z.literal("runs.display"), repositoryId, scope: repositoryContextSchema, runId,
+    activationId: z.string().min(1).max(256) }).strict(),
   z.object({ operation: z.literal("runs.inspection"), repositoryId, runId, actor }).strict(),
   z.object({ operation: z.literal("runs.tools"), repositoryId, runId, actor, decision: toolDecisionSchema.optional() }).strict(),
   publicationInput.extend({ operation: z.literal("runs.publish"), repositoryId }).strict(),

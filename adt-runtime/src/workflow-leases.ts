@@ -42,7 +42,10 @@ export function workflowLeases(pool: Pool) {
     },
     async release(lease: WorkflowLease, delayMs: number, failures = 0) {
       await pool.query(`UPDATE workflow_runs SET execution_lease_until=NULL,
-        execution_scheduled_at=clock_timestamp() + $4::integer * interval '1 millisecond', execution_failures=$5
+        execution_scheduled_at=CASE WHEN $5=0 AND status='waiting_approval' AND EXISTS (
+          SELECT 1 FROM workflow_approvals a WHERE a.run_id=workflow_runs.id AND a.workflow_generation=workflow_runs.workflow_generation
+            AND a.status='responded' AND a.consumed_at IS NULL
+        ) THEN clock_timestamp() ELSE clock_timestamp() + $4::integer * interval '1 millisecond' END, execution_failures=$5
         WHERE id=$1 AND workflow_generation=$2 AND execution_fence=$3
           AND execution_lease_until > clock_timestamp()`, [lease.id, lease.generation, lease.fence, delayMs, failures]);
     },

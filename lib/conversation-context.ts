@@ -8,7 +8,10 @@ const DEFAULT_RECENT_TURNS = 3;
 const MAX_SUMMARY_BYTES = 3_000;
 const MAX_SUMMARY_INPUT_BYTES = 14_000;
 
-export type HistorySection = { id: string; label: string; markdown: string; complete: boolean; terminal: boolean };
+export type HistorySection = {
+  id: string; label: string; markdown: string; complete: boolean; terminal: boolean;
+  sequence?: number; source?: "interaction" | "display";
+};
 export type HistoryExchange = { id: string; ordinal: number; message: string; response: string; sections: HistorySection[]; complete: boolean };
 type SummarySource = { provider: string; model: string; connectionKey: string; connectionRevision?: string };
 export type ContextSummary = {
@@ -69,9 +72,10 @@ const exchange = ({ ordinal, message, response }: Pick<HistoryExchange, "ordinal
 
 function responseText(item: HistoryExchange) {
   if (!item.sections.length) return item.response;
-  const sections = item.sections.map(({ id, label, markdown, complete, terminal }) => {
+  const sections = item.sections.map(({ id, label, markdown, complete, terminal, source }) => {
     const text = terminal ? item.response : markdown;
-    return `Response section ${label} [${id}] (${bytes(text)} UTF-8 bytes)\n${text}${complete ? "" : "\n[Section excerpt]"}`;
+    const heading = source === "interaction" ? "Workflow interaction with a human response" : `Response section ${label}`;
+    return `${heading} [${id}] (${bytes(text)} UTF-8 bytes)\n${text}${complete ? "" : "\n[Section excerpt]"}`;
   });
   if (!item.sections.some(section => section.terminal)) sections.push(`Final response (${bytes(item.response)} UTF-8 bytes)\n${item.response}`);
   return sections.join("\n\n");

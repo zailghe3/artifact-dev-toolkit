@@ -38,6 +38,15 @@ Normal Worker deployment and Runtime image publication are controlled by the tru
 - Keep the PostgreSQL volume and matching key directory attached. Existing Runs and knowledge proposals are preserved. Preview response actions are available when the completed checkpoint verifies their execution.
 - A Worker can be rolled back independently. Runtime rollback requires a build that understands the applied migration ledger or a restore of the matching pre-upgrade database and keys.
 
+### Deploy interactive Workflows
+
+1. Back up the PostgreSQL database and matching Runtime keys.
+2. Roll out a compatible Runtime image. Runtime applies [the Workflow interaction migration](../adt-runtime/migrations/0008_workflow_interactions.sql) during startup. Existing Approval records and suspended Runs retain their original contract.
+3. Verify Runtime readiness and load an existing Conversation. Deploy the matching Worker before authoring new interaction blocks. An early Worker rollout requests a Runtime update when launching those definitions.
+4. Run a test Workflow, record a response, restart Runtime, and verify that the same Run resumes. Confirm that Display Output appears while execution is still active.
+
+For recovery, keep the database and keys together. Use a Runtime build that supports the applied migrations and a Worker that understands the rejected Run status. Restore a matched pre-upgrade backup when the goal is to restore the earlier operational state.
+
 ## Diagnose Workflow management
 
 When Workflow history or management operations fail:
