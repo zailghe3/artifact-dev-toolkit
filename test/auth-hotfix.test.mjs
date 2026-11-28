@@ -76,6 +76,8 @@ test("repository configuration trims required values and never swallows private-
 });
 
 function location(response) { return new URL(response.headers.get("location")); }
+const callbackState = "a".repeat(64);
+const callbackVerifier = "b".repeat(96);
 test("OAuth start route redirects safely for valid, configuration, malformed, and unexpected outcomes", async () => {
   const logs = [];
   const valid = routes.createOAuthStartRouteHandler({ createOAuthStart: async () => new URL("https://github.com/login/oauth/authorize?client_id=id&state=state&code_challenge=pkce"), logger: value => logs.push(value) });
@@ -102,7 +104,7 @@ test("OAuth callback route returns secret-free redirects and diagnostic categori
   const cases = [
     ["configuration", { stateError: new config.AuthenticationConfigurationError("missing_configuration", ["SESSION_SECRET"]) }, "configuration", "missing_configuration"],
     ["invalid_state", { state: { valid: false, returnTo: "/", pkceVerifier: "verifier-secret" } }, "invalid_state"],
-    ["authorization_denied", { url: "?state=x&error=access_denied" }, "denied"], ["missing_code", { url: "?state=x" }, "missing_code"],
+    ["authorization_denied", { url: `?state=${callbackState}&error=access_denied` }, "denied"], ["missing_code", { url: `?state=${callbackState}` }, "missing_code"],
     ["token_exchange", { exchangeError: Object.assign(new Error("token-secret"), { category: "token_exchange" }) }, "github_exchange_failed"],
     ["identity_lookup", { exchangeError: Object.assign(new Error("body-secret"), { category: "identity_lookup" }) }, "github_identity_failed"],
     ["repository_configuration", { exchangeError: new config.AuthenticationConfigurationError("invalid_private_key") }, "configuration", "invalid_private_key"],
@@ -112,16 +114,37 @@ test("OAuth callback route returns secret-free redirects and diagnostic categori
   for (const [category, setup, expected, configurationCode] of cases) {
     const logs = [];
     const handler = routes.createOAuthCallbackRouteHandler({
-      consumeOAuthState: async () => { if (setup.stateError) throw setup.stateError; return setup.state ?? { valid: true, returnTo: "/artifacts/one", pkceVerifier: "verifier-secret" }; },
+      consumeOAuthState: async () => { if (setup.stateError) throw setup.stateError; return setup.state ?? { valid: true, returnTo: "/artifacts/one", pkceVerifier: callbackVerifier }; },
       exchangeGitHubCode: async () => { if (setup.exchangeError) throw setup.exchangeError; return { user: { id: 1, login: "user" }, repositoryAuthorization: { ok: false, reason: "configuration", message: "safe" }, userAccessToken: "token-secret", userTokenExpiresAt: Date.now() }; },
-      createSession: async () => { if (setup.sessionError) throw setup.sessionError; }, logger: value => logs.push(value),
+      createSession: async () => { if (setup.sessionError) throw setup.sessionError; }, destroySession: async () => {}, logger: value => logs.push(value),
     });
-    const response = await handler(new Request(`https://service.test/auth/github/callback${setup.url ?? "?state=x&code=code-secret"}`));
+    const response = await handler(new Request(`https://service.test/auth/github/callback${setup.url ?? `?state=${callbackState}&code=code-secret`}`));
     assert.equal(response.status, 307); assert.equal(location(response).searchParams.get("error"), expected);
     const diagnostic = JSON.parse(logs.at(-1)); assert.equal(diagnostic.category, category); assert.equal(diagnostic.configurationCode, configurationCode);
     if (configurationCode === "missing_configuration") assert.deepEqual(diagnostic.missingNames, ["SESSION_SECRET"]);
     assert.doesNotMatch(response.headers.get("location") + logs.join(""), /token-secret|code-secret|verifier-secret|body-secret|D1 cookie secret|unexpected secret/);
+    assert.equal(logs.join('').includes(callbackState) || logs.join('').includes(callbackVerifier), false);
   }
+});
+
+test('malformed OAuth callbacks skip state, GitHub, and session work', async () => {
+  const unexpected = () => assert.fail('callback entered an operation');
+  const callback = routes.createOAuthCallbackRouteHandler({ consumeOAuthState: unexpected, exchangeGitHubCode: unexpected, createSession: unexpected, destroySession: unexpected, logger: unexpected });
+  for (const query of ['', '?state=short', `?state=${'a'.repeat(8000)}`, `?state=${callbackState}&state=${callbackState}`]) {
+    const response = await callback(new Request(`https://service.test/auth/github/callback${query}`));
+    assert.equal(location(response).searchParams.get('error'), 'invalid_state');
+    assert.match(response.headers.get('cache-control'), /no-store/);
+  }
+});
+
+test('the OAuth allowlist denial does not create a persistent session', async () => {
+  const callback = routes.createOAuthCallbackRouteHandler({
+    consumeOAuthState: async () => ({ valid: true, returnTo: '/artifacts/one', pkceVerifier: callbackVerifier }),
+    exchangeGitHubCode: async () => ({ user: { id: 1, login: 'user' }, repositoryAuthorization: { ok: false, reason: 'allowlist', message: 'safe' }, userAccessToken: 'synthetic-token', userTokenExpiresAt: Date.now() }),
+    createSession: () => assert.fail('denied session created'), destroySession: async () => {},
+  });
+  const response = await callback(new Request(`https://service.test/auth/github/callback?state=${callbackState}&code=synthetic-code`));
+  assert.equal(location(response).href, 'https://service.test/access-denied?reason=allowlist');
 });
 
 function response(status, redirectLocation) { return new Response(null, { status, headers: redirectLocation ? { location: redirectLocation } : {} }); }

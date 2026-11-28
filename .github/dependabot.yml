@@ -71,7 +71,7 @@ updates:
       runtime-support-minor-patch:
         patterns:
           - zod
-          - gray-matter
+          - yaml
           - remark
           - remark-html
         update-types:
@@ -116,7 +116,7 @@ updates:
           - patch
       runtime-support-minor-patch:
         patterns:
-          - gray-matter
+          - yaml
           - pg
           - "@types/pg"
           - esbuild

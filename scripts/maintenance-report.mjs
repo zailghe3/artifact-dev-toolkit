@@ -112,6 +112,31 @@ for (const root of packageRoots) {
 }
 if (deprecatedCount === 0) bullet('No deprecated direct packages reported by npm view.');
 
+section('npm vulnerability advisories');
+for (const root of packageRoots) {
+  const packages = json(`${root.path}/package-lock.json`).packages;
+  for (const [scope, flags] of [['all', []], ['production', ['--omit=dev']]]) {
+    const result = runNpm(['audit', '--json', ...flags], resolve(repoRoot, root.path));
+    let audit;
+    try { audit = JSON.parse(result.text); } catch { /* An unavailable scan is reported below. */ }
+    const counts = audit?.metadata?.vulnerabilities;
+    if (!counts || !audit.vulnerabilities || !Number.isInteger(counts.total)) {
+      warn(`${root.directory} (${scope}): npm audit unavailable.`);
+      continue;
+    }
+    bullet(`${root.directory} (${scope}) has ${counts.total} findings, including ${counts.critical} critical and ${counts.high} high.`);
+    for (const [name, finding] of Object.entries(audit.vulnerabilities).sort(([left], [right]) => left.localeCompare(right))) {
+      if (!['high', 'critical'].includes(finding.severity)) continue;
+      const versions = [...new Set((finding.nodes ?? []).map(node => packages[node]?.version).filter(Boolean))].sort();
+      const advisories = (finding.via ?? []).flatMap(item => {
+        const link = typeof item === 'object' ? /^https:\/\/github\.com\/advisories\/(GHSA-[\w-]+)$/.exec(item.url) : undefined;
+        return link ? [`[${link[1]}](${link[0]})`] : [];
+      });
+      bullet(`**${finding.severity.toUpperCase()}** ${root.directory} (${scope}) \`${name}\`${versions.length ? ` ${versions.join(', ')}` : ''}${advisories.length ? ` ${advisories.join(', ')}` : ''}.`);
+    }
+  }
+}
+
 section('Exceptions');
 bullet('Major upgrades are intentionally excluded from Dependabot grouping and should be opened as dedicated migration PRs.');
 bullet('Routine reports do not create commits or issues; review this summary and file a normal PR only when action is required.');

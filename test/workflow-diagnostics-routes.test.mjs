@@ -4,6 +4,7 @@ import { once } from 'node:events';
 import { createServer } from 'node:http';
 import test from 'node:test';
 import { installTsxHook } from './render-tsx.mjs';
+import { browserMutationRejection } from '../lib/request-origin.ts';
 
 const require = installTsxHook();
 const Module = require('node:module');
@@ -32,7 +33,7 @@ const originalLoad = Module._load;
 Module._load = function(name, parent, isMain) {
   if (name === '@opennextjs/cloudflare') return { getCloudflareContext: async () => ({ env: runtimeEnvironment }) };
   if (name === '@/lib/auth') return {
-    requireApiRepositoryAccess: async () => allowed ? { access } : Response.json({}, { status: 401 }),
+    requireApiRepositoryAccess: async request => browserMutationRejection(request) ?? (allowed ? { access } : Response.json({}, { status: 401 })),
     requireRepositoryAccess: async () => {
       if (authorizationError) throw authorizationError;
       return { access };

@@ -5,9 +5,11 @@ import { tmpdir } from 'node:os';
 import { resolve, join, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createServer } from 'node:net';
+import { createHash } from 'node:crypto';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+const fixtureCommit = 'f1'.repeat(20);
 async function freePort() {
   const server = createServer();
   await new Promise((resolve, reject) => server.once('error', reject).listen(0, '127.0.0.1', resolve));
@@ -30,6 +32,13 @@ export function validateProbe(path, response, body, origin) {
     && body.includes('Sign in required') && body.includes('/auth/github/start');
 }
 
+function hasSecurityHeaders(response) {
+  return /\bno-store\b/.test(response.headers.get('cache-control') ?? '') &&
+    response.headers.get('x-content-type-options') === 'nosniff' &&
+    response.headers.get('x-frame-options') === 'DENY' &&
+    ['same-origin', 'no-referrer'].includes(response.headers.get('referrer-policy'));
+}
+
 // Only this explicit environment reaches Wrangler. No inherited app/provider credentials,
 // developer HOME, dotenv files, Wrangler login, production bindings, or remote resources.
 export async function smokeWorker({ command, startupMs = 30000, requestMs = 3000, signal } = {}) {
@@ -41,6 +50,7 @@ export async function smokeWorker({ command, startupMs = 30000, requestMs = 3000
   signal?.addEventListener('abort', stop, { once: true });
   try {
     const port = await freePort(), origin = `http://127.0.0.1:${port}`;
+    let browserOrigin = origin;
     const config = join(directory, 'wrangler.json');
     const production = JSON.parse(await readFile(resolve(root, 'wrangler.jsonc'), 'utf8'));
     await writeFile(config, JSON.stringify({
@@ -48,6 +58,7 @@ export async function smokeWorker({ command, startupMs = 30000, requestMs = 3000
       compatibility_date: production.compatibility_date, compatibility_flags: production.compatibility_flags,
       assets: { directory: resolve(root, production.assets.directory), binding: production.assets.binding },
       tsconfig: relative(directory, resolve(root, 'tsconfig.json')),
+      vars: { ADT_RUNTIME_AUTH_SECRET: 'smoke-only-runtime-secret'.repeat(2), ADT_DEPLOYED_AT: '2026-11-28T09:00:00.000Z', ADT_DEPLOY_COMMIT_SHA: fixtureCommit },
     }));
     const args = command ? command(port) : [process.execPath, resolve(root, 'node_modules/wrangler/bin/wrangler.js'),
       'dev', '--local', '--config', config, '--ip', '127.0.0.1', '--port', String(port),
@@ -81,12 +92,16 @@ export async function smokeWorker({ command, startupMs = 30000, requestMs = 3000
       alive();
       if (!response) throw new Error('Worker startup/request deadline exceeded');
       if (!validateProbe(path, response, body, origin)) throw new Error(`Unexpected ADT response for ${path.split('?')[0]}: HTTP ${response.status}`);
+      if (!hasSecurityHeaders(response) || body.includes(fixtureCommit)) throw new Error('Public authentication response security check failed');
+      // Wrangler canonicalises the local browser origin to localhost. Keep the
+      // transport bound to IPv4 and use the validated redirect origin for POSTs.
+      if (path.startsWith('/auth/')) browserOrigin = new URL(response.headers.get('location'), origin).origin;
     }
     // Runtime/model bearer authority is never browser-session publication authority.
     for(const path of ['/api/advisor/knowledge','/api/advisor/knowledge/proposals','/api/advisor/knowledge/proposals/00000000-0000-4000-8000-000000000000']){
       const method=path==='/api/advisor/knowledge'?'GET':'POST';
-      const response=await fetch(origin+path,{method,redirect:'manual',headers:{origin,authorization:'Bearer smoke-runtime-authority','content-type':'application/json'},...(method==='POST'?{body:JSON.stringify({action:'publish',revision:1,confirmation:'publish',reviewToken:'model-generated-approval'})}:{}),signal:AbortSignal.any([interrupted.signal,AbortSignal.timeout(requestMs)])});
-      if(response.status!==401||!/no-store/.test(response.headers.get('cache-control')||''))throw new Error(`Knowledge session boundary failed: HTTP ${response.status}`);
+      const response=await fetch(origin+path,{method,redirect:'manual',headers:{origin:browserOrigin,authorization:'Bearer smoke-runtime-authority','content-type':'application/json'},...(method==='POST'?{body:JSON.stringify({action:'publish',revision:1,confirmation:'publish',reviewToken:'model-generated-approval'})}:{}),signal:AbortSignal.any([interrupted.signal,AbortSignal.timeout(requestMs)])});
+      if(response.status!==401||!hasSecurityHeaders(response))throw new Error(`Knowledge session boundary failed: HTTP ${response.status}`);
       await response.body?.cancel();
     }
     for (const [path, method] of [
@@ -96,14 +111,62 @@ export async function smokeWorker({ command, startupMs = 30000, requestMs = 3000
       ['/api/workflow-connections/codex-runner/diagnostics', 'GET'],
     ]) {
       const response = await fetch(origin + path, {
-        method, redirect: 'manual', headers: { origin, 'content-type': 'application/json' },
+        method, redirect: 'manual', headers: { origin: browserOrigin, 'content-type': 'application/json' },
         ...(method === 'POST' ? { body: '{}' } : {}),
         signal: AbortSignal.any([interrupted.signal, AbortSignal.timeout(requestMs)]),
       });
-      if (response.status !== 401 || !/no-store/.test(response.headers.get('cache-control') ?? '')) {
+      if (response.status !== 401 || !hasSecurityHeaders(response)) {
         throw new Error(`Workflow diagnostics session boundary failed: HTTP ${response.status}`);
       }
       await response.body?.cancel();
+    }
+    const body = '{}';
+    const credentialsPath = '/api/workflow-connections/example/credential';
+    const brokerPath = '/api/runtime-repository-credential';
+    const tests = [
+      { path: '/workflows/runs', status: 307, location: '/sign-in', allowStream: true },
+      { path: '/tools', status: 307, location: '/sign-in', allowStream: true },
+      { path: '/api/tools/mcp', status: 401 },
+      { path: '/api/workflow-runs', method: 'POST', body, status: 401 },
+      { path: credentialsPath, method: 'PUT', body, status: 401 },
+      { path: '/api/infrastructure-redeploy', method: 'POST', body, status: 401 },
+      { path: '/api/workflow-runs', method: 'POST', body, headers: { origin: 'https://other.invalid' }, status: 403 },
+      { path: '/api/advisor/knowledge/proposals', method: 'POST', body, headers: { 'sec-fetch-site': 'same-site' }, status: 403 },
+      ...['device', 'logout', 'test', 'control'].flatMap(action => {
+        const path = `/api/workflow-connections/codex-runner/${action}`;
+        return [{ path, method: 'POST', omitOrigin: true, status: 403 },
+          { path, method: 'POST', headers: { origin: 'https://other.invalid' }, status: 403 }];
+      }),
+      { path: credentialsPath, method: 'DELETE', body, headers: { 'content-type': 'text/plain' }, status: 415 },
+      { path: brokerPath, method: 'POST', body, headers: {
+        'x-adt-protocol': 'adt-runtime-v1', 'x-adt-timestamp': String(Date.now()),
+        'x-adt-nonce': 'synthetic-broker-nonce', 'x-adt-signature': 'A'.repeat(43),
+        'x-adt-content-sha256': createHash('sha256').update(body).digest('base64url'),
+      }, status: 401 },
+      { path: '/auth/github/callback?state=invalid&code=synthetic-oauth-code', status: 307, location: '/sign-in' },
+      { path: `/sign-out?returnTo=${encodeURIComponent('/documents/..//other.invalid')}`, status: 307, location: '/' },
+      { path: '/sign-out', method: 'POST', body: '', headers: { 'content-type': 'application/x-www-form-urlencoded' }, status: 303, location: '/' },
+      { path: '/sign-out', method: 'POST', headers: { origin: 'https://other.invalid' }, status: 403 },
+    ];
+    // No D1 or Runtime URL is bound. Any unintended privileged dependency fails this smoke test.
+    for (const probe of tests) {
+      const response = await fetch(origin + probe.path, {
+        method: probe.method, body: probe.body, redirect: 'manual',
+        headers: { ...(probe.path === brokerPath || probe.omitOrigin ? {} : { origin: browserOrigin }), 'content-type': 'application/json', cookie: '__Host-adt_session=malformed', ...probe.headers },
+        signal: AbortSignal.any([interrupted.signal, AbortSignal.timeout(requestMs)]),
+      });
+      // App Router can commit a loading shell before the authentication decision.
+      // Its streamed HTML redirect must lead to the same local sign-in destination.
+      const html = probe.allowStream && response.status === 200 ? await response.text() : '';
+      const streamedLocation = /<meta\b[^>]*\bhttp-equiv="refresh"\s+content="1;url=([^"<>]+)"/.exec(html)?.[1];
+      const location = response.headers.get('location') ?? streamedLocation;
+      const target = location && new URL(location, origin);
+      const local = target && ['127.0.0.1', 'localhost'].includes(target.hostname) && target.port === String(port) && target.protocol === 'http:';
+      if ((response.status !== probe.status && !streamedLocation) || !hasSecurityHeaders(response) || html.includes(fixtureCommit) ||
+          (probe.location && (!local || target.pathname !== probe.location || target.username || target.password))) {
+        throw new Error(`Worker security check failed for ${probe.method ?? 'GET'} ${probe.path.split('?')[0]}: HTTP ${response.status}`);
+      }
+      if (!response.bodyUsed) await response.body?.cancel();
     }
     alive();
     return { ok: true };
@@ -125,6 +188,6 @@ export async function smokeWorker({ command, startupMs = 30000, requestMs = 3000
   }
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  smokeWorker().then(() => console.log('Local OpenNext Worker OAuth and sign-in smoke passed.'))
+  smokeWorker().then(() => console.log('Local OpenNext Worker security smoke passed.'))
     .catch(error => { console.error(error.message); process.exitCode = 1; });
 }

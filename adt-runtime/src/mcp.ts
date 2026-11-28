@@ -4,6 +4,7 @@ import {promisify} from "node:util";
 import {BlockList,isIP} from "node:net";
 import {Agent,fetch as undiciFetch,type Dispatcher} from "undici";
 import {Client,StreamableHTTPClientTransport} from "@modelcontextprotocol/client";
+import {isMcpLocalhost,parseMcpEndpoint} from "./mcp-endpoint.js";
 
 export const MCP_DISCOVERY_CAPABILITY="mcp:streamable-http:discover",MCP_CALL_CAPABILITY="mcp:streamable-http:call";
 export const MCP_LIMITS={tools:64,nameBytes:128,descriptionBytes:2048,schemaBytes:32_768,argumentsBytes:65_536,resultBytes:128_000,durationMs:10_000,redirects:2} as const;
@@ -26,12 +27,10 @@ for(const [network,prefix] of [["0.0.0.0",8],["10.0.0.0",8],["100.64.0.0",10],["
 for(const [network,prefix] of [["::",128],["::1",128],["64:ff9b:1::",48],["100::",64],["2001:2::",48],["2001:10::",28],["2001:db8::",32],["fc00::",7],["fe80::",10],["ff00::",8]] as const)forbidden.addSubnet(network,prefix,"ipv6");
 
 export function isForbiddenMcpAddress(address:string){const mapped=/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(address);if(mapped)return isForbiddenMcpAddress(mapped[1]);const family=isIP(address);return family===0||forbidden.check(address,family===4?"ipv4":"ipv6")}
-function localhost(url:URL){return url.hostname==="localhost"||url.hostname==="127.0.0.1"||url.hostname==="[::1]"}
 async function destination(value:string|URL,allowLocalhost:boolean,resolver:Resolver){
- let url:URL;try{url=value instanceof URL?value:new URL(value)}catch{throw new McpFailure("configuration_invalid","MCP server configuration is invalid.")}
- if(url.username||url.password||url.hash)throw new McpFailure("configuration_invalid","MCP server destination is not permitted.");
- if(allowLocalhost&&url.protocol==="http:"&&localhost(url))return{url,addresses:[{address:url.hostname==="[::1]"?"::1":"127.0.0.1",family:url.hostname==="[::1]"?6:4}]};
- if(url.protocol!=="https:")throw new McpFailure("configuration_invalid","MCP server destination is not permitted.");
+ const url=parseMcpEndpoint(value,allowLocalhost);
+ if(!url)throw new McpFailure("configuration_invalid","MCP server destination is not permitted.");
+ if(url.protocol==="http:"&&isMcpLocalhost(url))return{url,addresses:[{address:url.hostname==="[::1]"?"::1":"127.0.0.1",family:url.hostname==="[::1]"?6:4}]};
  let addresses:LookupAddress[];try{addresses=await resolver(url.hostname)}catch{throw new McpFailure("connection_unavailable","MCP server is unavailable.")}
  if(!addresses.length||addresses.some(item=>isForbiddenMcpAddress(item.address)))throw new McpFailure("configuration_invalid","MCP server destination is not permitted.");
  return{url,addresses};

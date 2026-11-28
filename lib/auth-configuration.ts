@@ -27,11 +27,6 @@ export function requireAuthenticationValues<const T extends readonly string[]>(n
   return Object.fromEntries(names.map((name) => [name, process.env[name]!.trim()])) as Record<T[number], string>;
 }
 
-export function getOAuthStartConfig() {
-  const values = requireAuthenticationValues(["GITHUB_APP_CLIENT_ID"] as const);
-  return { clientId: values.GITHUB_APP_CLIENT_ID };
-}
-
 export function getOAuthExchangeConfig() {
   const values = requireAuthenticationValues(["GITHUB_APP_CLIENT_ID", "GITHUB_APP_CLIENT_SECRET"] as const);
   return { clientId: values.GITHUB_APP_CLIENT_ID, clientSecret: values.GITHUB_APP_CLIENT_SECRET };
@@ -57,19 +52,31 @@ export function validateTokenEncryptionKey(value: string) {
   return bytes;
 }
 
+let sessionSecurity: { secret: string; config: Readonly<{ sessionSecret: string; tokenEncryptionKey: string }> } | undefined;
+
 export function getSessionSecurityConfig() {
   const values = requireAuthenticationValues(["SESSION_SECRET"] as const);
   if (values.SESSION_SECRET.length < 32) throw new AuthenticationConfigurationError("invalid_session_secret");
+  if (sessionSecurity?.secret === values.SESSION_SECRET) return sessionSecurity.config;
   const derive=(purpose:string)=>createHmac("sha256",values.SESSION_SECRET).update(`adt-web-session:v1:${purpose}`).digest("base64");
-  return { sessionSecret: derive("session-signature"), tokenEncryptionKey: derive("github-oauth-encryption") };
+  const config = Object.freeze({ sessionSecret: derive("session-signature"), tokenEncryptionKey: derive("github-oauth-encryption") });
+  sessionSecurity = { secret: values.SESSION_SECRET, config };
+  return config;
 }
+
+let privateKeyValidation: { pem: string; valid: boolean } | undefined;
 
 export async function validateProductionAuthReadiness() {
   const values = requireAuthenticationValues(["ARTIFACT_REPOSITORY", "GITHUB_APP_ID", "GITHUB_APP_CLIENT_ID", "GITHUB_APP_CLIENT_SECRET", "GITHUB_APP_PRIVATE_KEY", "GITHUB_ARTIFACT_REPOSITORY_OWNER", "GITHUB_ARTIFACT_REPOSITORY_NAME", "SESSION_SECRET"] as const);
   if (values.ARTIFACT_REPOSITORY !== "github") throw new AuthenticationConfigurationError("invalid_repository_backend");
-  getOAuthExchangeConfig();
   getSessionSecurityConfig();
-  const { validateGitHubAppPrivateKey } = await import("./github-app.ts");
-  await validateGitHubAppPrivateKey(values.GITHUB_APP_PRIVATE_KEY);
-  return getOAuthStartConfig();
+  const pem = values.GITHUB_APP_PRIVATE_KEY;
+  if (privateKeyValidation?.pem !== pem) {
+    const { validateGitHubAppPrivateKey } = await import("./github-app.ts");
+    let valid = true;
+    try { await validateGitHubAppPrivateKey(pem); } catch { valid = false; }
+    privateKeyValidation = { pem, valid };
+  }
+  if (!privateKeyValidation.valid) throw new AuthenticationConfigurationError("invalid_private_key");
+  return { clientId: values.GITHUB_APP_CLIENT_ID };
 }

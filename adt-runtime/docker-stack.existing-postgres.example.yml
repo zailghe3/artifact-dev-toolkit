@@ -11,7 +11,7 @@ services:
       ADT_RUNTIME_DB_PASSWORD_FILE: /run/secrets/ADT_Runtime_Postgres_Password
       ADT_RUNTIME_ROOT_KEY_FILE: /runtime-keys/root.json
       ADT_RUNTIME_OLLAMA_ALLOWED_BASE_URLS: ""
-      ADT_RUNTIME_WORKER_URL: https://fpo-adt.florian-pouchet.workers.dev
+      ADT_RUNTIME_WORKER_URL: https://adt.pouchet.net
       CODEX_RUNNER_BASE_URL: https://cr.pouchet.net
       CODEX_RUNNER_ACCESS_CLIENT_ID_FILE: /run/secrets/adt_runner_access_client_id
       CODEX_RUNNER_ACCESS_CLIENT_SECRET_FILE: /run/secrets/adt_runner_access_client_secret

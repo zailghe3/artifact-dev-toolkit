@@ -115,14 +115,14 @@ services:
           pids: 128
     networks: [codex-runner-control-overlay, codex-runner-repository-egress-overlay]
   codex-runner-executor-egress-proxy:
-    image: ubuntu/squid@sha256:6a097f68bae708cedbabd6188d68c7e2e7a38cedd05a176e1cc0ba29e3bbe029
+    image: ubuntu/squid:6.6-24.04_edge@sha256:d9c34c5ab74c6dd41cf1070d9b4221aac072e67e983527ca2d41512958f77506
     configs:
       - source: codex_runner_executor_squid
         target: /etc/squid/squid.conf
     cap_drop: [ALL]
     networks: [codex-runner-executor-egress-overlay, codex-runner-uplink-overlay]
   codex-runner-egress-proxy:
-    image: ubuntu/squid@sha256:6a097f68bae708cedbabd6188d68c7e2e7a38cedd05a176e1cc0ba29e3bbe029
+    image: ubuntu/squid:6.6-24.04_edge@sha256:d9c34c5ab74c6dd41cf1070d9b4221aac072e67e983527ca2d41512958f77506
     configs:
       - source: codex_runner_squid
         target: /etc/squid/squid.conf

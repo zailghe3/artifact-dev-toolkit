@@ -3,7 +3,6 @@ import { conversationIdSchema, workflowActionIdSchema } from "../../../../../../
 import { requireApiRepositoryAccess } from "@/lib/auth";
 import { noStoreHeaders } from "@/lib/auth-core";
 import type { KnowledgeProposal } from "@/lib/advisor-knowledge-proposals";
-import { requireSameOrigin } from "@/lib/request-origin";
 import { workflowError } from "@/lib/workflow-http";
 import { workflowRepositoryContext } from "@/lib/workflow-run-admission";
 import { workflowRuntimeCommand } from "@/lib/workflow-services";
@@ -25,7 +24,6 @@ export async function POST(request: Request, context: Context) {
   const auth = await requireApiRepositoryAccess(request, { fresh: true });
   if (auth instanceof Response) return auth;
   try {
-    requireSameOrigin(request);
     const { runId, actionId } = await context.params;
     const scope = workflowRepositoryContext(auth.access);
     const proposal = await workflowRuntimeCommand<KnowledgeProposal>({ operation: "knowledge.from-action", repositoryId: scope.repositoryId, scope,

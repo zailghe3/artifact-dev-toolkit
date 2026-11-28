@@ -9,7 +9,7 @@ import {isLegacyRunReadOnly} from "./workflow-run-legacy.ts";
 import {serializeWorkflowOrchestrationDiagnostic,type WorkflowOrchestrationDiagnostic} from "./workflow-orchestration-diagnostics.ts";
 import type {ManagedCodeRepositoryContext} from "./managed-code-repository.ts";
 import type {FrozenSecurityProfiles} from "./security-profile-authority.ts";
-import type {FrozenMcpRunTools} from "./mcp-tool-authority.ts";
+import {assertMcpSnapshotEndpoints,type FrozenMcpRunTools} from "./mcp-tool-authority.ts";
 
 export type RunStatus = "queued" | "running" | "waiting_approval" | "cancelling" | "succeeded" | "failed" | "cancelled" | "rejected";
 export type StepStatus = "pending" | "starting" | "waiting_provider" | "succeeded" | "failed" | "cancelled";
@@ -45,6 +45,7 @@ export class InMemoryWorkflowRunStorage implements WorkflowRunStorage {
   private runs = new Map<string, WorkflowRun>(); private attempts = new Map<string, StepAttempt[]>(); private idempotency = new Map<string, string>();
   private now() { return this.clock().toISOString(); }
   async createRun(run: WorkflowRun) {
+    assertMcpSnapshotEndpoints(run.mcpToolSnapshots);
     assertRunExecutionPolicy(run);
     if(run.engineVersion!=="2"||!run.executionPlan||!("planVersion" in run.executionPlan))throw new Error("legacy_run_read_only");
     if (run.clientIdempotencyKey && this.idempotency.has(run.clientIdempotencyKey)) return (await this.getRun(this.idempotency.get(run.clientIdempotencyKey)!))!;

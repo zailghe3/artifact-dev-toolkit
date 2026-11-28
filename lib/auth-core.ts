@@ -86,6 +86,12 @@ export function cookieOptions(maxAge: number, nodeEnv = process.env.NODE_ENV): A
 
 export const noStoreHeaders = { "cache-control": "private, no-store, max-age=0" } as const;
 
+const hexToken = (value: unknown, length: number): value is string =>
+  typeof value === "string" && value.length === length && !/[^0-9a-f]/.test(value);
+export const isSessionId = (value: unknown): value is string => hexToken(value, 96);
+export const isOAuthState = (value: unknown): value is string => hexToken(value, 64);
+export const isPkceVerifier = (value: unknown): value is string => hexToken(value, 96);
+
 export function randomToken(bytes = 32) {
   const data = new Uint8Array(bytes);
   crypto.getRandomValues(data);
@@ -101,26 +107,28 @@ export function constantTimeEqual(left: string | undefined | null, right: string
   return result === 0;
 }
 
-export function safeReturnTo(value: string | null | undefined) {
-  if (!value) return "/";
-  let decoded = value;
-  try {
-    decoded = decodeURIComponent(value);
-  } catch {
-    return "/";
-  }
+const returnToOrigin = "https://artifact-dev-toolkit.local";
+const unsafePath = (path: string) => !path.startsWith("/") || path.startsWith("//") || /[\\\p{Cc}]/u.test(path);
+const authenticationPath = /^\/(?:auth|sign-in|sign-out|access-denied|api\/workflow-connections\/work-iq\/callback)(?:\/|$)/i;
 
-  if (!decoded.startsWith("/") || decoded.startsWith("//")) return "/";
-  if (decoded.includes("\\") || decoded.includes("\u0000")) return "/";
-  if (decoded.startsWith("/auth/") || decoded.startsWith("/sign-in")) return "/";
+export function safeReturnTo(value: unknown): string {
+  if (typeof value !== "string" || value.length > 2048 || unsafePath(value)) return "/";
+  const parsed = URL.parse(value, returnToOrigin);
+  if (!parsed || parsed.origin !== returnToOrigin || unsafePath(parsed.pathname)) return "/";
 
-  try {
-    const parsed = new URL(decoded, "https://artifact-dev-toolkit.local");
-    if (parsed.origin !== "https://artifact-dev-toolkit.local") return "/";
-    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
-  } catch {
-    return "/";
+  // Check decoded forms of the path for routing ambiguities. Keep the browser's
+  // original escaping in the returned query, fragment, and path.
+  let path = parsed.pathname;
+  const destination = `${path}${parsed.search}${parsed.hash}`;
+  if (encodeURIComponent(destination).length > 3000) return "/";
+  for (let depth = 0; depth < 5; depth++) {
+    if (unsafePath(path) || /%2f/i.test(path)) return "/";
+    const normalized = new URL(path.replaceAll("?", "%3F").replaceAll("#", "%23"), returnToOrigin).pathname;
+    if (unsafePath(normalized) || authenticationPath.test(normalized)) return "/";
+    if (!/%[0-9a-f]{2}/i.test(path)) return destination;
+    try { path = decodeURIComponent(path); } catch { return "/"; }
   }
+  return "/";
 }
 
 export function validateGitHubUser(value: unknown): GitHubUser {

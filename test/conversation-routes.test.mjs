@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { installTsxHook } from './render-tsx.mjs';
+import { browserMutationRejection } from '../lib/request-origin.ts';
 
 const requireTsx = installTsxHook();
 const Module = requireTsx('node:module');
@@ -11,9 +12,9 @@ const auth = { access: { ...scope, repo: scope.repository }, session: { githubId
 let denied = false;
 let fresh = false;
 Module._load = function (name, parent, isMain) {
-  if (name === '@/lib/auth') return { requireApiRepositoryAccess: async (_request, options) => {
+  if (name === '@/lib/auth') return { requireApiRepositoryAccess: async (request, options) => {
     fresh = Boolean(options?.fresh);
-    return denied ? Response.json({ error: 'Denied' }, { status: 403 }) : auth;
+    return browserMutationRejection(request) ?? (denied ? Response.json({ error: 'Denied' }, { status: 403 }) : auth);
   } };
   if (name === '@/lib/workflow-run-admission') return {
     workflowRepositoryContext: access => { assert.equal(access.repositoryId, scope.repositoryId); return scope; },

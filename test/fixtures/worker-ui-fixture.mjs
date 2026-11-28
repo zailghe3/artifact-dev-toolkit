@@ -17,8 +17,8 @@ export async function createFixture(scriptPath, {
 } = {}) {
   const { publicKey, privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
   const sessionSecret = randomBytes(32).toString('base64url');
-  const session = randomBytes(48).toString('base64url');
-  const deniedSession = randomBytes(48).toString('base64url');
+  const session = randomBytes(48).toString('hex');
+  const deniedSession = randomBytes(48).toString('hex');
   const keyId = createHash('sha256').update(publicKey.export({ format: 'der', type: 'spki' })).digest('base64url');
   const calls = [];
   const options = convertV4MiniflareOptions({

@@ -1,16 +1,17 @@
 import { AuthenticationConfigurationError } from "./auth-configuration.ts";
-import { noStoreHeaders, safeReturnTo, type OAuthErrorCode } from "./auth-core.ts";
+import { isOAuthState, isPkceVerifier, noStoreHeaders, safeReturnTo, type OAuthErrorCode } from "./auth-core.ts";
 import type { GitHubUser } from "./auth-core.ts";
 import type { RepositoryAuthorizationStatus } from "./repository-authorization.ts";
 
 type Logger = (message: string) => void;
 type OAuthState = { valid: boolean; returnTo: string; pkceVerifier?: string };
 type ExchangeResult = { user: GitHubUser; repositoryAuthorization: RepositoryAuthorizationStatus; userAccessToken: string; userTokenExpiresAt: number };
+const oauthHeaders = { ...noStoreHeaders, "referrer-policy": "no-referrer" };
 
 function redirect(request: Request, pathname: string, parameters: Record<string, string> = {}) {
   const target = new URL(pathname, request.url);
   for (const [name, value] of Object.entries(parameters)) target.searchParams.set(name, value);
-  return new Response(null, { status: 307, headers: { ...noStoreHeaders, location: target.toString() } });
+  return new Response(null, { status: 307, headers: { ...oauthHeaders, location: target.toString() } });
 }
 
 function log(logger: Logger, event: string, category: string, error?: AuthenticationConfigurationError) {
@@ -21,7 +22,7 @@ export function createOAuthStartRouteHandler(dependencies: { createOAuthStart: (
   return async function GET(request: Request) {
     const returnTo = safeReturnTo(new URL(request.url).searchParams.get("returnTo"));
     try {
-      return new Response(null, { status: 307, headers: { ...noStoreHeaders, location: (await dependencies.createOAuthStart(returnTo)).toString() } });
+      return new Response(null, { status: 307, headers: { ...oauthHeaders, location: (await dependencies.createOAuthStart(returnTo)).toString() } });
     } catch (error) {
       const configuration = error instanceof AuthenticationConfigurationError;
       log(dependencies.logger ?? console.error, "github_oauth_start_failed", configuration ? "configuration" : "unexpected", configuration ? error : undefined);
@@ -31,36 +32,47 @@ export function createOAuthStartRouteHandler(dependencies: { createOAuthStart: (
 }
 
 export function createOAuthCallbackRouteHandler(dependencies: {
-  consumeOAuthState: (state: string | null) => Promise<OAuthState>;
+  consumeOAuthState: (state: string) => Promise<OAuthState>;
   exchangeGitHubCode: (code: string, verifier: string) => Promise<ExchangeResult>;
   createSession: (user: GitHubUser, authorization: RepositoryAuthorizationStatus, token?: string, expiresAt?: number) => Promise<unknown>;
+  destroySession: () => Promise<void>;
   logger?: Logger;
 }) {
   const logger = dependencies.logger ?? console.error;
   const errorRedirect = (request: Request, code: OAuthErrorCode) => redirect(request, "/sign-in", { error: code });
   return async function GET(request: Request) {
     const url = new URL(request.url);
+    const [incomingState, duplicateState] = url.searchParams.getAll("state");
+    if (!isOAuthState(incomingState) || duplicateState !== undefined) return errorRedirect(request, "invalid_state");
     let state: OAuthState;
-    try { state = await dependencies.consumeOAuthState(url.searchParams.get("state")); }
+    try { state = await dependencies.consumeOAuthState(incomingState); }
     catch (error) {
       if (error instanceof AuthenticationConfigurationError) { log(logger, "github_oauth_callback_failed", "configuration", error); return errorRedirect(request, "configuration"); }
       log(logger, "github_oauth_callback_failed", "unexpected"); return errorRedirect(request, "github_exchange_failed");
     }
-    if (!state.valid) { log(logger, "github_oauth_callback_failed", "invalid_state"); return errorRedirect(request, "invalid_state"); }
+    if (!state.valid || !isPkceVerifier(state.pkceVerifier)) { log(logger, "github_oauth_callback_failed", "invalid_state"); return errorRedirect(request, "invalid_state"); }
     if (url.searchParams.has("error")) { log(logger, "github_oauth_callback_failed", "authorization_denied"); return errorRedirect(request, "denied"); }
-    const code = url.searchParams.get("code");
-    if (!code) { log(logger, "github_oauth_callback_failed", "missing_code"); return errorRedirect(request, "missing_code"); }
+    const [code, duplicateCode] = url.searchParams.getAll("code");
+    if (!code || code.length > 512 || /[^\x21-\x7e]/.test(code) || duplicateCode !== undefined) {
+      log(logger, "github_oauth_callback_failed", "missing_code");
+      return errorRedirect(request, "missing_code");
+    }
     try {
-      const result = await dependencies.exchangeGitHubCode(code, state.pkceVerifier!);
-      try { await dependencies.createSession(result.user, result.repositoryAuthorization, result.userAccessToken, result.userTokenExpiresAt); }
+      const result = await dependencies.exchangeGitHubCode(code, state.pkceVerifier);
+      const deniedByAllowlist = !result.repositoryAuthorization.ok && result.repositoryAuthorization.reason === "allowlist";
+      try {
+        if (deniedByAllowlist) await dependencies.destroySession();
+        else await dependencies.createSession(result.user, result.repositoryAuthorization, result.userAccessToken, result.userTokenExpiresAt);
+      }
       catch (error) {
         log(logger, "github_oauth_callback_failed", error instanceof AuthenticationConfigurationError ? "session_configuration" : "session_persistence", error instanceof AuthenticationConfigurationError ? error : undefined);
         return errorRedirect(request, error instanceof AuthenticationConfigurationError ? "configuration" : "session_creation_failed");
       }
-      return redirect(request, result.repositoryAuthorization.ok ? state.returnTo : "/access-denied");
+      if (deniedByAllowlist) return redirect(request, "/access-denied", { reason: "allowlist" });
+      return redirect(request, result.repositoryAuthorization.ok ? safeReturnTo(state.returnTo) : "/access-denied");
     } catch (error) {
       if (error instanceof AuthenticationConfigurationError) { log(logger, "github_oauth_callback_failed", "repository_configuration", error); return errorRedirect(request, "configuration"); }
-      const category = (error as { category?: string }).category;
+      const category = (error as { category?: string } | undefined)?.category;
       if (category === "identity_lookup") { log(logger, "github_oauth_callback_failed", category); return errorRedirect(request, "github_identity_failed"); }
       if (category === "token_exchange") { log(logger, "github_oauth_callback_failed", category); return errorRedirect(request, "github_exchange_failed"); }
       log(logger, "github_oauth_callback_failed", "unexpected"); return errorRedirect(request, "github_exchange_failed");
