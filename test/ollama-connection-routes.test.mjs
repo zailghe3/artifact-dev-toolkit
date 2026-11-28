@@ -4,6 +4,7 @@ import {installTsxHook} from './render-tsx.mjs';
 import {runtimeProviderClient} from '../lib/runtime-provider-client.ts';
 import {manageProviderConnection} from '../lib/runtime-provider-management.ts';
 import {ProviderModelService} from '../lib/provider-model-service.ts';
+import {browserMutationRejection} from '../lib/request-origin.ts';
 
 const require=installTsxHook(),Module=require('node:module'),originalLoad=Module._load;
 let context;
@@ -14,7 +15,7 @@ const services={
  createWorkflowConnectionDefinitionRepository:()=>context.repository,
 };
 Module._load=function(request,...rest){
- if(request==='@/lib/auth')return{requireApiRepositoryAccess:async()=>context.authorized?{access:{repositoryId:101}}:new Response(null,{status:403})};
+ if(request==='@/lib/auth')return{requireApiRepositoryAccess:async request=>browserMutationRejection(request)??(context.authorized?{access:{repositoryId:101}}:new Response(null,{status:403}))};
  if(request==='@/lib/workflow-services')return services;
  return originalLoad.call(this,request,...rest);
 };

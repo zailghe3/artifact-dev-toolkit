@@ -1,6 +1,6 @@
-import matter from "gray-matter";
 import { z } from "zod";
 import { artifactTypeSchema } from "./artifact-schemas.ts";
+import { parseMarkdownFrontMatter, serializeMarkdownFrontMatter } from "./markdown-front-matter.ts";
 import { ARTIFACT_DIRECTORIES, classifyArtifactPath } from "./repository-layout.ts";
 
 export const ALLOWED_ARTIFACT_DIRECTORIES = ARTIFACT_DIRECTORIES;
@@ -46,7 +46,7 @@ export function normalizeArtifactMetadata(input: unknown): ArtifactMetadata {
 /** Serialize the complete, validated artifact in the repository's canonical format. */
 export function serializeArtifactMarkdown(metadata: unknown, body: string): string {
   const data = normalizeArtifactMetadata(metadata);
-  const markdown = matter.stringify(`${body.trim()}\n`, {
+  const markdown = serializeMarkdownFrontMatter({
     id: data.id,
     title: data.title,
     description: data.description,
@@ -55,7 +55,7 @@ export function serializeArtifactMarkdown(metadata: unknown, body: string): stri
     aliases: data.aliases,
     ...(data.sourceId ? { sourceId: data.sourceId } : {}),
     ...(data.createdAt ? { createdAt: data.createdAt } : {}),
-  });
+  }, `${body.trim()}\n`, MAX_SERIALIZED_ARTIFACT_BYTES, { timestamps: true });
   // Parsing the serialized result keeps writes and repository reads on one contract.
   parseArtifactMarkdown(markdown, "artifact.md");
   return markdown;
@@ -85,16 +85,14 @@ export function validateArtifactPath(filePath: string, _artifactRoot = DEFAULT_A
 }
 
 export function parseArtifactMarkdown(raw: string, filePath: string, _resolvedLayout?: "canonical" | "legacy" | "future"): ArtifactModel {
-  let parsed: matter.GrayMatterFile<string>;
-  // Supplying options disables gray-matter's process-global cache. Repository reads
-  // must parse each response independently so repeated loads cannot share mutable state.
-  try { parsed = matter(raw, {}); } catch { throw new ArtifactMarkdownParseError("invalid_front_matter"); }
-  if (!String(parsed.matter ?? "").trim()) throw new ArtifactMarkdownParseError("invalid_front_matter");
+  let parsed: ReturnType<typeof parseMarkdownFrontMatter>;
+  try { parsed = parseMarkdownFrontMatter(raw, MAX_SERIALIZED_ARTIFACT_BYTES, { timestamps: true }); }
+  catch { throw new ArtifactMarkdownParseError("invalid_front_matter"); }
   try {
     if (filePath !== "artifact.md" && !classifyArtifactPath(filePath)) throw new ArtifactMarkdownParseError("invalid_metadata");
     const data = artifactFrontMatterSchema.parse(parsed.data);
     const normalizeList = (values: string[]) => Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
-    return { ...data, tags: normalizeList(data.tags), aliases: normalizeList(data.aliases), createdAt: data.createdAt instanceof Date ? data.createdAt.toISOString() : data.createdAt, body: parsed.content.trim(), excerpt: toExcerpt(parsed.content), path: filePath, layout: "canonical" };
+    return { ...data, tags: normalizeList(data.tags), aliases: normalizeList(data.aliases), createdAt: data.createdAt instanceof Date ? data.createdAt.toISOString() : data.createdAt, body: parsed.body.trim(), excerpt: toExcerpt(parsed.body), path: filePath, layout: "canonical" };
   } catch (error) {
     if (error instanceof z.ZodError) throw new ArtifactMarkdownParseError("invalid_metadata");
     throw error;

@@ -6,7 +6,7 @@ export function knowledgeError(error:unknown){
   knowledge_secret_rejected:[400,"Publication blocked: remove detected credentials or authentication material, save the edited draft and review again."],
   knowledge_invalid:[400,"Knowledge metadata or Markdown is invalid. Check the ID, type, status and references."],
   knowledge_too_large:[413,"Knowledge must fit within 32 KiB, including metadata."],body_too_large:[413,"The proposal is too large."],invalid_json:[400,"The request is invalid."],
-  permission_denied:[403,"Current repository authority is required."],invalid_origin:[403,"Publication requires the trusted application interface."],
+  permission_denied:[403,"Current repository authority is required."],
   knowledge_review_required:[409,"Review the saved proposal again before explicitly approving publication."],
   knowledge_conflict:[409,"Knowledge or proposal changed. Open the current Git entry and prepare a new review."],
   knowledge_proposal_not_found:[404,"Proposal not found in this repository for your account."],
@@ -16,4 +16,3 @@ export function knowledgeError(error:unknown){
  const [status,message]=errors[code]??[503,"Knowledge is temporarily unavailable. No automatic publication retry was made."];
  return Response.json({error:message,code:errors[code]?code:"knowledge_unavailable"},{status,headers:noStoreHeaders});
 }
-export { requireSameOrigin as requireKnowledgeIntent } from "./request-origin.ts";

@@ -4,10 +4,8 @@ import {noStoreHeaders} from "@/lib/auth-core";
 import {workflowError} from "@/lib/workflow-http";
 import {getWorkflowProviderConnectionStore} from "@/lib/workflow-services";
 
-function sameOrigin(request:Request){const origin=request.headers.get("origin");return !!origin&&origin===new URL(request.url).origin;}
 export async function POST(request:Request,{params}:{params:Promise<{connectionKey:string}>}){
  const auth=await requireApiRepositoryAccess(request);if(auth instanceof Response)return auth;
- if(!sameOrigin(request))return NextResponse.json({ok:false,category:"permission_denied",message:"Request origin is invalid."},{status:403,headers:noStoreHeaders});
  const {connectionKey}=await params;
  // Deliberately do not read the request body: every diagnostic input is server controlled.
  try {

@@ -45,6 +45,7 @@
   "lib/github-request.ts",
   "lib/langgraph-checkpoints.ts",
   "lib/managed-pull-request-publication.ts",
+  "lib/markdown-front-matter.ts",
   "lib/mcp-policy-authority.ts",
   "lib/mcp-tool-authority.ts",
   "lib/openai-models.ts",

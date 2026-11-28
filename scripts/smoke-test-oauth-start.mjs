@@ -1,4 +1,4 @@
-export const productionOAuthStartUrl = "https://fpo-adt.florian-pouchet.workers.dev/auth/github/start";
+export const productionOAuthStartUrl = "https://adt.pouchet.net/auth/github/start";
 
 function inspectResponse(response, endpoint) {
   if (response.status >= 500) return { retry: true, error: `OAuth start returned server status ${response.status}.` };

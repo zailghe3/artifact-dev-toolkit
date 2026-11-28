@@ -161,14 +161,14 @@ jobs:
 
       - name: Generate deployment metadata environment
         if: inputs.deploy_worker
+        env:
+          ADT_DEPLOY_COMMIT_SHA: ${{ inputs.commit_sha }}
+          ADT_DEPLOY_PULL_REQUEST_NUMBER: ${{ inputs.pull_request_number }}
         run: |
           set -euo pipefail
           DEPLOYED_AT="$(date -u +'%Y-%m-%dT%H:%M:%S.000Z')"
-          echo "NEXT_PUBLIC_DEPLOYED_AT=${DEPLOYED_AT}" >> "$GITHUB_ENV"
-          echo "NEXT_PUBLIC_DEPLOY_COMMIT_SHA=${{ inputs.commit_sha }}" >> "$GITHUB_ENV"
-          echo "NEXT_PUBLIC_DEPLOY_PULL_REQUEST_NUMBER=${{ inputs.pull_request_number }}" >> "$GITHUB_ENV"
-          echo "NEXT_PUBLIC_DEPLOY_REPOSITORY=${{ github.repository }}" >> "$GITHUB_ENV"
-          echo "Deployment metadata: ${DEPLOYED_AT} / ${{ inputs.commit_sha }} / PR ${{ inputs.pull_request_number }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "ADT_DEPLOYED_AT=${DEPLOYED_AT}" >> "$GITHUB_ENV"
+          echo "Deployment metadata: ${DEPLOYED_AT} / ${ADT_DEPLOY_COMMIT_SHA} / PR ${ADT_DEPLOY_PULL_REQUEST_NUMBER}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Validate production resource bindings
         run: node scripts/validate-production-bindings.mjs
@@ -189,7 +189,14 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: npx wrangler deploy
+          ADT_DEPLOY_COMMIT_SHA: ${{ inputs.commit_sha }}
+          ADT_DEPLOY_PULL_REQUEST_NUMBER: ${{ inputs.pull_request_number }}
+        run: |
+          npx wrangler deploy \
+            --var "ADT_DEPLOYED_AT:${ADT_DEPLOYED_AT}" \
+            --var "ADT_DEPLOY_COMMIT_SHA:${ADT_DEPLOY_COMMIT_SHA}" \
+            --var "ADT_DEPLOY_PULL_REQUEST_NUMBER:${ADT_DEPLOY_PULL_REQUEST_NUMBER}" \
+            --var "ADT_DEPLOY_REPOSITORY:${GITHUB_REPOSITORY}"
 
       - name: Record deployment outcome
         id: outcome

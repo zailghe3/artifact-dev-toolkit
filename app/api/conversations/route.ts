@@ -3,7 +3,6 @@ import { ADVISOR_WORKFLOW_ID, conversationCursorSchema, conversationSubmissionSc
 import { requireApiRepositoryAccess } from "@/lib/auth";
 import { noStoreHeaders } from "@/lib/auth-core";
 import type { ConversationList } from "@/lib/conversation-types";
-import { requireSameOrigin } from "@/lib/request-origin";
 import { launchConversationTurn, workflowRepositoryContext } from "@/lib/workflow-run-admission";
 import { readBoundedJson, workflowError } from "@/lib/workflow-http";
 import { workflowRuntimeCommand } from "@/lib/workflow-services";
@@ -27,7 +26,6 @@ export async function POST(request: Request) {
   const auth = await requireApiRepositoryAccess(request);
   if (auth instanceof Response) return auth;
   try {
-    requireSameOrigin(request);
     const input = conversationSubmissionSchema.parse(await readBoundedJson(request, 400_000));
     const launched = await launchConversationTurn(auth.access, input);
     return Response.json(launched, { status: launched.replay ? 200 : 201, headers: noStoreHeaders });

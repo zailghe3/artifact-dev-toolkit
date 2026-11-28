@@ -12,7 +12,7 @@ import { PageHeader } from "@/components/Ui";
 import { requireDiagnosticsAccess } from "@/lib/auth";
 import { codexRunnerAttemptDigest, parseWorkflowAttemptCoordinates } from "@/lib/codex-runner-correlation";
 import { collectEssentialRunnerDiagnostics } from "@/lib/codex-runner-diagnostics";
-import { deploymentMetadata } from "@/lib/deployment-metadata";
+import { getDeploymentMetadata } from "@/lib/deployment-metadata.server";
 import { observe, startDiagnosticObservations } from "@/lib/diagnostic-observations";
 import { observeRuntimeReadiness } from "@/lib/diagnostic-readiness";
 import { diagnosticDomainTitles, type DomainKey } from "@/lib/operational-diagnostics";
@@ -31,6 +31,7 @@ function PendingDomain({ id }: { id: DomainKey }) {
 
 export default async function DiagnosticsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const session = await requireDiagnosticsAccess();
+  const deploymentMetadata = getDeploymentMetadata();
   const query = await searchParams;
   const coordinates = parseWorkflowAttemptCoordinates(query);
   const expectedDigest = coordinates ? codexRunnerAttemptDigest(coordinates) : undefined;

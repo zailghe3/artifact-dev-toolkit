@@ -38,14 +38,30 @@ export class ProductionAdrianSecurityGate implements ToolSecurityGate,ModelTurnI
 export class AdrianToolDeniedError extends Error{readonly category="provider_rejected";readonly safeMessage="The tool call was blocked by the experimental security observer.";readonly retryable=false;constructor(){super("adrian_tool_denied")}}
 
 function text(value:unknown){return typeof value==="string"?value:JSON.stringify(value??"")}
-function secretKey(key:string){const value=key.replace(/[^a-z0-9]/gi,"").toLowerCase();return value==="authorization"||value.endsWith("authority")||value.includes("credential")||value.includes("secret")||value==="token"||value.endsWith("accesstoken")||value.endsWith("bearertoken")||value.endsWith("apikey")||value==="ciphertext"||value==="wrappedkey"}
+function secretKey(key:string){
+ const value=key.replace(/[^a-z0-9]/gi,"").toLowerCase();
+ return /^(?:authorization|proxyauthorization|cookie|setcookie|password|passphrase|pwd|token|ciphertext|wrappedkey|xadtsignature|xadtnonce)$/.test(value)||
+  /(?:authority|accesstoken|refreshtoken|bearertoken|apikey|privatekey|password)$/.test(value)||/credential|secret/.test(value);
+}
+function redactText(value:string){
+ return value
+  .replace(/-----BEGIN ((?:[A-Z]+ )*PRIVATE KEY)-----[\s\S]*?-----END \1-----/g,"[redacted private key]")
+  .replace(/\b((?:proxy[-_])?authorization|set[-_]cookie|cookie|x-adt-signature|x-adt-nonce)\s*:\s*[^\r\n]*/gi,"$1: [redacted]")
+  .replace(/\b(bearer|basic) +[A-Za-z0-9._~+/=-]+/gi,"$1 [redacted]")
+  .replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/?#@]+@/gi,"$1[redacted]@")
+  .replace(/\b((?:api[-_]?key|access[-_]?token|refresh[-_]?token|client[-_]?secret|password|passphrase|token)["']?\s*[:=]\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s&;,"']+)/gi,"$1[redacted]")
+  .replace(/\b(?:gh[pousr]_[A-Za-z0-9_]{36,}|github_pat_[A-Za-z0-9_]{22,}_[A-Za-z0-9_]{59,}|sk-[A-Za-z0-9_-]{12,}|sk_(?:live|test)_[A-Za-z0-9]{16,}|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,})\b/g,"[redacted]");
+}
 function safeValue(value:unknown):unknown{
  if(Array.isArray(value))return value.map(safeValue);
  if(value&&typeof value==="object")return Object.fromEntries(Object.entries(value as Record<string,unknown>).filter(([key])=>!secretKey(key)).map(([key,item])=>[key,safeValue(item)]));
- if(typeof value==="string")try{const parsed=JSON.parse(value);if(parsed&&typeof parsed==="object")return JSON.stringify(safeValue(parsed))}catch{}
+ if(typeof value==="string"){
+  try{const parsed=JSON.parse(value);if(parsed&&typeof parsed==="object")return JSON.stringify(safeValue(parsed))}catch{}
+  return redactText(value);
+ }
  return value;
 }
-function safeText(value:unknown){if(typeof value!=="string")return text(safeValue(value));try{return text(safeValue(JSON.parse(value)))}catch{return value}}
+function safeText(value:unknown){return text(safeValue(value))}
 function safeError(kind:"model"|"tool"){const error=new Error(`ADT Runtime ${kind} operation failed.`);error.name="AdrianObservedError";error.stack=undefined;return error}
 function messages(request:ModelRequest){
  const result:Array<{role:string;content:string}>=[];
@@ -64,7 +80,7 @@ function toolCall(item:AgentOutputItem):ToolCallRecord|null{
  let args:Record<string,never>={};try{const parsed=typeof value.arguments==="string"?JSON.parse(value.arguments):value.arguments;if(parsed&&typeof parsed==="object"&&!Array.isArray(parsed))args=parsed as Record<string,never>}catch{}
  return{id:value.callId,name:value.name,args:safeValue(args) as ToolCallRecord["args"]};
 }
-function outputText(output:AgentOutputItem[]){return output.flatMap(item=>{const value=item as unknown as Record<string,unknown>;if(value.type!=="message"||!Array.isArray(value.content))return[];return value.content.flatMap(part=>{const p=part as Record<string,unknown>;return typeof p.text==="string"?[p.text]:[]})}).join("\n")}
+function outputText(output:AgentOutputItem[]){return output.flatMap(item=>{const value=item as unknown as Record<string,unknown>;if(value.type!=="message"||!Array.isArray(value.content))return[];return value.content.flatMap(part=>{const p=part as Record<string,unknown>;return typeof p.text==="string"?[safeText(p.text)]:[]})}).join("\n")}
 function usage(response:ModelResponse):TokenUsage{
  const value=response.usage as unknown as Record<string,unknown>;
  const prompt=Number(value.inputTokens??value.input_tokens??0),completion=Number(value.outputTokens??value.output_tokens??0);

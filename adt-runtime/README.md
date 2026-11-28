@@ -51,7 +51,7 @@ Deployment, backup, restore, and secret inventory are documented in [PostgreSQL 
 
 ## Worker and private-service configuration
 
-The Worker needs the Runtime base URL and shared Runtime authentication secret. Runtime needs the Worker URL for the scoped GitHub credential broker.
+The Worker needs the Runtime base URL and shared Runtime authentication secret. Set Runtime's `ADT_RUNTIME_WORKER_URL` to the canonical Worker origin for the scoped GitHub credential broker. Verify a signed broker request on the custom domain before retiring an alternative hostname.
 
 Private provider/tool services are configured according to their owning connection or operator contract:
 

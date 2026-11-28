@@ -38,7 +38,7 @@ test('runtime and runner Dependabot groups cover their routine dependency domain
   assert.deepEqual(runtimeGroups['langgraph-minor-patch'].patterns, ['@langchain/langgraph', '@langchain/langgraph-checkpoint']);
   assert.deepEqual(runtimeGroups['mcp-minor-patch'].patterns, ['@modelcontextprotocol/client']);
   assert.deepEqual(runtimeGroups['runtime-support-minor-patch'].patterns, [
-    'gray-matter',
+    'yaml',
     'pg',
     '@types/pg',
     'esbuild',
@@ -99,6 +99,13 @@ if [ "$1" = outdated ]; then
   printf '%s' '{"typescript":{"current":"5.0.0","wanted":"5.9.0","latest":"7.0.0"}}'
   exit 1
 fi
+if [ "$1" = audit ]; then
+  case "$*" in
+    *--omit=dev*) printf '%s' '{"metadata":{"vulnerabilities":{"high":0,"critical":0,"total":0}},"vulnerabilities":{}}';;
+    *) printf '%s' '{"metadata":{"vulnerabilities":{"high":1,"critical":0,"total":1}},"vulnerabilities":{"typescript":{"severity":"high","nodes":["node_modules/typescript"],"via":[{"url":"https://github.com/advisories/GHSA-test-test-test"}]}}}';;
+  esac
+  exit 1
+fi
 printf '%s' null
 `);
   chmodSync(fakeNpmPath, 0o755);
@@ -114,6 +121,8 @@ printf '%s' null
       },
     });
     assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.match(result.stdout, /\*\*HIGH\*\* \/adt-runtime \(all\) `typescript` 6\.0\.3 \[GHSA-test-test-test\]/);
+    assert.match(result.stdout, /\/adt-runtime \(production\) has 0 findings/);
     for (const root of expectedNpmRoots) {
       assert.match(result.stdout, new RegExp(`${root.replaceAll('/', '\\/')}: typescript: current 5\\.0\\.0, wanted 5\\.9\\.0, latest 7\\.0\\.0\\.`));
     }

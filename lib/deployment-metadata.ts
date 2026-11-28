@@ -11,7 +11,6 @@ function nonEmpty(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
 }
-
 function parsePullRequestNumber(value: string | undefined): number | undefined {
   const trimmed = nonEmpty(value);
   if (!trimmed) {
@@ -66,10 +65,3 @@ export function getDeploymentDisplayModel(metadata: DeploymentMetadata) {
     pullRequestUrl: metadata.pullRequestNumber ? `${repositoryUrl}/pull/${metadata.pullRequestNumber}` : undefined,
   };
 }
-
-export const deploymentMetadata = createDeploymentMetadata({
-  deployedAt: process.env.NEXT_PUBLIC_DEPLOYED_AT,
-  commitSha: process.env.NEXT_PUBLIC_DEPLOY_COMMIT_SHA,
-  pullRequestNumber: process.env.NEXT_PUBLIC_DEPLOY_PULL_REQUEST_NUMBER,
-  repository: process.env.NEXT_PUBLIC_DEPLOY_REPOSITORY,
-});

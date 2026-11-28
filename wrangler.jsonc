@@ -3,6 +3,7 @@
   "main": "cloudflare-worker.ts",
   "name": "fpo-adt",
   "keep_vars": true,
+  "preview_urls": false,
   "compatibility_date": "2026-07-09",
   "compatibility_flags": [
     "nodejs_compat",
@@ -36,7 +37,12 @@
     }
   ],
   "observability": {
-    "enabled": true
+    "enabled": true,
+    "redact_query_string": true,
+    "logs": {
+      "enabled": true,
+      "invocation_logs": false
+    }
   },
   "vars": {
     "ARTIFACT_REPOSITORY": "github",

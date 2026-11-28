@@ -11,9 +11,9 @@ function getReason(value: string | undefined): RepositoryAuthorizationFailureRea
   return "configuration";
 }
 
-export default async function AccessDeniedPage() {
+export default async function AccessDeniedPage({ searchParams }: { searchParams: Promise<{ reason?: string }> }) {
   const session = await getSession();
-  const reason = getReason(session?.repositoryAuthorization.denialReason);
+  const reason = getReason(session?.repositoryAuthorization.denialReason ?? ((await searchParams).reason === "allowlist" ? "allowlist" : undefined));
 
   return (
     <main className="mx-auto flex min-h-[90dvh] max-w-3xl flex-col px-4 py-8 sm:px-6 lg:px-8">

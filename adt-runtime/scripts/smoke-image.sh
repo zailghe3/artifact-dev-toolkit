@@ -24,7 +24,7 @@ docker run --rm --user root --mount "type=volume,src=$keys,dst=/keys" "$image" s
 docker run -d --name "$database" --network "$network" \
   -e POSTGRES_DB=adt -e POSTGRES_USER=adt_smoke -e POSTGRES_PASSWORD_FILE=/run/secrets/db \
   --mount "type=bind,src=$tmp/db,dst=/run/secrets/db,readonly" \
-  postgres:17.11-alpine@sha256:e5d2edd28b1f8d40a0a6c0c9cdc545b19b56a0d5d88f94bc11a97d970d4700d0 >/dev/null
+  postgres:17.12-alpine@sha256:f9cf3e1f0066f0eb0c48707d864f0ac5941e9ff454a072077d97a4d278d07d73 >/dev/null
 i=0
 until docker exec "$database" pg_isready -h 127.0.0.1 -U adt_smoke -d adt >/dev/null 2>&1; do
   i=$((i+1))

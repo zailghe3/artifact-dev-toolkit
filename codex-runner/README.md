@@ -54,6 +54,8 @@ Repository Manager is the only Runner role that combines trusted Git authority w
 
 Exact proxy ACLs, image pins, network names, and smoke-test mechanics are authoritative in `squid*.conf`, `docker-stack.split.example.yml`, and CI.
 
+For security updates, verify the installed Squid package against Canonical's security notices. The Docker Hub tag can retain an earlier version number after the distribution package changes.
+
 ## Emergency stop and uncertain execution
 
 The Controller owns the persistent emergency-stop latch.

@@ -19,7 +19,9 @@
 - Repository authority is revalidated during a session rather than trusted indefinitely from login.
 - Privileged GitHub operations use server-side short-lived, repository-scoped authority limited to the admitted operation.
 - User identity, GitHub App authority, provider/tool credentials, Runtime authority, and Codex identity remain separate security boundaries.
-- Protected responses are not publicly cacheable.
+- Browser mutations require a same-origin request and a currently authorised session where the operation needs one. JSON APIs require JSON bodies. Sign-out accepts the browser form.
+- Authentication redirects stay within ADT and exclude authentication and sign-out destinations as return paths.
+- Authentication and protected responses use private, no-store caching. Detailed deployment metadata appears only after application authorisation.
 - User-facing errors and diagnostics do not expose credentials, private repository content, unsafe upstream responses, or internal exception text.
 
 ## 3. Artifact Library

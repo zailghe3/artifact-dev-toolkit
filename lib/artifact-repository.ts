@@ -5,6 +5,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { ArtifactMarkdownParseError, DEFAULT_ARTIFACT_BRANCH, DEFAULT_ARTIFACT_ROOT, MAX_SERIALIZED_ARTIFACT_BYTES, normalizeArtifactMetadata, parseArtifactMarkdown, serializeArtifactMarkdown, trimSlashes, validateUniqueArtifactIds, type ArtifactMetadata, type ArtifactModel } from "./artifact-contract.ts";
+import { MarkdownFrontMatterError } from "./markdown-front-matter.ts";
 import type { RepositoryAccessContext } from "./repository-authorization.ts";
 import type { RepositoryCredential, RepositoryCredentialCapability } from "./github-app.ts";
 import { slugify } from "./artifact-id.ts";
@@ -136,10 +137,10 @@ export function prepareArtifactWrite(metadataInput: ArtifactMetadata, body: stri
     if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(metadata.id)) throw new ArtifactWriteValidationError();
     if (!body.trim()) throw new ArtifactWriteValidationError();
     const markdown = serializeArtifactMarkdown(metadata, body);
-    if (Buffer.byteLength(markdown, "utf8") > MAX_SERIALIZED_ARTIFACT_BYTES) throw new ArtifactWriteTooLargeError();
     assertNoSecrets(markdown);
     return { metadata, markdown };
   } catch (error) {
+    if (error instanceof MarkdownFrontMatterError && error.code === "document_too_large") throw new ArtifactWriteTooLargeError();
     if (error instanceof ArtifactSecretRejectedError || error instanceof ArtifactWriteValidationError || error instanceof ArtifactWriteTooLargeError) throw error;
     throw new ArtifactWriteValidationError();
   }

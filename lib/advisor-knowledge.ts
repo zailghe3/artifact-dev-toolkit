@@ -1,5 +1,5 @@
-import matter from "gray-matter";
 import {z} from "zod";
+import {parseMarkdownFrontMatter,serializeMarkdownFrontMatter} from "./markdown-front-matter.ts";
 
 export const KNOWLEDGE_ROOT="advisor/knowledge",MAX_KNOWLEDGE_BYTES=32768;
 export const knowledgeId=z.string().max(80).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
@@ -17,16 +17,15 @@ export type KnowledgeEntry=KnowledgeDocument&{path:string;fileSha:string;revisio
 export function knowledgePath(id:string){return `${KNOWLEDGE_ROOT}/${knowledgeId.parse(id)}.md`}
 export function isKnowledgePath(path:string){return /^advisor\/knowledge\/[a-z0-9]+(?:-[a-z0-9]+)*\.md$/.test(path)&&path.length<=KNOWLEDGE_ROOT.length+1+80+3}
 export function serializeKnowledge(input:unknown){
- const document=knowledgeDocumentSchema.parse(input),markdown=matter.stringify(`${document.body}\n`,document.metadata);
- if(Buffer.byteLength(markdown)>MAX_KNOWLEDGE_BYTES)throw Error("knowledge_too_large");
- return markdown;
+ const document=knowledgeDocumentSchema.parse(input);
+ try{return serializeMarkdownFrontMatter(document.metadata,`${document.body}\n`,MAX_KNOWLEDGE_BYTES)}
+ catch{throw Error("knowledge_too_large")}
 }
 export function parseKnowledge(markdown:string,path:string):KnowledgeDocument{
  if(!isKnowledgePath(path)||Buffer.byteLength(markdown)>MAX_KNOWLEDGE_BYTES)throw Error("knowledge_invalid");
  try{
-  const parsed=matter(markdown,{});
-  if(!parsed.matter.trim())throw Error("knowledge_invalid");
-  const document=knowledgeDocumentSchema.parse({metadata:parsed.data,body:parsed.content});
+  const parsed=parseMarkdownFrontMatter(markdown,MAX_KNOWLEDGE_BYTES);
+  const document=knowledgeDocumentSchema.parse({metadata:parsed.data,body:parsed.body});
   if(knowledgePath(document.metadata.id)!==path)throw Error("knowledge_invalid");
   return document;
  }catch{throw Error("knowledge_invalid")}
