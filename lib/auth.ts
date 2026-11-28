@@ -7,6 +7,9 @@ import {
   constantTimeEqual,
   cookieNames,
   cookieOptions,
+  isOAuthState,
+  isPkceVerifier,
+  isSessionId,
   noStoreHeaders,
   oauthStateTtlSeconds,
   randomToken,
@@ -30,9 +33,10 @@ import {
   type RepositoryAccessContext,
   type RepositoryAuthorizationStatus,
 } from "@/lib/repository-authorization";
-import { createPkceChallenge } from "@/lib/github-app";
+import { createPkceChallenge, githubHeaders, githubJson } from "@/lib/github-app";
 import { getOAuthExchangeConfig, getSessionSecurityConfig, validateProductionAuthReadiness, validateTokenEncryptionKey } from "@/lib/auth-configuration";
 import { getPublicRepositoryConfiguration, storedRepositoryMatchesPublicConfiguration } from "@/lib/public-repository-configuration";
+import { browserMutationRejection } from "@/lib/request-origin";
 
 let testSessionDatabase: D1DatabaseBinding | undefined;
 
@@ -50,32 +54,28 @@ async function getSessionDatabase() {
 
 async function storeSession(session: SessionRecord) {
   const database = await getSessionDatabase();
-  await insertSession(database, getAuthConfig().sessionSecret, session);
+  await insertSession(database, getSessionSecurityConfig().sessionSecret, session);
 }
 
 async function loadSession(id: string) {
   const database = await getSessionDatabase();
-  return findSession(database, getAuthConfig().sessionSecret, id);
+  return findSession(database, getSessionSecurityConfig().sessionSecret, id);
 }
 
 async function revokeSession(id: string) {
   const database = await getSessionDatabase();
-  await revokeSessionId(database, getAuthConfig().sessionSecret, id);
+  await revokeSessionId(database, getSessionSecurityConfig().sessionSecret, id);
 }
 
 async function persistAuthorization(session: SessionRecord) {
   const database = await getSessionDatabase();
-  await updateSessionAuthorization(database, getAuthConfig().sessionSecret, session);
-}
-
-export function getAuthConfig() {
-  return { ...getOAuthExchangeConfig(), ...getSessionSecurityConfig() };
+  await updateSessionAuthorization(database, getSessionSecurityConfig().sessionSecret, session);
 }
 
 export { validateTokenEncryptionKey } from "@/lib/auth-configuration";
 
 async function importTokenEncryptionKey() {
-  const bytes = validateTokenEncryptionKey(getAuthConfig().tokenEncryptionKey);
+  const bytes = validateTokenEncryptionKey(getSessionSecurityConfig().tokenEncryptionKey);
   return crypto.subtle.importKey("raw", bytes.buffer as ArrayBuffer, "AES-GCM", false, ["encrypt", "decrypt"]);
 }
 
@@ -117,28 +117,34 @@ export async function consumeOAuthState(state: string | null) {
   const cookieStore = await cookies();
   const names = cookieNames();
   const expected = cookieStore.get(names.state)?.value;
+  if (!isOAuthState(state) || !isOAuthState(expected) || !constantTimeEqual(state, expected)) {
+    return { valid: false, returnTo: "/" };
+  }
   const returnTo = safeReturnTo(cookieStore.get(names.returnTo)?.value ?? null);
-  cookieStore.delete(names.state);
   const pkceVerifier = cookieStore.get(names.pkce)?.value;
-  cookieStore.delete(names.returnTo);
-  cookieStore.delete(names.pkce);
-  return { valid: constantTimeEqual(state, expected) && Boolean(pkceVerifier), returnTo, pkceVerifier };
+  for (const name of [names.state, names.returnTo, names.pkce]) cookieStore.set(name, "", cookieOptions(0));
+  return { valid: isPkceVerifier(pkceVerifier), returnTo, pkceVerifier };
 }
 
 export async function exchangeGitHubCode(code: string, pkceVerifier: string) {
-  const { clientId, clientSecret } = getAuthConfig();
+  const { clientId, clientSecret } = getOAuthExchangeConfig();
   const config = getRepositoryAuthorizationConfig();
-  const tokenResponse = await fetch("https://github.com/login/oauth/access_token", { method: "POST", headers: { accept: "application/json", "content-type": "application/json" }, body: JSON.stringify({ client_id: clientId, client_secret: clientSecret, code, code_verifier: pkceVerifier }) });
-  if (!tokenResponse.ok) throw Object.assign(new Error("oauth_flow_failed"), { category: "token_exchange" });
-  const tokenPayload = (await tokenResponse.json()) as { access_token?: string; expires_in?: number; error_description?: string };
-  if (!tokenPayload.access_token) throw Object.assign(new Error("oauth_flow_failed"), { category: "token_exchange" });
-  const userTokenExpiresAt = Date.now() + Math.max(1, tokenPayload.expires_in ?? 28_800) * 1000;
-  const userResponse = await fetch("https://api.github.com/user", { headers: { authorization: `Bearer ${tokenPayload.access_token}`, accept: "application/vnd.github+json", "user-agent": "artifact-dev-toolkit" } });
-  if (!userResponse.ok) throw Object.assign(new Error("oauth_flow_failed"), { category: "identity_lookup" });
+  let userAccessToken: string, userTokenExpiresAt: number;
+  try {
+    const value = await githubJson<{ access_token?: unknown; expires_in?: unknown }>(fetch, "https://github.com/login/oauth/access_token", {
+      method: "POST", headers: { accept: "application/json", "content-type": "application/json" },
+      body: JSON.stringify({ client_id: clientId, client_secret: clientSecret, code, code_verifier: pkceVerifier }),
+    });
+    if (typeof value?.access_token !== "string" || !value.access_token || value.access_token.length > 2048 || /[^\x21-\x7e]/.test(value.access_token)) throw new Error();
+    userAccessToken = value.access_token;
+    const expiresIn = typeof value.expires_in === "number" && Number.isFinite(value.expires_in) ? value.expires_in : sessionTtlSeconds;
+    userTokenExpiresAt = Date.now() + Math.max(1, Math.min(expiresIn, sessionTtlSeconds)) * 1000;
+  } catch { throw Object.assign(new Error("oauth_flow_failed"), { category: "token_exchange" }); }
   let user: GitHubUser;
-  try { user = validateGitHubUser(await userResponse.json()); } catch { throw Object.assign(new Error("oauth_flow_failed"), { category: "identity_lookup" }); }
-  const repositoryAuthorization = await verifyRepositoryAuthorization(user, tokenPayload.access_token, config);
-  return { user, repositoryAuthorization, userAccessToken: tokenPayload.access_token, userTokenExpiresAt };
+  try { user = validateGitHubUser(await githubJson(fetch, "https://api.github.com/user", { headers: githubHeaders(userAccessToken) })); }
+  catch { throw Object.assign(new Error("oauth_flow_failed"), { category: "identity_lookup" }); }
+  const repositoryAuthorization = await verifyRepositoryAuthorization(user, userAccessToken, config);
+  return { user, repositoryAuthorization, userAccessToken, userTokenExpiresAt };
 }
 
 
@@ -158,7 +164,7 @@ export async function createSession(user: GitHubUser, repositoryAuthorization: R
 export async function getSession() {
   const cookieStore = await cookies();
   const id = cookieStore.get(cookieNames().session)?.value;
-  if (!id) return undefined;
+  if (!isSessionId(id)) return undefined;
   const session = await loadSession(id);
   if (!session) return undefined;
   return session;
@@ -168,7 +174,7 @@ export const getRenderSession = cache(getSession);
 
 export async function requireAuth(returnTo = "/") {
   const session = await getRenderSession();
-  if (!session) redirect(`/sign-in?returnTo=${encodeURIComponent(returnTo)}`);
+  if (!session) redirect(`/sign-in?returnTo=${encodeURIComponent(safeReturnTo(returnTo))}`);
   return session;
 }
 
@@ -228,7 +234,7 @@ async function resolveRepositoryAccess(session: SessionRecord, now = Date.now(),
 export async function requireRepositoryAccess(returnTo = "/") {
   const session = await requireAuth(returnTo);
   const result = await resolveRepositoryAccess(session);
-  if (result.reauthenticate) redirect(`/sign-in?returnTo=${encodeURIComponent(returnTo)}`);
+  if (result.reauthenticate) redirect(`/sign-in?returnTo=${encodeURIComponent(safeReturnTo(returnTo))}`);
   if (!result.access) redirect("/access-denied");
   return { session: result.session, access: result.access };
 }
@@ -258,6 +264,8 @@ export async function requireApiDiagnosticsAccess(request: Request): Promise<Ses
 }
 
 export async function requireApiRepositoryAccess(request: Request, options: {fresh?:boolean} = {}): Promise<{ access: RepositoryAccessContext; session: SessionRecord } | Response> {
+  const rejected = browserMutationRejection(request);
+  if (rejected) return rejected;
   const session = await getSession();
   if (session) {
     const result = await resolveRepositoryAccess(session, Date.now(), options.fresh === true);
@@ -266,7 +274,7 @@ export async function requireApiRepositoryAccess(request: Request, options: {fre
   }
   const signInUrl = new URL("/sign-in", request.url);
   const requestUrl = new URL(request.url);
-  signInUrl.searchParams.set("returnTo", requestUrl.pathname + requestUrl.search);
+  signInUrl.searchParams.set("returnTo", safeReturnTo(requestUrl.pathname + requestUrl.search));
   return NextResponse.json({ error: "Authentication required", signInUrl: signInUrl.toString() }, { status: 401, headers: noStoreHeaders });
 }
 
@@ -278,6 +286,6 @@ export async function requireApiAuth(request: Request) {
 export async function destroySession() {
   const cookieStore = await cookies();
   const id = cookieStore.get(cookieNames().session)?.value;
-  if (id) await revokeSession(id);
-  cookieStore.delete(cookieNames().session);
+  if (isSessionId(id)) await revokeSession(id);
+  cookieStore.set(cookieNames().session, "", cookieOptions(0));
 }

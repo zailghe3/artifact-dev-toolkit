@@ -2,7 +2,6 @@ import { conversationIdSchema } from "../../../../../../adt-runtime/src/conversa
 import { interactionIdSchema, interactionResponseSchema, MAX_INTERACTION_TEXT_BYTES } from "../../../../../../adt-runtime/src/workflow-interaction-contract";
 import { requireApiRepositoryAccess } from "@/lib/auth";
 import { noStoreHeaders } from "@/lib/auth-core";
-import { requireSameOrigin } from "@/lib/request-origin";
 import { readBoundedJson, workflowError } from "@/lib/workflow-http";
 import { workflowRepositoryContext } from "@/lib/workflow-run-admission";
 import { workflowRuntimeCommand } from "@/lib/workflow-services";
@@ -18,7 +17,6 @@ async function operate(request: Request, context: Context, submitting: boolean) 
     const operation = { operation: "runs.interaction" as const, repositoryId: scope.repositoryId, scope,
       runId: conversationIdSchema.parse(runId), requestId: interactionIdSchema.parse(requestId) };
     if (!submitting) return Response.json(await workflowRuntimeCommand(operation), { headers: noStoreHeaders });
-    requireSameOrigin(request);
     const response = interactionResponseSchema.parse(await readBoundedJson(request, MAX_INTERACTION_TEXT_BYTES * 6 + 1024));
     const actor = { githubId: auth.session.githubId, login: auth.session.login };
     const accepted = await workflowRuntimeCommand({ ...operation, submission: { response, actor } });

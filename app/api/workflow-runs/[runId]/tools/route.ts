@@ -15,7 +15,6 @@ export async function GET(request:Request,{params}:{params:Promise<{runId:string
   }catch(error){return workflowError(error)}
 }
 export async function POST(request:Request,{params}:{params:Promise<{runId:string}>}) {
-  if(request.headers.get("origin")!==new URL(request.url).origin)return workflowError(new Error("invalid_origin"));
   const auth=await requireApiRepositoryAccess(request);
   if(auth instanceof Response)return auth;
   try{

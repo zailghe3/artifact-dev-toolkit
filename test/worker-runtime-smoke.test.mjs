@@ -41,12 +41,24 @@ const fixture = mode => port => [process.execPath, '--input-type=module', '-e', 
     if (${JSON.stringify(mode)} === 'hung-request') return;
     if (${JSON.stringify(mode)} === '500') {console.error('Unexpected loadManifest(/.next/server/preview-props.json) call!');res.writeHead(500);res.end();return;}
     if (${JSON.stringify(mode)} === 'arbitrary') {res.end('ok');return;}
-    if(req.url.startsWith('/api/advisor/knowledge')||req.url.startsWith('/api/workflow-runs?')||req.url.startsWith('/api/workflow-connections/')){
+    res.setHeader('cache-control','no-store');
+    res.setHeader('x-content-type-options','nosniff');
+    res.setHeader('x-frame-options','DENY');
+    res.setHeader('referrer-policy','same-origin');
+    if(req.url.startsWith('/api/')){
       const allowed=${JSON.stringify(mode)}==='diagnostics-exposed'&&req.url.startsWith('/api/workflow-connections/');
-      res.writeHead(allowed?200:401,{'content-type':'application/json','cache-control':'no-store'});res.end('{}');return;
+      const browserMutation=req.method!=='GET'&&!req.url.startsWith('/api/runtime-repository-credential');
+      const badOrigin=browserMutation&&(!req.headers.origin||req.headers.origin==='https://other.invalid'||req.headers['sec-fetch-site']==='same-site');
+      const status=allowed?200:badOrigin?403:req.headers['content-type']==='text/plain'?415:401;
+      res.writeHead(status,{'content-type':'application/json'});res.end('{}');return;
     }
-    if (req.url.startsWith('/auth/')) {
-      res.writeHead(307, {location:'http://127.0.0.1:${port}/sign-in?error=configuration&returnTo=%2Fsmoke','cache-control':'no-store'});res.end();
+    if (req.url.startsWith('/auth/github/start')) {
+      res.writeHead(307, {location:'http://127.0.0.1:${port}/sign-in?error=configuration&returnTo=%2Fsmoke'});res.end();
+    } else if (req.url.startsWith('/auth/github/callback') || req.url==='/workflows/runs' || req.url==='/tools') {
+      res.writeHead(307, {location:'/sign-in'});res.end();
+    } else if (req.url.startsWith('/sign-out')) {
+      const status=req.method==='GET'?307:req.headers.origin==='https://other.invalid'?403:303;
+      res.writeHead(status, {location:'/'});res.end();
     } else {res.writeHead(200, {'content-type':'text/html'});res.end('Sign in required <a href="/auth/github/start">GitHub</a>');}
   }).listen(${port},'127.0.0.1');
 `];

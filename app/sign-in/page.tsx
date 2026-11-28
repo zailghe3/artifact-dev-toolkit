@@ -1,4 +1,3 @@
-import Link from "next/link";
 import {buttonStyles} from "@/components/Ui";
 import { getSession } from "@/lib/auth";
 import { oauthErrorMessages, safeReturnTo, type OAuthErrorCode } from "@/lib/auth-core";
@@ -11,7 +10,7 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
   const params = await searchParams;
   const session = await getSession();
   const returnTo = safeReturnTo(params.returnTo);
-  if (session) redirect(returnTo);
+  if (session?.repositoryAuthorization.state === "authorized") redirect(returnTo);
   const authorizeUrl = `/auth/github/start?returnTo=${encodeURIComponent(returnTo)}`;
 
   return (
@@ -21,8 +20,8 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
         <p className="text-sm font-semibold uppercase tracking-[0.35em] text-sky-700 dark:text-orange-300">Artifact Library</p>
         <h1 className="mt-4 text-4xl font-semibold tracking-tight text-foreground">Sign in required</h1>
         <p className="mt-3 text-muted-foreground">Sign in with GitHub to access artifact metadata, content, and protected APIs.</p>
-        {params.error && params.error in oauthErrorMessages ? <p className="mt-4 rounded-xl bg-red-50 p-3 text-sm font-semibold text-red-700 dark:bg-red-950/40 dark:text-red-300">{oauthErrorMessages[params.error as OAuthErrorCode]}</p> : null}
-        <Link href={authorizeUrl.toString()} className={`${buttonStyles.primary} mt-6`}>Sign in with GitHub</Link>
+        {typeof params.error === "string" && Object.hasOwn(oauthErrorMessages, params.error) ? <p className="mt-4 rounded-xl bg-red-50 p-3 text-sm font-semibold text-red-700 dark:bg-red-950/40 dark:text-red-300">{oauthErrorMessages[params.error as OAuthErrorCode]}</p> : null}
+        <a href={authorizeUrl} className={`${buttonStyles.primary} mt-6`}>Sign in with GitHub</a>
       </section>
     </main>
   );

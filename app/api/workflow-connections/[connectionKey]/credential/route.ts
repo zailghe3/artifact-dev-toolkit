@@ -11,7 +11,6 @@ const removeInput=z.object({repositoryRevision:z.string().min(1)}).strict();
 async function context(request:Request,params:Promise<{connectionKey:string}>) {
   const auth=await requireApiRepositoryAccess(request);
   if(auth instanceof Response)return auth;
-  if(request.headers.get("origin")!==new URL(request.url).origin)throw new Error("invalid_origin");
   const {connectionKey}=await params;
   const repository=createWorkflowConnectionDefinitionRepository(auth.access);
   const current=await repository.getConnection(connectionKey);

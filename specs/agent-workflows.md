@@ -117,7 +117,7 @@
 - Tools are a separate configuration domain from provider Connections.
 - Artifact Search and native ADT reads are built-in tool capabilities; MCP is the configurable external tool integration.
 - Agent grants define maximum tool authority. Workflow block restrictions may narrow grants, require approval, or lower execution budgets but cannot expand them.
-- MCP definitions store non-secret endpoint/catalogue/policy information in Git; bearer credentials remain in the Runtime vault.
+- MCP definitions store catalogue and policy data and an HTTPS endpoint without URL credentials, query parameters or fragments. Bearer credentials remain in the Runtime vault.
 - New runs freeze the selected non-secret tool contract and credential-binding identity. Later catalogue/server edits affect future runs only.
 - Runtime never grants new tool authority by rediscovering tools during Agent execution.
 - Tool credentials are resolved only for the exact admitted invocation and are not exposed to the model.

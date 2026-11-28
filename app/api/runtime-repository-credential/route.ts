@@ -12,21 +12,23 @@ function reject(code: string, status: number) {
 }
 
 export async function POST(request: Request) {
-  const { env } = await getCloudflareContext({ async: true });
-  const secret = (env as unknown as Record<string,string>).ADT_RUNTIME_AUTH_SECRET;
   const timestamp = request.headers.get("x-adt-timestamp") ?? "";
   const nonce = request.headers.get("x-adt-nonce") ?? "";
   const signature = request.headers.get("x-adt-signature") ?? "";
+  const digest = request.headers.get("x-adt-content-sha256") ?? "";
   const now = Date.now();
-  if (!secret || secret.length < 32 || !/^\d{13}$/.test(timestamp) || Math.abs(now - Number(timestamp)) > expiration ||
-      !/^[A-Za-z0-9_-]{16,128}$/.test(nonce) || !/^[A-Za-z0-9_-]{43}$/.test(signature) ||
+  if (!/^\d{13}$/.test(timestamp) || Math.abs(now - Number(timestamp)) > expiration ||
+      !/^[A-Za-z0-9_-]{16,128}$/.test(nonce) || !/^[A-Za-z0-9_-]{43}$/.test(signature) || !/^[A-Za-z0-9_-]{43}$/.test(digest) ||
       request.headers.get("x-adt-protocol") !== "adt-runtime-v1") return reject("permission_denied", 401);
+  const { env } = await getCloudflareContext({ async: true });
+  const secret = env.ADT_RUNTIME_AUTH_SECRET;
+  if (!secret || secret.length < 32) return reject("permission_denied", 401);
 
   try {
     const body = await readBoundedText(request, 8192);
     const expected = await signedHeaders(secret, "POST", RUNTIME_REPOSITORY_BROKER_PATH, body, nonce, timestamp);
     if (!constantTimeEqual(expected["x-adt-signature"], signature) ||
-        !constantTimeEqual(expected["x-adt-content-sha256"], request.headers.get("x-adt-content-sha256") ?? "")) {
+        !constantTimeEqual(expected["x-adt-content-sha256"], digest)) {
       return reject("permission_denied", 401);
     }
     const parsed = repositoryBrokerRequestSchema.safeParse(JSON.parse(body));

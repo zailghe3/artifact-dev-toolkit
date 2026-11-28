@@ -51,7 +51,7 @@ Run:
 npm run maintenance:report
 ```
 
-The report provides read-only maintenance signals such as outdated or deprecated direct dependencies and repository toolchain/action-policy issues. Scheduled automation may publish the same information to workflow summaries but must not modify the repository automatically.
+The report includes read-only toolchain and dependency signals plus npm advisories for all three lockfiles. It reports production and development coverage separately, highlights high and critical findings, and records unavailable scans. Scheduled automation reports findings in the workflow summary without modifying the repository or failing verification for advisory counts.
 
 ## Exceptions and major upgrades
 

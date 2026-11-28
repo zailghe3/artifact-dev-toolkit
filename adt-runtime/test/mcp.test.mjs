@@ -5,6 +5,20 @@ import {callMcpTool,createPinnedLookup,discoverMcpTools,isForbiddenMcpAddress,MC
 
 async function fake(handler){return new Promise(resolve=>{const server=createServer(async(req,res)=>{let raw='';for await(const chunk of req)raw+=chunk;const message=raw?JSON.parse(raw):{};const result=handler(message,req);res.writeHead(result.status??200,{'content-type':'application/json',...(result.headers??{})});res.end(result.raw??JSON.stringify(result.body))}).listen(0,'127.0.0.1',()=>resolve({server,url:`http://127.0.0.1:${server.address().port}/mcp`}))})}
 const config=url=>({url,transport:'streamable-http',allowLocalhost:true});
+
+test('Runtime rejects restricted endpoint URL fields before attempting DNS', async () => {
+ const secret = 'synthetic-value';
+ const resolve = () => assert.fail('DNS query for a rejected endpoint');
+ for (const url of [
+  `https://test:${secret}@mcp.example/stream`,
+  `https://mcp.example/stream?token=${secret}`,
+  `https://mcp.example/stream#${secret}`,
+  'https://mcp.example/stream?', 'https://mcp.example/stream#',
+ ]) {
+  await assert.rejects(validateMcpUrl(url, false, resolve), error =>
+   error instanceof McpFailure && error.category === 'configuration_invalid' && !error.safeMessage.includes(secret));
+ }
+});
 function protocol(message,req,{token}={}){if(token&&req.headers.authorization!==`Bearer ${token}`)return{status:401,body:{private:'do not leak'}};if(message.method==='initialize')return{body:{jsonrpc:'2.0',id:message.id,result:{protocolVersion:'2025-06-18',capabilities:{tools:{}},serverInfo:{name:'fake',version:'1'}}}};if(message.method==='notifications/initialized')return{status:202,body:{}};if(message.method==='tools/list')return{body:{jsonrpc:'2.0',id:message.id,result:{tools:[{name:'echo',description:'Echo input',inputSchema:{type:'object',properties:{text:{type:'string'}}}}]}}};if(message.method==='tools/call')return{body:{jsonrpc:'2.0',id:message.id,result:{content:[{type:'text',text:message.params.arguments.text}]}}};return{status:400,body:{}}}
 
 test('Streamable HTTP initializes, discovers and calls a frozen tool with no authentication',async t=>{const f=await fake((m,r)=>protocol(m,r));t.after(()=>new Promise(resolve=>f.server.close(resolve)));const tools=await discoverMcpTools(config(f.url));assert.deepEqual(tools,[{name:'echo',description:'Echo input',inputSchema:{type:'object',properties:{text:{type:'string'}}}}]);const result=await callMcpTool(config(f.url),tools[0],{text:'hello'});assert.equal(result.content[0].text,'hello')});

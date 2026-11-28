@@ -1,7 +1,5 @@
 import type { Metadata } from "next";
 import Script from "next/script";
-import { DeploymentFooter } from "@/components/DeploymentFooter";
-import { deploymentMetadata } from "@/lib/deployment-metadata";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -41,7 +39,6 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <body>
         <div className="flex min-h-dvh flex-col">
           <div className="flex-1">{children}</div>
-          <DeploymentFooter metadata={deploymentMetadata} />
         </div>
       </body>
     </html>

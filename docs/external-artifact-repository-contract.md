@@ -23,7 +23,7 @@ advisor/knowledge/<id>.md
 - `workflows/` contains semantic Workflow v2 graphs only. Executable definitions under `_adt/` are unsupported.
 - Layout JSON is optional presentation state and never changes execution semantics.
 - Connection JSON requires an explicit `credential.source: "adt-vault"` and stable `sec_...` reference. Credential material is never stored in Git.
-- MCP tool integration JSON contains only the remote HTTPS configuration, vault reference, and last explicitly discovered frozen catalogue. Bearer material is never stored in Git.
+- MCP tool integration JSON contains the remote HTTPS configuration, vault reference, and last explicitly discovered frozen catalogue. Endpoint URLs cannot contain user information, query parameters, or fragments. Store bearer credentials in the vault.
 - Security Profile JSON contains only validated non-secret trust configuration. Security Profile credentials remain in the encrypted ADT vault and are never stored in Git.
 - A Microsoft Work IQ connection uses schema v1, runtime `work-iq-rest`, provider `microsoft-work-iq`, no model, and a strict safe `configuration` containing only `tenantId` and `clientId` UUIDs. Its logical vault reference is safe to store; client secrets, delegated tokens, OAuth state, and authorization codes are not.
 - Repository writes use exact observed Git revisions and fail closed on stale or ambiguous mutations.
@@ -31,6 +31,8 @@ advisor/knowledge/<id>.md
 - Artifact search authority is bounded to the four canonical Artifact Library namespaces and cannot select arbitrary repository paths.
 
 Artifact Library Markdown requires `id`, `title`, `type`, `tags`, and `aliases`; optional stable fields are `description`, `sourceId`, and `createdAt`. Top-level `status` is invalid.
+
+Artifact and Advisor Markdown use a single YAML mapping between standalone `---` lines. Use plain data with string keys and avoid YAML language markers, explicit tags, aliases, anchors, and duplicate keys. Metadata must fit within 32 KiB. The body can contain ordinary Markdown, including horizontal rules and fenced YAML examples.
 
 ## Advisor knowledge
 

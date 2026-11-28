@@ -90,10 +90,23 @@ test("safe return URLs allow only application-local paths", () => {
     "/%5Cevil.example",
     "javascript:alert(1)",
     "/auth/github/callback",
+    "/sign-out",
+    "/agents/../sign-in",
+    "/agents/../auth/github/start",
+    "/agents/../%2573ign-in",
+    "/one/..//outside.invalid",
+    "/one/%252e%252e//outside.invalid",
+    "/%252Foutside.invalid",
+    "/%255Coutside.invalid",
+    "/%250A/notes",
+    "/notes\r\n",
+    "/" + "x".repeat(4096),
+    ["/artifacts/item"],
     "/sign-in?returnTo=/artifacts/item",
   ]) {
     assert.equal(safeReturnTo(value), "/", value ?? "null");
   }
+  assert.equal(safeReturnTo('/docs/../artifacts/notes?q=one%26two&folder=%2Fapp#section%20one'), '/artifacts/notes?q=one%26two&folder=%2Fapp#section%20one');
 });
 
 test("GitHub identity validation requires a stable numeric id and login", () => {
@@ -225,14 +238,14 @@ test("D1 session store persists an HMAC key, finds valid sessions, and rejects u
   const database = createFakeD1();
   const secret = "session-secret-that-is-at-least-32-bytes";
   const now = Date.UTC(2026, 6, 13);
-  const session = { id: "raw-cookie-session-id", githubId: 123, login: "octocat", createdAt: now, expiresAt: now + 60_000, repositoryAuthorization: { state: "authorized", owner: "owner", repo: "repo", login: "octocat", githubId: 123, repositoryId: 1, installationId: 2, checkedAt: now } };
+  const session = { id: randomToken(48), githubId: 123, login: "octocat", createdAt: now, expiresAt: now + 60_000, repositoryAuthorization: { state: "authorized", owner: "owner", repo: "repo", login: "octocat", githubId: 123, repositoryId: 1, installationId: 2, checkedAt: now } };
   const storedId = await insertSession(database, secret, session, now);
 
   assert.notEqual(storedId, session.id);
   assert.equal(storedId, await hashSessionId(session.id, secret));
   assert.equal(database.rows.has(session.id), false);
   assert.deepEqual(await findSession(database, secret, session.id, now), session);
-  assert.equal(await findSession(database, secret, "unknown-session", now), undefined);
+  assert.equal(await findSession(database, secret, randomToken(48), now), undefined);
   assert.equal(await findSession(database, secret, session.id, session.expiresAt), undefined);
 
   await revokeSessionId(database, secret, session.id, now + 1);
@@ -242,11 +255,19 @@ test("D1 session store persists an HMAC key, finds valid sessions, and rejects u
   assert.equal(database.calls.some((query) => query.includes("CREATE TABLE")), false);
 });
 
+test('malformed session cookies never reach a D1 lookup or revocation', async () => {
+  const database = { prepare: () => assert.fail('D1 accessed for a malformed session identifier') };
+  for (const id of ['', 'ab', '0'.repeat(97), 'x'.repeat(96), 'a'.repeat(95) + '\n']) {
+    assert.equal(await findSession(database, 'synthetic-session-signing-key', id), undefined);
+    assert.equal(await revokeSessionId(database, 'synthetic-session-signing-key', id), undefined);
+  }
+});
+
 test("authorization refresh cannot resurrect a concurrently revoked D1 session", async () => {
   const database = createFakeD1();
   const secret = "session-secret-that-is-at-least-32-bytes";
   const now = Date.UTC(2026, 6, 13);
-  const session = { id: "concurrent-session", githubId: 123, login: "octocat", createdAt: now, expiresAt: now + 60_000, repositoryAuthorization: { state: "authorized", owner: "owner", repo: "repo", login: "octocat", githubId: 123, repositoryId: 1, installationId: 2, checkedAt: now } };
+  const session = { id: randomToken(48), githubId: 123, login: "octocat", createdAt: now, expiresAt: now + 60_000, repositoryAuthorization: { state: "authorized", owner: "owner", repo: "repo", login: "octocat", githubId: 123, repositoryId: 1, installationId: 2, checkedAt: now } };
   const storedId = await insertSession(database, secret, session, now);
   await revokeSessionId(database, secret, session.id, now + 1);
   session.repositoryAuthorization = { ...session.repositoryAuthorization, checkedAt: now + 2 };

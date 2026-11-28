@@ -1,4 +1,4 @@
-import { parseSession, serializeSession, type SessionRecord } from "./auth-core.ts";
+import { isSessionId, parseSession, serializeSession, type SessionRecord } from "./auth-core.ts";
 
 export type D1RunResult = { meta?: { changes?: number } };
 export type D1PreparedStatement = { bind(...values: unknown[]): D1PreparedStatement; first<T = unknown>(column?: string): Promise<T | null>; run(): Promise<D1RunResult> };
@@ -58,6 +58,7 @@ export async function updateSessionAuthorization(database: D1DatabaseBinding, se
 }
 
 export async function findSession(database: D1DatabaseBinding, sessionSecret: string, id: string, now = Date.now()) {
+  if (!isSessionId(id)) return undefined;
   const storedId = await hashSessionId(id, sessionSecret);
   const row = await database.prepare("SELECT * FROM auth_sessions WHERE id = ?").bind(storedId).first<Record<string, unknown>>();
   if (!row || row.revoked_at !== null || Number(row.expires_at) <= now) return undefined;
@@ -65,6 +66,7 @@ export async function findSession(database: D1DatabaseBinding, sessionSecret: st
 }
 
 export async function revokeSessionId(database: D1DatabaseBinding, sessionSecret: string, id: string, now = Date.now()) {
+  if (!isSessionId(id)) return undefined;
   const storedId = await hashSessionId(id, sessionSecret);
   await database.prepare("UPDATE auth_sessions SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL").bind(now, storedId).run();
   return storedId;

@@ -5,6 +5,7 @@ import {
   ALLOWED_ARTIFACT_DIRECTORIES,
   DEFAULT_ARTIFACT_BRANCH,
   DEFAULT_ARTIFACT_ROOT,
+  MAX_SERIALIZED_ARTIFACT_BYTES,
   formatZodIssue,
   artifactFrontMatterSchema,
   type ArtifactMetadata as ExternalArtifactMetadata,
@@ -12,10 +13,10 @@ import {
   type ArtifactRepositoryValidationResult,
 } from "./artifact-contract.ts";
 import { ARTIFACT_DIRECTORIES, classifyArtifactPath } from "./repository-layout.ts";
-import matter from "gray-matter";
+import { MarkdownFrontMatterError, parseMarkdownFrontMatter } from "./markdown-front-matter.ts";
 import { z } from "zod";
 import {CONNECTION_ROOT,CONNECTION_SUFFIX,parseConnectionDefinition} from "./workflow-connection-definitions.ts";
-import {MCP_SERVER_ROOT,MCP_SERVER_SUFFIX,mcpServerDefinitionSchema} from "./tool-definitions.ts";
+import {MCP_SERVER_ROOT,MCP_SERVER_SUFFIX,parseStoredMcpDefinition} from "./tool-definitions.ts";
 
 export { ALLOWED_ARTIFACT_DIRECTORIES as EXTERNAL_ARTIFACT_DIRECTORIES, DEFAULT_ARTIFACT_BRANCH as DEFAULT_EXTERNAL_ARTIFACT_BRANCH, DEFAULT_ARTIFACT_ROOT as DEFAULT_EXTERNAL_ARTIFACT_ROOT };
 export type { ExternalArtifactMetadata, ArtifactRepositoryValidationError, ArtifactRepositoryValidationResult };
@@ -43,10 +44,33 @@ export async function validateExternalArtifactRepository(checkoutDir: string): P
   const files=new Map<string,string>();for(const file of (await Promise.all(roots.map(walkMarkdownFiles))).flat())files.set(normalizeRelative(file,checkoutRoot),file);
   const retiredRoots=["artifacts/prompts","artifacts/agents","artifacts/snippets","artifacts/templates","artifacts/app-ideas","artifacts/variations","variations","_adt/agents","_adt/workflows"];
   for(const retiredRoot of retiredRoots){for(const file of await walkConnectionFiles(path.join(checkoutRoot,retiredRoot)))errors.push({file:normalizeRelative(file,checkoutRoot),reason:`Active content under retired repository location ${retiredRoot}/ is not supported.`});}
-  for(const [displayPath,file] of files){if(!classifyArtifactPath(displayPath)){errors.push({file:displayPath,reason:"Markdown artifact path is not canonical."});continue}let parsed:matter.GrayMatterFile<string>;try{parsed=matter(await fs.readFile(file,"utf8"),{})}catch(error){errors.push({file:displayPath,reason:`Unable to parse Markdown front matter: ${(error as Error).message}`});continue}if(!String(parsed.matter??"").trim()){errors.push({file:displayPath,reason:"Missing YAML front matter."});continue}try{const data=artifactFrontMatterSchema.parse(parsed.data);artifactCount++;const previous=ids.get(data.id);if(previous)errors.push({file:displayPath,reason:`Duplicate artifact id "${data.id}" already used by ${previous}.`});else ids.set(data.id,displayPath)}catch(error){if(error instanceof z.ZodError)for(const issue of error.issues)errors.push({file:displayPath,reason:formatZodIssue(issue)});else errors.push({file:displayPath,reason:(error as Error).message})}}
+  for (const [displayPath, file] of files) {
+    if (!classifyArtifactPath(displayPath)) {
+      errors.push({ file: displayPath, reason: "Markdown artifact path is not canonical." });
+      continue;
+    }
+    try {
+      if ((await fs.stat(file)).size > MAX_SERIALIZED_ARTIFACT_BYTES) throw new MarkdownFrontMatterError("document_too_large");
+      const { data } = parseMarkdownFrontMatter(await fs.readFile(file, "utf8"), MAX_SERIALIZED_ARTIFACT_BYTES, { timestamps: true });
+      const { id } = artifactFrontMatterSchema.parse(data);
+      artifactCount++;
+      const previous = ids.get(id);
+      if (previous) errors.push({ file: displayPath, reason: `Duplicate artifact id "${id}" already used by ${previous}.` });
+      else ids.set(id, displayPath);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        for (const issue of error.issues) errors.push({ file: displayPath, reason: formatZodIssue(issue) });
+      } else {
+        const code = error instanceof MarkdownFrontMatterError ? error.code : undefined;
+        const reason = code === "missing_front_matter" ? "Missing YAML front matter." :
+          code === "document_too_large" ? "Markdown artifact is too large." : "Unable to parse Markdown front matter.";
+        errors.push({ file: displayPath, reason });
+      }
+    }
+  }
   const connectionIds=new Map<string,string>();
   for(const file of await walkConnectionFiles(path.join(checkoutRoot,CONNECTION_ROOT))){const displayPath=normalizeRelative(file,checkoutRoot);if(!displayPath.endsWith(CONNECTION_SUFFIX)||displayPath.split("/").length!==2){errors.push({file:displayPath,reason:"Connection definitions must use connections/<id>.connection.json."});continue}try{const definition=parseConnectionDefinition(JSON.parse(await fs.readFile(file,"utf8")),displayPath),previous=connectionIds.get(definition.id);if(previous)errors.push({file:displayPath,reason:`Duplicate connection id "${definition.id}" already used by ${previous}.`});else connectionIds.set(definition.id,displayPath)}catch(error){if(error instanceof z.ZodError)for(const issue of error.issues)errors.push({file:displayPath,reason:formatZodIssue(issue)});else errors.push({file:displayPath,reason:(error as Error).message})}}
-  const toolIds=new Map<string,string>();for(const file of await walkConnectionFiles(path.join(checkoutRoot,MCP_SERVER_ROOT))){const displayPath=normalizeRelative(file,checkoutRoot);if(!displayPath.endsWith(MCP_SERVER_SUFFIX)||displayPath.split("/").length!==2){errors.push({file:displayPath,reason:"MCP definitions must use tools/<id>.mcp.json."});continue}try{const definition=mcpServerDefinitionSchema.parse(JSON.parse(await fs.readFile(file,"utf8"))),previous=toolIds.get(definition.id);if(previous)errors.push({file:displayPath,reason:`Duplicate tool integration id "${definition.id}" already used by ${previous}.`});else toolIds.set(definition.id,displayPath)}catch(error){if(error instanceof z.ZodError)for(const issue of error.issues)errors.push({file:displayPath,reason:formatZodIssue(issue)});else errors.push({file:displayPath,reason:(error as Error).message})}}
+  const toolIds=new Map<string,string>();for(const file of await walkConnectionFiles(path.join(checkoutRoot,MCP_SERVER_ROOT))){const displayPath=normalizeRelative(file,checkoutRoot);if(!displayPath.endsWith(MCP_SERVER_SUFFIX)||displayPath.split("/").length!==2){errors.push({file:displayPath,reason:"MCP definitions must use tools/<id>.mcp.json."});continue}try{const definition=parseStoredMcpDefinition(await fs.readFile(file,"utf8")),previous=toolIds.get(definition.id);if(previous)errors.push({file:displayPath,reason:`Duplicate tool integration id "${definition.id}" already used by ${previous}.`});else toolIds.set(definition.id,displayPath)}catch(error){errors.push({file:displayPath,reason:error instanceof Error&&error.message==="mcp_endpoint_invalid"?"MCP endpoints require HTTPS and must omit credentials, query parameters and fragments.":"Invalid MCP definition."})}}
   for(const file of await walkConnectionFiles(path.join(checkoutRoot,"advisor"),true)){
     const displayPath=normalizeRelative(file,checkoutRoot);
     try{if((await fs.lstat(file)).isSymbolicLink()||!displayPath.startsWith(`${KNOWLEDGE_ROOT}/`))throw Error();parseKnowledge(await fs.readFile(file,"utf8"),displayPath)}catch{errors.push({file:displayPath,reason:"Knowledge must use flat advisor/knowledge/<id>.md with valid knowledge metadata and bounded Markdown."})}

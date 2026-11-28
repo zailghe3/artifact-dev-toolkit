@@ -15,7 +15,9 @@ backend_ip=203.0.114.10
 backend_config=$(mktemp)
 cleanup(){ docker rm -f "$executor" "$manager" "$backend" >/dev/null 2>&1 || true; docker network rm "$executor_network" "$manager_network" "$uplink_network" >/dev/null 2>&1 || true; rm -f "$backend_config"; }
 trap cleanup EXIT
-image='ubuntu/squid@sha256:6a097f68bae708cedbabd6188d68c7e2e7a38cedd05a176e1cc0ba29e3bbe029'
+mapfile -t proxy_images < <(awk '$1 == "image:" && $2 ~ /^ubuntu\/squid/ { print $2 }' "$root/docker-stack.split.example.yml")
+[[ ${#proxy_images[@]} == 2 && ${proxy_images[0]} == "${proxy_images[1]}" && ${proxy_images[0]} =~ @sha256:[a-f0-9]{64}$ ]] || fail proxy-image-pin
+image=${proxy_images[0]}
 parse_config(){
   local role=$1 file=$2
   phase "$role-config-parse"

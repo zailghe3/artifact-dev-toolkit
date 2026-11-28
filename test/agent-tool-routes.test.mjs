@@ -6,9 +6,10 @@ import {operateRuntimeTools} from '../lib/runtime-tool-decisions.ts';
 import {AgentJournal} from '../lib/agent-journal.ts';
 import {D1McpPolicyAuthority} from '../lib/mcp-policy-authority.ts';
 import {GitHubToolDefinitionRepository} from '../lib/tool-definition-repository.ts';
+import {browserMutationRejection} from '../lib/request-origin.ts';
 const require=installTsxHook(),Module=require('node:module'),original=Module._load;let context;
 const {RuntimeManagementError}=require('../lib/runtime-service-client.ts');
-Module._load=function(request,...rest){if(request==='@/lib/auth')return{requireApiRepositoryAccess:async()=>context.authorized?{access:{repositoryId:42},session:{login:context.actor}}:new Response(null,{status:401})};if(request==='@/lib/workflow-services')return{workflowRuntimeCommand:async command=>{
+Module._load=function(request,...rest){if(request==='@/lib/auth')return{requireApiRepositoryAccess:async request=>browserMutationRejection(request)??(context.authorized?{access:{repositoryId:42},session:{login:context.actor}}:new Response(null,{status:401}))};if(request==='@/lib/workflow-services')return{workflowRuntimeCommand:async command=>{
  assert.equal(command.operation,'runs.tools');assert.equal(command.repositoryId,42);assert.equal(command.actor,context.actor);
  if(command.repositoryId!==context.repositoryId||command.runId!==context.f.options.runId)throw new Error('run_not_found');
  const env={ADT_TOOL_OPERATORS:'operator',ADT_TOOL_APPROVERS:context.approvers??'reviewer'};

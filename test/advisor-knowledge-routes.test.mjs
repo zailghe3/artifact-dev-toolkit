@@ -3,11 +3,12 @@ import assert from 'node:assert/strict';
 import Module from 'node:module';
 import {installTsxHook} from './render-tsx.mjs';
 import {KnowledgeProposalStore} from '../lib/advisor-knowledge-proposals.ts';
+import {browserMutationRejection} from '../lib/request-origin.ts';
 import {document,knowledgeFixture} from './support/knowledge-fixture.mjs';
 import {context,database} from './support/advisor-fixtures.mjs';
 const original=Module._load;let denied=false,db,repository,accesses=[],reads=0;let actor={githubId:123,login:'reviewer',id:'browser-session'};let scoped=context;
 Module._load=function(name,parent,isMain){
- if(name==='@/lib/auth')return {requireApiRepositoryAccess:async(request,options)=>{accesses.push(options);return denied?Response.json({error:'Denied'},{status:403}):{access:scoped,session:actor}}};
+ if(name==='@/lib/auth')return {requireApiRepositoryAccess:async(request,options)=>{accesses.push(options);return browserMutationRejection(request)??(denied?Response.json({error:'Denied'},{status:403}):{access:scoped,session:actor})}};
  if(name==='@/lib/advisor-knowledge-services')return {createKnowledgeProposalStore:async(access,a)=>new KnowledgeProposalStore(db,access,{...a,sessionId:actor.id}),createKnowledgeRepository:()=>{reads++;return repository}};
  return original.call(this,name,parent,isMain);
 };
